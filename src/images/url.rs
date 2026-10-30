@@ -18,10 +18,7 @@ pub fn host(url: &str) -> Option<&str> {
   let rest = url.strip_prefix("https://")?;
   let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
   let host = &rest[..end];
-  let ok = !host.is_empty()
-    && host
-      .bytes()
-      .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+  let ok = !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
   ok.then_some(host)
 }
 
@@ -31,9 +28,7 @@ pub fn allowed(url: &str) -> bool {
   }
   let Some(h) = host(url) else { return false };
   let h = h.to_ascii_lowercase();
-  HOSTS
-    .iter()
-    .any(|a| h == *a || h.strip_suffix(a).is_some_and(|p| p.ends_with('.')))
+  HOSTS.iter().any(|a| h == *a || h.strip_suffix(a).is_some_and(|p| p.ends_with('.')))
 }
 
 #[cfg(test)]

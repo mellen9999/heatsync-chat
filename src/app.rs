@@ -71,25 +71,14 @@ impl App {
     for ch in channels {
       if !tabs.iter().any(|t| t.name == ch) {
         net.send(Cmd::Join(ch.clone()));
-        tabs.push(Tab {
-          name: ch.clone(),
-          view: ChatView::new(SCROLLBACK, ch),
-          unread: false,
-        });
+        tabs.push(Tab { name: ch.clone(), view: ChatView::new(SCROLLBACK, ch), unread: false });
       }
     }
     if flood {
-      tabs.push(Tab {
-        name: FLOOD_TAB.into(),
-        view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()),
-        unread: false,
-      });
+      tabs.push(Tab { name: FLOOD_TAB.into(), view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()), unread: false });
     }
-    let status = if tabs.is_empty() {
-      "no channels — run: heatsync-chat <channel> …".into()
-    } else {
-      String::new()
-    };
+    let status =
+      if tabs.is_empty() { "no channels — run: heatsync-chat <channel> …".into() } else { String::new() };
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
@@ -156,23 +145,27 @@ impl App {
     let t = self.tabs.remove(self.active);
     if &*t.name != FLOOD_TAB {
       self.res.emotes.drop_channel(&t.name);
+      self.res.badges.drop_channel(&t.name);
       self.rooms.retain(|r| *r != t.name);
       self.net.send(Cmd::Part(t.name));
     }
-    persist(
-      &self
-        .tabs
-        .iter()
-        .filter(|t| &*t.name != FLOOD_TAB)
-        .map(|t| t.name.clone())
-        .collect::<Vec<_>>(),
-    );
+    persist(&self.tabs.iter().filter(|t| &*t.name != FLOOD_TAB).map(|t| t.name.clone()).collect::<Vec<_>>());
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
     if let Some(t) = self.tabs.get_mut(self.active) {
       t.unread = false;
       t.view.invalidate();
     }
     self.bar_dirty = true;
+    self.wake();
+  }
+
+  // a catalog changed: rows in that channel (None = all) need new layouts
+  fn relayout_where(&mut self, ch: Option<&str>) {
+    for t in &mut self.tabs {
+      if ch.is_none_or(|c| *c == *t.name) {
+        t.view.relayout();
+      }
+    }
     self.wake();
   }
 
@@ -191,17 +184,9 @@ impl App {
       Chat::ClearUser { login, secs } => {
         tab.view.clear_user(&login);
         let what = secs.map_or_else(|| "banned".to_owned(), |s| format!("timed out for {s}s"));
-        tab.view.push(Message::system(
-          now_ms(),
-          Platform::Twitch,
-          format!("{login} was {what}"),
-        ));
+        tab.view.push(Message::system(now_ms(), Platform::Twitch, format!("{login} was {what}")));
       }
-      Chat::ClearAll => tab.view.push(Message::system(
-        now_ms(),
-        Platform::Twitch,
-        "chat was cleared by a moderator",
-      )),
+      Chat::ClearAll => tab.view.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
       Chat::Room { id } => {
         if !self.rooms.contains(&tab.name) {
           self.rooms.push(tab.name.clone());
@@ -227,11 +212,7 @@ impl App {
         .tabs
         .iter()
         .enumerate()
-        .map(|(i, t)| TabLabel {
-          name: &t.name,
-          active: i == self.active,
-          unread: t.unread,
-        })
+        .map(|(i, t)| TabLabel { name: &t.name, active: i == self.active, unread: t.unread })
         .collect();
       let bar = self.bar();
       tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status);
@@ -250,12 +231,7 @@ impl App {
         Paint::Append { shift } => {
           canvas.scroll_up(area, shift);
           t.view.scrolled(area, shift);
-          t.view.draw(
-            canvas,
-            res,
-            area,
-            Rect::new(area.x, area.bottom() - shift, area.w, shift),
-          );
+          t.view.draw(canvas, res, area, Rect::new(area.x, area.bottom() - shift, area.w, shift));
           dirty = add(dirty, area);
         }
       }
@@ -263,16 +239,13 @@ impl App {
       if due && let Some(r) = t.view.animate(canvas, res, area) {
         dirty = add(dirty, r);
       }
-      self.next_anim = t
-        .view
-        .next_anim
-        .map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
+      self.next_anim = t.view.next_anim.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
     } else if dirty.is_some() {
       canvas.fill(area, crate::ui::theme::BLACK);
       dirty = add(dirty, area);
     }
-    for (id, url) in self.res.images.take_wanted() {
-      self.net.send(Cmd::Image(id, url, self.res.images.target_h));
+    for (id, url, h) in self.res.images.take_wanted() {
+      self.net.send(Cmd::Image(id, url, h));
     }
     self.present(dirty);
   }
@@ -378,9 +351,8 @@ impl ApplicationHandler<NetEvent> for App {
     if self.gfx.is_some() {
       return;
     }
-    let attrs = Window::default_attributes()
-      .with_title("heatsync")
-      .with_inner_size(winit::dpi::LogicalSize::new(420, 800));
+    let attrs =
+      Window::default_attributes().with_title("heatsync").with_inner_size(winit::dpi::LogicalSize::new(420, 800));
     let window = match el.create_window(attrs) {
       Ok(w) => Rc::new(w),
       Err(e) => {
@@ -425,12 +397,7 @@ impl ApplicationHandler<NetEvent> for App {
       NetEvent::Emotes(ch, p, set) => {
         self.res.emotes.set(ch.as_deref(), p, set);
         self.trim_soon();
-        for t in &mut self.tabs {
-          if ch.as_ref().is_none_or(|c| *c == t.name) {
-            t.view.relayout();
-          }
-        }
-        self.wake();
+        self.relayout_where(ch.as_deref());
       }
       NetEvent::Image(id, h, res) => {
         if self.res.images.loaded(id, h, res) {
@@ -441,6 +408,15 @@ impl ApplicationHandler<NetEvent> for App {
           t.view.invalidate();
         }
         self.wake();
+      }
+      NetEvent::TwitchBadges(ch, set) => {
+        self.res.badges.set_twitch(ch.as_deref(), set);
+        self.relayout_where(ch.as_deref());
+      }
+      NetEvent::UserBadges(src, set) => {
+        self.res.badges.set_users(src, set);
+        self.relayout_where(None);
+        self.trim_soon();
       }
       NetEvent::Status(s) => {
         self.status = s;
@@ -466,11 +442,7 @@ impl ApplicationHandler<NetEvent> for App {
         let t = Instant::now();
         self.redraw();
         if self.prof {
-          eprintln!(
-            "frame {:.3}ms img {}KB",
-            t.elapsed().as_secs_f64() * 1e3,
-            self.res.images.bytes() >> 10
-          );
+          eprintln!("frame {:.3}ms img {}KB", t.elapsed().as_secs_f64() * 1e3, self.res.images.bytes() >> 10);
         }
       }
       WindowEvent::ModifiersChanged(m) => self.mods = m.state(),

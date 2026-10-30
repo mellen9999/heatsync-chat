@@ -49,11 +49,7 @@ fn lerp(dst: u32, src: u32, a: u32) -> u32 {
 
 impl Canvas {
   pub fn new(w: i32, h: i32) -> Self {
-    Self {
-      w,
-      h,
-      px: vec![0; (w.max(0) * h.max(0)) as usize],
-    }
+    Self { w, h, px: vec![0; (w.max(0) * h.max(0)) as usize] }
   }
 
   pub fn resize(&mut self, w: i32, h: i32) {
@@ -89,10 +85,7 @@ impl Canvas {
     for py in c.y..c.bottom() {
       let src = ((py - y) * w + (c.x - x)) as usize;
       let dst = (py * self.w + c.x) as usize;
-      for (d, &a) in self.px[dst..dst + c.w as usize]
-        .iter_mut()
-        .zip(&data[src..src + c.w as usize])
-      {
+      for (d, &a) in self.px[dst..dst + c.w as usize].iter_mut().zip(&data[src..src + c.w as usize]) {
         match a {
           0 => {}
           255 => *d = rgb,
@@ -112,10 +105,7 @@ impl Canvas {
     for py in c.y..c.bottom() {
       let src = (((py - y) * w + (c.x - x)) * 4) as usize;
       let dst = (py * self.w + c.x) as usize;
-      for (d, s) in self.px[dst..dst + c.w as usize]
-        .iter_mut()
-        .zip(data[src..].as_chunks::<4>().0)
-      {
+      for (d, s) in self.px[dst..dst + c.w as usize].iter_mut().zip(data[src..].as_chunks::<4>().0) {
         let rgb = (s[0] as u32) << 16 | (s[1] as u32) << 8 | s[2] as u32;
         match s[3] {
           0 => {}

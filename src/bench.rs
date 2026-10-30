@@ -64,13 +64,7 @@ pub fn run(total: usize) {
     chat.len()
   );
   let mb = |k: u64| k as f64 / 1024.0;
-  println!(
-    "rss {:.1}MB (anon {:.1} file {:.1})  peak {:.1}MB",
-    mb(rss),
-    mb(anon),
-    mb(file),
-    mb(hwm)
-  );
+  println!("rss {:.1}MB (anon {:.1} file {:.1})  peak {:.1}MB", mb(rss), mb(anon), mb(file), mb(hwm));
 }
 
 // HSC_DUMP=path.ppm writes the last frame for eyeballing

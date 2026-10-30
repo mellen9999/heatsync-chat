@@ -52,9 +52,7 @@ impl Emotes {
   // channel sets beat globals; within a scope, ORDER decides
   pub fn lookup(&self, channel: &str, word: &str) -> Option<&Emote> {
     let ch = self.channels.get(channel);
-    ch.into_iter()
-      .chain([&self.global])
-      .find_map(|s| ORDER.iter().find_map(|p| s.sets.get(p)?.get(word)))
+    ch.into_iter().chain([&self.global]).find_map(|s| ORDER.iter().find_map(|p| s.sets.get(p)?.get(word)))
   }
 }
 
@@ -67,12 +65,7 @@ mod tests {
   use super::*;
 
   fn e(url: &str) -> Emote {
-    Emote {
-      url: url.into(),
-      w: 28,
-      h: 28,
-      zero_width: false,
-    }
+    Emote { url: url.into(), w: 28, h: 28, zero_width: false }
   }
 
   #[test]

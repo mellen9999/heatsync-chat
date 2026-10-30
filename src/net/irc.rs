@@ -30,12 +30,7 @@ pub struct Line<'a> {
 
 impl Line<'_> {
   pub fn tag(&self, k: &str) -> Option<String> {
-    self
-      .tags
-      .iter()
-      .find(|(t, _)| *t == k)
-      .map(|(_, v)| unescape(v))
-      .filter(|v| !v.is_empty())
+    self.tags.iter().find(|(t, _)| *t == k).map(|(_, v)| unescape(v)).filter(|v| !v.is_empty())
   }
 
   fn channel(&self) -> Option<&str> {
@@ -75,12 +70,7 @@ pub fn parse(raw: &str) -> Option<Line<'_>> {
     params.push(p);
     rest = r;
   }
-  Some(Line {
-    tags,
-    nick,
-    command,
-    params,
-  })
+  Some(Line { tags, nick, command, params })
 }
 
 // ircv3 tag escapes: \s space, \: ;, \\ \, \r, \n
@@ -133,6 +123,17 @@ fn twitch_emotes(tag: &str, body: &str) -> Vec<(std::ops::Range<u32>, Box<str>)>
   out
 }
 
+// `badges=moderator/1,subscriber/12` — bounded, junk dropped
+fn badges(tag: &str) -> Vec<(Box<str>, Box<str>)> {
+  tag
+    .split(',')
+    .take(16)
+    .filter_map(|b| b.split_once('/'))
+    .filter(|(s, v)| !s.is_empty() && s.len() <= 64 && v.len() <= 64)
+    .map(|(s, v)| (s.into(), v.into()))
+    .collect()
+}
+
 fn clamp(s: &str, max: usize) -> &str {
   if s.len() <= max {
     return s;
@@ -161,26 +162,14 @@ pub enum Chat {
 }
 
 fn ts_of(l: &Line) -> i64 {
-  l.tag("rm-received-ts")
-    .or_else(|| l.tag("tmi-sent-ts"))
-    .and_then(|v| v.parse().ok())
-    .unwrap_or_else(now_ms)
+  l.tag("rm-received-ts").or_else(|| l.tag("tmi-sent-ts")).and_then(|v| v.parse().ok()).unwrap_or_else(now_ms)
 }
 
 fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
-  let login: Box<str> = l
-    .tag("login")
-    .as_deref()
-    .or(l.nick)
-    .unwrap_or("")
-    .to_ascii_lowercase()
-    .into();
+  let login: Box<str> = l.tag("login").as_deref().or(l.nick).unwrap_or("").to_ascii_lowercase().into();
   let nick: Box<str> = l.tag("display-name").map_or_else(|| login.clone(), Into::into);
-  let color = color::readable(
-    l.tag("color")
-      .and_then(|c| color::parse_hex(&c))
-      .unwrap_or_else(|| color::default_for(&login)),
-  );
+  let color =
+    color::readable(l.tag("color").and_then(|c| color::parse_hex(&c)).unwrap_or_else(|| color::default_for(&login)));
   let body = clamp(body, MAX_BODY);
   let mut flags = 0;
   if l.tag("first-msg").as_deref() == Some("1") {
@@ -199,13 +188,11 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     kind,
     flags,
     login,
+    user_id: l.tag("user-id").filter(|u| u.bytes().all(|b| b.is_ascii_digit())).unwrap_or_default().into(),
     nick,
     color,
-    emotes: l
-      .tag("emotes")
-      .map(|t| twitch_emotes(&t, body))
-      .unwrap_or_default()
-      .into(),
+    badges: l.tag("badges").map(|b| badges(&b)).unwrap_or_default().into(),
+    emotes: l.tag("emotes").map(|t| twitch_emotes(&t, body)).unwrap_or_default().into(),
     body: body.into(),
     reply_to: l.tag("reply-parent-display-name").map(Into::into),
     system: None,
@@ -232,11 +219,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       }
       Chat::Msg(m)
     }
-    "NOTICE" => Chat::Msg(Message::system(
-      ts_of(l),
-      Platform::Twitch,
-      clamp(l.trailing()?, MAX_BODY),
-    )),
+    "NOTICE" => Chat::Msg(Message::system(ts_of(l), Platform::Twitch, clamp(l.trailing()?, MAX_BODY))),
     "CLEARMSG" => Chat::ClearMsg(l.tag("target-msg-id")?.into()),
     "CLEARCHAT" => match l.trailing() {
       Some(u) => Chat::ClearUser {
@@ -245,9 +228,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       },
       None => Chat::ClearAll,
     },
-    "ROOMSTATE" => Chat::Room {
-      id: l.tag("room-id")?.into(),
-    },
+    "ROOMSTATE" => Chat::Room { id: l.tag("room-id")?.into() },
     _ => return None,
   };
   Some((ch, ev))
@@ -258,11 +239,8 @@ pub enum Cmd {
   Part(Box<str>),
 }
 
-fn valid_channel(c: &str) -> bool {
-  (1..=25).contains(&c.len())
-    && c
-      .bytes()
-      .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+pub fn valid_channel(c: &str) -> bool {
+  (1..=25).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 // owns the joined set; reconnects forever with backoff until the ui drops its sender
@@ -317,11 +295,8 @@ async fn session(
 ) -> Result<(), ()> {
   let (mut tx, mut read) = ws.split();
   let nick = format!("justinfan{}", 10000 + now_ms() % 80000);
-  let mut hello = vec![
-    "CAP REQ :twitch.tv/tags twitch.tv/commands".to_owned(),
-    "PASS SCHMOOPIIE".into(),
-    format!("NICK {nick}"),
-  ];
+  let mut hello =
+    vec!["CAP REQ :twitch.tv/tags twitch.tv/commands".to_owned(), "PASS SCHMOOPIIE".into(), format!("NICK {nick}")];
   // batched joins stay under the 20-per-10s anon limit for normal tab counts
   let names: Vec<_> = chans.iter().map(|c| format!("#{c}")).collect();
   for chunk in names.chunks(20) {
@@ -391,14 +366,13 @@ mod tests {
     assert_eq!(l.command, "PRIVMSG");
     assert_eq!(l.nick, Some("xqc"));
     assert_eq!(l.params, vec!["#forsen", "hello Kappa Keepo"]);
-    let (ch, Chat::Msg(m)) = to_chat(&l).unwrap() else {
-      panic!()
-    };
+    let (ch, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
     assert_eq!(&*ch, "forsen");
     assert_eq!(&*m.nick, "Xqc");
     assert_eq!(m.ts, 1700000000000);
     assert!(m.has(flag::FIRST));
     assert_eq!(m.emotes.len(), 2);
+    assert_eq!(&*m.badges[0].0, "moderator");
     let (r, id) = &m.emotes[0];
     assert_eq!(&m.body[r.start as usize..r.end as usize], "Kappa");
     assert_eq!(&**id, "25");
@@ -421,9 +395,7 @@ mod tests {
   #[test]
   fn action_and_unescape() {
     let l = parse("@display-name=A\\sB :a!a@a PRIVMSG #c :\x01ACTION waves\x01").unwrap();
-    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else {
-      panic!()
-    };
+    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
     assert_eq!(m.kind, Kind::Action);
     assert_eq!(&*m.body, "waves");
     assert_eq!(&*m.nick, "A B");
@@ -432,10 +404,7 @@ mod tests {
   #[test]
   fn clears() {
     let l = parse("@ban-duration=600 :tmi.twitch.tv CLEARCHAT #c :baduser").unwrap();
-    assert!(matches!(
-      to_chat(&l),
-      Some((_, Chat::ClearUser { secs: Some(600), .. }))
-    ));
+    assert!(matches!(to_chat(&l), Some((_, Chat::ClearUser { secs: Some(600), .. }))));
     let l = parse(":tmi.twitch.tv CLEARCHAT #c").unwrap();
     assert!(matches!(to_chat(&l), Some((_, Chat::ClearAll))));
     let l = parse("@login=x;target-msg-id=abc :tmi.twitch.tv CLEARMSG #c :bad").unwrap();
@@ -445,9 +414,7 @@ mod tests {
   #[test]
   fn usernotice_without_body_is_system() {
     let l = parse("@system-msg=x\\sraided;login=x;display-name=X :tmi.twitch.tv USERNOTICE #c").unwrap();
-    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else {
-      panic!()
-    };
+    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
     assert_eq!(m.kind, Kind::System);
     assert_eq!(&*m.body, "x raided");
   }

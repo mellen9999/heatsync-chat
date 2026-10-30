@@ -47,19 +47,11 @@ pub fn decode(bytes: &[u8], target_h: u32) -> Result<Decoded, String> {
   let frames = frames
     .into_iter()
     .map(|f| Frame {
-      rgba: if (tw, target_h) == (w, h) {
-        f.rgba
-      } else {
-        resize(&f.rgba, w, h, tw, target_h)
-      },
+      rgba: if (tw, target_h) == (w, h) { f.rgba } else { resize(&f.rgba, w, h, tw, target_h) },
       delay_ms: f.delay_ms,
     })
     .collect();
-  Ok(Decoded {
-    w: tw,
-    h: target_h,
-    frames,
-  })
+  Ok(Decoded { w: tw, h: target_h, frames })
 }
 
 fn check_dims(w: u32, h: u32) -> Result<(), String> {
@@ -77,25 +69,13 @@ fn webp(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   let len = d.output_buffer_size().ok_or("too large")?;
   let mut buf = vec![0u8; len];
   let to_rgba = |buf: &[u8]| -> Box<[u8]> {
-    if alpha {
-      buf.into()
-    } else {
-      buf
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .flat_map(|p| [p[0], p[1], p[2], 255])
-        .collect()
-    }
+    if alpha { buf.into() } else { buf.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect() }
   };
   let mut frames = Vec::new();
   if d.is_animated() {
     while frames.len() < MAX_FRAMES {
       match d.read_frame(&mut buf) {
-        Ok(ms) => frames.push(Frame {
-          rgba: to_rgba(&buf),
-          delay_ms: delay(ms),
-        }),
+        Ok(ms) => frames.push(Frame { rgba: to_rgba(&buf), delay_ms: delay(ms) }),
         Err(image_webp::DecodingError::NoMoreFrames) => break,
         Err(e) if frames.is_empty() => return Err(e.to_string()),
         Err(_) => break,
@@ -103,10 +83,7 @@ fn webp(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
     }
   } else {
     d.read_image(&mut buf).map_err(|e| e.to_string())?;
-    frames.push(Frame {
-      rgba: to_rgba(&buf),
-      delay_ms: 0,
-    });
+    frames.push(Frame { rgba: to_rgba(&buf), delay_ms: 0 });
   }
   Ok((w, h, frames))
 }
@@ -142,10 +119,7 @@ fn gif(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
         }
       }
     }
-    frames.push(Frame {
-      rgba: canvas.clone().into(),
-      delay_ms: delay(f.delay as u32 * 10),
-    });
+    frames.push(Frame { rgba: canvas.clone().into(), delay_ms: delay(f.delay as u32 * 10) });
     match f.dispose {
       gif::DisposalMethod::Background => {
         for y in fy..(fy + fh).min(h) {
@@ -179,18 +153,8 @@ fn png(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   let px = &buf[..info.buffer_size()];
   let rgba: Box<[u8]> = match info.color_type {
     png::ColorType::Rgba => px.into(),
-    png::ColorType::Rgb => px
-      .as_chunks::<3>()
-      .0
-      .iter()
-      .flat_map(|p| [p[0], p[1], p[2], 255])
-      .collect(),
-    png::ColorType::GrayscaleAlpha => px
-      .as_chunks::<2>()
-      .0
-      .iter()
-      .flat_map(|p| [p[0], p[0], p[0], p[1]])
-      .collect(),
+    png::ColorType::Rgb => px.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+    png::ColorType::GrayscaleAlpha => px.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
     png::ColorType::Grayscale => px.iter().flat_map(|&g| [g, g, g, 255]).collect(),
     png::ColorType::Indexed => return Err("unexpanded palette".into()),
   };

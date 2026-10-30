@@ -22,15 +22,7 @@ pub fn write(name: &str, data: &str) -> std::io::Result<()> {
 }
 
 pub fn load_tabs() -> Vec<Box<str>> {
-  read("tabs")
-    .map(|s| {
-      s.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(Into::into)
-        .collect()
-    })
-    .unwrap_or_default()
+  read("tabs").map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty()).map(Into::into).collect()).unwrap_or_default()
 }
 
 pub fn save_tabs(tabs: &[Box<str>]) {

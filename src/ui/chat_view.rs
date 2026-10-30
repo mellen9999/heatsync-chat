@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use parley::{InlineBox, InlineBoxKind, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
-use super::res::Res;
+use super::res::{BADGE_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
 use crate::emotes::twitch_url;
@@ -16,6 +16,8 @@ use crate::util::time::hhmm;
 struct EmoteBox {
   img: ImgId,
   zw: Vec<ImgId>,
+  // tile color behind the image (ffz badges)
+  bg: Option<u32>,
 }
 
 struct Laid {
@@ -73,11 +75,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool) -> L
   let mut dim = |s: &mut String, t: &str| {
     let a = s.len();
     s.push_str(t);
-    spans.push(Span {
-      range: a..s.len(),
-      ink: Ink(theme::DIM),
-      bold: false,
-    });
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
   };
   if let Some(sys) = &m.system {
     dim(&mut s, sys);
@@ -95,13 +93,10 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool) -> L
   if m.kind == Kind::System {
     dim(&mut s, &m.body);
   } else {
+    badges(res, chan, m, &mut s, &mut ib, &mut boxes);
     let n0 = s.len();
     s.push_str(&m.nick);
-    spans.push(Span {
-      range: n0..s.len(),
-      ink: Ink(m.color),
-      bold: true,
-    });
+    spans.push(Span { range: n0..s.len(), ink: Ink(m.color), bold: true });
     if m.kind == Kind::Chat {
       s.push(':');
     }
@@ -114,43 +109,57 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool) -> L
       _ => None,
     };
     if let Some(c) = ink {
-      spans.push(Span {
-        range: b0..s.len(),
-        ink: Ink(c),
-        bold: false,
-      });
+      spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
   }
-  let layout = res
-    .text
-    .layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
+  let layout = res.text.layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
   Laid { layout, boxes }
+}
+
+fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
+  InlineBox {
+    id: id as u64,
+    kind: InlineBoxKind::InFlow,
+    index,
+    width: w as f32,
+    height: h as f32,
+    baseline: None,
+    vertical_align: VerticalAlign::MIDDLE,
+  }
+}
+
+fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+  let found: Vec<(Box<str>, Option<u32>)> =
+    res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
+  let h = res.images.px(BADGE_PX);
+  for (url, bg) in found {
+    let img = res.images.id(&url, BADGE_PX);
+    let w = res.images.width(img, (18, 18));
+    ib.push(inline(boxes.len(), s.len(), w, h));
+    boxes.push(EmoteBox { img, zw: Vec::new(), bg });
+    // a thin space keeps badges from touching
+    s.push('\u{2009}');
+  }
 }
 
 // words become text or emote boxes. twitch's own emotes come by position, the rest by name
 fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
-  let h = res.images.target_h as f32;
+  let h = res.images.px(EMOTE_PX);
   let mut prev_emote = false;
   let mut first = true;
   let mut at = 0usize;
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
-    let native = m
-      .emotes
-      .iter()
-      .find(|(r, _)| r.start as usize == a && r.end as usize == b);
+    let native = m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b);
     let found = match native {
       Some((_, id)) => Some((twitch_url(id).into_boxed_str(), (28, 28), false)),
-      None if !word.is_empty() => res
-        .emotes
-        .lookup(chan, word)
-        .map(|e| (e.url.clone(), (e.w, e.h), e.zero_width)),
+      None if !word.is_empty() => res.emotes.lookup(chan, word).map(|e| (e.url.clone(), (e.w, e.h), e.zero_width)),
       None => None,
     };
     match found {
       Some((url, _, true)) if prev_emote => {
-        let img = res.images.id(&url);
+        let img = res.images.id(&url, EMOTE_PX);
         if let Some(last) = boxes.last_mut() {
           last.zw.push(img);
         }
@@ -160,18 +169,10 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
         if !first {
           s.push(' ');
         }
-        let img = res.images.id(&url);
-        let w = res.images.width(img, dims) as f32;
-        ib.push(InlineBox {
-          id: boxes.len() as u64,
-          kind: InlineBoxKind::InFlow,
-          index: s.len(),
-          width: w,
-          height: h,
-          baseline: None,
-          vertical_align: VerticalAlign::MIDDLE,
-        });
-        boxes.push(EmoteBox { img, zw: Vec::new() });
+        let img = res.images.id(&url, EMOTE_PX);
+        let w = res.images.width(img, dims);
+        ib.push(inline(boxes.len(), s.len(), w, h));
+        boxes.push(EmoteBox { img, zw: Vec::new(), bg: None });
         prev_emote = true;
       }
       None => {
@@ -229,37 +230,19 @@ impl ChatView {
       self.rows.pop_front();
     }
     self.seq_back += 1;
-    self.rows.push_back(Row {
-      seq: self.seq_back,
-      msg,
-      height: 0,
-      laid: None,
-    });
+    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None });
     self.pending += 1;
   }
 
   // history arrives after live lines may already be showing: slot it in front, skip dupes
   pub fn prepend(&mut self, history: Vec<Message>) {
-    let have: HashSet<&str> = self
-      .rows
-      .iter()
-      .map(|r| &*r.msg.id)
-      .filter(|id| !id.is_empty())
-      .collect();
+    let have: HashSet<&str> = self.rows.iter().map(|r| &*r.msg.id).filter(|id| !id.is_empty()).collect();
     let room = self.cap.saturating_sub(self.rows.len());
-    let fresh: Vec<Message> = history
-      .into_iter()
-      .filter(|m| m.id.is_empty() || !have.contains(&*m.id))
-      .collect();
+    let fresh: Vec<Message> = history.into_iter().filter(|m| m.id.is_empty() || !have.contains(&*m.id)).collect();
     let skip = fresh.len().saturating_sub(room);
     for msg in fresh.into_iter().skip(skip).rev() {
       self.seq_front -= 1;
-      self.rows.push_front(Row {
-        seq: self.seq_front,
-        msg,
-        height: 0,
-        laid: None,
-      });
+      self.rows.push_front(Row { seq: self.seq_front, msg, height: 0, laid: None });
     }
     self.stale = true;
   }
@@ -278,11 +261,7 @@ impl ChatView {
   }
 
   pub fn clear_user(&mut self, login: &str) {
-    for r in self
-      .rows
-      .iter_mut()
-      .filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System)
-    {
+    for r in self.rows.iter_mut().filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System) {
       r.msg.flags |= flag::CLEARED;
       Self::touch(r);
       self.stale = true;
@@ -390,11 +369,7 @@ impl ChatView {
       let top = bottom - r.height;
       if top < clip.bottom() && bottom > clip.y {
         let row = Rect::new(area.x, top, area.w, r.height);
-        let bg = if zebra && r.seq % 2 == 0 {
-          theme::ZEBRA
-        } else {
-          theme::BLACK
-        };
+        let bg = if zebra && r.seq % 2 == 0 { theme::ZEBRA } else { theme::BLACK };
         if bg != theme::BLACK {
           c.fill(row.intersect(clip), bg);
         }
@@ -416,23 +391,18 @@ impl ChatView {
             let Some(eb) = laid.boxes.get(b.id as usize) else {
               return;
             };
-            let rect = Rect::new(
-              b.x.round() as i32,
-              b.y.round() as i32,
-              b.width.round() as i32,
-              b.height.round() as i32,
-            );
+            let rect =
+              Rect::new(b.x.round() as i32, b.y.round() as i32, b.width.round() as i32, b.height.round() as i32);
             let mut imgs = Vec::with_capacity(1 + eb.zw.len());
             imgs.push(eb.img);
             imgs.extend_from_slice(&eb.zw);
+            if let Some(bg) = eb.bg {
+              c.fill(rect.intersect(clip), bg);
+            }
             let mut flip = None;
             blit_emote(c, images, &imgs, rect, clip, &mut flip);
             if flip.is_some() {
-              anims.push(Anim {
-                rect: rect.intersect(area),
-                bg,
-                imgs,
-              });
+              anims.push(Anim { rect: rect.intersect(area), bg, imgs });
             }
           });
         }

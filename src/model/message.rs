@@ -35,11 +35,14 @@ pub struct Message {
   pub kind: Kind,
   pub flags: u8,
   pub login: Box<str>,
+  pub user_id: Box<str>,
   pub nick: Box<str>,
   pub color: u32,
   pub body: Box<str>,
   // platform-native emotes by byte range of body (twitch `emotes=` tag)
   pub emotes: Box<[(Range<u32>, Box<str>)]>,
+  // (set, version) pairs from the twitch `badges=` tag
+  pub badges: Box<[(Box<str>, Box<str>)]>,
   // `@name` the message replies to
   pub reply_to: Option<Box<str>>,
   // usernotice system text shown above the user's part (sub/raid/announcement)
@@ -55,10 +58,12 @@ impl Message {
       kind: Kind::System,
       flags: 0,
       login: "".into(),
+      user_id: "".into(),
       nick: "".into(),
       color: 0,
       body: text.into(),
       emotes: Box::new([]),
+      badges: Box::new([]),
       reply_to: None,
       system: None,
     }

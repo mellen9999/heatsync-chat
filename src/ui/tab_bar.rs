@@ -21,16 +21,8 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, tabs: &[TabLabel], stat
     } else {
       theme::DIM
     };
-    let l = text.layout(
-      &label,
-      &[Span {
-        range: 0..label.len(),
-        ink: Ink(ink),
-        bold: t.unread || t.active,
-      }],
-      &[],
-      f32::MAX,
-    );
+    let l =
+      text.layout(&label, &[Span { range: 0..label.len(), ink: Ink(ink), bold: t.unread || t.active }], &[], f32::MAX);
     let w = l.width().ceil() as i32;
     if t.active {
       c.fill(Rect::new(x, area.y, w, area.h), theme::WHITE);
@@ -40,16 +32,7 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, tabs: &[TabLabel], stat
   }
   if !status.is_empty() {
     let s = format!("  {status}");
-    let l = text.layout(
-      &s,
-      &[Span {
-        range: 0..s.len(),
-        ink: Ink(theme::DIM),
-        bold: false,
-      }],
-      &[],
-      f32::MAX,
-    );
+    let l = text.layout(&s, &[Span { range: 0..s.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
     text.draw(&l, c, x as f32, area.y as f32, area, |_, _| {});
   }
 }

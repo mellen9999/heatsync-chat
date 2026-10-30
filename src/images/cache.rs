@@ -12,9 +12,7 @@ fn dir() -> Option<PathBuf> {
 
 // fnv-1a 64: stable across runs (std's hasher is randomly seeded)
 fn key(url: &str) -> String {
-  let h = url
-    .bytes()
-    .fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+  let h = url.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
   format!("{h:016x}")
 }
 
@@ -42,8 +40,7 @@ pub fn prune(max: u64) {
     .filter_map(Result::ok)
     .filter_map(|e| {
       let m = e.metadata().ok()?;
-      m.is_file()
-        .then(|| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()))
+      m.is_file().then(|| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()))
     })
     .collect();
   let mut total: u64 = files.iter().map(|f| f.1).sum();

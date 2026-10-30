@@ -9,9 +9,7 @@ const DEFAULTS: [u32; 15] = [
 ];
 
 pub fn default_for(login: &str) -> u32 {
-  let h = login
-    .bytes()
-    .fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+  let h = login.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
   DEFAULTS[(h % DEFAULTS.len() as u32) as usize]
 }
 
@@ -31,11 +29,7 @@ pub fn parse_hex(s: &str) -> Option<u32> {
 fn luminance(rgb: u32) -> f32 {
   let lin = |c: u32| {
     let v = c as f32 / 255.0;
-    if v <= 0.03928 {
-      v / 12.92
-    } else {
-      ((v + 0.055) / 1.055).powf(2.4)
-    }
+    if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
   };
   0.2126 * lin(rgb >> 16 & 0xff) + 0.7152 * lin(rgb >> 8 & 0xff) + 0.0722 * lin(rgb & 0xff)
 }
@@ -51,22 +45,14 @@ pub fn readable(rgb: u32) -> u32 {
   if luminance(rgb) >= min_l {
     return rgb;
   }
-  let (r, g, b) = (
-    (rgb >> 16 & 0xff) as f32 / 255.0,
-    (rgb >> 8 & 0xff) as f32 / 255.0,
-    (rgb & 0xff) as f32 / 255.0,
-  );
+  let (r, g, b) = ((rgb >> 16 & 0xff) as f32 / 255.0, (rgb >> 8 & 0xff) as f32 / 255.0, (rgb & 0xff) as f32 / 255.0);
   let max = r.max(g).max(b);
   let min = r.min(g).min(b);
   let l = (max + min) / 2.0;
   let (mut h, mut s) = (0.0, 0.0);
   if max != min {
     let d = max - min;
-    s = if l > 0.5 {
-      d / (2.0 - max - min)
-    } else {
-      d / (max + min)
-    };
+    s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
     h = if max == r {
       (g - b) / d + if g < b { 6.0 } else { 0.0 }
     } else if max == g {

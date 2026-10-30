@@ -9,16 +9,8 @@ const MAX_SET: usize = 5000;
 const MAX_NAME: usize = 100;
 
 // bttv's overlay globals carry no zero-width flag in the api; every client hardcodes them
-const BTTV_ZERO_WIDTH: [&str; 8] = [
-  "SoSnowy",
-  "IceCold",
-  "SantaHat",
-  "TopHat",
-  "ReinDeer",
-  "CandyCane",
-  "cvMask",
-  "cvHazmat",
-];
+const BTTV_ZERO_WIDTH: [&str; 8] =
+  ["SoSnowy", "IceCold", "SantaHat", "TopHat", "ReinDeer", "CandyCane", "cvMask", "cvHazmat"];
 
 fn valid_name(n: &str) -> bool {
   !n.is_empty() && n.len() <= MAX_NAME && !n.chars().any(|c| c.is_whitespace() || c.is_control())
@@ -90,16 +82,7 @@ pub fn seventv(set: &Value) -> Set {
     let base = d.host.url.strip_prefix("//").unwrap_or(&d.host.url);
     // zero-width: active-emote flag bit 0 or the emote's own flag bit 8 (ext checks flags & 257)
     let zero_width = e.flags & 1 != 0 || d.flags & 256 != 0;
-    put(
-      &mut out,
-      &e.name,
-      Emote {
-        url: format!("https://{base}/1x.webp").into(),
-        w,
-        h,
-        zero_width,
-      },
-    );
+    put(&mut out, &e.name, Emote { url: format!("https://{base}/1x.webp").into(), w, h, zero_width });
   }
   out
 }
@@ -115,22 +98,14 @@ fn bttv_list(list: Option<&Value>, out: &mut Set) {
     return;
   };
   for v in list {
-    let (Some(id), Some(code)) = (
-      v.get("id").and_then(Value::as_str),
-      v.get("code").and_then(Value::as_str),
-    ) else {
+    let (Some(id), Some(code)) = (v.get("id").and_then(Value::as_str), v.get("code").and_then(Value::as_str)) else {
       continue;
     };
     if !id.bytes().all(|b| b.is_ascii_alphanumeric()) {
       continue;
     }
     let zero_width = BTTV_ZERO_WIDTH.contains(&code);
-    let e = Emote {
-      url: format!("https://cdn.betterttv.net/emote/{id}/1x.webp").into(),
-      w: 0,
-      h: 0,
-      zero_width,
-    };
+    let e = Emote { url: format!("https://cdn.betterttv.net/emote/{id}/1x.webp").into(), w: 0, h: 0, zero_width };
     put(out, code, e);
   }
 }
@@ -178,22 +153,9 @@ pub fn ffz(v: &Value, only: Option<&[u64]>) -> Set {
         .or_else(|| e.get("urls").and_then(|u| u.get("1")))
         .and_then(Value::as_str);
       let Some(url) = url else { continue };
-      let url = if let Some(r) = url.strip_prefix("//") {
-        format!("https://{r}")
-      } else {
-        url.to_owned()
-      };
+      let url = if let Some(r) = url.strip_prefix("//") { format!("https://{r}") } else { url.to_owned() };
       let dim = |k| e.get(k).and_then(Value::as_u64).unwrap_or(0).min(u16::MAX as u64) as u16;
-      put(
-        &mut out,
-        name,
-        Emote {
-          url: url.into(),
-          w: dim("width"),
-          h: dim("height"),
-          zero_width: false,
-        },
-      );
+      put(&mut out, name, Emote { url: url.into(), w: dim("width"), h: dim("height"), zero_width: false });
     }
   }
   out
@@ -215,14 +177,8 @@ pub const FFZ_GLOBAL: &str = "https://api.frankerfacez.com/v1/set/global";
 pub fn channel_urls(room_id: &str) -> [(Provider, String); 3] {
   [
     (Provider::SevenTv, format!("https://7tv.io/v3/users/twitch/{room_id}")),
-    (
-      Provider::Bttv,
-      format!("https://api.betterttv.net/3/cached/users/twitch/{room_id}"),
-    ),
-    (
-      Provider::Ffz,
-      format!("https://api.frankerfacez.com/v1/room/id/{room_id}"),
-    ),
+    (Provider::Bttv, format!("https://api.betterttv.net/3/cached/users/twitch/{room_id}")),
+    (Provider::Ffz, format!("https://api.frankerfacez.com/v1/room/id/{room_id}")),
   ]
 }
 
@@ -278,12 +234,7 @@ mod tests {
 
   #[test]
   fn junk_is_empty_not_panic() {
-    for v in [
-      json!(null),
-      json!([]),
-      json!({"emotes": 5}),
-      json!({"sets": {"1": {"emoticons": [1, null]}}}),
-    ] {
+    for v in [json!(null), json!([]), json!({"emotes": 5}), json!({"sets": {"1": {"emoticons": [1, null]}}})] {
       assert!(seventv(&v).is_empty());
       assert!(bttv_channel(&v).is_empty());
       assert!(ffz(&v, None).is_empty());

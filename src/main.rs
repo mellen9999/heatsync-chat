@@ -1,4 +1,5 @@
 mod app;
+mod badges;
 mod bench;
 mod emotes;
 mod fake;

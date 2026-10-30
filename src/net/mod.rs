@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use winit::event_loop::EventLoopProxy;
 
+use crate::badges::{self, Source, TwitchSet, UserBadges};
 use crate::emotes::{Provider, Set, providers};
 use crate::images::{ImgId, cache, decode, url};
 use irc::Chat;
@@ -24,6 +25,8 @@ pub enum NetEvent {
   // channel = None for globals
   Emotes(Option<Box<str>>, Provider, Set),
   Image(ImgId, u32, Result<decode::Decoded, String>),
+  TwitchBadges(Option<Box<str>>, TwitchSet),
+  UserBadges(Source, UserBadges),
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -106,13 +109,7 @@ async fn image(
     return fail("host not allowed".into());
   }
   if let Some(bytes) = cache::read(&url) {
-    let _ = dec.send(DecodeJob {
-      id,
-      url,
-      h,
-      bytes,
-      store: false,
-    });
+    let _ = dec.send(DecodeJob { id, url, h, bytes, store: false });
     return;
   }
   let Ok(_permit) = gate.acquire().await else { return };
@@ -123,13 +120,7 @@ async fn image(
   };
   match res {
     Ok(b) if b.len() <= MAX_IMAGE_BYTES => {
-      let _ = dec.send(DecodeJob {
-        id,
-        url,
-        h,
-        bytes: b.to_vec(),
-        store: true,
-      });
+      let _ = dec.send(DecodeJob { id, url, h, bytes: b.to_vec(), store: true });
     }
     Ok(_) => fail("too large".into()),
     Err(e) => fail(e),
@@ -147,6 +138,37 @@ async fn channel_emotes(http: reqwest::Client, ch: Box<str>, room: Box<str>, out
       }
       Err(e) => out.status(format!("{p:?} emotes for {ch}: {e}").to_lowercase()),
     }
+  }
+}
+
+async fn global_badges(http: reqwest::Client, out: Out) {
+  match badges::fetch::twitch_global(&http).await {
+    Ok(s) => {
+      out.send(NetEvent::TwitchBadges(None, s));
+    }
+    Err(e) => out.status(format!("twitch badges: {e}")),
+  }
+  type Parse = fn(&serde_json::Value) -> UserBadges;
+  let third: [(Source, &str, Parse); 2] = [
+    (Source::Chatterino, badges::fetch::CHATTERINO, badges::fetch::chatterino),
+    (Source::Ffz, badges::fetch::FFZ_IDS, badges::fetch::ffz),
+  ];
+  for (src, u, parse) in third {
+    match providers::fetch(&http, u).await {
+      Ok(v) => {
+        out.send(NetEvent::UserBadges(src, parse(&v)));
+      }
+      Err(e) => out.status(format!("{src:?} badges: {e}").to_lowercase()),
+    }
+  }
+}
+
+async fn channel_badges(http: reqwest::Client, ch: Box<str>, out: Out) {
+  match badges::fetch::twitch_channel(&http, &ch).await {
+    Ok(s) => {
+      out.send(NetEvent::TwitchBadges(Some(ch), s));
+    }
+    Err(e) => out.status(format!("badges for {ch}: {e}")),
   }
 }
 
@@ -206,6 +228,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let (irc_tx, irc_rx) = mpsc::unbounded_channel();
   tokio::spawn(irc::run(irc_rx, out.clone()));
   tokio::spawn(global_emotes(http.clone(), out.clone()));
+  tokio::spawn(global_badges(http.clone(), out.clone()));
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
@@ -214,6 +237,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     match cmd {
       Cmd::Join(ch) => {
         tokio::spawn(recent::fetch(http.clone(), ch.clone(), out.clone()));
+        if irc::valid_channel(&ch) {
+          tokio::spawn(channel_badges(http.clone(), ch.clone(), out.clone()));
+        }
         let _ = irc_tx.send(irc::Cmd::Join(ch));
       }
       Cmd::Part(ch) => {

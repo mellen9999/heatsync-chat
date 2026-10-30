@@ -145,33 +145,18 @@ impl Text {
         let key = |g: &parley::Glyph| {
           let gx = ox + g.x;
           let subx = ((gx - gx.floor()) * SUBPIXEL_STEPS) as u8;
-          GlyphKey {
-            font: font.data.id(),
-            index: font.index,
-            id: g.id,
-            size: size.to_bits(),
-            subx,
-            bold,
-          }
+          GlyphKey { font: font.data.id(), index: font.index, id: g.id, size: size.to_bits(), subx, bold }
         };
         // rasterize misses first (one scaler per run), then blit from the cache
         if gr.positioned_glyphs().any(|g| !glyphs.contains_key(&key(&g))) {
-          let mut s = scale
-            .builder(fref)
-            .size(size)
-            .hint(true)
-            .normalized_coords(coords.iter().map(|c| c.to_bits()))
-            .build();
+          let mut s =
+            scale.builder(fref).size(size).hint(true).normalized_coords(coords.iter().map(|c| c.to_bits())).build();
           for g in gr.positioned_glyphs() {
             let k = key(&g);
             if let Entry::Vacant(v) = glyphs.entry(k) {
-              let mut r = Render::new(&[
-                Source::ColorOutline(0),
-                Source::ColorBitmap(StrikeWith::BestFit),
-                Source::Outline,
-              ]);
-              r.format(Format::Alpha)
-                .offset(Vector::new(k.subx as f32 / SUBPIXEL_STEPS, 0.0));
+              let mut r =
+                Render::new(&[Source::ColorOutline(0), Source::ColorBitmap(StrikeWith::BestFit), Source::Outline]);
+              r.format(Format::Alpha).offset(Vector::new(k.subx as f32 / SUBPIXEL_STEPS, 0.0));
               if bold {
                 r.embolden(size / 24.0);
               }

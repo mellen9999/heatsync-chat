@@ -2,25 +2,10 @@
 use crate::model::message::{Kind, Message, Platform};
 use crate::ui::theme;
 
-const NICKS: &[&str] = &[
-  "xqcow",
-  "pokimane",
-  "forsen",
-  "heatsync",
-  "a_very_long_username_25",
-  "nymn",
-  "tyler1",
-  "sodapoppin",
-];
-const COLORS: &[u32] = &[
-  theme::RED,
-  theme::GREEN,
-  theme::YELLOW,
-  theme::BLUE,
-  theme::MAGENTA,
-  theme::CYAN,
-  theme::HEATSYNC,
-];
+const NICKS: &[&str] =
+  &["xqcow", "pokimane", "forsen", "heatsync", "a_very_long_username_25", "nymn", "tyler1", "sodapoppin"];
+const COLORS: &[u32] =
+  &[theme::RED, theme::GREEN, theme::YELLOW, theme::BLUE, theme::MAGENTA, theme::CYAN, theme::HEATSYNC];
 const BODIES: &[&str] = &[
   "LULW",
   "that was actually insane",
@@ -58,10 +43,12 @@ impl Fake {
       kind: Kind::Chat,
       flags: 0,
       login: nick.into(),
+      user_id: "".into(),
       nick: nick.into(),
       color: COLORS[self.next() % COLORS.len()],
       body: BODIES[self.next() % BODIES.len()].into(),
       emotes: Box::new([]),
+      badges: Box::new([]),
       reply_to: None,
       system: None,
     }
