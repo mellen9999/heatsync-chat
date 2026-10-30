@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -e
+
+GITLEAKS="$(command -v gitleaks 2>/dev/null || echo "$HOME/.local/bin/gitleaks")"
+if [ -x "$GITLEAKS" ]; then
+  "$GITLEAKS" git --staged --redact --no-banner || { echo "gitleaks: staged secret, commit blocked" >&2; exit 1; }
+else
+  echo "gitleaks missing — secret scan skipped" >&2
+fi
+
+PII="$HOME/sync/config/githooks/pii-scan"
+[ -x "$PII" ] && { "$PII" || exit 1; }
+
+cargo fmt --check
+cargo clippy --release -q -- -D warnings
+cargo test --release -q

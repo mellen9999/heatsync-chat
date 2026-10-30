@@ -1,0 +1,17 @@
+[package]
+name = "heatsync-chat"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "heatsync multichat as a native app"
+
+[dependencies]
+winit = "0.30"
+softbuffer = "0.4"
+parley = "0.12"
+swash = "0.2"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true

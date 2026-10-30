@@ -1,0 +1,66 @@
+# heatsync server contract (client side)
+
+source of truth: `heatsync/server/lib/api-catalog/*.ts` (endpoints), `server/services/ws-protocol.ts` (ws types).
+distilled from the extension + the chatterino plugin (`heatsync-chatterino`), which already speak this contract in production.
+
+## transport
+- origin `https://heatsync.org`. anonymous unless noted. non-bot `User-Agent` (archive search 429s `curl/`, `bot`, …)
+- keep status + json body on errors: 429 `retry_after_seconds`, 503 `error`, 404 `error_code:"opted_out"`
+- timeouts: 8s lookups, 10s card/emotes, 12s archive search + image probe
+- auth (when logged in): `Authorization: Bearer <jwt>`; ws `{type:"authenticate", token}`. bad token → close 4001
+
+## hostile-input bounds
+- inventory rows ≤5000 · sender map ≤5000 · url ≤2048, no control bytes · emote name: one token, ≤100, no ws/control, not starting `/` or `.`
+- emote dims 1..65535 finite · message text ≤2000 · display name ≤100 · ≤50 emote tokens/message
+- ≤250 msgs per backfill / youtube batch (keep the tail) · ws `batch` ≤256 · `senderKeys` ≤50 · heat push ≤500 · pin content 500 / name 64
+- image host allowlist (https, no userinfo `@`, bare `[\w.-]+` host, exact or `.`-suffix): `7tv.app betterttv.net frankerfacez.com kick.com ggpht.com googleusercontent.com static-cdn.jtvnw.net heatsync.org fourtf.com` (+ `7tv.io`, `cdn.heatsync.org`, `files.kick.com` covered by suffix)
+
+## rest
+| what | call | notes |
+|---|---|---|
+| own id | `GET /api/profile/<login>` → `data.profile.id` | numeric or `^\d+$`; shadow users `u_<login>` / `is_shadow` → no inventory |
+| own inventory | `GET /api/users/<id>/emotes[?v=<seq>]` → `emotes\|data\|items` | row: `custom_name\|name\|code, url\|src, width, height, zero_width, added_at, until, nsfw, cw_cats, usage_count\|uses`. edge-cached 60s → bust with ws `_seq`. refetch 15min |
+| sender sets | `GET /api/users/emotes/batch?ids=twitch:<id>,…[&v=]` → `sets["twitch:<id>"]=[rows]` | batch ≤15, 2s flush, single-flight. ttl +15min / −90s. lru 500 |
+| heat | `POST /api/users/heat {usernames}` → `users{login:{heat,op,re}}` | batch 25, ttl 120s, logins `^[a-z0-9_]{1,25}$` |
+| flair | `GET /api/users/flair?ids=` → `flairs{id:{flair_type:"twitch_sub",broadcaster_login,badge_url,badge_url_4x,tier}}` | batch 50, ttl 600s |
+| name color | `GET /api/paints?ids=yt_<UC…>` → `{paints,colors}` | youtube lines only; color used iff `#rrggbb` and no paint |
+| community mutes | `GET /api/community-mutes/<chan>?threshold=25&limit=500` → `mutes[{username,platform?,since_iso}]` | ttl 600s, fail retry 60s. collapse, never hide |
+| pin | `GET /api/pin?platform=&channel=` → `{pin\|null}` | `id,message_id,username,display_name,color,content` |
+| backfill | `GET /api/recent/<kick\|youtube>/<chan>?limit=50` | oldest first. kick by slug, yt by lowercased UC id |
+| recent twitch | `GET /api/recent-messages/<chan>?limit=800&hide_moderation_messages=false&hide_moderated_messages=false&clearchatToNotice=true` | robotty via proxy |
+| linked accts | `GET /api/profile/<chan>?platform=twitch` → `kick_username, youtube_username, youtube_channel_id` | auto multichat |
+| card | `POST /api/card {platform,login,channel}` | fallback: profile + `/api/twitch/followage` |
+| search / archive | `GET /api/search?q=`, `GET /api/archive/search?q=&username=&channel=&cursor=&limit≤100` | show `coverage.hint`, `query_errors` |
+| live / moments | `GET /api/live/top?limit=50`, `GET /api/moments?limit=&hours=` | |
+| catalog | `GET /api/emote-search?q=` (2-50, `[a-z0-9_\-:.]`) → `merged[{name,url,provider,animated,zeroWidth}]` | completion only — NEVER render |
+| badges | `GET /api/chatterino-badges` | |
+| gifs | `GET /api/gifs/search?q=&limit=`, `/api/gifs/top` | no offset; page n = `limit n*12` |
+| images | `GET /api/img?url=` → 302 webp | 403 moderation, 413 size, 429. 20 new urls/min |
+| previews | `GET /api/embed/resolve?url=` (tenor/giphy/imgur/spotify/soundcloud/x/kick clips/reddit), `GET /api/link-preview?url=` | non-empty `flagged[]` drops it. 10/min |
+| health | `GET /api/extension/health` → `ext_min, ext_hard_min, kill, disabled[], msg` | native equivalent tbd |
+| authed | `/api/auth/twitch/chat-token`, `/api/kick/chat/send`, `/api/twitch/whisper`, `/api/mod/*`, `/api/twitch/clip`, `/api/mutes`, `/api/user/blocks`, `/api/settings`, `/api/user/seen-state`, `/api/messages*` | need native login (server addition, see PLAN) |
+
+## ws `wss://heatsync.org/ws?b=1`
+- anon allowed, no-Origin native clients admitted. json text frames. limits: 30 frames/s, 50 channels/socket, 90s idle
+- on open, in order: `channel:join {platform,channel}` per room → `emote:watch {login}` → `ack:channels {channels:[{channel:"kick/<slug>",lastSeq}]}` (kick only, ≤200) → `youtube:subscribe {url,channelId}` per yt source + backfill once per session
+- out: `channel:leave`, `presence:heartbeat` every 25s, `twitch:chat:relay {channel}` (archive demand, ≤1/5min/channel), `youtube:unsubscribe {videoId}`
+- in:
+  - `batch {messages}` unwrap (≤256, don't recurse)
+  - `server:shutdown {reconnectSpreadMs}` → close, reconnect after rand(0, clamp(spread,1000,60000)); no backoff charge
+  - `emote:added|removed|emotes:refresh` — `_ch` starts `emotes/` = own inventory → refetch `?v=_seq`; else another user: `senderKeys[]`, `emoteName`, `ver` → drop + refetch those senders (`&v=`); `removed` scrubs name now
+  - `emote:broadcast {username, emoteName, emoteData{url,width,height,zero_width,nsfw,cw_cats}}` → merge into that sender's map
+  - `kick-chat-message {data:{id,username,displayName,content,color,timestamp,hsEmotes{word→{url,provider,zeroWidth,nsfw,cw_cats}},replyTo}, _ch, _seq}`; `kick-chat-backfill {channel, messages}`
+  - `youtube:chat {channelId, messages[{id,user,text,emotes[{alt,url}],timestamp,color,amount,systemMsg,authorChannelId,hsEmotes}], replay}` — drop `replay:true` batches
+  - `youtube:status {channelId,status:connected|ended|not-live|chat-off|no-slot|error,videoId}` — yt subscribe ≤5/60s; retry ~120s
+  - `stream:online|offline|update {platform,channel,game,title,prevGame,prevTitle}`, `pin:set|clear`, `moment:spike {platform,channel,id,rate,baseline,game,title}`, `user:heat_batch_update {updates[{username,userHeat,op,re}]}`
+- reconnect: backoff `min(60, 2^min(n,6))s × 0.8..1.2`, reset only after a ≥30s session. watchdog: recycle if no frame 90s or handshake >30s. generation token — late frames from a dead socket are dropped. gap >60s → mark sender caches stale + refetch pins. track max `_seq` per `kick/*`
+
+## render rules
+- heatsync emote renders iff the sender's own inventory has the exact-case whitespace token, `height>0`, msg time within `[added_at−120s, until+120s)`, not locally blocked, ≤50/msg
+- relayed `hsEmotes` are server-computed from the sender's inventory — look up only the words present
+- cw gate: skip `nsfw` or `cw_cats` ∋ `sexual|gore` unless the viewer opted in (`viewer_show_*`)
+- size: scale by height only — cdn 1x is ≤32px tall but stored dims are native; never trust stored width. 7tv `.avif` → `.webp`
+- heat bar: hidden <5. tiers 5 `▎` white · 20 `▍` white · 50 `▍` yellow · 100/200/500 `▌` yellow · 1000/5000 `▊` red. twitch lines only. never 🔥 beside it
+- marker order before name: chatterino badge, sub flair, 🔥 (known heatsync user), heat bar
+- modifiers: `w! h!/x! v!/y! z! c! l! r! p! s!`, `ffzX ffzY ffzW ffzWide ffzTall ffzCursed ffzHyper ffzRainbow ffzBounce ffzJam ffzSlide ffzArrive ffzLeave ffzSpin`, tint `c!#hex`. prefix or postfix, chainable, token word hidden. grammar: ext `src/lib/modifiers.js`
+- threadlink `>>id` → `https://heatsync.org/thread/<id>`
