@@ -1,7 +1,10 @@
 // all network io lives on one background thread running a current-thread tokio runtime.
 // the ui talks to it through `Net` and hears back through winit user events
+pub mod hs_ws;
 pub mod irc;
+mod links;
 mod recent;
+pub mod relay;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +15,7 @@ use winit::event_loop::EventLoopProxy;
 use crate::badges::{self, Source, TwitchSet, UserBadges};
 use crate::emotes::{Provider, Set, providers};
 use crate::images::{ImgId, cache, decode, url};
+use crate::model::message::{Message, Platform};
 use irc::Chat;
 
 pub const USER_AGENT: &str = concat!("heatsync-chat/", env!("CARGO_PKG_VERSION"));
@@ -26,6 +30,12 @@ pub enum NetEvent {
   Emotes(Option<Box<str>>, Provider, Set),
   Image(ImgId, u32, Result<decode::Decoded, String>),
   TwitchBadges(Option<Box<str>>, TwitchSet),
+  // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
+  Relay { platform: Platform, key: Box<str>, msgs: Vec<Message>, history: bool },
+  RelayClear { platform: Platform, key: Box<str>, login: Box<str> },
+  YtStatus { key: Box<str>, status: Box<str> },
+  // a twitch tab's publicly linked accounts: kick slug, youtube (handle, UC id)
+  Links { tab: Box<str>, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)> },
   UserBadges(Source, UserBadges),
 }
 
@@ -60,6 +70,10 @@ pub enum Cmd {
   // roomstate told us the channel's twitch id: fetch its 7tv/bttv/ffz sets
   Room(Box<str>, Box<str>),
   Image(ImgId, Box<str>, u32),
+  // heatsync relay rooms
+  Hs(hs_ws::Cmd),
+  // recent history for a relayed source: (platform, routing key, archive key)
+  Backfill(Platform, Box<str>, Box<str>),
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -229,6 +243,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   tokio::spawn(irc::run(irc_rx, out.clone()));
   tokio::spawn(global_emotes(http.clone(), out.clone()));
   tokio::spawn(global_badges(http.clone(), out.clone()));
+  let (hs_tx, hs_rx) = mpsc::unbounded_channel();
+  tokio::spawn(hs_ws::run(hs_rx, out.clone()));
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
@@ -239,11 +255,20 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(recent::fetch(http.clone(), ch.clone(), out.clone()));
         if irc::valid_channel(&ch) {
           tokio::spawn(channel_badges(http.clone(), ch.clone(), out.clone()));
+          tokio::spawn(links::discover(http.clone(), ch.clone(), out.clone()));
+          let _ = hs_tx.send(hs_ws::Cmd::Join(Platform::Twitch, ch.clone()));
         }
         let _ = irc_tx.send(irc::Cmd::Join(ch));
       }
       Cmd::Part(ch) => {
+        let _ = hs_tx.send(hs_ws::Cmd::Leave(Platform::Twitch, ch.clone()));
         let _ = irc_tx.send(irc::Cmd::Part(ch));
+      }
+      Cmd::Hs(c) => {
+        let _ = hs_tx.send(c);
+      }
+      Cmd::Backfill(p, key, archive) => {
+        tokio::spawn(links::backfill(http.clone(), p, key, archive, out.clone()));
       }
       Cmd::Room(ch, room) => {
         tokio::spawn(channel_emotes(http.clone(), ch, room, out.clone()));

@@ -116,7 +116,7 @@ fn twitch_emotes(tag: &str, body: &str) -> Vec<(std::ops::Range<u32>, Box<str>)>
       if a > b || b + 1 >= starts.len() {
         continue;
       }
-      out.push((starts[a] as u32..starts[b + 1] as u32, id.into()));
+      out.push((starts[a] as u32..starts[b + 1] as u32, crate::emotes::twitch_url(id).into()));
     }
   }
   out.sort_by_key(|(r, _)| r.start);
@@ -193,6 +193,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     color,
     badges: l.tag("badges").map(|b| badges(&b)).unwrap_or_default().into(),
     emotes: l.tag("emotes").map(|t| twitch_emotes(&t, body)).unwrap_or_default().into(),
+    hs: Box::new([]),
     body: body.into(),
     reply_to: l.tag("reply-parent-display-name").map(Into::into),
     system: None,
@@ -373,9 +374,9 @@ mod tests {
     assert!(m.has(flag::FIRST));
     assert_eq!(m.emotes.len(), 2);
     assert_eq!(&*m.badges[0].0, "moderator");
-    let (r, id) = &m.emotes[0];
+    let (r, url) = &m.emotes[0];
     assert_eq!(&m.body[r.start as usize..r.end as usize], "Kappa");
-    assert_eq!(&**id, "25");
+    assert!(url.contains("/v2/25/"));
     // #0000ff is unreadable on black: lifted
     assert_ne!(m.color, 0x0000ff);
   }

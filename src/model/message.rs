@@ -1,8 +1,6 @@
 // one chat line, platform-neutral. body is the user's text; emote spans index into it
 use std::ops::Range;
 
-// kick + youtube arrive with the heatsync relay (m3)
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Platform {
   Twitch,
@@ -26,8 +24,12 @@ pub mod flag {
   pub const HISTORY: u8 = 1 << 3;
 }
 
+// image url for a byte range of the body
+pub type Placed = (Range<u32>, Box<str>);
+// (word, url, zero-width)
+pub type HsEmote = (Box<str>, Box<str>, bool);
+
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // platform + emotes feed the emote renderer (m2b)
 pub struct Message {
   pub id: Box<str>,
   pub ts: i64,
@@ -39,8 +41,10 @@ pub struct Message {
   pub nick: Box<str>,
   pub color: u32,
   pub body: Box<str>,
-  // platform-native emotes by byte range of body (twitch `emotes=` tag)
-  pub emotes: Box<[(Range<u32>, Box<str>)]>,
+  // platform-native emotes by byte range of body → image url (twitch tag, kick tokens, yt emoji)
+  pub emotes: Box<[Placed]>,
+  // heatsync emotes the server resolved from the SENDER's own inventory: word → (url, zero-width)
+  pub hs: Box<[HsEmote]>,
   // (set, version) pairs from the twitch `badges=` tag
   pub badges: Box<[(Box<str>, Box<str>)]>,
   // `@name` the message replies to
@@ -63,6 +67,7 @@ impl Message {
       color: 0,
       body: text.into(),
       emotes: Box::new([]),
+      hs: Box::new([]),
       badges: Box::new([]),
       reply_to: None,
       system: None,

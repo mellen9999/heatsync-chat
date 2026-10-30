@@ -12,6 +12,7 @@ use winit::window::{Window, WindowId};
 
 use crate::fake::Fake;
 use crate::model::message::{Message, Platform};
+use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::irc::Chat;
 use crate::net::{Cmd, Net, NetEvent};
 use crate::store;
@@ -38,6 +39,24 @@ struct Tab {
   name: Box<str>,
   view: ChatView,
   unread: bool,
+  // every feed merged into this tab: (platform, routing key)
+  sources: Vec<(Platform, Box<str>)>,
+}
+
+// tab names: `forsen` (twitch + its linked kick/youtube), `kick:slug`, `yt:handle`
+fn parse_tab(name: &str) -> Option<(Platform, Box<str>)> {
+  let (p, key) = match name.split_once(':') {
+    Some(("kick", k)) => (Platform::Kick, k),
+    Some(("yt", k)) => (Platform::Youtube, k),
+    None => (Platform::Twitch, name),
+    _ => return None,
+  };
+  let key = key.to_ascii_lowercase();
+  let ok = match p {
+    Platform::Twitch => crate::net::irc::valid_channel(&key),
+    _ => crate::net::hs_ws::valid_key(&key),
+  };
+  ok.then(|| (p, key.into()))
 }
 
 pub struct App {
@@ -68,14 +87,30 @@ pub struct App {
 impl App {
   pub fn new(net: Net, channels: Vec<Box<str>>, flood: bool) -> Self {
     let mut tabs: Vec<Tab> = Vec::new();
-    for ch in channels {
-      if !tabs.iter().any(|t| t.name == ch) {
-        net.send(Cmd::Join(ch.clone()));
-        tabs.push(Tab { name: ch.clone(), view: ChatView::new(SCROLLBACK, ch), unread: false });
+    for name in channels {
+      let Some((p, key)) = parse_tab(&name) else { continue };
+      if tabs.iter().any(|t| t.name == name) {
+        continue;
       }
+      match p {
+        Platform::Twitch => net.send(Cmd::Join(key.clone())),
+        Platform::Kick => {
+          net.send(Cmd::Hs(HsCmd::Join(Platform::Kick, key.clone())));
+          net.send(Cmd::Backfill(Platform::Kick, key.clone(), key.clone()));
+        }
+        Platform::Youtube => net.send(Cmd::Hs(HsCmd::YtSub(key.clone()))),
+      }
+      let mut view = ChatView::new(SCROLLBACK, key.clone());
+      view.tags = p != Platform::Twitch;
+      tabs.push(Tab { name, view, unread: false, sources: vec![(p, key)] });
     }
     if flood {
-      tabs.push(Tab { name: FLOOD_TAB.into(), view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()), unread: false });
+      tabs.push(Tab {
+        name: FLOOD_TAB.into(),
+        view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()),
+        unread: false,
+        sources: Vec::new(),
+      });
     }
     let status =
       if tabs.is_empty() { "no channels — run: heatsync-chat <channel> …".into() } else { String::new() };
@@ -143,11 +178,21 @@ impl App {
       return;
     }
     let t = self.tabs.remove(self.active);
-    if &*t.name != FLOOD_TAB {
-      self.res.emotes.drop_channel(&t.name);
-      self.res.badges.drop_channel(&t.name);
-      self.rooms.retain(|r| *r != t.name);
-      self.net.send(Cmd::Part(t.name));
+    for (p, key) in t.sources {
+      // another tab may still merge this source
+      if self.tabs.iter().any(|o| o.sources.iter().any(|s| s.0 == p && s.1 == key)) {
+        continue;
+      }
+      match p {
+        Platform::Twitch => {
+          self.res.emotes.drop_channel(&key);
+          self.res.badges.drop_channel(&key);
+          self.rooms.retain(|r| *r != key);
+          self.net.send(Cmd::Part(key));
+        }
+        Platform::Kick => self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key))),
+        Platform::Youtube => self.net.send(Cmd::Hs(HsCmd::YtUnsub(key))),
+      }
     }
     persist(&self.tabs.iter().filter(|t| &*t.name != FLOOD_TAB).map(|t| t.name.clone()).collect::<Vec<_>>());
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
@@ -173,10 +218,72 @@ impl App {
     self.trim_at = Some(Instant::now() + TRIM_AFTER);
   }
 
+  fn tabs_with(&self, p: Platform, key: &str) -> Vec<usize> {
+    (0..self.tabs.len()).filter(|&i| self.tabs[i].sources.iter().any(|s| s.0 == p && *s.1 == *key)).collect()
+  }
+
+  fn touched(&mut self, i: usize) {
+    if i == self.active {
+      self.wake();
+    } else if !self.tabs[i].unread {
+      self.tabs[i].unread = true;
+      self.bar_dirty = true;
+      self.wake();
+    }
+  }
+
+  fn on_relay(&mut self, p: Platform, key: &str, msgs: Vec<Message>, history: bool) {
+    for i in self.tabs_with(p, key) {
+      let v = &mut self.tabs[i].view;
+      if history {
+        v.prepend(msgs.clone());
+        if i == self.active {
+          self.wake();
+        }
+      } else {
+        for m in &msgs {
+          v.push(m.clone());
+        }
+        self.touched(i);
+      }
+    }
+  }
+
+  fn on_links(&mut self, tab: &str, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)>) {
+    let Some(i) = self.tabs_with(Platform::Twitch, tab).first().copied() else { return };
+    let mut add = Vec::new();
+    if let Some(slug) = kick {
+      self.net.send(Cmd::Hs(HsCmd::Join(Platform::Kick, slug.clone())));
+      self.net.send(Cmd::Backfill(Platform::Kick, slug.clone(), slug.clone()));
+      add.push((Platform::Kick, slug));
+    }
+    if let Some((handle, ucid)) = yt {
+      self.net.send(Cmd::Hs(HsCmd::YtSub(handle.clone())));
+      if let Some(uc) = ucid {
+        self.net.send(Cmd::Backfill(Platform::Youtube, handle.clone(), uc));
+      }
+      add.push((Platform::Youtube, handle));
+    }
+    let t = &mut self.tabs[i];
+    for src in add {
+      if !t.sources.contains(&src) {
+        t.sources.push(src);
+      }
+    }
+    t.view.tags = t.sources.len() > 1;
+    t.view.relayout();
+    if i == self.active {
+      self.wake();
+    }
+  }
+
   fn on_chat(&mut self, ch: &str, ev: Chat) {
-    let Some(i) = self.tabs.iter().position(|t| &*t.name == ch) else {
-      return;
+    let i = if ch == FLOOD_TAB {
+      self.tabs.iter().position(|t| &*t.name == FLOOD_TAB)
+    } else {
+      self.tabs_with(Platform::Twitch, ch).first().copied()
     };
+    let Some(i) = i else { return };
     let tab = &mut self.tabs[i];
     match ev {
       Chat::Msg(m) => tab.view.push(m),
@@ -188,9 +295,9 @@ impl App {
       }
       Chat::ClearAll => tab.view.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
       Chat::Room { id } => {
-        if !self.rooms.contains(&tab.name) {
-          self.rooms.push(tab.name.clone());
-          self.net.send(Cmd::Room(tab.name.clone(), id));
+        if !self.rooms.iter().any(|r| **r == *ch) {
+          self.rooms.push(ch.into());
+          self.net.send(Cmd::Room(ch.into(), id));
         }
         return;
       }
@@ -418,6 +525,27 @@ impl ApplicationHandler<NetEvent> for App {
         self.relayout_where(None);
         self.trim_soon();
       }
+      NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
+      NetEvent::RelayClear { platform, key, login } => {
+        for i in self.tabs_with(platform, &key) {
+          self.tabs[i].view.clear_user(&login);
+          self.touched(i);
+        }
+      }
+      NetEvent::YtStatus { key, status } => {
+        let line = match &*status {
+          "not-live" => "youtube: not live right now",
+          "ended" => "youtube: stream ended",
+          "chat-off" => "youtube: chat is off",
+          "no-slot" => "youtube: relay is full, retrying later",
+          _ => return,
+        };
+        for i in self.tabs_with(Platform::Youtube, &key) {
+          self.tabs[i].view.push(Message::system(now_ms(), Platform::Youtube, format!("{line} ({key})")));
+          self.touched(i);
+        }
+      }
+      NetEvent::Links { tab, kick, yt } => self.on_links(&tab, kick, yt),
       NetEvent::Status(s) => {
         self.status = s;
         self.bar_dirty = true;

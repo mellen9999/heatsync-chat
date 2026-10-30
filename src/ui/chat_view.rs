@@ -7,9 +7,8 @@ use super::canvas::{Canvas, Rect};
 use super::res::{BADGE_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
-use crate::emotes::twitch_url;
 use crate::images::{Images, ImgId};
-use crate::model::message::{Kind, Message, flag};
+use crate::model::message::{Kind, Message, Platform, flag};
 use crate::util::time::hhmm;
 
 // one emote slot in a line; zero-width overlays stack on the base image
@@ -58,6 +57,8 @@ pub struct ChatView {
   pub next_anim: Option<u32>,
   pub zebra: bool,
   pub timestamps: bool,
+  // [T]/[K]/[Y] before each line once a tab merges platforms
+  pub tags: bool,
 }
 
 pub enum Paint {
@@ -69,29 +70,39 @@ pub enum Paint {
 
 const MARK_W: i32 = 2;
 
-fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool) -> Laid {
+fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags: bool) -> Laid {
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
-  let mut dim = |s: &mut String, t: &str| {
+  let dim = |s: &mut String, spans: &mut Vec<Span>, t: &str| {
     let a = s.len();
     s.push_str(t);
     spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
   };
   if let Some(sys) = &m.system {
-    dim(&mut s, sys);
+    dim(&mut s, &mut spans, sys);
     s.push('\n');
   }
   if let Some(parent) = &m.reply_to {
-    dim(&mut s, &format!("↳ @{parent}\n"));
+    dim(&mut s, &mut spans, &format!("↳ @{parent}\n"));
   }
   if ts {
-    dim(&mut s, &hhmm(m.ts));
+    dim(&mut s, &mut spans, &hhmm(m.ts));
     s.push(' ');
+  }
+  if tags {
+    let (t, c) = match m.platform {
+      Platform::Twitch => ("[T] ", theme::TWITCH),
+      Platform::Kick => ("[K] ", theme::GREEN),
+      Platform::Youtube => ("[Y] ", theme::RED),
+    };
+    let a = s.len();
+    s.push_str(t);
+    spans.push(Span { range: a..a + 3, ink: Ink(c), bold: true });
   }
   let mut ib = Vec::new();
   let mut boxes = Vec::new();
   if m.kind == Kind::System {
-    dim(&mut s, &m.body);
+    dim(&mut s, &mut spans, &m.body);
   } else {
     badges(res, chan, m, &mut s, &mut ib, &mut boxes);
     let n0 = s.len();
@@ -151,11 +162,16 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
+    // ext order: the message's own refs, then the channel catalog, then the sender's heatsync set
     let native = m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b);
     let found = match native {
-      Some((_, id)) => Some((twitch_url(id).into_boxed_str(), (28, 28), false)),
-      None if !word.is_empty() => res.emotes.lookup(chan, word).map(|e| (e.url.clone(), (e.w, e.h), e.zero_width)),
-      None => None,
+      Some((_, url)) => Some((url.clone(), (0, 0), false)),
+      None if word.is_empty() => None,
+      None => res
+        .emotes
+        .lookup(chan, word)
+        .map(|e| (e.url.clone(), (e.w, e.h), e.zero_width))
+        .or_else(|| m.hs.iter().find(|(w, _, _)| **w == *word).map(|(_, u, zw)| (u.clone(), (0, 0), *zw))),
     };
     match found {
       Some((url, _, true)) if prev_emote => {
@@ -218,6 +234,7 @@ impl ChatView {
       next_anim: None,
       zebra: true,
       timestamps: true,
+      tags: false,
     }
   }
 
@@ -305,11 +322,11 @@ impl ChatView {
   }
 
   fn content_height(&mut self, res: &mut Res) -> i32 {
-    let (w, ts) = (self.width, self.timestamps);
+    let (w, ts, tags) = (self.width, self.timestamps, self.tags);
     let mut total = 0;
     for r in &mut self.rows {
       if r.height == 0 {
-        r.height = layout_row(res, &self.channel, &r.msg, w, ts).layout.height().ceil() as i32;
+        r.height = layout_row(res, &self.channel, &r.msg, w, ts, tags).layout.height().ceil() as i32;
       }
       total += r.height;
     }
@@ -320,9 +337,9 @@ impl ChatView {
   pub fn take_paint(&mut self, res: &mut Res, view_h: i32) -> Paint {
     let n = std::mem::take(&mut self.pending);
     let mut shift = 0;
-    let (w, ts) = (self.width, self.timestamps);
+    let (w, ts, tags) = (self.width, self.timestamps, self.tags);
     for r in self.rows.iter_mut().rev().take(n) {
-      let laid = layout_row(res, &self.channel, &r.msg, w, ts);
+      let laid = layout_row(res, &self.channel, &r.msg, w, ts, tags);
       r.height = laid.layout.height().ceil() as i32;
       shift += r.height;
       r.laid = Some(Box::new(laid));
@@ -354,7 +371,7 @@ impl ChatView {
     let clip = clip.intersect(area);
     c.fill(clip, theme::BLACK);
     self.anims.retain(|a| a.rect.intersect(clip).is_empty());
-    let (w, ts, zebra) = (self.width, self.timestamps, self.zebra);
+    let (w, ts, tags, zebra) = (self.width, self.timestamps, self.tags, self.zebra);
     let mut bottom = area.bottom() + self.scroll;
     let mut drawn_lo = self.rows.len();
     for (i, r) in self.rows.iter_mut().enumerate().rev() {
@@ -362,7 +379,7 @@ impl ChatView {
         break;
       }
       if r.height == 0 || (r.laid.is_none() && bottom - r.height < clip.bottom()) {
-        let laid = layout_row(res, &self.channel, &r.msg, w, ts);
+        let laid = layout_row(res, &self.channel, &r.msg, w, ts, tags);
         r.height = laid.layout.height().ceil() as i32;
         r.laid = Some(Box::new(laid));
       }

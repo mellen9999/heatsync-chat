@@ -48,6 +48,7 @@ impl Fake {
       color: COLORS[self.next() % COLORS.len()],
       body: BODIES[self.next() % BODIES.len()].into(),
       emotes: Box::new([]),
+      hs: Box::new([]),
       badges: Box::new([]),
       reply_to: None,
       system: None,

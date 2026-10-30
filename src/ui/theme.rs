@@ -10,7 +10,6 @@ pub const WHITE: u32 = 0xffffff;
 pub const ZEBRA: u32 = 0x444444;
 pub const DIM: u32 = 0x808080;
 pub const HEATSYNC: u32 = 0xff8700;
-#[allow(dead_code)] // [T] badge, lands with platform badges
 pub const TWITCH: u32 = 0xc8a8ff;
 
 pub const FONT_PX: f32 = 15.0;
