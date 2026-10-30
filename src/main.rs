@@ -3,6 +3,7 @@ mod badges;
 mod bench;
 mod emotes;
 mod fake;
+mod heatsync;
 mod images;
 mod model;
 mod net;

@@ -5,6 +5,7 @@ pub mod irc;
 mod links;
 mod recent;
 pub mod relay;
+mod senders;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +15,7 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::badges::{self, Source, TwitchSet, UserBadges};
 use crate::emotes::{Provider, Set, providers};
+use crate::heatsync::senders::Set as SenderSet;
 use crate::images::{ImgId, cache, decode, url};
 use crate::model::message::{Message, Platform};
 use irc::Chat;
@@ -37,6 +39,9 @@ pub enum NetEvent {
   // a twitch tab's publicly linked accounts: kick slug, youtube (handle, UC id)
   Links { tab: Box<str>, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)> },
   UserBadges(Source, UserBadges),
+  // heatsync inventories for twitch user ids
+  Senders(Vec<(u64, SenderSet)>),
+  SendersStale { ids: Vec<u64>, ver: Option<Box<str>>, removed: Option<Box<str>> },
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -74,6 +79,8 @@ pub enum Cmd {
   Hs(hs_ws::Cmd),
   // recent history for a relayed source: (platform, routing key, archive key)
   Backfill(Platform, Box<str>, Box<str>),
+  // twitch user id → their heatsync inventory (version set after a ws invalidation)
+  Sender(u64, Option<Box<str>>),
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -245,6 +252,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   tokio::spawn(global_badges(http.clone(), out.clone()));
   let (hs_tx, hs_rx) = mpsc::unbounded_channel();
   tokio::spawn(hs_ws::run(hs_rx, out.clone()));
+  let (snd_tx, snd_rx) = mpsc::unbounded_channel();
+  tokio::spawn(senders::run(http.clone(), snd_rx, out.clone()));
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
@@ -269,6 +278,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Backfill(p, key, archive) => {
         tokio::spawn(links::backfill(http.clone(), p, key, archive, out.clone()));
+      }
+      Cmd::Sender(id, ver) => {
+        let _ = snd_tx.send((id, ver));
       }
       Cmd::Room(ch, room) => {
         tokio::spawn(channel_emotes(http.clone(), ch, room, out.clone()));

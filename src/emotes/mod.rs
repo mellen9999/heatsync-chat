@@ -27,6 +27,12 @@ struct Scope {
   sets: HashMap<Provider, Set>,
 }
 
+impl Scope {
+  fn get(&self, word: &str) -> Option<&Emote> {
+    ORDER.iter().find_map(|p| self.sets.get(p)?.get(word))
+  }
+}
+
 // which provider wins a name both define (ext setting emoteProviderPriority, default ffz)
 const ORDER: [Provider; 3] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv];
 
@@ -49,10 +55,13 @@ impl Emotes {
     self.channels.remove(channel);
   }
 
-  // channel sets beat globals; within a scope, ORDER decides
-  pub fn lookup(&self, channel: &str, word: &str) -> Option<&Emote> {
-    let ch = self.channels.get(channel);
-    ch.into_iter().chain([&self.global]).find_map(|s| ORDER.iter().find_map(|p| s.sets.get(p)?.get(word)))
+  // within a scope, ORDER decides. callers check the channel before globals
+  pub fn channel(&self, channel: &str, word: &str) -> Option<&Emote> {
+    self.channels.get(channel)?.get(word)
+  }
+
+  pub fn global(&self, word: &str) -> Option<&Emote> {
+    self.global.get(word)
   }
 }
 
@@ -74,8 +83,9 @@ mod tests {
     em.set(None, Provider::Bttv, [("LUL".into(), e("g-bttv"))].into());
     em.set(Some("c"), Provider::SevenTv, [("LUL".into(), e("c-7tv"))].into());
     em.set(Some("c"), Provider::Ffz, [("LUL".into(), e("c-ffz"))].into());
-    assert_eq!(&*em.lookup("c", "LUL").unwrap().url, "c-ffz");
-    assert_eq!(&*em.lookup("other", "LUL").unwrap().url, "g-bttv");
-    assert!(em.lookup("c", "lul").is_none());
+    let find = |c, w| em.channel(c, w).or_else(|| em.global(w));
+    assert_eq!(&*find("c", "LUL").unwrap().url, "c-ffz");
+    assert_eq!(&*find("other", "LUL").unwrap().url, "g-bttv");
+    assert!(find("c", "lul").is_none());
   }
 }

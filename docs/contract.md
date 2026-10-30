@@ -47,7 +47,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - in:
   - `batch {messages}` unwrap (≤256, don't recurse)
   - `server:shutdown {reconnectSpreadMs}` → close, reconnect after rand(0, clamp(spread,1000,60000)); no backoff charge
-  - `emote:added|removed|emotes:refresh` — `_ch` starts `emotes/` = own inventory → refetch `?v=_seq`; else another user: `senderKeys[]`, `emoteName`, `ver` → drop + refetch those senders (`&v=`); `removed` scrubs name now
+  - `emote:added|removed|emotes:refresh` — `_ch` starts `emotes/` = own inventory → refetch `?v=_seq`; with `username` = another user (global broadcast, reaches anon `?b=1` sockets): `senderKeys[]`, `emoteName`, `ver` → drop + refetch those senders (`&v=`); `removed` scrubs name now. auto-add-on-send means the add usually lands just AFTER the line, so the refetch must relayout that sender's existing lines
   - `emote:broadcast {username, emoteName, emoteData{url,width,height,zero_width,nsfw,cw_cats}}` → merge into that sender's map
   - `kick-chat-message {data:{id,username,displayName,content,color,timestamp,hsEmotes{word→{url,provider,zeroWidth,nsfw,cw_cats}},replyTo}, _ch, _seq}`; `kick-chat-backfill {channel, messages}`
   - `youtube:chat {channelId, messages[{id,user,text,emotes[{alt,url}],timestamp,color,amount,systemMsg,authorChannelId,hsEmotes}], replay}` — drop `replay:true` batches

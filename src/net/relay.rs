@@ -2,10 +2,11 @@
 // every field is hostile: bounded, typed, urls allowlisted
 use serde_json::Value;
 
+use crate::heatsync::{cw_blocked, valid_name};
 use crate::images::url::allowed;
 use crate::model::color;
 use crate::model::message::{HsEmote, Kind, Message, Placed, Platform};
-use crate::util::time::now_ms;
+use crate::util::time::{now_ms, parse_iso};
 
 const MAX_TEXT: usize = 2000;
 const MAX_NAME: usize = 100;
@@ -35,39 +36,14 @@ fn ts(v: &Value) -> i64 {
   }
 }
 
-// "2026-10-30T22:26:51.099Z" → unix ms (utc only; that's all the archive emits)
-pub fn parse_iso(s: &str) -> Option<i64> {
-  let b = s.as_bytes();
-  if b.len() < 19 || b[4] != b'-' || b[10] != b'T' {
-    return None;
-  }
-  let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
-  let (y, mo, d, h, mi, se) = (n(0..4)?, n(5..7)?, n(8..10)?, n(11..13)?, n(14..16)?, n(17..19)?);
-  let ms = s.get(20..23).and_then(|f| f.parse::<i64>().ok()).filter(|_| b.get(19) == Some(&b'.')).unwrap_or(0);
-  // days from civil (howard hinnant)
-  let (y2, m2) = if mo <= 2 { (y - 1, mo + 9) } else { (y, mo - 3) };
-  let era = y2.div_euclid(400);
-  let yoe = y2 - era * 400;
-  let doy = (153 * m2 + 2) / 5 + d - 1;
-  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  let days = era * 146097 + doe - 719468;
-  Some(((days * 24 + h) * 60 + mi) * 60_000 + se * 1000 + ms)
-}
-
-// heatsync's per-sender emote refs. cw gate: nsfw or sexual/gore categories never render
+// heatsync's per-sender emote refs, server-resolved from the sender's inventory
 fn hs_emotes(v: Option<&Value>) -> Box<[HsEmote]> {
   let Some(map) = v.and_then(Value::as_object) else { return Box::new([]) };
   map
     .iter()
     .filter_map(|(word, e)| {
       let url = str_of(e, "url")?;
-      let nsfw = e.get("nsfw").and_then(Value::as_bool) == Some(true);
-      let cw = e
-        .get("cw_cats")
-        .and_then(Value::as_array)
-        .is_some_and(|c| c.iter().any(|x| matches!(x.as_str(), Some("sexual" | "gore"))));
-      let ok_word = !word.is_empty() && word.len() <= 100 && !word.chars().any(char::is_whitespace);
-      (ok_word && !nsfw && !cw && allowed(url))
+      (valid_name(word) && !cw_blocked(e) && allowed(url))
         .then(|| (word.as_str().into(), url.into(), e.get("zeroWidth").and_then(Value::as_bool) == Some(true)))
     })
     .take(MAX_HS)
@@ -199,13 +175,6 @@ pub fn batch(list: Option<&Value>, parse: fn(&Value) -> Option<Message>) -> Vec<
 mod tests {
   use super::*;
   use serde_json::json;
-
-  #[test]
-  fn iso() {
-    assert_eq!(parse_iso("1970-01-01T00:00:00Z"), Some(0));
-    assert_eq!(parse_iso("2026-10-30T22:26:51.099Z"), Some(1793399211099));
-    assert_eq!(parse_iso("garbage"), None);
-  }
 
   #[test]
   fn kick_tokens_and_hs() {

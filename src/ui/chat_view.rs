@@ -159,19 +159,15 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
   let mut prev_emote = false;
   let mut first = true;
   let mut at = 0usize;
+  let sender = (m.platform == Platform::Twitch).then(|| m.user_id.parse::<u64>().ok()).flatten();
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
-    // ext order: the message's own refs, then the channel catalog, then the sender's heatsync set
     let native = m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b);
     let found = match native {
       Some((_, url)) => Some((url.clone(), (0, 0), false)),
       None if word.is_empty() => None,
-      None => res
-        .emotes
-        .lookup(chan, word)
-        .map(|e| (e.url.clone(), (e.w, e.h), e.zero_width))
-        .or_else(|| m.hs.iter().find(|(w, _, _)| **w == *word).map(|(_, u, zw)| (u.clone(), (0, 0), *zw))),
+      None => resolve(res, chan, m, sender, word),
     };
     match found {
       Some((url, _, true)) if prev_emote => {
@@ -202,6 +198,24 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
     first = false;
   }
 }
+
+// ext order: the line's own server-verified refs, the channel catalog, the sender's heatsync
+// inventory, then globals. the sender's set is the only heatsync source (privacy invariant)
+fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
+  let e = |e: &crate::emotes::Emote| (e.url.clone(), (e.w, e.h), e.zero_width);
+  if let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
+    return Some((u.clone(), (0, 0), *zw));
+  }
+  if let Some(x) = res.emotes.channel(chan, word) {
+    return Some(e(x));
+  }
+  if let Some(x) = sender.and_then(|id| res.senders.lookup(id, word, m.ts)) {
+    return Some((x.url.clone(), (x.w, x.h), x.zero_width));
+  }
+  res.emotes.global(word).map(e)
+}
+
+type Found = (Box<str>, (u16, u16), bool);
 
 fn blit_emote(c: &mut Canvas, images: &mut Images, imgs: &[ImgId], rect: Rect, clip: Rect, next: &mut Option<u32>) {
   for &id in imgs {
@@ -280,6 +294,14 @@ impl ChatView {
   pub fn clear_user(&mut self, login: &str) {
     for r in self.rows.iter_mut().filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System) {
       r.msg.flags |= flag::CLEARED;
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
+  // a twitch sender's heatsync inventory arrived or changed: re-resolve only their lines
+  pub fn touch_sender(&mut self, uid: &str) {
+    for r in self.rows.iter_mut().filter(|r| r.msg.platform == Platform::Twitch && &*r.msg.user_id == uid) {
       Self::touch(r);
       self.stale = true;
     }

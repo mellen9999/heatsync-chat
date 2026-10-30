@@ -11,8 +11,9 @@ use tokio::time::{Instant, interval, sleep, timeout};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
-use super::relay;
 use super::{NetEvent, Out, backoff};
+use super::{relay, senders};
+use crate::heatsync::valid_name;
 use crate::model::message::Platform;
 
 const URL: &str = "wss://heatsync.org/ws?b=1";
@@ -238,6 +239,18 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       }
       st.yt_status.insert(key.clone(), status.clone());
       send(NetEvent::YtStatus { key, status })
+    }
+    // another user's inventory changed: the viewer push carries `username` + `senderKeys`
+    // (the owner's own sync carries `data` instead: not logged in yet, ignore)
+    "emote:added" | "emote:removed" if v.get("username").is_some() => {
+      let (ids, ver) = senders::stale(v);
+      if ids.is_empty() {
+        return None;
+      }
+      let removed = (ty == "emote:removed")
+        .then(|| v.get("emoteName").and_then(Value::as_str).filter(|n| valid_name(n)).map(Into::into))
+        .flatten();
+      send(NetEvent::SendersStale { ids, ver, removed })
     }
     _ => None,
   }

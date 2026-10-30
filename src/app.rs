@@ -214,6 +214,14 @@ impl App {
     self.wake();
   }
 
+  fn touch_sender(&mut self, id: u64) {
+    let uid = id.to_string();
+    for t in &mut self.tabs {
+      t.view.touch_sender(&uid);
+    }
+    self.wake();
+  }
+
   fn trim_soon(&mut self) {
     self.trim_at = Some(Instant::now() + TRIM_AFTER);
   }
@@ -355,6 +363,9 @@ impl App {
     }
     for (id, url, h) in self.res.images.take_wanted() {
       self.net.send(Cmd::Image(id, url, h));
+    }
+    for id in self.res.senders.take_wanted() {
+      self.net.send(Cmd::Sender(id, None));
     }
     self.present(dirty);
   }
@@ -526,6 +537,29 @@ impl ApplicationHandler<NetEvent> for App {
         self.res.badges.set_users(src, set);
         self.relayout_where(None);
         self.trim_soon();
+      }
+      NetEvent::Senders(sets) => {
+        if self.prof {
+          eprintln!("senders {} owning {}", sets.len(), sets.iter().filter(|(_, s)| !s.is_empty()).count());
+        }
+        for (id, set) in sets {
+          if self.res.senders.put(id, set) {
+            self.touch_sender(id);
+          }
+        }
+        self.trim_soon();
+      }
+      NetEvent::SendersStale { ids, ver, removed } => {
+        if self.prof {
+          eprintln!("senders stale {}", ids.len());
+        }
+        for id in ids {
+          let Some(scrubbed) = self.res.senders.stale(id, removed.as_deref()) else { continue };
+          self.net.send(Cmd::Sender(id, ver.clone()));
+          if scrubbed {
+            self.touch_sender(id);
+          }
+        }
       }
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::RelayClear { platform, key, login } => {
