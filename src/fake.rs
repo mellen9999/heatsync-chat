@@ -1,5 +1,5 @@
 // deterministic synthetic chat for the render gate and flood testing
-use crate::model::message::Message;
+use crate::model::message::{Kind, Message, Platform};
 use crate::ui::theme;
 
 const NICKS: &[&str] = &[
@@ -50,11 +50,20 @@ impl Fake {
   }
 
   pub fn message(&mut self, ts: i64) -> Message {
+    let nick = NICKS[self.next() % NICKS.len()];
     Message {
+      id: format!("fake-{ts}").into(),
       ts,
-      nick: NICKS[self.next() % NICKS.len()].into(),
+      platform: Platform::Twitch,
+      kind: Kind::Chat,
+      flags: 0,
+      login: nick.into(),
+      nick: nick.into(),
       color: COLORS[self.next() % COLORS.len()],
       body: BODIES[self.next() % BODIES.len()].into(),
+      emotes: Box::new([]),
+      reply_to: None,
+      system: None,
     }
   }
 }

@@ -9,4 +9,6 @@ cargo build --release
 ./target/release/heatsync-chat --bench    # headless render timing + memory
 ```
 
-keys: `j`/`k` scroll · `ctrl-d`/`ctrl-u` half page · `G` newest
+keys: `j`/`k` scroll · `ctrl-d`/`ctrl-u` half page · `gg`/`G` oldest/newest · `gt`/`gT` or `alt-1..9` tabs · `ctrl-w` close tab
+
+channels: `heatsync-chat forsen xqc` opens those tabs (remembered); no args reopens the last set
