@@ -23,6 +23,8 @@ struct Slot {
   lh: u16,
   state: State,
   last_used: u64,
+  // ms since epoch when last drawn; idle frames go back to the disk cache
+  seen_ms: u64,
   // width the layout assumed before the image arrived; a mismatch forces a relayout
   guessed_w: u32,
 }
@@ -36,9 +38,13 @@ pub struct Images {
   epoch: Instant,
   scale: f32,
   wanted: Vec<(ImgId, Box<str>, u32)>,
+  swept_ms: u64,
 }
 
 pub const DEFAULT_CAP: usize = 24 << 20;
+// off-screen emotes re-decode from disk in ~1ms, so holding them in ram buys nothing
+const IDLE_MS: u64 = 60_000;
+const SWEEP_MS: u64 = 10_000;
 
 impl Images {
   pub fn new(scale: f32) -> Self {
@@ -51,6 +57,7 @@ impl Images {
       epoch: Instant::now(),
       scale,
       wanted: Vec::new(),
+      swept_ms: 0,
     }
   }
 
@@ -78,7 +85,7 @@ impl Images {
       return id;
     }
     let id = self.slots.len() as ImgId;
-    self.slots.push(Slot { url: key.0.clone(), lh, state: State::Idle, last_used: 0, guessed_w: 0 });
+    self.slots.push(Slot { url: key.0.clone(), lh, state: State::Idle, last_used: 0, seen_ms: 0, guessed_w: 0 });
     self.by_url.insert(key, id);
     id
   }
@@ -102,6 +109,7 @@ impl Images {
     let h = self.px(self.slots.get(id as usize)?.lh);
     let s = &mut self.slots[id as usize];
     s.last_used = self.tick;
+    s.seen_ms = now;
     if matches!(s.state, State::Idle) {
       s.state = State::Loading;
       self.wanted.push((id, s.url.clone(), h));
@@ -149,9 +157,25 @@ impl Images {
     }
   }
 
-  // called once per frame: anything drawn this frame survives eviction
-  pub fn next_tick(&mut self) {
+  // called once per frame: anything drawn this frame survives eviction.
+  // true when idle frames were dropped (worth a malloc_trim)
+  pub fn next_tick(&mut self) -> bool {
     self.tick += 1;
+    let now = self.epoch.elapsed().as_millis() as u64;
+    if now < self.swept_ms + SWEEP_MS {
+      return false;
+    }
+    self.swept_ms = now;
+    let before = self.bytes;
+    for s in &mut self.slots {
+      if s.seen_ms + IDLE_MS < now
+        && let State::Ready(d) = &s.state
+      {
+        self.bytes -= d.bytes();
+        s.state = State::Idle;
+      }
+    }
+    self.bytes < before
   }
 
   fn evict(&mut self) {

@@ -5,6 +5,9 @@ pub fn limit_arenas() {
   // SAFETY: plain allocator tuning, called before any other thread exists
   unsafe {
     libc::mallopt(libc::M_ARENA_MAX, 2);
+    // a fixed threshold stops glibc raising it after big frees, so decoded frames and
+    // json bodies stay mmap-backed and go straight back to the os instead of fragmenting the heap
+    libc::mallopt(libc::M_MMAP_THRESHOLD, 128 << 10);
   }
 }
 

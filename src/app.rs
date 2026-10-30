@@ -325,8 +325,10 @@ impl App {
       tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status);
       dirty = Some(bar);
     }
+    if self.res.images.next_tick() {
+      self.trim_soon();
+    }
     let (canvas, res) = (&mut self.canvas, &mut self.res);
-    res.images.next_tick();
     let add = |d: Option<Rect>, r: Rect| Some(d.map_or(r, |d| union(d, r)));
     if let Some(t) = self.tabs.get_mut(self.active) {
       match t.view.take_paint(res, area.h) {
