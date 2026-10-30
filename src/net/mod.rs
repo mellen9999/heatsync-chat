@@ -3,22 +3,27 @@
 pub mod irc;
 mod recent;
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use winit::event_loop::EventLoopProxy;
 
+use crate::emotes::{Provider, Set, providers};
+use crate::images::{ImgId, cache, decode, url};
 use irc::Chat;
 
 pub const USER_AGENT: &str = concat!("heatsync-chat/", env!("CARGO_PKG_VERSION"));
 pub const ORIGIN: &str = "https://heatsync.org";
 
-#[derive(Debug)]
 pub enum NetEvent {
   Chat(Box<str>, Chat),
   // recent history for a freshly joined channel, oldest first
   Backfill(Box<str>, Vec<Chat>),
   Status(String),
+  // channel = None for globals
+  Emotes(Option<Box<str>>, Provider, Set),
+  Image(ImgId, u32, Result<decode::Decoded, String>),
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -49,6 +54,117 @@ pub fn backoff(attempt: u32) -> Duration {
 pub enum Cmd {
   Join(Box<str>),
   Part(Box<str>),
+  // roomstate told us the channel's twitch id: fetch its 7tv/bttv/ffz sets
+  Room(Box<str>, Box<str>),
+  Image(ImgId, Box<str>, u32),
+}
+
+const IMAGE_FETCHES: usize = 6;
+const DISK_CACHE_MAX: u64 = 256 << 20;
+const MAX_IMAGE_BYTES: usize = 8 << 20;
+
+struct DecodeJob {
+  id: ImgId,
+  url: Box<str>,
+  h: u32,
+  bytes: Vec<u8>,
+  // fresh from the network: persist before decoding
+  store: bool,
+}
+
+// decoding is cpu work; keep it off the network loop
+fn spawn_decoder(out: Out) -> Option<std::sync::mpsc::Sender<DecodeJob>> {
+  let (tx, rx) = std::sync::mpsc::channel::<DecodeJob>();
+  let spawned = std::thread::Builder::new().name("decode".into()).spawn(move || {
+    cache::prune(DISK_CACHE_MAX);
+    for j in rx {
+      if j.store {
+        cache::write(&j.url, &j.bytes);
+      }
+      let res = decode::decode(&j.bytes, j.h);
+      if !out.send(NetEvent::Image(j.id, j.h, res)) {
+        return;
+      }
+    }
+  });
+  spawned.ok().map(|_| tx)
+}
+
+async fn image(
+  http: reqwest::Client,
+  gate: Arc<Semaphore>,
+  dec: std::sync::mpsc::Sender<DecodeJob>,
+  id: ImgId,
+  url: Box<str>,
+  h: u32,
+  out: Out,
+) {
+  let fail = |e: String| {
+    out.send(NetEvent::Image(id, h, Err(e)));
+  };
+  if !url::allowed(&url) {
+    return fail("host not allowed".into());
+  }
+  if let Some(bytes) = cache::read(&url) {
+    let _ = dec.send(DecodeJob {
+      id,
+      url,
+      h,
+      bytes,
+      store: false,
+    });
+    return;
+  }
+  let Ok(_permit) = gate.acquire().await else { return };
+  let res = match http.get(&*url).send().await {
+    Ok(r) if r.status().is_success() => r.bytes().await.map_err(|e| e.to_string()),
+    Ok(r) => Err(format!("http {}", r.status().as_u16())),
+    Err(e) => Err(e.to_string()),
+  };
+  match res {
+    Ok(b) if b.len() <= MAX_IMAGE_BYTES => {
+      let _ = dec.send(DecodeJob {
+        id,
+        url,
+        h,
+        bytes: b.to_vec(),
+        store: true,
+      });
+    }
+    Ok(_) => fail("too large".into()),
+    Err(e) => fail(e),
+  }
+}
+
+async fn channel_emotes(http: reqwest::Client, ch: Box<str>, room: Box<str>, out: Out) {
+  if !room.bytes().all(|b| b.is_ascii_digit()) {
+    return;
+  }
+  for (p, u) in providers::channel_urls(&room) {
+    match providers::fetch(&http, &u).await {
+      Ok(v) => {
+        out.send(NetEvent::Emotes(Some(ch.clone()), p, providers::parse_channel(p, &v)));
+      }
+      Err(e) => out.status(format!("{p:?} emotes for {ch}: {e}").to_lowercase()),
+    }
+  }
+}
+
+async fn global_emotes(http: reqwest::Client, out: Out) {
+  type Parse = fn(&serde_json::Value) -> Set;
+  let sets: [(Provider, &str, Parse); 3] = [
+    (Provider::SevenTv, providers::SEVENTV_GLOBAL, providers::seventv),
+    (Provider::Bttv, providers::BTTV_GLOBAL, providers::bttv_global),
+    (Provider::Ffz, providers::FFZ_GLOBAL, providers::ffz_global),
+  ];
+  for (p, u, parse) in sets {
+    match providers::fetch(&http, u).await {
+      Ok(v) => {
+        out.send(NetEvent::Emotes(None, p, parse(&v)));
+      }
+      Err(e) => out.status(format!("global {p:?} emotes: {e}").to_lowercase()),
+    }
+  }
 }
 
 pub struct Net {
@@ -89,6 +205,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   };
   let (irc_tx, irc_rx) = mpsc::unbounded_channel();
   tokio::spawn(irc::run(irc_rx, out.clone()));
+  tokio::spawn(global_emotes(http.clone(), out.clone()));
+  let Some(dec) = spawn_decoder(out.clone()) else {
+    return out.status("image decoder failed to start");
+  };
+  let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
   while let Some(cmd) = rx.recv().await {
     match cmd {
       Cmd::Join(ch) => {
@@ -97,6 +218,12 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Part(ch) => {
         let _ = irc_tx.send(irc::Cmd::Part(ch));
+      }
+      Cmd::Room(ch, room) => {
+        tokio::spawn(channel_emotes(http.clone(), ch, room, out.clone()));
+      }
+      Cmd::Image(id, u, h) => {
+        tokio::spawn(image(http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
   }

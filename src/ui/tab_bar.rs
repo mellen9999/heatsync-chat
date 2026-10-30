@@ -28,13 +28,14 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, tabs: &[TabLabel], stat
         ink: Ink(ink),
         bold: t.unread || t.active,
       }],
+      &[],
       f32::MAX,
     );
     let w = l.width().ceil() as i32;
     if t.active {
       c.fill(Rect::new(x, area.y, w, area.h), theme::WHITE);
     }
-    text.draw(&l, c, x as f32, area.y as f32, area);
+    text.draw(&l, c, x as f32, area.y as f32, area, |_, _| {});
     x += w;
   }
   if !status.is_empty() {
@@ -46,8 +47,9 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, tabs: &[TabLabel], stat
         ink: Ink(theme::DIM),
         bold: false,
       }],
+      &[],
       f32::MAX,
     );
-    text.draw(&l, c, x as f32, area.y as f32, area);
+    text.draw(&l, c, x as f32, area.y as f32, area, |_, _| {});
   }
 }

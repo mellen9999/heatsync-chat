@@ -4,7 +4,7 @@ use std::time::Instant;
 use crate::fake::Fake;
 use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::chat_view::{ChatView, Paint};
-use crate::ui::text::Text;
+use crate::ui::res::Res;
 
 pub fn rss_kb() -> (u64, u64, u64, u64) {
   let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
@@ -21,8 +21,8 @@ pub fn rss_kb() -> (u64, u64, u64, u64) {
 pub fn run(total: usize) {
   let (w, h) = (480, 1000);
   let mut c = Canvas::new(w, h);
-  let mut text = Text::new(1.0);
-  let mut chat = ChatView::new(1000);
+  let mut res = Res::new(1.0);
+  let mut chat = ChatView::new(1000, "bench".into());
   let mut fake = Fake::new(0x5eed);
   let area = Rect::new(0, 0, w, h);
   chat.resize(w);
@@ -37,12 +37,12 @@ pub fn run(total: usize) {
       chat.push(fake.message(ts));
     }
     let f = Instant::now();
-    match chat.take_paint(&mut text, h) {
+    match chat.take_paint(&mut res, h) {
       Paint::Nothing => {}
-      Paint::Full => chat.draw(&mut c, &mut text, area, area),
+      Paint::Full => chat.draw(&mut c, &mut res, area, area),
       Paint::Append { shift } => {
         c.scroll_up(area, shift);
-        chat.draw(&mut c, &mut text, area, Rect::new(0, h - shift, w, shift));
+        chat.draw(&mut c, &mut res, area, Rect::new(0, h - shift, w, shift));
       }
     }
     let dt = f.elapsed().as_secs_f64() * 1e3;
@@ -54,7 +54,7 @@ pub fn run(total: usize) {
 
   let f = Instant::now();
   for _ in 0..100 {
-    chat.draw(&mut c, &mut text, area, area);
+    chat.draw(&mut c, &mut res, area, area);
   }
   let full_avg = f.elapsed().as_secs_f64() * 1e3 / 100.0;
 

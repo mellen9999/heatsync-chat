@@ -18,9 +18,11 @@ the heatsync browser extension's multichat overlay, as a standalone pure-rust wi
 - never a 🔥 on/next to a heat score
 - tokens never rendered or logged (streamer-safe)
 
-## budget (m1 gate, heatlaptop, dwl)
-- anon rss ~11MB windowed (chatterino: ~135MB anon). file-backed rss is mmapped fonts + binary, shared/evictable
-- append frame ~0.2ms render, ~1.2ms incl. present; full redraw ~0.35ms; idle cpu 0
+## budget (heatlaptop, dwl)
+- anon rss ~12MB at start, ~18MB with 3 busy channels + emotes (chatterino: ~135MB anon). file-backed rss = mmapped fonts + binary, shared/evictable
+- glibc parks freed heap after big json parses: `util::mem` caps arenas at 2 and trims 2s after bursts (31MB → 15MB measured). keep it
+- append frame ~0.25ms, full redraw ~0.45ms; busy channel w/ animated emotes ~3% cpu (animations capped 30fps); idle cpu 0
+- images: decoded at display height (28px × scale), 24MB frame cap with lru eviction, raw bytes in `~/.cache/heatsync-chat/img` (pruned to 256MB)
 
 ## conventions
 - rustfmt 2-space, lowercase ui copy, conventional commits, no ai fingerprints

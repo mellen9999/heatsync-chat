@@ -1,21 +1,45 @@
 // virtualized chat rows: heights for every row, layouts only for rows on screen
 use std::collections::{HashSet, VecDeque};
 
+use parley::{InlineBox, InlineBoxKind, VerticalAlign};
+
 use super::canvas::{Canvas, Rect};
-use super::text::{Ink, Span, Text, TextLayout};
+use super::res::Res;
+use super::text::{Ink, Span, TextLayout};
 use super::theme;
+use crate::emotes::twitch_url;
+use crate::images::{Images, ImgId};
 use crate::model::message::{Kind, Message, flag};
 use crate::util::time::hhmm;
+
+// one emote slot in a line; zero-width overlays stack on the base image
+struct EmoteBox {
+  img: ImgId,
+  zw: Vec<ImgId>,
+}
+
+struct Laid {
+  layout: TextLayout,
+  boxes: Vec<EmoteBox>,
+}
 
 struct Row {
   // parity drives zebra; backfill counts down from 0 so stripes stay alternating
   seq: i64,
   msg: Message,
   height: i32,
-  layout: Option<Box<TextLayout>>,
+  laid: Option<Box<Laid>>,
+}
+
+// an animated emote currently on screen: redrawn alone when its frame flips
+struct Anim {
+  rect: Rect,
+  bg: u32,
+  imgs: Vec<ImgId>,
 }
 
 pub struct ChatView {
+  pub channel: Box<str>,
   rows: VecDeque<Row>,
   cap: usize,
   seq_back: i64,
@@ -27,6 +51,9 @@ pub struct ChatView {
   pending: usize,
   // something above the newest rows changed: next frame repaints everything
   stale: bool,
+  anims: Vec<Anim>,
+  // ms until the soonest on-screen animation flips
+  pub next_anim: Option<u32>,
   pub zebra: bool,
   pub timestamps: bool,
 }
@@ -40,9 +67,144 @@ pub enum Paint {
 
 const MARK_W: i32 = 2;
 
+fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool) -> Laid {
+  let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
+  let mut spans = Vec::with_capacity(4);
+  let mut dim = |s: &mut String, t: &str| {
+    let a = s.len();
+    s.push_str(t);
+    spans.push(Span {
+      range: a..s.len(),
+      ink: Ink(theme::DIM),
+      bold: false,
+    });
+  };
+  if let Some(sys) = &m.system {
+    dim(&mut s, sys);
+    s.push('\n');
+  }
+  if let Some(parent) = &m.reply_to {
+    dim(&mut s, &format!("↳ @{parent}\n"));
+  }
+  if ts {
+    dim(&mut s, &hhmm(m.ts));
+    s.push(' ');
+  }
+  let mut ib = Vec::new();
+  let mut boxes = Vec::new();
+  if m.kind == Kind::System {
+    dim(&mut s, &m.body);
+  } else {
+    let n0 = s.len();
+    s.push_str(&m.nick);
+    spans.push(Span {
+      range: n0..s.len(),
+      ink: Ink(m.color),
+      bold: true,
+    });
+    if m.kind == Kind::Chat {
+      s.push(':');
+    }
+    s.push(' ');
+    let b0 = s.len();
+    body(res, chan, m, &mut s, &mut ib, &mut boxes);
+    let ink = match (m.has(flag::CLEARED), m.kind) {
+      (true, _) => Some(theme::DIM),
+      (_, Kind::Action) => Some(m.color),
+      _ => None,
+    };
+    if let Some(c) = ink {
+      spans.push(Span {
+        range: b0..s.len(),
+        ink: Ink(c),
+        bold: false,
+      });
+    }
+  }
+  let layout = res
+    .text
+    .layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
+  Laid { layout, boxes }
+}
+
+// words become text or emote boxes. twitch's own emotes come by position, the rest by name
+fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+  let h = res.images.target_h as f32;
+  let mut prev_emote = false;
+  let mut first = true;
+  let mut at = 0usize;
+  for word in m.body.split(' ') {
+    let (a, b) = (at, at + word.len());
+    at = b + 1;
+    let native = m
+      .emotes
+      .iter()
+      .find(|(r, _)| r.start as usize == a && r.end as usize == b);
+    let found = match native {
+      Some((_, id)) => Some((twitch_url(id).into_boxed_str(), (28, 28), false)),
+      None if !word.is_empty() => res
+        .emotes
+        .lookup(chan, word)
+        .map(|e| (e.url.clone(), (e.w, e.h), e.zero_width)),
+      None => None,
+    };
+    match found {
+      Some((url, _, true)) if prev_emote => {
+        let img = res.images.id(&url);
+        if let Some(last) = boxes.last_mut() {
+          last.zw.push(img);
+        }
+        continue;
+      }
+      Some((url, dims, _)) => {
+        if !first {
+          s.push(' ');
+        }
+        let img = res.images.id(&url);
+        let w = res.images.width(img, dims) as f32;
+        ib.push(InlineBox {
+          id: boxes.len() as u64,
+          kind: InlineBoxKind::InFlow,
+          index: s.len(),
+          width: w,
+          height: h,
+          baseline: None,
+          vertical_align: VerticalAlign::MIDDLE,
+        });
+        boxes.push(EmoteBox { img, zw: Vec::new() });
+        prev_emote = true;
+      }
+      None => {
+        if !first {
+          s.push(' ');
+        }
+        s.push_str(word);
+        prev_emote = word.is_empty() && prev_emote;
+      }
+    }
+    first = false;
+  }
+}
+
+fn blit_emote(c: &mut Canvas, images: &mut Images, imgs: &[ImgId], rect: Rect, clip: Rect, next: &mut Option<u32>) {
+  for &id in imgs {
+    let Some((f, w, h, flip)) = images.frame(id) else {
+      continue;
+    };
+    // zero-width overlays center on the base
+    let x = rect.x + (rect.w - w as i32) / 2;
+    let y = rect.y + (rect.h - h as i32) / 2;
+    c.rgba(x, y, w as i32, h as i32, &f.rgba, clip);
+    if let Some(ms) = flip {
+      *next = Some(next.map_or(ms, |n| n.min(ms)));
+    }
+  }
+}
+
 impl ChatView {
-  pub fn new(cap: usize) -> Self {
+  pub fn new(cap: usize, channel: Box<str>) -> Self {
     Self {
+      channel,
       rows: VecDeque::with_capacity(cap.min(1024)),
       cap,
       seq_back: 0,
@@ -51,6 +213,8 @@ impl ChatView {
       scroll: 0,
       pending: 0,
       stale: true,
+      anims: Vec::new(),
+      next_anim: None,
       zebra: true,
       timestamps: true,
     }
@@ -69,7 +233,7 @@ impl ChatView {
       seq: self.seq_back,
       msg,
       height: 0,
-      layout: None,
+      laid: None,
     });
     self.pending += 1;
   }
@@ -94,14 +258,14 @@ impl ChatView {
         seq: self.seq_front,
         msg,
         height: 0,
-        layout: None,
+        laid: None,
       });
     }
     self.stale = true;
   }
 
   fn touch(r: &mut Row) {
-    r.layout = None;
+    r.laid = None;
     r.height = 0;
   }
 
@@ -145,8 +309,8 @@ impl ChatView {
     self.scroll == 0
   }
 
-  pub fn scroll_by(&mut self, px: i32, text: &mut Text) {
-    let max = self.content_height(text);
+  pub fn scroll_by(&mut self, px: i32, res: &mut Res) {
+    let max = self.content_height(res);
     self.scroll = (self.scroll + px).clamp(0, max);
     self.stale = true;
   }
@@ -156,89 +320,33 @@ impl ChatView {
     self.stale = true;
   }
 
-  pub fn scroll_to_top(&mut self, text: &mut Text) {
-    self.scroll = self.content_height(text);
+  pub fn scroll_to_top(&mut self, res: &mut Res) {
+    self.scroll = self.content_height(res);
     self.stale = true;
   }
 
-  fn content_height(&mut self, text: &mut Text) -> i32 {
+  fn content_height(&mut self, res: &mut Res) -> i32 {
     let (w, ts) = (self.width, self.timestamps);
     let mut total = 0;
     for r in &mut self.rows {
       if r.height == 0 {
-        r.height = Self::layout_row(text, &r.msg, w, ts).height().ceil() as i32;
+        r.height = layout_row(res, &self.channel, &r.msg, w, ts).layout.height().ceil() as i32;
       }
       total += r.height;
     }
     total
   }
 
-  fn layout_row(text: &mut Text, m: &Message, width: i32, ts: bool) -> TextLayout {
-    let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
-    let mut spans = Vec::with_capacity(4);
-    let mut dim = |s: &mut String, t: &str| {
-      let a = s.len();
-      s.push_str(t);
-      spans.push(Span {
-        range: a..s.len(),
-        ink: Ink(theme::DIM),
-        bold: false,
-      });
-    };
-    if let Some(sys) = &m.system {
-      dim(&mut s, sys);
-      s.push('\n');
-    }
-    if let Some(parent) = &m.reply_to {
-      dim(&mut s, &format!("↳ @{parent}\n"));
-    }
-    if ts {
-      dim(&mut s, &hhmm(m.ts));
-      s.push(' ');
-    }
-    let cleared = m.has(flag::CLEARED);
-    if m.kind == Kind::System {
-      dim(&mut s, &m.body);
-    } else {
-      let n0 = s.len();
-      s.push_str(&m.nick);
-      spans.push(Span {
-        range: n0..s.len(),
-        ink: Ink(m.color),
-        bold: true,
-      });
-      if m.kind == Kind::Chat {
-        s.push(':');
-      }
-      s.push(' ');
-      let b0 = s.len();
-      s.push_str(&m.body);
-      let ink = match (cleared, m.kind) {
-        (true, _) => Some(theme::DIM),
-        (_, Kind::Action) => Some(m.color),
-        _ => None,
-      };
-      if let Some(c) = ink {
-        spans.push(Span {
-          range: b0..s.len(),
-          ink: Ink(c),
-          bold: false,
-        });
-      }
-    }
-    text.layout(&s, &spans, (width - MARK_W) as f32 - 2.0 * theme::PAD_X)
-  }
-
   // what the next frame needs, given what changed since the last draw
-  pub fn take_paint(&mut self, text: &mut Text, view_h: i32) -> Paint {
+  pub fn take_paint(&mut self, res: &mut Res, view_h: i32) -> Paint {
     let n = std::mem::take(&mut self.pending);
     let mut shift = 0;
     let (w, ts) = (self.width, self.timestamps);
     for r in self.rows.iter_mut().rev().take(n) {
-      let l = Self::layout_row(text, &r.msg, w, ts);
-      r.height = l.height().ceil() as i32;
+      let laid = layout_row(res, &self.channel, &r.msg, w, ts);
+      r.height = laid.layout.height().ceil() as i32;
       shift += r.height;
-      r.layout = Some(Box::new(l));
+      r.laid = Some(Box::new(laid));
     }
     if !self.pinned() {
       // keep the reader's place: content grew under them
@@ -254,10 +362,19 @@ impl ChatView {
     }
   }
 
+  // the pixels in `area` moved up by `dy`: keep tracked animations on their emotes
+  pub fn scrolled(&mut self, area: Rect, dy: i32) {
+    self.anims.retain_mut(|a| {
+      a.rect.y -= dy;
+      a.rect.bottom() > area.y
+    });
+  }
+
   // draw rows bottom-up into `area`, touching only pixels inside `clip`
-  pub fn draw(&mut self, c: &mut Canvas, text: &mut Text, area: Rect, clip: Rect) {
+  pub fn draw(&mut self, c: &mut Canvas, res: &mut Res, area: Rect, clip: Rect) {
     let clip = clip.intersect(area);
     c.fill(clip, theme::BLACK);
+    self.anims.retain(|a| a.rect.intersect(clip).is_empty());
     let (w, ts, zebra) = (self.width, self.timestamps, self.zebra);
     let mut bottom = area.bottom() + self.scroll;
     let mut drawn_lo = self.rows.len();
@@ -265,16 +382,21 @@ impl ChatView {
       if bottom <= area.y {
         break;
       }
-      if r.height == 0 || (r.layout.is_none() && bottom - r.height < clip.bottom()) {
-        let l = Self::layout_row(text, &r.msg, w, ts);
-        r.height = l.height().ceil() as i32;
-        r.layout = Some(Box::new(l));
+      if r.height == 0 || (r.laid.is_none() && bottom - r.height < clip.bottom()) {
+        let laid = layout_row(res, &self.channel, &r.msg, w, ts);
+        r.height = laid.layout.height().ceil() as i32;
+        r.laid = Some(Box::new(laid));
       }
       let top = bottom - r.height;
       if top < clip.bottom() && bottom > clip.y {
         let row = Rect::new(area.x, top, area.w, r.height);
-        if zebra && r.seq % 2 == 0 {
-          c.fill(row.intersect(clip), theme::ZEBRA);
+        let bg = if zebra && r.seq % 2 == 0 {
+          theme::ZEBRA
+        } else {
+          theme::BLACK
+        };
+        if bg != theme::BLACK {
+          c.fill(row.intersect(clip), bg);
         }
         let mark = if r.msg.has(flag::FIRST) {
           Some(theme::MAGENTA)
@@ -286,8 +408,33 @@ impl ChatView {
         if let Some(m) = mark {
           c.fill(Rect::new(area.x, top, MARK_W, r.height).intersect(clip), m);
         }
-        if let Some(l) = &r.layout {
-          text.draw(l, c, (area.x + MARK_W) as f32 + theme::PAD_X, top as f32, clip);
+        if let Some(laid) = &r.laid {
+          let Res { text, images, .. } = res;
+          let anims = &mut self.anims;
+          let x = (area.x + MARK_W) as f32 + theme::PAD_X;
+          text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
+            let Some(eb) = laid.boxes.get(b.id as usize) else {
+              return;
+            };
+            let rect = Rect::new(
+              b.x.round() as i32,
+              b.y.round() as i32,
+              b.width.round() as i32,
+              b.height.round() as i32,
+            );
+            let mut imgs = Vec::with_capacity(1 + eb.zw.len());
+            imgs.push(eb.img);
+            imgs.extend_from_slice(&eb.zw);
+            let mut flip = None;
+            blit_emote(c, images, &imgs, rect, clip, &mut flip);
+            if flip.is_some() {
+              anims.push(Anim {
+                rect: rect.intersect(area),
+                bg,
+                imgs,
+              });
+            }
+          });
         }
       }
       drawn_lo = i;
@@ -295,7 +442,37 @@ impl ChatView {
     }
     // layouts that scrolled out of view are dropped; heights stay
     for r in self.rows.iter_mut().take(drawn_lo) {
-      r.layout = None;
+      r.laid = None;
     }
+    self.next_anim = self.soonest(res);
+  }
+
+  fn soonest(&self, res: &mut Res) -> Option<u32> {
+    let mut next = None;
+    for a in &self.anims {
+      for &id in &a.imgs {
+        if let Some((_, _, _, Some(ms))) = res.images.frame(id) {
+          next = Some(next.map_or(ms, |n: u32| n.min(ms)));
+        }
+      }
+    }
+    next
+  }
+
+  // repaint only on-screen animated emotes; returns the damaged region
+  pub fn animate(&mut self, c: &mut Canvas, res: &mut Res, area: Rect) -> Option<Rect> {
+    let mut dirty: Option<Rect> = None;
+    let mut next = None;
+    for a in &self.anims {
+      let r = a.rect.intersect(area);
+      if r.is_empty() {
+        continue;
+      }
+      c.fill(r, a.bg);
+      blit_emote(c, &mut res.images, &a.imgs, a.rect, r, &mut next);
+      dirty = Some(dirty.map_or(r, |d| super::union(d, r)));
+    }
+    self.next_anim = next;
+    dirty
   }
 }

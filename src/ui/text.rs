@@ -4,8 +4,8 @@ use std::collections::hash_map::Entry;
 use std::ops::Range;
 
 use parley::{
-  Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, Layout, LayoutContext, LineHeight,
-  PositionedLayoutItem, StyleProperty,
+  Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, InlineBox, Layout, LayoutContext,
+  LineHeight, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
 };
 use swash::FontRef;
 use swash::scale::image::Content;
@@ -83,7 +83,7 @@ impl Text {
     self.glyphs.clear();
   }
 
-  pub fn layout(&mut self, text: &str, spans: &[Span], width: f32) -> TextLayout {
+  pub fn layout(&mut self, text: &str, spans: &[Span], boxes: &[InlineBox], width: f32) -> TextLayout {
     let mut b = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
     b.push_default(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Monospace)));
     b.push_default(StyleProperty::FontSize(self.font_px));
@@ -95,13 +95,25 @@ impl Text {
         b.push(StyleProperty::FontWeight(FontWeight::BOLD), s.range.clone());
       }
     }
+    for ib in boxes {
+      b.push_inline_box(ib.clone());
+    }
     let mut l = b.build(text);
     l.break_all_lines(Some(width.max(1.0)));
     l.align(Alignment::Start, AlignmentOptions::default());
     l
   }
 
-  pub fn draw(&mut self, l: &TextLayout, c: &mut Canvas, ox: f32, oy: f32, clip: Rect) {
+  // inline boxes are handed to `on_box` with absolute coordinates
+  pub fn draw(
+    &mut self,
+    l: &TextLayout,
+    c: &mut Canvas,
+    ox: f32,
+    oy: f32,
+    clip: Rect,
+    mut on_box: impl FnMut(&mut Canvas, &PositionedInlineBox),
+  ) {
     let Self { glyphs, scale, .. } = self;
     if glyphs.len() > GLYPH_CACHE_MAX {
       glyphs.clear();
@@ -112,8 +124,14 @@ impl Text {
         continue;
       }
       for item in line.items() {
-        let PositionedLayoutItem::GlyphRun(gr) = item else {
-          continue;
+        let gr = match item {
+          PositionedLayoutItem::GlyphRun(gr) => gr,
+          PositionedLayoutItem::InlineBox(mut b) => {
+            b.x += ox;
+            b.y += oy;
+            on_box(c, &b);
+            continue;
+          }
         };
         let run = gr.run();
         let font = run.font();
