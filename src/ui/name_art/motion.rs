@@ -358,4 +358,44 @@ mod tests {
     assert_eq!(period(Kind::Flicker, 3.0), 1.0);
     assert_eq!(period(Kind::Twirl, 3.0), 1.2);
   }
+
+  // ground truth: the ext's compiled css (compilePaintCss) played in chrome with every animation
+  // paused at p = 0, 0.05 .. 1 of its cycle, the computed transform / opacity / hue-rotate read back
+  // and conjugated by the element's transform-origin, stored as thousandths. names 36x20 (self) and 12x20 (per glyph) boxes.
+  // motion_ref.json is regenerated from the ext, never edited by hand
+  #[test]
+  fn every_motion_matches_the_exts_computed_style() {
+    let data: serde_json::Value = serde_json::from_str(include_str!("motion_ref.json")).unwrap();
+    let mut seen = 0;
+    for (id, d) in data.as_object().unwrap() {
+      let kind = Kind::parse(id).unwrap();
+      let e = fx(kind);
+      assert_eq!(d["period"].as_f64().unwrap() as f32, kind.period(), "{id} period");
+      let per = period(kind, 1.0);
+      for (i, rows) in d["rows"].as_array().unwrap().iter().enumerate() {
+        for r in rows.as_array().unwrap() {
+          let p = r["p"].as_f64().unwrap() as f32;
+          // keyframe edges are ambiguous to a float: sample a hair inside the interval
+          let t = (p + 1e-5) * per;
+          let (xf, op, hue) = if d["letter"].as_bool().unwrap() {
+            let l = letter_fx(&e, i, t, 1.0, 12.0, 20.0);
+            (l.xf, l.opacity, l.hue)
+          } else {
+            (self_xf(&e, phase(t, per), 1.0, 36.0, 20.0), opacity(&e, phase(t, per)), None)
+          };
+          let want: Vec<f32> = r["m"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap() as f32 / 1000.0).collect();
+          for (k, (a, b)) in xf.0.iter().zip(&want).enumerate() {
+            assert!((a - b).abs() < 0.06, "{id} glyph {i} p={p} m[{k}]: ours {a} ext {b}");
+          }
+          assert!((op - r["op"].as_f64().unwrap() as f32 / 1000.0).abs() < 0.01, "{id} p={p} opacity {op}");
+          if let Some(h) = r["hue"].as_f64() {
+            let ours = hue.unwrap_or(f32::NAN);
+            assert!((ours - h as f32 / 1000.0).abs() < 0.5, "{id} glyph {i} p={p} hue {ours} vs {h} (thousandths)");
+          }
+        }
+        seen += 1;
+      }
+    }
+    assert!(seen >= 13, "{seen}");
+  }
 }
