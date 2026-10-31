@@ -41,7 +41,7 @@ pub struct Settings {
   pub hide_bots: bool,
   pub hide_cmds: bool,
   pub hide_dupes: bool,
-  // ask before a ban goes out (the ext's modConfirmBan; here on by default: a ban is permanent)
+  // ask before a ban goes out (the ext's modConfirmBan, off by default like the ext)
   pub confirm_ban: bool,
 }
 
@@ -65,7 +65,7 @@ impl Default for Settings {
       hide_bots: false,
       hide_cmds: false,
       hide_dupes: false,
-      confirm_ban: true,
+      confirm_ban: false,
     }
   }
 }
@@ -267,7 +267,7 @@ mod tests {
         hide_bots: false,
         hide_cmds: false,
         hide_dupes: false,
-        confirm_ban: true
+        confirm_ban: false
       }
     );
     assert_eq!(Settings::parse(""), Settings::default());
