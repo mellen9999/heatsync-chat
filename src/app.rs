@@ -22,6 +22,7 @@ mod mods;
 mod picker;
 mod pin;
 mod pop;
+mod screen;
 mod stream;
 mod tabs;
 mod upload;
@@ -38,7 +39,7 @@ use crate::model::mention::Mentions;
 use crate::model::message::{Message, Platform, flag};
 use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
-use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
+use crate::model::settings::{Local, Settings, commands, local_cmd};
 use crate::model::stream_events::Moments;
 use crate::model::tabs::Kind;
 use crate::model::vi::{Action, Mode, Vi};
@@ -139,11 +140,14 @@ pub struct App {
   pop: Option<pop::Pop>,
   // the user card over the chat
   card: Option<card::Card>,
+  // the settings screen or the key map, covering the chat
+  screen: Option<screen::Screen>,
   // last drawn tab rects, then the + button
   bar_hits: Vec<Rect>,
   // the tab index behind each drawn rect (hidden tabs have none)
   bar_map: Vec<usize>,
   plus_hover: bool,
+  gear_hover: bool,
   // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
   dpi: f32,
   zoom_acc: f32,
@@ -256,9 +260,11 @@ impl App {
       tab_menu: None,
       pop: None,
       card: None,
+      screen: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
       plus_hover: false,
+      gear_hover: false,
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
@@ -284,7 +290,7 @@ impl App {
 
   // does the focused thing take typed text (so an input method may run)?
   fn wants_text(&self) -> bool {
-    if self.form.is_some() {
+    if self.form.is_some() || self.screen.as_ref().is_some_and(|s| s.typing()) {
       return true;
     }
     match &self.picker {
@@ -335,6 +341,8 @@ impl App {
           if let Some(f) = &mut self.form {
             f.fields[f.focus].insert(&text);
             f.err = None;
+          } else if let Some(sc) = self.screen.as_mut().filter(|s| s.typing()) {
+            sc.query_mut().insert(&text);
           } else if let Some(p) = &mut self.picker {
             p.type_str(&text);
             self.picker_reveal();
@@ -430,74 +438,26 @@ impl App {
     self.wake();
   }
 
-  // /vi, /autohide, /glow: toggle, persist, confirm in the status slot. never sent anywhere
+  // slash commands that are ours: switches from the schema table, zoom, tabs, the two screens. never sent anywhere
   fn local(&mut self, cmd: Local) {
-    let on = |b: bool| if b { "on" } else { "off" };
-    self.status = match cmd {
-      Local::Vi => {
-        self.set.vi = !self.set.vi;
-        self.mode = Mode::Insert;
-        format!("vi keys {}", on(self.set.vi))
-      }
-      Local::AutoHide => {
-        self.set.auto_hide = !self.set.auto_hide;
-        format!("auto-hide {}", on(self.set.auto_hide))
-      }
-      Local::Glow => {
-        self.set.first_glow = !self.set.first_glow;
-        for t in &mut self.tabs {
-          t.view.glow = self.set.first_glow;
-          t.view.invalidate();
+    match cmd {
+      Local::Toggle(id) => {
+        if let Some(d) = crate::model::schema::def(id) {
+          self.flip(d);
         }
-        self.wake();
-        format!("first-chatter glow {}", on(self.set.first_glow))
-      }
-      Local::Paints => {
-        self.set.paints = !self.set.paints;
-        self.res.cosmetics.on = self.set.paints;
-        self.relayout_where(None);
-        format!("7tv paints and badges {}", on(self.set.paints))
-      }
-      Local::Online => {
-        self.set.ev_online = !self.set.ev_online;
-        format!("went-live lines {}", on(self.set.ev_online))
-      }
-      Local::Offline => {
-        self.set.ev_offline = !self.set.ev_offline;
-        format!("went-offline lines {}", on(self.set.ev_offline))
-      }
-      Local::Game => {
-        self.set.ev_game = !self.set.ev_game;
-        format!("game-switch lines {}", on(self.set.ev_game))
-      }
-      Local::Moments => {
-        self.set.moments = !self.set.moments;
-        format!("chat-spike lines {}", on(self.set.moments))
-      }
-      Local::Media => {
-        self.set.media = !self.set.media;
-        self.res.media = self.set.media;
-        self.relayout_where(None);
-        format!("inline pictures {}", on(self.set.media))
-      }
-      Local::Notify => {
-        self.set.notify = !self.set.notify;
-        format!("mention notifications {}", on(self.set.notify))
-      }
-      Local::ConfirmBan => {
-        self.set.confirm_ban = !self.set.confirm_ban;
-        format!("ask before banning {}", on(self.set.confirm_ban))
       }
       Local::Tab(Some(k), shown) => {
         self.set_shown(k, shown);
-        format!("{} tab {}", k.name(), if shown { "shown" } else { "hidden" })
+        self.say(format!("{} tab {}", k.name(), if shown { "shown" } else { "hidden" }));
       }
-      Local::Tab(None, shown) => format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }),
-      Local::Zoom(Some(pct)) => return self.zoom_to(pct),
-      Local::Zoom(None) => "usage: /zoom 1.5 (anything from 0.5 to 3)".into(),
-    };
-    self.set.save();
-    self.bar_dirty = true;
+      Local::Tab(None, shown) => {
+        self.say(format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }))
+      }
+      Local::Zoom(Some(pct)) => self.zoom_to(pct),
+      Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.5 to 3)"),
+      Local::Settings => self.open_screen(screen::Page::Settings),
+      Local::Keys => self.open_screen(screen::Page::Keys),
+    }
   }
 
   fn send(&mut self) {
@@ -795,7 +755,14 @@ impl App {
         })
         .collect();
       let bar = self.bar();
-      self.bar_hits = tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status, self.plus_hover);
+      self.bar_hits = tab_bar::draw(
+        &mut self.canvas,
+        &mut self.res.text,
+        bar,
+        &labels,
+        &self.status,
+        (self.plus_hover, self.gear_hover || self.screen.is_some()),
+      );
       self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
     }
@@ -805,6 +772,11 @@ impl App {
     if self.form.is_some() {
       self.next_anim = None;
       if let Some(r) = self.draw_form() {
+        dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      }
+    } else if self.screen.is_some() {
+      self.next_anim = None;
+      if let Some(r) = self.draw_screen() {
         dirty = Some(dirty.map_or(r, |d| union(d, r)));
       }
     } else if self.picker.is_some() {
@@ -933,7 +905,7 @@ impl App {
         rank(
           word,
           [
-            LOCAL.to_vec(),
+            commands(),
             chan::COMMANDS.to_vec(),
             crate::model::modcmd::COMMANDS.to_vec(),
             crate::model::filtercmd::COMMANDS.to_vec(),
@@ -1146,6 +1118,16 @@ impl App {
     if self.form.is_some() {
       return self.form_click();
     }
+    if self.screen.is_some() {
+      // the tab bar stays live: a tab or the gear closes the screen first
+      if !self.bar().contains(self.pointer.0, self.pointer.1) {
+        return self.screen_click();
+      }
+      if self.gear_at() {
+        return self.close_screen();
+      }
+      self.close_screen();
+    }
     if self.pop.is_some() {
       return self.pop_click();
     }
@@ -1200,6 +1182,9 @@ impl App {
   fn right_click(&mut self) {
     if self.picker.is_some() || self.form.is_some() {
       return;
+    }
+    if self.screen.is_some() {
+      return self.close_screen();
     }
     if self.pop.is_some() {
       self.pop = None;
@@ -1267,6 +1252,7 @@ impl App {
     }
     match key {
       Key::Named(NamedKey::Escape) | Key::Character("h") if !ctrl && self.feed_back() => {}
+      Key::Character("?") => self.open_screen(screen::Page::Keys),
       Key::Character("v") if !ctrl => self.select_start(),
       Key::Character("x") if !ctrl && !alt => self.pin_hide(),
       Key::Character("t") if chord == Some('g') => self.select(self.step_tab(self.active, false)),
@@ -1531,6 +1517,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.tab_menu_hover();
         self.pop_hover();
         self.card_hover();
+        self.screen_hover();
         self.form_hover_move();
         self.bar_hover();
         self.picker_hover();
@@ -1558,7 +1545,9 @@ impl ApplicationHandler<NetEvent> for App {
         if self.zoom_wheel(lines, px as f32) || self.form.is_some() {
           return;
         }
-        if self.picker.is_some() {
+        if self.screen.is_some() {
+          self.screen_wheel(px);
+        } else if self.picker.is_some() {
           self.picker_wheel(px);
         } else {
           self.scroll(px);
@@ -1574,6 +1563,15 @@ impl ApplicationHandler<NetEvent> for App {
             return;
           }
           return self.form_key(k, t);
+        }
+        if self.mods.control_key() && k == Key::Character(",") {
+          return self.toggle_screen(screen::Page::Settings);
+        }
+        if k == Key::Named(NamedKey::F1) {
+          return self.toggle_screen(screen::Page::Keys);
+        }
+        if self.screen.is_some() {
+          return self.screen_key(k, t);
         }
         if self.mods.control_key() && k == Key::Character(";") {
           return self.toggle_picker();

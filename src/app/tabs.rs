@@ -77,7 +77,7 @@ fn tags(s: &[(Platform, Box<str>)]) -> bool {
 }
 
 // pull the last key out of a line editor: the keys every text box shares
-fn edit_line(l: &mut crate::model::line::Line, key: &Key<&str>, ctrl: bool) -> bool {
+pub(super) fn edit_line(l: &mut crate::model::line::Line, key: &Key<&str>, ctrl: bool) -> bool {
   match key {
     Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),
     Key::Named(NamedKey::Backspace) => l.backspace(),
@@ -338,16 +338,21 @@ impl App {
 
   // ---- the tab bar ----
 
-  // position in the drawn bar: shown tabs in order, then the + button last
+  // position in the drawn bar: shown tabs in order, then the + button, then the gear
   fn tab_at(&self, x: i32, y: i32) -> Option<usize> {
     self.bar_hits.iter().position(|r| r.contains(x, y))
   }
 
+  pub(super) fn gear_at(&self) -> bool {
+    self.tab_at(self.pointer.0, self.pointer.1) == Some(self.bar_map.len() + 1)
+  }
+
   pub(super) fn bar_hover(&mut self) {
     let (x, y) = self.pointer;
-    let on = self.tab_at(x, y).is_some_and(|p| p == self.bar_map.len());
-    if on != self.plus_hover {
-      self.plus_hover = on;
+    let at = self.tab_at(x, y);
+    let (plus, gear) = (at == Some(self.bar_map.len()), at == Some(self.bar_map.len() + 1));
+    if (plus, gear) != (self.plus_hover, self.gear_hover) {
+      (self.plus_hover, self.gear_hover) = (plus, gear);
       self.bar_dirty = true;
       self.wake();
     }
@@ -356,6 +361,7 @@ impl App {
   pub(super) fn bar_click(&mut self) {
     match self.tab_at(self.pointer.0, self.pointer.1) {
       Some(p) if p == self.bar_map.len() => self.open_form(None),
+      Some(p) if p == self.bar_map.len() + 1 => self.open_screen(super::screen::Page::Settings),
       Some(p) => self.select(self.bar_map[p]),
       None => {}
     }

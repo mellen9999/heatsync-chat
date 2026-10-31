@@ -10,6 +10,7 @@ pub mod name_art;
 pub mod picker;
 pub mod pin_bar;
 pub mod res;
+pub mod sheet;
 pub mod tab_bar;
 pub mod text;
 pub mod theme;

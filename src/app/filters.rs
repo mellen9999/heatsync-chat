@@ -12,7 +12,7 @@ use crate::net::mutes::{self, Lists, Op, Sync};
 use crate::util::time::now_ms;
 
 impl App {
-  fn push_flags(&self) {
+  pub(super) fn push_flags(&self) {
     let s = &self.set;
     filter::edit(|f| (f.bots, f.cmds, f.dupes) = (s.hide_bots, s.hide_cmds, s.hide_dupes));
   }
@@ -54,29 +54,9 @@ impl App {
     self.refilter_all();
   }
 
-  fn flag_toggle(&mut self, what: &str, f: impl FnOnce(&mut crate::model::settings::Settings) -> bool) {
-    let on = f(&mut self.set);
-    self.set.save();
-    self.push_flags();
-    self.refilter_all();
-    self.say(format!("{what} {}", if on { "on" } else { "off" }));
-  }
-
   pub(super) fn filter_cmd(&mut self, cmd: Cmd) {
     match cmd {
       Cmd::Usage(u) => self.say(u),
-      Cmd::Bots => self.flag_toggle("hide bots", |s| {
-        s.hide_bots = !s.hide_bots;
-        s.hide_bots
-      }),
-      Cmd::Cmds => self.flag_toggle("hide !commands", |s| {
-        s.hide_cmds = !s.hide_cmds;
-        s.hide_cmds
-      }),
-      Cmd::Dupes => self.flag_toggle("hide duplicates", |s| {
-        s.hide_dupes = !s.hide_dupes;
-        s.hide_dupes
-      }),
       Cmd::Mute(who, span) => {
         let until = match span {
           Span::Default => Some(now_ms() + DEFAULT_MUTE_MS),

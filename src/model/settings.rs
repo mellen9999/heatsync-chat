@@ -1,4 +1,5 @@
 // user prefs, persisted as `settings` (key=value lines). vi + auto_hide default off: a plain chat box
+use crate::model::schema::{self, Ctl};
 use crate::model::tabs::Kind;
 use crate::store;
 
@@ -99,57 +100,28 @@ impl Settings {
     for l in s.lines() {
       let Some((k, v)) = l.split_once('=') else { continue };
       let on = v.trim() == "true";
-      match k.trim() {
-        "vi" => out.vi = on,
-        "auto_hide" => out.auto_hide = on,
-        "first_glow" => out.first_glow = on,
-        "paints" => out.paints = on,
-        "ev_online" => out.ev_online = on,
-        "ev_offline" => out.ev_offline = on,
-        "ev_game" => out.ev_game = on,
-        "moments" => out.moments = on,
-        "media" => out.media = on,
-        "tab_feed" => out.tab_feed = on,
-        "tab_whispers" => out.tab_whispers = on,
-        "tab_mentions" => out.tab_mentions = on,
-        "notify" => out.notify = on,
-        "confirm_ban" => out.confirm_ban = on,
-        "hide_bots" => out.hide_bots = on,
-        "hide_cmds" => out.hide_cmds = on,
-        "hide_dupes" => out.hide_dupes = on,
-        "zoom" => {
-          if let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite()) {
-            out.zoom = clamp_zoom((z * 100.0).round() as i32);
-          }
-        }
-        _ => {}
+      let k = k.trim();
+      if schema::def(k).is_some_and(|d| d.put(&mut out, on)) {
+        continue;
+      }
+      if k == "zoom"
+        && let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite())
+      {
+        out.zoom = clamp_zoom((z * 100.0).round() as i32);
       }
     }
     out
   }
 
   pub fn render(&self) -> String {
-    format!(
-      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\ntab_feed={}\ntab_whispers={}\ntab_mentions={}\nnotify={}\nconfirm_ban={}\nhide_bots={}\nhide_cmds={}\nhide_dupes={}\nzoom={}\n",
-      self.vi,
-      self.auto_hide,
-      self.first_glow,
-      self.paints,
-      self.ev_online,
-      self.ev_offline,
-      self.ev_game,
-      self.moments,
-      self.media,
-      self.tab_feed,
-      self.tab_whispers,
-      self.tab_mentions,
-      self.notify,
-      self.confirm_ban,
-      self.hide_bots,
-      self.hide_cmds,
-      self.hide_dupes,
-      self.scale()
-    )
+    let mut out = String::with_capacity(256);
+    for d in &schema::DEFS {
+      if let Some(on) = d.on(self) {
+        out.push_str(&format!("{}={on}\n", d.id));
+      }
+    }
+    out.push_str(&format!("zoom={}\n", self.scale()));
+    out
   }
 
   pub fn load() -> Self {
@@ -166,43 +138,24 @@ impl Settings {
 // slash commands handled here, never sent to a platform
 #[derive(PartialEq, Eq, Debug)]
 pub enum Local {
-  Vi,
-  AutoHide,
-  Glow,
-  Paints,
-  // stream lines: went live, went offline, game switch; the chat-spike line
-  Online,
-  Offline,
-  Game,
-  Moments,
-  // inline pictures
-  Media,
+  // a switch from the schema table, by id (`/vi`, `/glow`, `/hidebots`...)
+  Toggle(&'static str),
   // `/zoom 1.5`; None = no usable number
   Zoom(Option<u16>),
-  // desktop notification on an @mention
-  Notify,
-  // ask before banning
-  ConfirmBan,
   // `/hide feed`, `/show mentions`; None = no such tab
   Tab(Option<Kind>, bool),
+  // the settings screen, the key map
+  Settings,
+  Keys,
 }
 
-pub const LOCAL: [&str; 14] = [
-  "/vi",
-  "/autohide",
-  "/glow",
-  "/paints",
-  "/online",
-  "/offline",
-  "/game",
-  "/moments",
-  "/media",
-  "/zoom",
-  "/notify",
-  "/confirmban",
-  "/hide",
-  "/show",
-];
+// every command this file answers, for tab completion
+pub fn commands() -> Vec<&'static str> {
+  let mut v: Vec<&'static str> =
+    schema::DEFS.iter().filter(|d| matches!(d.ctl, Ctl::Pill(..) | Ctl::Zoom)).filter_map(|d| d.cmd).collect();
+  v.extend(["/hide", "/show", "/settings", "/keys"]);
+  v
+}
 
 pub fn local_cmd(text: &str) -> Option<Local> {
   let low = text.trim().to_ascii_lowercase();
@@ -226,18 +179,9 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     }
   }
   match low.as_str() {
-    "/notify" => Some(Local::Notify),
-    "/confirmban" => Some(Local::ConfirmBan),
-    "/vi" => Some(Local::Vi),
-    "/autohide" => Some(Local::AutoHide),
-    "/glow" => Some(Local::Glow),
-    "/paints" => Some(Local::Paints),
-    "/online" => Some(Local::Online),
-    "/offline" => Some(Local::Offline),
-    "/game" => Some(Local::Game),
-    "/moments" => Some(Local::Moments),
-    "/media" => Some(Local::Media),
-    _ => None,
+    "/settings" => Some(Local::Settings),
+    "/keys" => Some(Local::Keys),
+    w => schema::switch_for(w).map(|d| Local::Toggle(d.id)),
   }
 }
 
@@ -324,7 +268,7 @@ mod tests {
     assert_eq!(local_cmd("/hide bob"), None);
     assert_eq!(local_cmd("/show nope"), Some(Local::Tab(None, true)));
     assert_eq!(local_cmd("/hidden"), None);
-    assert_eq!(local_cmd("/notify"), Some(Local::Notify));
+    assert_eq!(local_cmd("/notify"), Some(Local::Toggle("notify")));
     let mut s = Settings::default();
     s.show(Kind::Whispers, false);
     s.notify = true;
@@ -335,10 +279,20 @@ mod tests {
 
   #[test]
   fn slash_commands() {
-    assert_eq!(local_cmd("/vi"), Some(Local::Vi));
-    assert_eq!(local_cmd("  /AutoHide "), Some(Local::AutoHide));
+    assert_eq!(local_cmd("/vi"), Some(Local::Toggle("vi")));
+    assert_eq!(local_cmd("  /AutoHide "), Some(Local::Toggle("auto_hide")));
     assert_eq!(local_cmd("/vi now"), None);
     assert_eq!(local_cmd("vi"), None);
     assert_eq!(local_cmd("/me waves"), None);
+    assert_eq!(local_cmd("/hidebots"), Some(Local::Toggle("hide_bots")));
+    assert_eq!(local_cmd("/settings"), Some(Local::Settings));
+    assert_eq!(local_cmd("/KEYS"), Some(Local::Keys));
+    // every switch in the table answers to its own command
+    for d in &schema::DEFS {
+      if let (Some(c), Ctl::Pill(..)) = (d.cmd, d.ctl) {
+        assert_eq!(local_cmd(c), Some(Local::Toggle(d.id)));
+      }
+    }
+    assert!(commands().contains(&"/vi") && commands().contains(&"/keys") && !commands().contains(&"/hideword"));
   }
 }

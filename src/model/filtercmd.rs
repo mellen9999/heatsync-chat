@@ -1,6 +1,5 @@
 // slash commands for the chat filters, ext names where the ext has them (/mute /unmute /block /hide
 // /unhide) and plain switches in the style of /vi and /glow for the rest:
-//   /hidebots /hidecmds /hidedupes            switches
 //   /mute <user> [10m|2h|3d|perm]   /unmute <user>   (a day by default, like the ext)
 //   /block <user> (toggles)   /unblock <user>
 //   /hide <user>   /unhide <user>             this tab only, until restart
@@ -19,9 +18,6 @@ pub enum Span {
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum Cmd {
-  Bots,
-  Cmds,
-  Dupes,
   Mute(String, Span),
   Unmute(String),
   Block(String),
@@ -36,10 +32,7 @@ pub enum Cmd {
   Usage(&'static str),
 }
 
-pub const COMMANDS: [&str; 15] = [
-  "/hidebots",
-  "/hidecmds",
-  "/hidedupes",
+pub const COMMANDS: [&str; 12] = [
   "/mute",
   "/unmute",
   "/block",
@@ -66,9 +59,6 @@ pub fn command(text: &str) -> Option<Cmd> {
   let user = |usage: &'static str, f: &dyn Fn(String) -> Cmd| name(first).map_or(Cmd::Usage(usage), f);
   let term = (!rest.is_empty()).then(|| rest.to_owned());
   Some(match cmd.as_str() {
-    "hidebots" if rest.is_empty() => Cmd::Bots,
-    "hidecmds" if rest.is_empty() => Cmd::Cmds,
-    "hidedupes" if rest.is_empty() => Cmd::Dupes,
     "mute" => match name(first) {
       None => Cmd::Usage("usage: /mute <user> [10m|2h|3d|perm]"),
       Some(u) => match tail.trim() {
@@ -103,12 +93,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn switches() {
-    assert_eq!(command("/hidebots"), Some(Cmd::Bots));
-    assert_eq!(command("/hidecmds"), Some(Cmd::Cmds));
-    assert_eq!(command("/hidedupes"), Some(Cmd::Dupes));
-    assert_eq!(command("/hidebots now"), None);
-  }
+  fn switches() {}
 
   #[test]
   fn mutes() {

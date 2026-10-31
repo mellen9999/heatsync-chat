@@ -1,0 +1,436 @@
+// the one table of every setting: the settings screen, the slash commands, the settings file and the
+// presets all read it. labels and tips are the ext's (settings-schema.js + locale strings), lowercase.
+// adding a switch = one Settings field and one row here
+use crate::model::settings::Settings;
+use crate::model::tabs::Kind;
+
+// the ext's settings categories, in its order
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cat {
+  Display,
+  Chat,
+  Notifs,
+  Mod,
+  Filters,
+  System,
+}
+
+impl Cat {
+  pub fn name(self) -> &'static str {
+    match self {
+      Cat::Display => "display",
+      Cat::Chat => "chat",
+      Cat::Notifs => "notifications",
+      Cat::Mod => "mod",
+      Cat::Filters => "filters",
+      Cat::System => "system",
+    }
+  }
+}
+
+// what the app has to redo besides saving when a switch flips
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fx {
+  None,
+  // the box changes kind: back to typing
+  Vi,
+  Glow,
+  Paints,
+  Media,
+  // the filter flags changed: judge every line again
+  Filters,
+  // a built-in tab came or went
+  Tab(Kind),
+}
+
+#[derive(Clone, Copy)]
+pub enum Ctl {
+  // an on/off switch: read it, write it
+  Pill(fn(&Settings) -> bool, fn(&mut Settings, bool)),
+  // the zoom percent, stepped
+  Zoom,
+  // a list kept with slash commands (hidden words, highlight words); true = highlight
+  Words(bool),
+}
+
+pub struct Def {
+  // the key in the settings file
+  pub id: &'static str,
+  // its slash command, if it has one
+  pub cmd: Option<&'static str>,
+  pub cat: Cat,
+  pub section: &'static str,
+  pub label: &'static str,
+  pub tip: &'static str,
+  // extra search words
+  pub alias: &'static str,
+  pub ctl: Ctl,
+  pub fx: Fx,
+}
+
+macro_rules! pill {
+  ($f:ident) => {
+    Ctl::Pill(|s| s.$f, |s, v| s.$f = v)
+  };
+}
+
+pub static DEFS: [Def; 20] = [
+  Def {
+    id: "first_glow",
+    cmd: Some("/glow"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "first-message glow",
+    tip: "yellow edge on someone's first message this session",
+    alias: "firstchatter first chatter",
+    ctl: pill!(first_glow),
+    fx: Fx::Glow,
+  },
+  Def {
+    id: "auto_hide",
+    cmd: Some("/autohide"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "auto-hide input",
+    tip: "hides the input bar when idle",
+    alias: "autohide",
+    ctl: pill!(auto_hide),
+    fx: Fx::None,
+  },
+  Def {
+    id: "paints",
+    cmd: Some("/paints"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "7tv paints + badges",
+    tip: "name paints and 7tv badges on chatters",
+    alias: "sevenTvPaints seventv cosmetics",
+    ctl: pill!(paints),
+    fx: Fx::Paints,
+  },
+  Def {
+    id: "zoom",
+    cmd: Some("/zoom"),
+    cat: Cat::Display,
+    section: "font",
+    label: "zoom",
+    tip: "everything's size, 50 to 300 percent. ctrl-= / ctrl-- / ctrl-0 or ctrl-wheel anywhere. /zoom 1.5",
+    alias: "size scale font",
+    ctl: Ctl::Zoom,
+    fx: Fx::None,
+  },
+  Def {
+    id: "vi",
+    cmd: Some("/vi"),
+    cat: Cat::Chat,
+    section: "input",
+    label: "vi mode",
+    tip: "j/k scroll, g/G top/bottom, / search",
+    alias: "viMode vim keys",
+    ctl: pill!(vi),
+    fx: Fx::Vi,
+  },
+  Def {
+    id: "media",
+    cmd: Some("/media"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "inline media",
+    tip: "show images, gifs and link cards inline in chat",
+    alias: "mediaembeds embeds pictures",
+    ctl: pill!(media),
+    fx: Fx::Media,
+  },
+  Def {
+    id: "highlights",
+    cmd: Some("/highlight"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "keyword highlights",
+    tip: "tints matched messages orange. whole-word, case-insensitive. enter adds one, /unhighlight removes",
+    alias: "keywordhighlights words",
+    ctl: Ctl::Words(true),
+    fx: Fx::None,
+  },
+  Def {
+    id: "notify",
+    cmd: Some("/notify"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "desktop notification",
+    tip: "show a desktop notification when someone @s you and the window is not focused",
+    alias: "hs_notifications browser notification",
+    ctl: pill!(notify),
+    fx: Fx::None,
+  },
+  Def {
+    id: "ev_online",
+    cmd: Some("/online"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "went live",
+    tip: "line when a channel goes live",
+    alias: "online",
+    ctl: pill!(ev_online),
+    fx: Fx::None,
+  },
+  Def {
+    id: "ev_offline",
+    cmd: Some("/offline"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "went offline",
+    tip: "line when a channel goes offline (off by default, noisy)",
+    alias: "offline",
+    ctl: pill!(ev_offline),
+    fx: Fx::None,
+  },
+  Def {
+    id: "ev_game",
+    cmd: Some("/game"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "game switches",
+    tip: "line when a streamer changes the game",
+    alias: "game category",
+    ctl: pill!(ev_game),
+    fx: Fx::None,
+  },
+  Def {
+    id: "moments",
+    cmd: Some("/moments"),
+    cat: Cat::Notifs,
+    section: "inline notifications",
+    label: "moment alerts",
+    tip: "a channel's chat suddenly explodes: a heat spike line in that tab",
+    alias: "spike heat",
+    ctl: pill!(moments),
+    fx: Fx::None,
+  },
+  Def {
+    id: "confirm_ban",
+    cmd: Some("/confirmban"),
+    cat: Cat::Mod,
+    section: "mod toolbar",
+    label: "confirm before ban",
+    tip: "ask before a permanent ban goes out: guards against a misclick",
+    alias: "modConfirmBan",
+    ctl: pill!(confirm_ban),
+    fx: Fx::None,
+  },
+  Def {
+    id: "hide_bots",
+    cmd: Some("/hidebots"),
+    cat: Cat::Filters,
+    section: "messages",
+    label: "hide bots",
+    tip: "hide messages from known chat bots (nightbot, streamelements, fossabot...)",
+    alias: "hideBots",
+    ctl: pill!(hide_bots),
+    fx: Fx::Filters,
+  },
+  Def {
+    id: "hide_cmds",
+    cmd: Some("/hidecmds"),
+    cat: Cat::Filters,
+    section: "messages",
+    label: "hide !commands",
+    tip: "hide messages that start with !",
+    alias: "hideCommands",
+    ctl: pill!(hide_cmds),
+    fx: Fx::Filters,
+  },
+  Def {
+    id: "hide_dupes",
+    cmd: Some("/hidedupes"),
+    cat: Cat::Filters,
+    section: "messages",
+    label: "hide duplicates",
+    tip: "collapse identical consecutive messages (spam waves) to the first one",
+    alias: "hideDuplicates spam",
+    ctl: pill!(hide_dupes),
+    fx: Fx::Filters,
+  },
+  Def {
+    id: "hidden_words",
+    cmd: Some("/hideword"),
+    cat: Cat::Filters,
+    section: "messages",
+    label: "mute keywords",
+    tip: "messages containing any of these get hidden. enter adds one, /unhideword removes",
+    alias: "hideword hidden words",
+    ctl: Ctl::Words(false),
+    fx: Fx::None,
+  },
+  Def {
+    id: "tab_feed",
+    cmd: None,
+    cat: Cat::System,
+    section: "tabs",
+    label: "feed tab",
+    tip: "the heatsync social feed in the tab bar. /show feed, /hide feed",
+    alias: "visible tabs hiddenTabs",
+    ctl: pill!(tab_feed),
+    fx: Fx::Tab(Kind::Feed),
+  },
+  Def {
+    id: "tab_whispers",
+    cmd: None,
+    cat: Cat::System,
+    section: "tabs",
+    label: "whispers tab",
+    tip: "your twitch whispers in the tab bar. /show whispers, /hide whispers",
+    alias: "visible tabs hiddenTabs dm",
+    ctl: pill!(tab_whispers),
+    fx: Fx::Tab(Kind::Whispers),
+  },
+  Def {
+    id: "tab_mentions",
+    cmd: None,
+    cat: Cat::System,
+    section: "tabs",
+    label: "mentions tab",
+    tip: "every @mention of you in the tab bar. /show mentions, /hide mentions",
+    alias: "visible tabs hiddenTabs",
+    ctl: pill!(tab_mentions),
+    fx: Fx::Tab(Kind::Mentions),
+  },
+];
+
+pub fn def(id: &str) -> Option<&'static Def> {
+  DEFS.iter().find(|d| d.id == id)
+}
+
+// `/vi` -> its row. exact word only
+pub fn by_cmd(word: &str) -> Option<&'static Def> {
+  DEFS.iter().find(|d| d.cmd == Some(word))
+}
+
+// every row that is a plain switch with a command of its own (zoom and the word lists parse their own arguments)
+pub fn switch_for(word: &str) -> Option<&'static Def> {
+  by_cmd(word).filter(|d| matches!(d.ctl, Ctl::Pill(..)))
+}
+
+impl Def {
+  pub fn on(&self, s: &Settings) -> Option<bool> {
+    match self.ctl {
+      Ctl::Pill(get, _) => Some(get(s)),
+      _ => None,
+    }
+  }
+
+  // false when it isn't a switch
+  pub fn put(&self, s: &mut Settings, v: bool) -> bool {
+    match self.ctl {
+      Ctl::Pill(_, set) => {
+        set(s, v);
+        true
+      }
+      _ => false,
+    }
+  }
+
+  // every word of the query must appear in the label, tip, section, category, key or alias (the ext's search)
+  pub fn matches(&self, query: &str) -> bool {
+    let hay = format!("{} {} {} {} {} {}", self.label, self.tip, self.section, self.cat.name(), self.id, self.alias)
+      .to_lowercase();
+    query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()))
+  }
+}
+
+// a whole bundle of switches at once, from the ext's presets, keeping only settings this app has
+pub struct Preset {
+  pub name: &'static str,
+  pub tip: &'static str,
+  pub diff: &'static [(&'static str, bool)],
+}
+
+pub static PRESETS: [Preset; 3] = [
+  Preset {
+    name: "minimal",
+    tip: "just chat: no glow, paints, pictures or extra tabs",
+    diff: &[
+      ("first_glow", false),
+      ("paints", false),
+      ("media", false),
+      ("tab_feed", false),
+      ("tab_whispers", false),
+      ("tab_mentions", false),
+    ],
+  },
+  Preset {
+    name: "power user",
+    tip: "every tab on, vi keys",
+    diff: &[("vi", true), ("tab_feed", true), ("tab_whispers", true), ("tab_mentions", true)],
+  },
+  Preset {
+    name: "low ram",
+    tip: "paints, pictures, feed and whispers off",
+    diff: &[("paints", false), ("media", false), ("tab_feed", false), ("tab_whispers", false), ("tab_mentions", true)],
+  },
+];
+
+impl Preset {
+  pub fn active(&self, s: &Settings) -> bool {
+    self.diff.iter().all(|(id, v)| def(id).and_then(|d| d.on(s)) == Some(*v))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ids_and_commands_are_unique_and_lowercase() {
+    for (i, d) in DEFS.iter().enumerate() {
+      assert_eq!(d.label, d.label.to_lowercase());
+      assert_eq!(d.section, d.section.to_lowercase());
+      assert!(DEFS[i + 1..].iter().all(|o| o.id != d.id && (d.cmd.is_none() || o.cmd != d.cmd)));
+      assert!(d.cmd.is_none_or(|c| c.starts_with('/') && c == c.to_lowercase()));
+    }
+  }
+
+  #[test]
+  fn presets_only_name_real_switches() {
+    for p in &PRESETS {
+      for (id, _) in p.diff {
+        assert!(def(id).and_then(|d| d.on(&Settings::default())).is_some(), "{id}");
+      }
+    }
+    assert!(PRESETS[1].diff.iter().any(|d| d.0 == "vi"));
+  }
+
+  #[test]
+  fn a_preset_reads_active_only_when_all_of_it_matches() {
+    let mut s = Settings::default();
+    let power = &PRESETS[1];
+    assert!(!power.active(&s));
+    for (id, v) in power.diff {
+      assert!(def(id).unwrap().put(&mut s, *v));
+    }
+    assert!(power.active(&s));
+    s.vi = false;
+    assert!(!power.active(&s));
+  }
+
+  #[test]
+  fn search_needs_every_word_and_reads_aliases() {
+    let vi = def("vi").unwrap();
+    assert!(vi.matches("vim"));
+    assert!(vi.matches("VI mode"));
+    assert!(vi.matches("search scroll"));
+    assert!(!vi.matches("vi banana"));
+    assert!(vi.matches(""));
+    assert!(def("paints").unwrap().matches("seventv"));
+    assert!(def("hide_bots").unwrap().matches("filters bots"));
+  }
+
+  #[test]
+  fn commands_find_their_rows() {
+    assert_eq!(switch_for("/vi").map(|d| d.id), Some("vi"));
+    assert_eq!(by_cmd("/zoom").map(|d| d.id), Some("zoom"));
+    assert!(switch_for("/zoom").is_none());
+    assert!(switch_for("/hideword").is_none());
+    assert!(by_cmd("/nope").is_none());
+  }
+}

@@ -12,14 +12,14 @@ pub struct TabLabel<'a> {
   pub hot: u32,
 }
 
-// returns each tab's rect, then the `+` rect last (for clicks)
+// returns each tab's rect, then the `+` rect, then the gear (for clicks). hot: pointer on the `+`, gear on or hovered
 pub fn draw(
   c: &mut Canvas,
   text: &mut Text,
   area: Rect,
   tabs: &[TabLabel],
   status: &str,
-  plus_hover: bool,
+  hot: (bool, bool),
 ) -> Vec<Rect> {
   c.fill(area, theme::BLACK);
   let mut x = area.x;
@@ -44,7 +44,8 @@ pub fn draw(
     let ink = if t.unread { t.hot } else { theme::DIM };
     hits.push(cell(c, text, &mut x, &format!(" {} ", t.name), ink, t.unread || t.active, t.active));
   }
-  hits.push(cell(c, text, &mut x, " + ", theme::WHITE, true, plus_hover));
+  hits.push(cell(c, text, &mut x, " + ", theme::WHITE, true, hot.0));
+  hits.push(cell(c, text, &mut x, " ⚙ ", theme::WHITE, true, hot.1));
   if !status.is_empty() {
     let s = format!("  {status}");
     let l = text.layout(&s, &[Span { range: 0..s.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
