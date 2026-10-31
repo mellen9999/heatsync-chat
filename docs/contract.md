@@ -34,6 +34,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 | live / moments | `GET /api/live/top?limit=50`, `GET /api/moments?limit=&hours=` | |
 | catalog | `GET /api/emote-search?q=` (2-50, `[a-z0-9_\-:.]`) → `merged[{name,url,provider,animated,zeroWidth}]` | completion only — NEVER render |
 | badges | `GET /api/chatterino-badges` | |
+| 7tv cosmetics | `GET /api/cosmetics/batch?ids=<twitch ids, sorted>` → `cosmetics{id:{paint,badge}\|null}` | ≤25/req, 300ms gather, one in flight, 5s cooldown after a failure. ttl +30min / none 5min. lru 500. paint image only `https://cdn.7tv.app/paint/…` |
 | gifs | `GET /api/gifs/search?q=&limit=`, `/api/gifs/top` | no offset; page n = `limit n*12` |
 | images | `GET /api/img?url=` → 302 webp | 403 moderation, 413 size, 429. 20 new urls/min |
 | previews | `GET /api/embed/resolve?url=` (tenor/giphy/imgur/spotify/soundcloud/x/kick clips/reddit), `GET /api/link-preview?url=` | non-empty `flagged[]` drops it. 10/min |
@@ -64,3 +65,9 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - marker order before name: chatterino badge, sub flair, 🔥 (known heatsync user), heat bar
 - modifiers: `w! h!/x! v!/y! z! c! l! r! p! s!`, `ffzX ffzY ffzW ffzWide ffzTall ffzCursed ffzHyper ffzRainbow ffzBounce ffzJam ffzSlide ffzArrive ffzLeave ffzSpin`, tint `c!#hex`. prefix or postfix, chainable, token word hidden. grammar: ext `src/lib/modifiers.js`
 - threadlink `>>id` → `https://heatsync.org/thread/<id>`
+
+## 7tv EventAPI `wss://events.7tv.io/v3`
+- one socket, opened only while a channel is joined and has a 7tv set. frames ≤512KB. hello → `subscription_limit` (we cap at 120) + `heartbeat_interval`; 3 missed beats → recycle
+- subscribe (op 35) / unsubscribe (op 36) `{type, condition:{object_id}}`: `emote_set.update` per channel set (deduped, a twitch+kick pair can share one), `user.*` per broadcaster + us → `CosmeticsStale`
+- `emote_set.update` body: `pushed` / `pulled` / `updated` items with `key:"emotes"`, ≤200 each, ids `[A-Za-z0-9]{1,40}`, urls are built by us on `cdn.7tv.app`. `updated` = rename / flag change
+- reconnect: backoff as heatsync ws, reset after ≥30s; after any reconnect each set is refetched whole (`/v3/emote-sets/<id>`) because deltas were missed

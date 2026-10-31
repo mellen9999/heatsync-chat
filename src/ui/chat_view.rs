@@ -161,6 +161,12 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
 fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
   let found: Vec<(Box<str>, Option<u32>)> =
     res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
+  // seeing a chatter is what asks heatsync for their 7tv cosmetics (batched, cached)
+  if m.platform == Platform::Twitch
+    && let Ok(uid) = m.user_id.parse::<u64>()
+  {
+    res.cosmetics.get(uid);
+  }
   let h = res.images.px(BADGE_PX);
   for (url, bg) in found {
     let img = res.images.id(&url, BADGE_PX);

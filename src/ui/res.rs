@@ -1,5 +1,6 @@
 // shared render resources: fonts/glyphs, decoded images, emote catalogs, sender inventories
 use crate::badges::Badges;
+use crate::cosmetics::Cosmetics;
 use crate::emotes::Emotes;
 use crate::emotes::block::Blocked;
 use crate::heatsync::senders::Senders;
@@ -17,6 +18,7 @@ pub struct Res {
   pub emotes: Emotes,
   pub badges: Badges,
   pub senders: Senders,
+  pub cosmetics: Cosmetics,
   pub blocked: Blocked,
   pub logo: Logo,
 }
@@ -31,6 +33,7 @@ impl Res {
       emotes: Emotes::default(),
       badges: Badges::default(),
       senders: Senders::default(),
+      cosmetics: Cosmetics::default(),
       blocked: Blocked::load(),
     }
   }

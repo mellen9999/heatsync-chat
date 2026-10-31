@@ -671,6 +671,9 @@ impl App {
     for id in self.res.senders.take_wanted() {
       self.net.send(Cmd::Sender(id, None));
     }
+    for id in self.res.cosmetics.take_wanted() {
+      self.net.send(Cmd::Cosmetics(id));
+    }
     self.present(dirty);
   }
 
@@ -1152,6 +1155,7 @@ impl ApplicationHandler<NetEvent> for App {
       NetEvent::Me(me) => {
         // our own inventory feeds tab-complete: fetch it now, not on first sight of our own line
         if let Some(id) = me.as_ref().and_then(|m| m.twitch_id) {
+          self.net.send(Cmd::SevenTvMe(id));
           self.res.senders.lookup(id, "", now_ms());
           self.wake();
         }
@@ -1174,6 +1178,23 @@ impl ApplicationHandler<NetEvent> for App {
           if scrubbed {
             self.touch_sender(id);
           }
+        }
+      }
+      NetEvent::Cosmetics(got) => {
+        for (id, c) in got {
+          if self.res.cosmetics.put(id, c) {
+            self.touch_sender(id);
+          }
+        }
+        self.trim_soon();
+      }
+      NetEvent::CosmeticsStale(id) => {
+        self.res.cosmetics.stale(id);
+        self.wake();
+      }
+      NetEvent::EmoteDelta(ch, d) => {
+        if self.res.emotes.patch(&ch, &d) {
+          self.relayout_where(Some(&ch));
         }
       }
       NetEvent::BlockedHashes(h) => {

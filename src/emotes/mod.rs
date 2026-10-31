@@ -1,6 +1,7 @@
 // third-party emote sets (7tv / bttv / ffz), global + per channel, plus twitch's own by id.
 // this is the CATALOG of what a channel has enabled — heatsync per-sender emotes live elsewhere
 pub mod block;
+pub mod live;
 pub mod providers;
 
 use std::collections::HashMap;
@@ -25,6 +26,13 @@ pub struct Emote {
 }
 
 pub type Set = HashMap<Box<str>, Emote>;
+
+pub(crate) const MAX_SET: usize = 5000;
+const MAX_NAME: usize = 100;
+
+pub(crate) fn valid_name(n: &str) -> bool {
+  !n.is_empty() && n.len() <= MAX_NAME && !n.chars().any(|c| c.is_whitespace() || c.is_control())
+}
 
 #[derive(Default)]
 struct Scope {

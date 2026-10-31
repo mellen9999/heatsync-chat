@@ -1,6 +1,7 @@
 // all network io lives on one background thread running a current-thread tokio runtime.
 // the ui talks to it through `Net` and hears back through winit user events
 pub mod auth;
+mod cosmetics;
 pub mod emote_ops;
 pub mod hs_ws;
 pub mod irc;
@@ -9,6 +10,7 @@ mod recent;
 pub mod relay;
 mod senders;
 mod session;
+pub mod seventv;
 pub mod upload;
 
 use std::sync::Arc;
@@ -53,6 +55,12 @@ pub enum NetEvent {
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
   Inventory { removed: Option<Box<str>> },
   Upload(upload::Upload),
+  // 7tv paints + badges for twitch ids (None = wears nothing)
+  Cosmetics(Vec<(u64, Option<crate::cosmetics::Cosmetic>)>),
+  // 7tv says this twitch user's cosmetics changed: ask again
+  CosmeticsStale(u64),
+  // a live edit of a channel's 7tv emote set
+  EmoteDelta(Box<str>, crate::emotes::live::Delta),
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -106,6 +114,10 @@ pub enum Cmd {
   // a pasted picture: width, height, rgba bytes
   Pixels(u32, u32, Vec<u8>),
   Pick,
+  // chatters' 7tv paints + badges
+  Cosmetics(u64),
+  // our own twitch id, for watching our own 7tv cosmetics
+  SevenTvMe(u64),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
 }
 
@@ -174,13 +186,26 @@ async fn image(
   }
 }
 
-async fn channel_emotes(http: reqwest::Client, ch: Box<str>, room: Box<str>, out: Out) {
+async fn channel_emotes(
+  http: reqwest::Client,
+  ch: Box<str>,
+  room: Box<str>,
+  stv: mpsc::UnboundedSender<seventv::Cmd>,
+  out: Out,
+) {
   if !room.bytes().all(|b| b.is_ascii_digit()) {
     return;
   }
   for (p, u) in providers::channel_urls(&room) {
     match providers::fetch(&http, &u).await {
       Ok(v) => {
+        if p == Provider::SevenTv
+          && let Some(set) = providers::seventv_set_id(&v)
+        {
+          // live edits for this channel's set; the broadcaster's own cosmetics too
+          let user = providers::seventv_user_id(&v).zip(room.parse().ok());
+          let _ = stv.send(seventv::Cmd::Watch { ch: ch.clone(), set, user });
+        }
         out.send(NetEvent::Emotes(Some(ch.clone()), p, providers::parse_channel(p, &v)));
       }
       Err(e) => out.status(format!("{p:?} emotes for {ch}: {e}").to_lowercase()),
@@ -283,6 +308,10 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   tokio::spawn(senders::run(http.clone(), snd_rx, out.clone()));
   let (sess_tx, sess_rx) = mpsc::unbounded_channel();
   tokio::spawn(session::run(http.clone(), sess_rx, irc_tx.clone(), out.clone()));
+  let (cos_tx, cos_rx) = mpsc::unbounded_channel();
+  tokio::spawn(cosmetics::run(http.clone(), cos_rx, out.clone()));
+  let (stv_tx, stv_rx) = mpsc::unbounded_channel();
+  tokio::spawn(seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()));
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
@@ -299,6 +328,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = irc_tx.send(irc::Cmd::Join(ch));
       }
       Cmd::Part(ch) => {
+        let _ = stv_tx.send(seventv::Cmd::Unwatch(ch.clone()));
         let _ = hs_tx.send(hs_ws::Cmd::Leave(Platform::Twitch, ch.clone()));
         let _ = irc_tx.send(irc::Cmd::Part(ch));
       }
@@ -339,8 +369,14 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));
       }
+      Cmd::Cosmetics(id) => {
+        let _ = cos_tx.send(id);
+      }
+      Cmd::SevenTvMe(id) => {
+        let _ = stv_tx.send(seventv::Cmd::Me(id));
+      }
       Cmd::Room(ch, room) => {
-        tokio::spawn(channel_emotes(http.clone(), ch, room, out.clone()));
+        tokio::spawn(channel_emotes(http.clone(), ch, room, stv_tx.clone(), out.clone()));
       }
       Cmd::Image(id, u, h) => {
         tokio::spawn(image(http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));

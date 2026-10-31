@@ -2,19 +2,12 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Emote, Provider, Set};
+use super::{Emote, MAX_SET, Provider, Set, valid_name};
 use crate::images::url::allowed;
-
-const MAX_SET: usize = 5000;
-const MAX_NAME: usize = 100;
 
 // bttv's overlay globals carry no zero-width flag in the api; every client hardcodes them
 const BTTV_ZERO_WIDTH: [&str; 8] =
   ["SoSnowy", "IceCold", "SantaHat", "TopHat", "ReinDeer", "CandyCane", "cvMask", "cvHazmat"];
-
-fn valid_name(n: &str) -> bool {
-  !n.is_empty() && n.len() <= MAX_NAME && !n.chars().any(|c| c.is_whitespace() || c.is_control())
-}
 
 fn put(set: &mut Set, name: &str, e: Emote) {
   if set.len() < MAX_SET && valid_name(name) && allowed(&e.url) {
@@ -85,6 +78,18 @@ pub fn seventv(set: &Value) -> Set {
     put(&mut out, &e.name, Emote { url: format!("https://{base}/1x.webp").into(), w, h, zero_width });
   }
   out
+}
+
+// the id of the channel's active 7tv set (inline, or named when 7tv left the inline copy null)
+pub fn seventv_set_id(user: &Value) -> Option<Box<str>> {
+  let id = user.get("emote_set").and_then(|s| s.get("id")).or_else(|| user.get("emote_set_id"))?.as_str()?;
+  super::live::valid_id(id).then(|| id.into())
+}
+
+// the broadcaster's 7tv user id
+pub fn seventv_user_id(user: &Value) -> Option<Box<str>> {
+  let id = user.get("user")?.get("id")?.as_str()?;
+  super::live::valid_id(id).then(|| id.into())
 }
 
 pub fn seventv_user(user: &Value) -> Set {

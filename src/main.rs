@@ -1,6 +1,7 @@
 mod app;
 mod badges;
 mod bench;
+mod cosmetics;
 mod emotes;
 mod fake;
 mod heatsync;
