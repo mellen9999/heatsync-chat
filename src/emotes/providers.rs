@@ -170,7 +170,8 @@ pub fn ffz(v: &Value, only: Option<&[u64]>) -> Set {
 // itself serves no anonymous api for
 pub fn twitch_global(v: &Value) -> Set {
   let mut out = Set::new();
-  let Some(rows) = v.as_array() else { return out };
+  // the catalog answers `{"emotes": [...]}`; a bare array is accepted too
+  let Some(rows) = v.get("emotes").unwrap_or(v).as_array() else { return out };
   for e in rows.iter().take(5000).filter(|e| e.get("provider").and_then(Value::as_str) == Some("twitch")) {
     let (Some(name), Some(url)) = (e.get("name").and_then(Value::as_str), e.get("url").and_then(Value::as_str)) else {
       continue;
@@ -229,6 +230,9 @@ mod tests {
     let s = twitch_global(&v);
     assert_eq!(s.len(), 1);
     assert!(s["Kappa"].url.ends_with("/dark/1.0"));
+    // the live catalog wraps the rows: `{"emotes": [...]}`
+    let wrapped = json!({"emotes": [{"name": "Kappa", "provider": "twitch", "url": "https://static-cdn.jtvnw.net/emoticons/v2/25/static/light/1.0"}]});
+    assert!(twitch_global(&wrapped).contains_key("Kappa"));
   }
 
   #[test]
