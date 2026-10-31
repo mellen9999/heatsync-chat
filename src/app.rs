@@ -16,6 +16,7 @@ mod emote;
 mod picker;
 mod tabs;
 mod upload;
+mod zoom;
 
 use crate::fake::Fake;
 use crate::model::chan::{self, Form};
@@ -116,6 +117,9 @@ pub struct App {
   // last drawn tab rects, then the + button
   bar_hits: Vec<Rect>,
   plus_hover: bool,
+  // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
+  dpi: f32,
+  zoom_acc: f32,
   picker: Option<Picker>,
   recents: Recents,
   // pointer is over the logo button
@@ -195,6 +199,8 @@ impl App {
       tab_menu: None,
       bar_hits: Vec::new(),
       plus_hover: false,
+      dpi: 1.0,
+      zoom_acc: 0.0,
       picker: None,
       recents: Recents::load(),
       btn_hover: false,
@@ -362,6 +368,8 @@ impl App {
         self.wake();
         format!("first-chatter glow {}", on(self.set.first_glow))
       }
+      Local::Zoom(Some(pct)) => return self.zoom_to(pct),
+      Local::Zoom(None) => "usage: /zoom 1.5 (anything from 0.5 to 3)".into(),
     };
     self.set.save();
     self.bar_dirty = true;
@@ -1079,7 +1087,8 @@ impl ApplicationHandler<NetEvent> for App {
         return el.exit();
       }
     };
-    self.res.set_scale(window.scale_factor() as f32);
+    self.dpi = window.scale_factor() as f32;
+    self.res.set_scale(self.scale());
     let size = window.inner_size();
     self.gfx = Some(Gfx { window, surface });
     self.resize(size.width, size.height);
@@ -1217,12 +1226,8 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::CloseRequested => el.exit(),
       WindowEvent::Resized(s) => self.resize(s.width, s.height),
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-        self.res.set_scale(scale_factor as f32);
-        for t in &mut self.tabs {
-          t.view.relayout();
-        }
-        self.bar_dirty = true;
-        self.wake();
+        self.dpi = scale_factor as f32;
+        self.apply_scale();
       }
       WindowEvent::RedrawRequested => {
         let t = Instant::now();
@@ -1262,7 +1267,11 @@ impl ApplicationHandler<NetEvent> for App {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
           MouseScrollDelta::PixelDelta(p) => p.y as i32,
         };
-        if self.form.is_some() {
+        let lines = match delta {
+          MouseScrollDelta::LineDelta(_, y) => Some(y),
+          MouseScrollDelta::PixelDelta(_) => None,
+        };
+        if self.zoom_wheel(lines, px as f32) || self.form.is_some() {
           return;
         }
         if self.picker.is_some() {
@@ -1273,6 +1282,9 @@ impl ApplicationHandler<NetEvent> for App {
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
+        if self.zoom_key(&k) {
+          return;
+        }
         if self.form.is_some() {
           if self.paste_key(&k) {
             return;
