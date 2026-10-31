@@ -1,3 +1,4 @@
+pub mod chan;
 pub mod color;
 pub mod complete;
 pub mod ime;

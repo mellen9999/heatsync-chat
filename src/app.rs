@@ -14,9 +14,11 @@ use winit::window::{Window, WindowId};
 mod clip;
 mod emote;
 mod picker;
+mod tabs;
 mod upload;
 
 use crate::fake::Fake;
+use crate::model::chan::{self, Form};
 use crate::model::complete::{Complete, rank};
 use crate::model::ime::Ime;
 use crate::model::line::Line;
@@ -31,6 +33,7 @@ use crate::net::{Cmd, Net, NetEvent, Reply};
 use crate::store;
 use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::chat_view::{ChatView, Paint};
+use crate::ui::form::Hit;
 use crate::ui::input_bar;
 use crate::ui::res::Res;
 use crate::ui::tab_bar::{self, TabLabel};
@@ -60,22 +63,6 @@ struct Tab {
   sources: Vec<(Platform, Box<str>)>,
   // which source the input sends to (ctrl-n cycles on merged tabs)
   target: usize,
-}
-
-// tab names: `forsen` (twitch + its linked kick/youtube), `kick:slug`, `yt:handle`
-fn parse_tab(name: &str) -> Option<(Platform, Box<str>)> {
-  let (p, key) = match name.split_once(':') {
-    Some(("kick", k)) => (Platform::Kick, k),
-    Some(("yt", k)) => (Platform::Youtube, k),
-    None => (Platform::Twitch, name),
-    _ => return None,
-  };
-  let key = key.to_ascii_lowercase();
-  let ok = match p {
-    Platform::Twitch => crate::net::irc::valid_channel(&key),
-    _ => crate::net::hs_ws::valid_key(&key),
-  };
-  ok.then(|| (p, key.into()))
 }
 
 pub struct App {
@@ -122,6 +109,13 @@ pub struct App {
   ime_sent: Option<Rect>,
   // shift+right-click menu on an emote
   menu: Option<emote::Open>,
+  // the add/edit channel form (covers the chat), and the menu on a right-clicked tab
+  form: Option<Form>,
+  form_hover: Option<Hit>,
+  tab_menu: Option<tabs::TabMenu>,
+  // last drawn tab rects, then the + button
+  bar_hits: Vec<Rect>,
+  plus_hover: bool,
   picker: Option<Picker>,
   recents: Recents,
   // pointer is over the logo button
@@ -137,22 +131,15 @@ pub struct App {
 impl App {
   pub fn new(net: Net, channels: Vec<Box<str>>, flood: bool) -> Self {
     let mut tabs: Vec<Tab> = Vec::new();
-    for name in channels {
-      let Some((p, key)) = parse_tab(&name) else { continue };
-      if tabs.iter().any(|t| t.name == name) {
+    let mut specs = Vec::new();
+    for line in channels {
+      // a saved line, or an argv word: `forsen`, `kick:slug`, `yt:@handle`, or several merged
+      let Ok(spec) = chan::Spec::from_line(&line) else { continue };
+      if spec.check(&specs).is_err() {
         continue;
       }
-      match p {
-        Platform::Twitch => net.send(Cmd::Join(key.clone())),
-        Platform::Kick => {
-          net.send(Cmd::Hs(HsCmd::Join(Platform::Kick, key.clone())));
-          net.send(Cmd::Backfill(Platform::Kick, key.clone(), key.clone()));
-        }
-        Platform::Youtube => net.send(Cmd::Hs(HsCmd::YtSub(key.clone()))),
-      }
-      let mut view = ChatView::new(SCROLLBACK, key.clone());
-      view.tags = p != Platform::Twitch;
-      tabs.push(Tab { name, view, unread: false, sources: vec![(p, key)], target: 0 });
+      tabs.push(tabs::make_tab(&net, &spec));
+      specs.push(spec);
     }
     if flood {
       tabs.push(Tab {
@@ -164,7 +151,7 @@ impl App {
       });
     }
     let status =
-      if tabs.is_empty() { "no channels — run: heatsync-chat <channel> …".into() } else { String::new() };
+      if tabs.is_empty() { "no channels — click + or press ctrl-t to add one".into() } else { String::new() };
     let set = Settings::load();
     for t in &mut tabs {
       t.view.glow = set.first_glow;
@@ -203,6 +190,11 @@ impl App {
       ime_area: None,
       ime_sent: None,
       menu: None,
+      form: None,
+      form_hover: None,
+      tab_menu: None,
+      bar_hits: Vec::new(),
+      plus_hover: false,
       picker: None,
       recents: Recents::load(),
       btn_hover: false,
@@ -215,6 +207,9 @@ impl App {
 
   // does the focused thing take typed text (so an input method may run)?
   fn wants_text(&self) -> bool {
+    if self.form.is_some() {
+      return true;
+    }
     match &self.picker {
       Some(p) => p.focus == Focus::Search,
       None => self.prompt.is_some() || self.mode == Mode::Insert,
@@ -260,7 +255,10 @@ impl App {
       WinIme::Commit(text) => {
         let text = self.ime.commit(&text);
         if self.wants_text() && !text.is_empty() {
-          if let Some(p) = &mut self.picker {
+          if let Some(f) = &mut self.form {
+            f.fields[f.focus].insert(&text);
+            f.err = None;
+          } else if let Some(p) = &mut self.picker {
             p.type_str(&text);
             self.picker_reveal();
           } else if let Some(p) = &mut self.prompt {
@@ -375,6 +373,11 @@ impl App {
       self.local(cmd);
       return self.after_send();
     }
+    if let Some(cmd) = chan::command(&self.line.text) {
+      self.line.take();
+      self.chan_cmd(cmd);
+      return self.after_send();
+    }
     let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
     if let Some(text) = self.line.take() {
       let reply = self.reply.take().map(|(id, nick)| Reply { id, nick });
@@ -429,34 +432,7 @@ impl App {
   }
 
   fn close_tab(&mut self) {
-    if self.active >= self.tabs.len() {
-      return;
-    }
-    let t = self.tabs.remove(self.active);
-    for (p, key) in t.sources {
-      // another tab may still merge this source
-      if self.tabs.iter().any(|o| o.sources.iter().any(|s| s.0 == p && s.1 == key)) {
-        continue;
-      }
-      match p {
-        Platform::Twitch => {
-          self.res.emotes.drop_channel(&key);
-          self.res.badges.drop_channel(&key);
-          self.rooms.retain(|r| *r != key);
-          self.net.send(Cmd::Part(key));
-        }
-        Platform::Kick => self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key))),
-        Platform::Youtube => self.net.send(Cmd::Hs(HsCmd::YtUnsub(key))),
-      }
-    }
-    persist(&self.tabs.iter().filter(|t| &*t.name != FLOOD_TAB).map(|t| t.name.clone()).collect::<Vec<_>>());
-    self.active = self.active.min(self.tabs.len().saturating_sub(1));
-    if let Some(t) = self.tabs.get_mut(self.active) {
-      t.unread = false;
-      t.view.invalidate();
-    }
-    self.bar_dirty = true;
-    self.wake();
+    self.remove_tab(self.active);
   }
 
   // a catalog changed: rows in that channel (None = all) need new layouts
@@ -617,7 +593,7 @@ impl App {
       }
     }
     let area = self.chat_area();
-    if self.menu.is_some()
+    if (self.menu.is_some() || self.tab_menu.is_some())
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts
@@ -631,13 +607,18 @@ impl App {
         .map(|(i, t)| TabLabel { name: &t.name, active: i == self.active, unread: t.unread })
         .collect();
       let bar = self.bar();
-      tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status);
+      self.bar_hits = tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status, self.plus_hover);
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
     }
     if self.res.images.next_tick() {
       self.trim_soon();
     }
-    if self.picker.is_some() {
+    if self.form.is_some() {
+      self.next_anim = None;
+      if let Some(r) = self.draw_form() {
+        dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      }
+    } else if self.picker.is_some() {
       // the picker covers the chat: paint only it
       self.next_anim = None;
       if let Some(r) = self.draw_picker() {
@@ -671,6 +652,9 @@ impl App {
       }
     }
     if let Some(r) = self.draw_menu() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
+    if let Some(r) = self.draw_tab_menu() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     for (id, url, h) in self.res.images.take_wanted() {
@@ -748,7 +732,7 @@ impl App {
         let names = tab.map_or_else(Vec::new, |t| t.view.chatters());
         rank(nick, [names]).into_iter().map(|n| format!("@{n}").into()).collect()
       } else if start == 0 && word.starts_with('/') {
-        rank(word, [LOCAL.to_vec()])
+        rank(word, [LOCAL.to_vec(), chan::COMMANDS.to_vec()])
       } else {
         let own =
           self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.senders.names(id, now_ms()));
@@ -838,6 +822,7 @@ impl App {
     let n = self.tabs.len().max(1);
     match key {
       Key::Character("o") if ctrl => self.pick_file(),
+      Key::Character("t") if ctrl => self.open_form(None),
       Key::Character("l") if ctrl => self.login(),
       Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
       Key::Named(NamedKey::Tab) if ctrl => {
@@ -945,10 +930,19 @@ impl App {
 
   // click a line to select it; click the input to type
   fn click(&mut self) {
+    if self.form.is_some() {
+      return self.form_click();
+    }
+    if self.tab_menu.is_some() {
+      return self.tab_menu_click();
+    }
     if self.menu.is_some() {
       return self.menu_click();
     }
     let (x, y) = self.pointer;
+    if self.bar().contains(x, y) {
+      return self.bar_click();
+    }
     let (chat, input) = (self.chat_area(), self.input_area());
     if self.over_button() {
       return self.toggle_picker();
@@ -981,8 +975,15 @@ impl App {
   }
 
   fn right_click(&mut self) {
-    if self.picker.is_some() {
+    if self.picker.is_some() || self.form.is_some() {
       return;
+    }
+    if self.tab_menu.is_some() {
+      self.tab_menu = None;
+      return self.tab_menu_changed();
+    }
+    if self.bar().contains(self.pointer.0, self.pointer.1) {
+      return self.bar_right_click();
     }
     if self.menu.is_some() {
       self.menu = None;
@@ -1240,6 +1241,9 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::CursorMoved { position, .. } => {
         self.pointer = (position.x as i32, position.y as i32);
         self.menu_hover();
+        self.tab_menu_hover();
+        self.form_hover_move();
+        self.bar_hover();
         self.picker_hover();
         let (over, up) = (self.over_button(), self.over_upload());
         if over != self.btn_hover || up != self.up_hover {
@@ -1258,6 +1262,9 @@ impl ApplicationHandler<NetEvent> for App {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
           MouseScrollDelta::PixelDelta(p) => p.y as i32,
         };
+        if self.form.is_some() {
+          return;
+        }
         if self.picker.is_some() {
           self.picker_wheel(px);
         } else {
@@ -1266,6 +1273,12 @@ impl ApplicationHandler<NetEvent> for App {
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
+        if self.form.is_some() {
+          if self.paste_key(&k) {
+            return;
+          }
+          return self.form_key(k, t);
+        }
         if self.mods.control_key() && k == Key::Character(";") {
           return self.toggle_picker();
         }
@@ -1277,6 +1290,9 @@ impl ApplicationHandler<NetEvent> for App {
         }
         if self.picker.is_some() {
           return self.picker_key(k, t);
+        }
+        if self.tab_menu.is_some() {
+          return self.tab_menu_key(k);
         }
         if self.menu.is_some() {
           return self.menu_key(k);

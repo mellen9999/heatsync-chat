@@ -89,7 +89,9 @@ impl App {
     }
     let to_picker =
       self.prompt.is_none() && self.picker.as_ref().is_some_and(|p| p.focus == crate::model::picker::Focus::Search);
-    let to_line = self.prompt.is_some() || (self.picker.is_none() && self.menu.is_none() && self.mode == Mode::Insert);
+    let to_line = self.prompt.is_some()
+      || self.form.is_some()
+      || (self.picker.is_none() && self.menu.is_none() && self.mode == Mode::Insert);
     if !to_picker && !to_line {
       return self.picker.is_some() || self.menu.is_some() || self.mode == Mode::Insert;
     }
@@ -111,6 +113,12 @@ impl App {
       self.picker_reveal();
       self.picker_changed();
       return;
+    }
+    if let Some(f) = &mut self.form {
+      // one line per field
+      f.fields[f.focus].insert(t);
+      f.err = None;
+      return self.wake();
     }
     match self.prompt.as_mut() {
       Some(l) => l.insert(t),

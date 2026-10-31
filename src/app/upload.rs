@@ -92,7 +92,7 @@ impl App {
     }
   }
 
-  fn close_prompt(&mut self) {
+  pub(super) fn close_prompt(&mut self) {
     if self.prompt.take().is_some() {
       self.ime.clear();
       self.input_dirty = true;

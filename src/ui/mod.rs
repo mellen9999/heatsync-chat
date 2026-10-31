@@ -1,5 +1,6 @@
 pub mod canvas;
 pub mod chat_view;
+pub mod form;
 pub mod input_bar;
 pub mod logo;
 pub mod menu;
