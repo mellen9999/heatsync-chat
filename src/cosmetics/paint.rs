@@ -40,6 +40,8 @@ pub struct Paint {
   repeat: bool,
   d0: f32,
   d1: f32,
+  // heatsync banded paints: one tile's width in px along the gradient (0 = the name box)
+  tile: f32,
   pub shadows: Vec<Shadow>,
 }
 
@@ -93,6 +95,12 @@ fn paint_image(url: &str) -> Option<&str> {
   (ok && allowed(url)).then_some(url)
 }
 
+// "#rrggbb" -> 0xrrggbb
+fn hex6(s: &str) -> Option<u32> {
+  let h = s.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))?;
+  u32::from_str_radix(h, 16).ok()
+}
+
 fn still_of(url: &str) -> Box<str> {
   match url.strip_suffix("/1x.webp") {
     Some(base) => format!("{base}/1x_static.webp").into(),
@@ -143,6 +151,7 @@ impl Paint {
             repeat: false,
             d0,
             d1,
+            tile: 0.0,
             shadows: Vec::new(),
           });
         }
@@ -165,7 +174,55 @@ impl Paint {
     if fill == Fill::None && shadows.is_empty() {
       return None;
     }
-    Some(Paint { id: id.into(), fill, lut, repeat, d0, d1, shadows })
+    Some(Paint { id: id.into(), fill, lut, repeat, d0, d1, tile: 0.0, shadows })
+  }
+
+  // a heatsync-native paint (`/api/paints` spec v2) at rest, like the ext's `static` mode: the base
+  // fill plus the glow. effects + scenes animate and are left out; `conic` has no cpu shader and
+  // runs as a linear ramp. None = nothing to draw. the id names the spec, so an edit re-renders
+  pub fn from_hs(v: &Value) -> Option<Paint> {
+    let base = v.get("base")?;
+    let mut stops: Vec<(f32, Argb)> = base
+      .get("stops")?
+      .as_array()?
+      .iter()
+      .take(MAX_STOPS)
+      .filter_map(|s| {
+        let pos = s.get("pos").and_then(Value::as_f64).filter(|p| p.is_finite())?.clamp(0.0, 100.0) as f32;
+        Some((pos / 100.0, 0xff00_0000 | hex6(s.get("color")?.as_str()?)?))
+      })
+      .collect();
+    stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let first = *stops.first()?;
+    let kind = base.get("type").and_then(Value::as_str).unwrap_or("solid");
+    let angle = num(base, "angle").rem_euclid(360.0);
+    let (mut d0, mut d1, mut repeat, mut tile) = (0.0, 1.0, false, 0.0);
+    let (fill, lut): (Fill, Box<[Argb]>) = match kind {
+      "solid" => (Fill::Solid(first.1), Box::default()),
+      _ if stops.len() == 1 => (Fill::Solid(first.1), Box::default()),
+      "repeating-linear" => {
+        // hard bands: each color holds until the next stop; the last runs to the tile edge
+        tile = num(base, "tileWidth").clamp(2.0, 40.0);
+        (d0, d1, repeat) = (0.0, 1.0, true);
+        let band = |t: f32| stops.iter().rev().find(|s| s.0 <= t).map_or(first.1, |s| s.1);
+        (Fill::Linear { deg: angle }, (0..LUT).map(|i| band(i as f32 / LUT as f32)).collect())
+      }
+      _ => {
+        (d0, d1) = (0.0, 1.0);
+        (Fill::Linear { deg: angle }, (0..LUT).map(|i| ramp(&stops, i as f32 / (LUT - 1) as f32)).collect())
+      }
+    };
+    let mut shadows = Vec::new();
+    if let Some(c) = v.get("glow").and_then(|g| g.get("color")).and_then(Value::as_str).and_then(hex6) {
+      let [r1, r2] = if v["glow"]["strength"].as_i64() == Some(2) { [10.0, 26.0] } else { [6.0, 14.0] };
+      for (blur, a) in [(r1, 0xcc_u32), (r2, 0x66)] {
+        shadows.push(Shadow { dx: 0.0, dy: 0.0, blur, color: a << 24 | c });
+      }
+    }
+    // fnv-1a over the canonical json (serde sorts keys): same spec, same id
+    let h =
+      v.to_string().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3));
+    Some(Paint { id: format!("hs{h:016x}").into(), fill, lut, repeat, d0, d1, tile, shadows })
   }
 
   fn at(&self, t: f32) -> Argb {
@@ -182,6 +239,10 @@ impl Paint {
       Fill::Linear { deg } => {
         let (s, c) = deg.to_radians().sin_cos();
         let len = (w * s).abs() + (h * c).abs();
+        if self.tile > 0.0 {
+          let u = ((cx * s - cy * c) / self.tile).rem_euclid(1.0);
+          return Some(self.lut[(u * LUT as f32) as usize % LUT]);
+        }
         Some(self.at(if len > 0.0 { (cx * s - cy * c) / len + 0.5 } else { 0.5 }))
       }
       Fill::Radial { ellipse } => {
@@ -292,5 +353,66 @@ mod tests {
     assert!(Paint::parse(&json!({"id": "E", "function": "linear-gradient", "stops": []})).is_none());
     assert!(Paint::parse(&json!({"id": "bad id", "function": "url"})).is_none());
     assert!(Paint::parse(&json!("junk")).is_none());
+  }
+
+  // ennortix's real `/api/paints` row (trimmed): a heatsync-native plus paint, not a 7tv one
+  fn ennortix() -> Value {
+    json!({"v": 2, "base": {"type": "solid", "angle": 0, "stops": [{"pos": 0, "color": "#ffb000"}]}, "glow": null,
+      "scene": {"weather": {"id": "petals", "tint": "#d7408c", "speed": 1, "density": 1}, "backdrop": {"id": "synth", "tint": "#0ca43d", "speed": 1}},
+      "effects": [{"id": "twirl", "speed": 1}, {"id": "coin", "speed": 1}]})
+  }
+
+  #[test]
+  fn heatsync_native_paint_renders_its_resting_base() {
+    let p = Paint::from_hs(&ennortix()).unwrap();
+    assert_eq!(p.fill, Fill::Solid(0xffffb000));
+    assert!(p.shadows.is_empty());
+    assert_eq!(p.gradient(3.0, 3.0, 40.0, 10.0), Some(0xffffb000));
+    // same spec, same id; an edit gets a new one
+    assert_eq!(p.id, Paint::from_hs(&ennortix()).unwrap().id);
+    let mut edited = ennortix();
+    edited["base"]["stops"][0]["color"] = json!("#00ff00");
+    assert_ne!(p.id, Paint::from_hs(&edited).unwrap().id);
+  }
+
+  #[test]
+  fn heatsync_native_gradients_glow_and_bands() {
+    let lin = Paint::from_hs(&json!({"v": 2, "base": {"type": "linear", "angle": 90,
+      "stops": [{"pos": 100, "color": "#0000ff"}, {"pos": 0, "color": "#ff0000"}]}, "glow": {"color": "#00ff00", "strength": 2}}))
+    .unwrap();
+    assert_eq!(lin.gradient(0.0, 5.0, 100.0, 10.0), Some(0xffff0000));
+    assert_eq!(lin.gradient(99.9, 5.0, 100.0, 10.0).unwrap() & 0xffffff, 0x0000ff);
+    assert_eq!(
+      lin.shadows.iter().map(|s| (s.blur, s.color)).collect::<Vec<_>>(),
+      vec![(10.0, 0xcc00ff00), (26.0, 0x6600ff00)]
+    );
+    let conic = Paint::from_hs(&json!({"base": {"type": "conic", "angle": 0,
+      "stops": [{"pos": 0, "color": "#ff0000"}, {"pos": 100, "color": "#0000ff"}]}}))
+    .unwrap();
+    assert!(matches!(conic.fill, Fill::Linear { .. }));
+    // 10px tile, red for the first half then blue, repeating along x
+    let bands = Paint::from_hs(&json!({"base": {"type": "repeating-linear", "angle": 90, "tileWidth": 10,
+      "stops": [{"pos": 0, "color": "#ff0000"}, {"pos": 50, "color": "#0000ff"}]}}))
+    .unwrap();
+    let at = |x: f32| bands.gradient(x, 5.0, 100.0, 10.0).unwrap() & 0xffffff;
+    assert_eq!((at(52.0), at(57.0), at(62.0)), (0xff0000, 0x0000ff, 0xff0000));
+  }
+
+  #[test]
+  fn hostile_heatsync_paints_are_dropped_or_safe() {
+    for bad in [
+      json!(null),
+      json!("x"),
+      json!({}),
+      json!({"base": {"stops": []}}),
+      json!({"base": {"stops": [{"pos": 0, "color": "red"}]}}),
+    ] {
+      assert!(Paint::from_hs(&bad).is_none(), "{bad}");
+    }
+    let wild = Paint::from_hs(&json!({"base": {"type": "repeating-linear", "angle": 1e300, "tileWidth": -5,
+      "stops": [{"pos": 1e9, "color": "#112233"}, {"pos": -1e9, "color": "#445566"}]}, "glow": {"color": "nope"}}))
+    .unwrap();
+    assert!(wild.shadows.is_empty());
+    assert!(wild.gradient(1.0, 1.0, 10.0, 10.0).is_some());
   }
 }

@@ -64,7 +64,20 @@ async fn batch(
   paints: &mut HashMap<Box<str>, std::sync::Arc<cosmetics::paint::Paint>>,
 ) -> Option<Vec<(u64, Option<cosmetics::Cosmetic>)>> {
   let list: Vec<String> = ids.iter().map(u64::to_string).collect();
-  let v = fetch(http, &format!("{ORIGIN}/api/cosmetics/batch?ids={}", list.join(","))).await.ok()?;
-  let map = v.get("cosmetics")?.as_object()?;
-  Some(ids.iter().map(|id| (*id, map.get(&id.to_string()).and_then(|c| cosmetics::parse(c, paints)))).collect())
+  let list = list.join(",");
+  // 7tv's cosmetics and heatsync's own paints are two routes; either failing retries the batch
+  let (u_cos, u_own) = (format!("{ORIGIN}/api/cosmetics/batch?ids={list}"), format!("{ORIGIN}/api/paints?ids={list}"));
+  let (cos, own) = tokio::join!(fetch(http, &u_cos), fetch(http, &u_own));
+  let (cos, own) = (cos.ok()?, own.ok()?);
+  let map = cos.get("cosmetics")?.as_object()?;
+  let own = own.get("paints").and_then(|p| p.as_object());
+  Some(
+    ids
+      .iter()
+      .map(|id| {
+        let k = id.to_string();
+        (*id, cosmetics::parse(map.get(&k).unwrap_or(&serde_json::Value::Null), own.and_then(|o| o.get(&k)), paints))
+      })
+      .collect(),
+  )
 }

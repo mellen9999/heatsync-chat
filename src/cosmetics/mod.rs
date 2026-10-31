@@ -49,9 +49,10 @@ fn badge(v: &Value) -> Option<Badge> {
   })
 }
 
-// one entry of the batch response. None = nothing to show
-pub fn parse(v: &Value, paints: &mut HashMap<Box<str>, Arc<Paint>>) -> Option<Cosmetic> {
-  let paint = v.get("paint").and_then(Paint::parse).map(|p| {
+// one entry of the batch response. `hs` is the chatter's heatsync-native paint (`/api/paints`), which
+// outranks their 7tv one like in the ext. None = nothing to show
+pub fn parse(v: &Value, hs: Option<&Value>, paints: &mut HashMap<Box<str>, Arc<Paint>>) -> Option<Cosmetic> {
+  let paint = hs.and_then(Paint::from_hs).or_else(|| v.get("paint").and_then(Paint::parse)).map(|p| {
     // one allocation per distinct paint: thousands of chatters share a few hundred
     if paints.len() > 400 {
       paints.clear();
@@ -155,23 +156,37 @@ mod tests {
       "badge": {"id": "B1", "tooltip": "Subscriber", "host": {"url": "//cdn.7tv.app/badge/B1", "files": [{"name": "1x.webp"}, {"name": "2x.webp"}, {"name": "3x.avif"}]}}
     });
     let mut cache = paints();
-    let c = parse(&v, &mut cache).unwrap();
+    let c = parse(&v, None, &mut cache).unwrap();
     assert_eq!(&*c.badge.as_ref().unwrap().url, "https://cdn.7tv.app/badge/B1/2x.webp");
     assert_eq!(&*c.badge.as_ref().unwrap().title, "Subscriber");
-    let again = parse(&v, &mut cache).unwrap();
+    let again = parse(&v, None, &mut cache).unwrap();
     assert!(Arc::ptr_eq(c.paint.as_ref().unwrap(), again.paint.as_ref().unwrap()));
+  }
+
+  #[test]
+  fn own_paint_outranks_the_7tv_one_and_stands_alone() {
+    let hs = json!({"base": {"type": "solid", "stops": [{"pos": 0, "color": "#ffb000"}]}});
+    let seven =
+      json!({"paint": {"id": "P1", "function": "linear-gradient", "angle": 0, "stops": [{"at": 0, "color": -1}]}});
+    let mut cache = paints();
+    let c = parse(&seven, Some(&hs), &mut cache).unwrap();
+    assert!(c.paint.unwrap().id.starts_with("hs"));
+    // ennortix: heatsync says `paint: null`, /api/paints has the row
+    let c = parse(&json!({"paint": null, "badge": null}), Some(&hs), &mut cache).unwrap();
+    assert!(c.paint.is_some() && c.badge.is_none());
+    assert!(parse(&seven, None, &mut cache).unwrap().paint.unwrap().id.as_ref() == "P1");
   }
 
   #[test]
   fn hostile_cosmetics_are_dropped() {
     let mut cache = paints();
-    assert!(parse(&Value::Null, &mut cache).is_none());
-    assert!(parse(&json!({"paint": 5, "badge": []}), &mut cache).is_none());
+    assert!(parse(&Value::Null, None, &mut cache).is_none());
+    assert!(parse(&json!({"paint": 5, "badge": []}), None, &mut cache).is_none());
     let evil = json!({"badge": {"host": {"url": "//evil.example/b", "files": [{"name": "1x.webp"}]}}});
-    assert!(parse(&evil, &mut cache).is_none());
+    assert!(parse(&evil, None, &mut cache).is_none());
     let traversal =
       json!({"badge": {"host": {"url": "//cdn.7tv.app/badge/x", "files": [{"name": "../../1x.webp"}, {"name": 5}]}}});
-    assert!(parse(&traversal, &mut cache).is_none());
+    assert!(parse(&traversal, None, &mut cache).is_none());
   }
 
   #[test]
