@@ -180,6 +180,24 @@ impl App {
     self.wake();
   }
 
+  // a click on a row's ▲ votes on that row. true = the click was a vote press (spent either way)
+  pub(super) fn vote_press(&mut self) -> bool {
+    if self.kind() != Kind::Feed {
+      return false;
+    }
+    let (x, y) = self.pointer;
+    let chat = self.chat_area();
+    let res = &mut self.res;
+    let Some(t) = self.tabs.get_mut(self.active) else { return false };
+    if t.view.vote_at(chat, x, y, res).is_none() {
+      return false;
+    }
+    t.view.select_at(chat, y, res);
+    self.feed_vote();
+    self.wake();
+    true
+  }
+
   pub(super) fn feed_vote(&mut self) {
     let Some(id) = self.selected_post_id().filter(|i| &**i != MORE_ID) else { return };
     if self.me.is_none() {

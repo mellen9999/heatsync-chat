@@ -56,6 +56,8 @@ struct Laid {
   layout: TextLayout,
   // where the name sits in the laid-out text (empty for notices)
   nick: std::ops::Range<usize>,
+  // the feed's ▲ (empty on every other line)
+  vote: std::ops::Range<usize>,
   boxes: Vec<EmoteBox>,
   name: Option<PaintedName>,
   // the line's inline picture, asked for at draw time (never for rows only measured)
@@ -228,6 +230,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut painted = None;
   let mut embed = None;
   let mut nick = 0..0;
+  let mut vote = 0..0;
   // where the words sit in the text, for search hits
   let mut words = 0..0;
   if m.kind == Kind::System {
@@ -253,6 +256,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     spans.push(Span { range: n0..s.len(), ink: Ink(m.color | tag), bold: true });
     for g in x.map_or(&[][..], |x| &x.tail) {
       seg(&mut s, &mut spans, g);
+      if g.text.ends_with('▲') {
+        vote = s.len() - '▲'.len_utf8()..s.len();
+      }
     }
     if m.kind == Kind::Chat {
       s.push(':');
@@ -298,7 +304,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     let (x, w, baseline) = painted_run(&layout)?;
     Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
   });
-  Laid { layout, nick, boxes, name, embed, links, link_runs }
+  Laid { layout, nick, vote, boxes, name, embed, links, link_runs }
 }
 
 fn twitch_uid(m: &Message) -> Option<u64> {
@@ -990,6 +996,29 @@ impl ChatView {
     None
   }
 
+  // the id of the line whose ▲ is under (x, y), as drawn last
+  pub fn vote_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        return None;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+        let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+        if laid.vote.is_empty() {
+          return None;
+        }
+        let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
+        let at = Cluster::from_point(&laid.layout, lx, ly)?.0.text_range();
+        return (at.start >= laid.vote.start && at.start < laid.vote.end).then(|| m.id.clone());
+      }
+      bottom = top;
+    }
+    None
+  }
+
   // the line whose name is under (x, y), as drawn last
   pub fn name_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Message> {
     let mut bottom = self.edge(area, res);
@@ -1485,6 +1514,45 @@ mod tests {
   }
 
   const NO_OPTS: Opts = Opts { ts: false, tags: false, find: None };
+
+  // a feed post: its author's twitch id asks for their paint, the paint animates like in chat, and
+  // only the ▲ (not the heat or the replies beside it) answers a vote click
+  #[test]
+  fn feed_rows_wear_animated_paints_and_the_arrow_alone_votes() {
+    use crate::cosmetics::{Cosmetic, paint::Paint as P};
+    let spec = serde_json::json!({"v": 2, "base": {"type": "solid", "angle": 0, "stops": [{"pos": 0, "color": "#ffb000"}]},
+      "glow": null, "scene": null, "effects": [{"id": "twirl", "speed": 1}]});
+    let paint = Arc::new(P::from_hs(&spec).unwrap());
+    let post = crate::model::post::parse(&serde_json::json!({"base36_id": "00abc1", "username": "ennortix",
+      "user_id": "37005319", "platform": "twitch", "content": "gg", "heat": 20, "reply_count": 2}))
+    .unwrap();
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "feed".into());
+    v.top = true;
+    v.zebra = false;
+    v.resize(500);
+    v.push(crate::model::post::message(&post, Some("me"), true));
+    let area = Rect::new(0, 0, 500, 40);
+    let mut c = Canvas::new(500, 40);
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(res.cosmetics.take_wanted(), vec![37005319]);
+    res.cosmetics.put(37005319, Some(Cosmetic { paint: Some(paint), badge: None }));
+    v.touch_sender("37005319");
+    v.draw(&mut c, &mut res, area, area);
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(v.next_anim, Some(TICK_SMOOTH_MS), "a painted feed name ticks while on screen");
+    let hits: Vec<i32> = (0..500).filter(|&x| v.vote_at(area, x, 8, &mut res).is_some()).collect();
+    assert!(!hits.is_empty(), "the arrow is hittable");
+    assert!(hits.windows(2).all(|w| w[1] == w[0] + 1) && hits.len() < 30, "only the arrow: {hits:?}");
+    assert_eq!(v.vote_at(area, hits[0], 8, &mut res).as_deref(), Some("00abc1"));
+    assert!(v.vote_at(area, 2, 8, &mut res).is_none());
+    // logged out: no arrow, nothing to hit
+    let mut v = ChatView::new(10, "feed".into());
+    v.top = true;
+    v.resize(500);
+    v.push(crate::model::post::message(&post, Some("me"), false));
+    assert!((0..500).all(|x| v.vote_at(area, x, 8, &mut res).is_none()));
+  }
 
   fn said(login: &str, body: &str) -> Message {
     let mut m = Message::system(1, Platform::Twitch, "x");

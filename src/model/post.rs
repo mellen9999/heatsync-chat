@@ -22,6 +22,8 @@ pub struct Post {
   pub color: u32,
   pub anon: bool,
   pub platform: Option<Platform>,
+  // the author's twitch id (digits) when the post names one: what keys their paint. empty = none
+  pub uid: Box<str>,
   pub text: Box<str>,
   pub ts: i64,
   pub heat: u32,
@@ -65,6 +67,10 @@ pub fn unescape(s: &str) -> String {
   out
 }
 
+fn is_twitch_id(s: &str) -> bool {
+  (1..=20).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()) && s.parse::<u64>().is_ok_and(|n| n > 0)
+}
+
 fn id_ok(s: &str) -> bool {
   (1..=8).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric())
 }
@@ -101,12 +107,21 @@ pub fn parse(v: &Value) -> Option<Post> {
   };
   let num =
     |k: &str| v.get(k).and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map_or(0, |n| n.min(1e9) as u32);
+  // ext isPaintLookupSafeId: a twitch author's id is their paint id; kick/yt/native ids live in other
+  // id spaces (never fed to the twitch-keyed cosmetics), anyone else stays plain
+  let uid = match v.get("user_id") {
+    Some(Value::String(s)) => s.clone(),
+    Some(Value::Number(n)) => n.to_string(),
+    _ => String::new(),
+  };
+  let uid = if platform == Some(Platform::Twitch) && is_twitch_id(&uid) { uid.into() } else { "".into() };
   Some(Post {
     id: id.into(),
     user: clamp(user, MAX_NAME).into(),
     color: name("user_color").and_then(color::parse_hex).map_or(theme::WHITE, color::readable),
     anon,
     platform,
+    uid,
     text: clamp(&text, MAX_TEXT).trim().into(),
     ts: name("created_at").and_then(parse_iso).unwrap_or_else(now_ms),
     heat: num("heat"),
@@ -194,6 +209,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
   m.kind = Kind::Chat;
   m.id = row_id(&p.id);
   m.login = p.user.to_lowercase().into();
+  m.user_id = p.uid.clone();
   m.nick = if p.anon { "Anonymous".into() } else { p.user.clone() };
   m.color = if p.anon { theme::WHITE } else { p.color };
   m.body = if p.edited { format!("{} (edited)", p.text).into() } else { p.text.clone() };
@@ -220,6 +236,24 @@ mod tests {
       "emote_refs": { "catJAM": "https://cdn.7tv.app/a.webp", "nope": { "url": "https://cdn.7tv.app/b.webp", "nsfw": true },
                       "bad": "javascript:x", "obj": { "url": "https://cdn.7tv.app/c.webp" } },
     })
+  }
+
+  #[test]
+  fn only_twitch_authors_carry_a_paint_id() {
+    let mut v = sample();
+    assert!(parse(&v).unwrap().uid.is_empty(), "no platform = plain");
+    v["platform"] = json!("twitch");
+    assert_eq!(&*parse(&v).unwrap().uid, "7");
+    assert_eq!(&*message(&parse(&v).unwrap(), None, false).user_id, "7");
+    v["user_id"] = json!(37005319);
+    assert_eq!(&*parse(&v).unwrap().uid, "37005319");
+    for bad in [json!("kick_5"), json!("0"), json!("12x"), json!("99999999999999999999999")] {
+      v["user_id"] = bad;
+      assert!(parse(&v).unwrap().uid.is_empty());
+    }
+    v["user_id"] = json!("7");
+    v["platform"] = json!("kick");
+    assert!(parse(&v).unwrap().uid.is_empty());
   }
 
   #[test]

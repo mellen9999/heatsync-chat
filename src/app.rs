@@ -1215,7 +1215,7 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
-    if self.link_press() || self.emote_press(false) || self.name_press() {
+    if self.vote_press() || self.link_press() || self.emote_press(false) || self.name_press() {
       return;
     }
     let res = &mut self.res;

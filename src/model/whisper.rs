@@ -274,6 +274,10 @@ pub fn message(w: &Whisper) -> Message {
   m.id = row_id(w.key);
   m.flags = flags;
   m.login = w.who.login.clone();
+  // their paint rides on the name; your own side reads "you"
+  if !w.out {
+    m.user_id = w.who.id.clone();
+  }
   m.nick = if w.out { "you".into() } else { w.who.name.clone() };
   m.color = if w.out { theme::WHITE } else { w.who.color };
   m.body = body.into();
@@ -411,6 +415,7 @@ mod tests {
     let mut w = Whisper { key: 7, ext: "".into(), ts: 1, out: true, who, text: "hi".into(), status: Status::Pending };
     let m = message(&w);
     assert_eq!((&*m.id, &*m.nick, &*m.body), ("w7", "you", "hi …"));
+    assert!(m.user_id.is_empty(), "your own side is just \"you\": no paint");
     assert!(m.has(flag::BRAND) && !m.has(flag::ALERT));
     let x = m.x.unwrap();
     assert_eq!(&*x.tail[1].text, "Bob");
@@ -419,6 +424,7 @@ mod tests {
     assert!(m.has(flag::ALERT) && m.body.contains("re-link"));
     w.out = false;
     w.status = Status::Sent;
+    assert_eq!(&*message(&w).user_id, "42", "their name wears their paint");
     let m = message(&w);
     assert!(m.has(flag::HIGHLIGHTED));
     assert_eq!(&*m.nick, "Bob");
