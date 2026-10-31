@@ -245,20 +245,28 @@ pub async fn check(http: &reqwest::Client, token: &str) -> Result<Check, String>
 }
 
 // the user's twitch irc credential, brokered by heatsync (refreshed server-side)
-pub async fn chat_token(http: &reqwest::Client, token: &str) -> Result<(String, String), String> {
+// Ok(None) = this account has no twitch linked (a 404 from heatsync), not a failure
+pub async fn chat_token(http: &reqwest::Client, token: &str) -> Result<Option<(String, String)>, String> {
   let r = http
     .get(format!("{ORIGIN}/api/auth/twitch/chat-token"))
     .bearer_auth(token)
     .send()
     .await
     .map_err(|e| e.to_string())?;
-  let ok = r.status().is_success();
-  let v = body(r).await?;
+  let status = r.status().as_u16();
+  if status == 404 {
+    return Ok(None);
+  }
+  parse_chat_token((200..300).contains(&status), &body(r).await?)
+}
+
+fn parse_chat_token(ok: bool, v: &Value) -> Result<Option<(String, String)>, String> {
   let t =
     v.get("token").and_then(Value::as_str).filter(|t| t.len() <= 200 && t.bytes().all(|b| b.is_ascii_alphanumeric()));
-  let u = v.get("username").and_then(Value::as_str).filter(|u| super::irc::valid_channel(u));
+  // heatsync may hand back a mixed-case handle: irc wants lowercase
+  let u = v.get("username").and_then(Value::as_str).map(str::to_lowercase).filter(|u| super::irc::valid_channel(u));
   match (ok, t, u) {
-    (true, Some(t), Some(u)) => Ok((t.to_string(), u.to_lowercase())),
+    (true, Some(t), Some(u)) => Ok(Some((t.to_string(), u))),
     _ => Err(v.get("error").and_then(Value::as_str).unwrap_or("no twitch chat token").chars().take(100).collect()),
   }
 }
@@ -270,6 +278,17 @@ pub async fn logout(http: &reqwest::Client, token: &str) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn chat_token_parses_for_any_sign_in() {
+    let v = json!({ "token": "abc123", "username": "Mellen" });
+    assert_eq!(parse_chat_token(true, &v), Ok(Some(("abc123".into(), "mellen".into()))));
+    assert!(parse_chat_token(true, &json!({ "token": "bad token!", "username": "x" })).is_err());
+    assert_eq!(
+      parse_chat_token(false, &json!({ "error": "twitch token expired" })),
+      Err("twitch token expired".into())
+    );
+  }
 
   #[test]
   fn base64url() {

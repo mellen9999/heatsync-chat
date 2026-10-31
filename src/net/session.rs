@@ -185,7 +185,6 @@ impl State {
         return false;
       }
     };
-    let twitch = me.twitch.is_some();
     if self.hs_as != self.token {
       self.hs_as = self.token.clone();
       let _ = self.hs.send(hs_ws::Cmd::Auth(self.token.clone()));
@@ -195,20 +194,21 @@ impl State {
       tokio::spawn(emote_ops::load_blocked(self.http.clone(), t.clone(), self.out.clone()));
       tokio::spawn(super::mutes::load(self.http.clone(), t.clone(), self.out.clone()));
     }
-    if !twitch {
-      // a kick-only or youtube-only login has no twitch chat: drop a twitch login left from before
-      if self.irc_as.take().is_some() {
-        let _ = self.irc.send(irc::Cmd::Login(None));
-      }
-      return true;
-    }
+    // one heatsync login covers every linked platform: ask for the twitch chat token whichever
+    // provider signed in, and let heatsync say whether twitch is linked
     let Some(t) = self.token.as_deref() else { return true };
     match auth::chat_token(&self.http, t).await {
-      Ok((token, nick)) => {
+      Ok(Some((token, nick))) => {
         let now = Some((token.clone(), nick.clone()));
         if self.irc_as != now {
           self.irc_as = now;
           let _ = self.irc.send(irc::Cmd::Login(Some(Creds { token, nick })));
+        }
+      }
+      Ok(None) => {
+        // no twitch linked: drop a twitch login left from before
+        if self.irc_as.take().is_some() {
+          let _ = self.irc.send(irc::Cmd::Login(None));
         }
       }
       Err(e) => self.out.status(format!("twitch chat: {e}")),
