@@ -1145,7 +1145,7 @@ impl App {
     let Some(t) = self.tabs.get_mut(self.active).filter(|t| t.kind == Kind::Chat) else { return };
     let Some(m) = t.view.selected() else { return };
     if m.id.is_empty() {
-      return;
+      return self.say("that line can't be replied to");
     }
     let (id, nick, p) = (m.id.clone(), m.nick.clone(), m.platform);
     if let Some(i) = t.sources.iter().position(|s| s.0 == p) {
@@ -1320,6 +1320,8 @@ impl App {
       Key::Character("N") if !ctrl && self.find_on() => self.find_step(-1),
       Key::Named(NamedKey::Escape) if self.find_on() => _ = self.find_clear(),
       Key::Character("v") if !ctrl => self.select_start(),
+      // r needs a line to answer: say how to pick one instead of doing nothing
+      Key::Character("r") if !ctrl => self.say("pick a line first: v (then j/k) or click it, then r"),
       Key::Character("x") if !ctrl && !alt => self.pin_hide(),
       Key::Character("t") if chord == Some('g') => self.select(self.step_tab(self.active, false)),
       Key::Character("T") if chord == Some('g') => self.select(self.step_tab(self.active, true)),
