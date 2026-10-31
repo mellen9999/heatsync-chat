@@ -137,7 +137,14 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
   let mut boxes = Vec::new();
   let mut painted = None;
   if m.kind == Kind::System {
-    dim(&mut s, &mut spans, &m.body);
+    // stream lines carry their color (green live, magenta game switch); notices stay dim
+    if m.color == 0 {
+      dim(&mut s, &mut spans, &m.body);
+    } else {
+      let a = s.len();
+      s.push_str(&m.body);
+      spans.push(Span { range: a..s.len(), ink: Ink(m.color), bold: false });
+    }
   } else {
     badges(res, chan, m, &mut s, &mut ib, &mut boxes);
     let n0 = s.len();

@@ -64,6 +64,10 @@ pub enum NetEvent {
   EmoteDelta(Box<str>, crate::emotes::live::Delta),
   // a channel's pinned line was set or cleared (None)
   Pin { platform: Platform, key: Box<str>, pin: Option<crate::model::pin::Pin> },
+  // went live / offline / switched game, already paired and de-duplicated
+  Stream(crate::model::stream_events::Line),
+  // a chat-rate spike in a channel (text ready to show)
+  Moment { platform: Platform, key: Box<str>, text: Box<str> },
 }
 
 // event sink back to the ui. false = the ui is gone

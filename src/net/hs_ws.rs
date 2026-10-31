@@ -15,6 +15,7 @@ use super::{NetEvent, Out, backoff};
 use super::{pin, relay, senders};
 use crate::heatsync::valid_name;
 use crate::model::message::Platform;
+use crate::model::stream_events::{self, Ev, Gate, Kind};
 
 const URL: &str = "wss://heatsync.org/ws?b=1";
 const HEARTBEAT: Duration = Duration::from_secs(25);
@@ -50,6 +51,7 @@ struct State {
   // last `_seq` seen per kick room, so the server can replay what we missed
   kick_seq: HashMap<Box<str>, u64>,
   yt_status: HashMap<Box<str>, Box<str>>,
+  gate: Gate,
 }
 
 enum End {
@@ -194,6 +196,13 @@ async fn session(
           }
         }
       }
+      _ = hold(st.gate.next_due()) => {
+        for l in st.gate.due(crate::util::time::now_ms()) {
+          if !out.send(NetEvent::Stream(l)) {
+            return End::Quit;
+          }
+        }
+      }
       _ = beat.tick() => {
         if last_rx.elapsed() > IDLE_LIMIT {
           out.status("heatsync silent, reconnecting");
@@ -204,6 +213,14 @@ async fn session(
         }
       }
     }
+  }
+}
+
+// sleeps until a held game switch is due; forever when none is
+async fn hold(due: Option<i64>) {
+  match due {
+    Some(at) => sleep(Duration::from_millis((at - crate::util::time::now_ms()).max(0) as u64)).await,
+    None => std::future::pending().await,
   }
 }
 
@@ -277,6 +294,31 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         .then(|| v.get("emoteName").and_then(Value::as_str).filter(|n| valid_name(n)).map(Into::into))
         .flatten();
       send(NetEvent::SendersStale { ids, ver, removed })
+    }
+    "stream:online" | "stream:offline" | "stream:update" => {
+      let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
+      let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
+      if !valid_key(&channel) {
+        return None;
+      }
+      let text = |k: &str| stream_events::clean(v.get(k).and_then(Value::as_str).unwrap_or(""));
+      let kind = match ty {
+        "stream:online" => Kind::Online,
+        "stream:offline" => Kind::Offline,
+        _ => Kind::Update,
+      };
+      let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame") };
+      st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
+    }
+    "moment:spike" => {
+      let platform = room_platform(v.get("platform").and_then(Value::as_str).unwrap_or("twitch"))?;
+      let key: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
+      let num = |k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(f64::NAN);
+      if !valid_key(&key) {
+        return None;
+      }
+      let text = stream_events::moment_text(&key, num("rate"), num("baseline"))?.into();
+      send(NetEvent::Moment { platform, key, text })
     }
     "pin:set" | "pin:clear" => pin::frame(v, ty == "pin:set").and_then(send),
     _ => None,

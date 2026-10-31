@@ -9,4 +9,5 @@ pub mod picker;
 pub mod pin;
 pub mod seen;
 pub mod settings;
+pub mod stream_events;
 pub mod vi;

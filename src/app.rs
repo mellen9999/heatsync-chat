@@ -15,6 +15,7 @@ mod clip;
 mod emote;
 mod picker;
 mod pin;
+mod stream;
 mod tabs;
 mod upload;
 mod zoom;
@@ -28,6 +29,7 @@ use crate::model::message::{Message, Platform};
 use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
 use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
+use crate::model::stream_events::Moments;
 use crate::model::vi::{Action, Mode, Vi};
 use crate::net::auth::Me;
 use crate::net::hs_ws::Cmd as HsCmd;
@@ -137,6 +139,7 @@ pub struct App {
   pin_h: i32,
   pin_open: bool,
   pin_sig: (Option<Box<str>>, bool, i32, i32),
+  moments: Moments,
 }
 
 impl App {
@@ -221,6 +224,7 @@ impl App {
       pin_h: 0,
       pin_open: false,
       pin_sig: (None, false, 0, 0),
+      moments: Moments::default(),
     }
   }
 
@@ -387,6 +391,22 @@ impl App {
         self.res.cosmetics.on = self.set.paints;
         self.relayout_where(None);
         format!("7tv paints and badges {}", on(self.set.paints))
+      }
+      Local::Online => {
+        self.set.ev_online = !self.set.ev_online;
+        format!("went-live lines {}", on(self.set.ev_online))
+      }
+      Local::Offline => {
+        self.set.ev_offline = !self.set.ev_offline;
+        format!("went-offline lines {}", on(self.set.ev_offline))
+      }
+      Local::Game => {
+        self.set.ev_game = !self.set.ev_game;
+        format!("game-switch lines {}", on(self.set.ev_game))
+      }
+      Local::Moments => {
+        self.set.moments = !self.set.moments;
+        format!("chat-spike lines {}", on(self.set.moments))
       }
       Local::Zoom(Some(pct)) => return self.zoom_to(pct),
       Local::Zoom(None) => "usage: /zoom 1.5 (anything from 0.5 to 3)".into(),
@@ -1145,6 +1165,8 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
+      NetEvent::Stream(l) => self.on_stream(l),
+      NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
       NetEvent::Emotes(ch, p, set) => {
         self.res.emotes.set(ch.as_deref(), p, set);
         self.trim_soon();
