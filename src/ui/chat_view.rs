@@ -1,12 +1,15 @@
 // virtualized chat rows: heights for every row, layouts only for rows on screen
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 
 use parley::{InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
+use super::name_art::{self, ArtKey, PAINT_IMG_PX};
 use super::res::{BADGE_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
+use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
 use crate::model::message::{Kind, Message, Platform, flag};
@@ -33,9 +36,21 @@ pub struct EmoteHit {
   pub scope: Scope,
 }
 
+// a username wearing a 7tv paint: where the shaded bitmap goes (layout coords)
+struct PaintedName {
+  uid: u64,
+  nick: Box<str>,
+  color: u32,
+  paint: Arc<NamePaint>,
+  x: f32,
+  w: f32,
+  baseline: f32,
+}
+
 struct Laid {
   layout: TextLayout,
   boxes: Vec<EmoteBox>,
+  name: Option<PaintedName>,
 }
 
 struct Row {
@@ -120,13 +135,17 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
   }
   let mut ib = Vec::new();
   let mut boxes = Vec::new();
+  let mut painted = None;
   if m.kind == Kind::System {
     dim(&mut s, &mut spans, &m.body);
   } else {
     badges(res, chan, m, &mut s, &mut ib, &mut boxes);
     let n0 = s.len();
     s.push_str(&m.nick);
-    spans.push(Span { range: n0..s.len(), ink: Ink(m.color), bold: true });
+    // a painted name's glyphs are drawn from the shaded bitmap instead (paints: names only)
+    painted = twitch_uid(m).and_then(|uid| Some((uid, res.cosmetics.get(uid)?.paint.clone()?)));
+    let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
+    spans.push(Span { range: n0..s.len(), ink: Ink(m.color | tag), bold: true });
     if m.kind == Kind::Chat {
       s.push(':');
     }
@@ -143,7 +162,37 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
     }
   }
   let layout = res.text.layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
-  Laid { layout, boxes }
+  let name = painted.and_then(|(uid, paint)| {
+    let (x, w, baseline) = painted_run(&layout)?;
+    Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
+  });
+  Laid { layout, boxes, name }
+}
+
+fn twitch_uid(m: &Message) -> Option<u64> {
+  (m.platform == Platform::Twitch).then(|| m.user_id.parse().ok()).flatten()
+}
+
+// (x, width, baseline) of the painted name: its glyph runs, which share a line
+fn painted_run(layout: &TextLayout) -> Option<(f32, f32, f32)> {
+  let mut found: Option<(f32, f32, f32)> = None;
+  for line in layout.lines() {
+    for item in line.items() {
+      let PositionedLayoutItem::GlyphRun(gr) = item else { continue };
+      if gr.style().brush.0 & Ink::PAINTED == 0 {
+        continue;
+      }
+      let (a, b) = (gr.offset(), gr.offset() + gr.advance());
+      found = Some(match found {
+        None => (a, b, gr.baseline()),
+        Some((x0, x1, base)) => (x0.min(a), x1.max(b), base),
+      });
+    }
+    if found.is_some() {
+      break;
+    }
+  }
+  found.map(|(x0, x1, base)| (x0, x1 - x0, base))
 }
 
 fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
@@ -163,8 +212,7 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<I
     res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
   // asks heatsync for their cosmetics: batched, cached, answered into the same slot
-  if m.platform == Platform::Twitch
-    && let Ok(uid) = m.user_id.parse::<u64>()
+  if let Some(uid) = twitch_uid(m)
     && let Some(b) = res.cosmetics.get(uid).and_then(|c| c.badge.as_ref())
   {
     found.push((b.url.clone(), b.bg));
@@ -606,7 +654,7 @@ impl ChatView {
           }
         }
         if let Some(laid) = &r.laid {
-          let Res { text, images, .. } = res;
+          let Res { text, images, arts, .. } = res;
           let anims = &mut self.anims;
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
@@ -631,6 +679,26 @@ impl ChatView {
               anims.push(Anim { rect: rect.intersect(area), bg, imgs });
             }
           });
+          if let Some(n) = &laid.name {
+            let key = ArtKey {
+              uid: n.uid,
+              color: n.color,
+              font_px: text.font_px.to_bits(),
+              paint: Arc::as_ptr(&n.paint) as usize,
+            };
+            // image paints wait for their (still) picture; the first bitmap is redone when it lands
+            let pic_id = match &n.paint.fill {
+              Fill::Image { still } => Some(images.id(still, PAINT_IMG_PX)),
+              _ => None,
+            };
+            let pic = pic_id.and_then(|id| images.frame(id)).map(|(f, w, h, _)| (&f.rgba[..], w, h));
+            let w = n.w.ceil() as i32;
+            let art = arts.get(key, &n.nick, pic.is_some() || pic_id.is_none(), || {
+              name_art::build(text, &n.nick, w, n.color, &n.paint, pic)
+            });
+            let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - art.base).round() as i32);
+            c.rgba(ax, ay, art.w, art.h, &art.rgba, clip);
+          }
         }
       }
       drawn_lo = i;
@@ -697,6 +765,54 @@ mod tests {
     assert_eq!(n(&mut res), 1);
     res.cosmetics.on = false;
     assert_eq!(n(&mut res), 0);
+  }
+
+  #[test]
+  fn painted_name_draws_shaded_and_only_the_name() {
+    use crate::cosmetics::{Cosmetic, paint::Paint as P};
+    let mut res = Res::new(1.0);
+    let paint = P::parse(&serde_json::json!({"id": "G", "function": "linear-gradient", "angle": 90,
+      "stops": [{"at": 0, "color": 0xff0000ffu32 as i32}, {"at": 1, "color": 0x0000ffffu32 as i32}]}))
+    .unwrap();
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.user_id = "42".into();
+    m.nick = "wwwwwwwwwwww".into();
+    m.color = theme::GREEN;
+    m.body = "wwwwwwwwwwww".into();
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(400);
+    v.push(m);
+    let area = Rect::new(0, 0, 400, 40);
+    let mut c = Canvas::new(400, 40);
+    // unknown chatter: plain green name, ask queued
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(res.cosmetics.take_wanted(), vec![42]);
+    let tint = |c: &Canvas| {
+      let (mut red, mut blue, mut green) = (0, 0, 0);
+      for p in &c.px {
+        let (r, g, b) = (p >> 16 & 255, p >> 8 & 255, p & 255);
+        red += (r > 200 && g < 60 && b < 100) as u32;
+        blue += (b > 200 && r < 100 && g < 60) as u32;
+        green += (g > 200 && r < 60 && b < 60) as u32;
+      }
+      (red, blue, green)
+    };
+    let (r0, b0, g0) = tint(&c);
+    assert!(g0 > 20 && r0 == 0 && b0 == 0);
+    res.cosmetics.put(42, Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+    v.touch_sender("42");
+    v.draw(&mut c, &mut res, area, area);
+    let (r1, b1, g1) = tint(&c);
+    // the name now runs red to blue; the body line is untouched (still plain white, no green left)
+    assert!(r1 > 10 && b1 > 10 && g1 == 0, "{r1} {b1} {g1}");
+    assert!(res.arts.len() == 1);
+    // switching paints off puts the plain name back
+    res.cosmetics.on = false;
+    v.relayout();
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(tint(&c).2, g0);
   }
 
   #[test]

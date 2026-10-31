@@ -1,5 +1,3 @@
-// (the shader lands with the name renderer: until then only parse + tests use it)
-#![allow(dead_code)]
 // a 7tv name paint, compiled once to what the cpu shader needs: a 256-step color ramp for
 // gradients, a still-image url for image paints, drop shadows. mirrors ext src/lib/stv-paint-css.js
 // (the css it emits): repeat, stop positions, 100% 100% image stretch, name color underneath

@@ -7,6 +7,7 @@ use crate::heatsync::senders::Senders;
 use crate::images::Images;
 
 use super::logo::Logo;
+use super::name_art::NameArts;
 use super::text::Text;
 
 pub const EMOTE_PX: u16 = 28;
@@ -19,6 +20,7 @@ pub struct Res {
   pub badges: Badges,
   pub senders: Senders,
   pub cosmetics: Cosmetics,
+  pub arts: NameArts,
   pub blocked: Blocked,
   pub logo: Logo,
 }
@@ -34,6 +36,7 @@ impl Res {
       badges: Badges::default(),
       senders: Senders::default(),
       cosmetics: Cosmetics::default(),
+      arts: NameArts::default(),
       blocked: Blocked::load(),
     }
   }

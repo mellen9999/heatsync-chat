@@ -4,6 +4,7 @@ pub mod form;
 pub mod input_bar;
 pub mod logo;
 pub mod menu;
+pub mod name_art;
 pub mod picker;
 pub mod res;
 pub mod tab_bar;

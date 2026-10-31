@@ -21,6 +21,11 @@ pub type TextLayout = Layout<Ink>;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Ink(pub u32);
 
+impl Ink {
+  // set on a painted username's brush: its glyphs are skipped here, the row draws the shaded bitmap
+  pub const PAINTED: u32 = 1 << 24;
+}
+
 impl Default for Ink {
   fn default() -> Self {
     Ink(theme::WHITE)
@@ -141,6 +146,9 @@ impl Text {
         let size = run.font_size();
         let bold = run.synthesis().embolden();
         let ink = gr.style().brush.0;
+        if ink & Ink::PAINTED != 0 {
+          continue;
+        }
         let coords = run.normalized_coords();
         let key = |g: &parley::Glyph| {
           let gx = ox + g.x;
