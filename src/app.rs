@@ -11,8 +11,10 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
+mod builtin;
 mod clip;
 mod emote;
+mod mentions;
 mod picker;
 mod pin;
 mod stream;
@@ -25,11 +27,13 @@ use crate::model::chan::{self, Form};
 use crate::model::complete::{Complete, rank};
 use crate::model::ime::Ime;
 use crate::model::line::Line;
-use crate::model::message::{Message, Platform};
+use crate::model::mention::Mentions;
+use crate::model::message::{Message, Platform, flag};
 use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
 use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
 use crate::model::stream_events::Moments;
+use crate::model::tabs::Kind;
 use crate::model::vi::{Action, Mode, Vi};
 use crate::net::auth::Me;
 use crate::net::hs_ws::Cmd as HsCmd;
@@ -62,6 +66,7 @@ type Tag = (&'static str, u32);
 
 struct Tab {
   name: Box<str>,
+  kind: Kind,
   view: ChatView,
   unread: bool,
   // every feed merged into this tab: (platform, routing key)
@@ -120,6 +125,8 @@ pub struct App {
   tab_menu: Option<tabs::TabMenu>,
   // last drawn tab rects, then the + button
   bar_hits: Vec<Rect>,
+  // the tab index behind each drawn rect (hidden tabs have none)
+  bar_map: Vec<usize>,
   plus_hover: bool,
   // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
   dpi: f32,
@@ -140,6 +147,9 @@ pub struct App {
   pin_open: bool,
   pin_sig: (Option<Box<str>>, bool, i32, i32),
   moments: Moments,
+  // names that ping you, and whether the window has focus (notifications only fire when it does not)
+  mentions: Mentions,
+  focused: bool,
 }
 
 impl App {
@@ -158,6 +168,7 @@ impl App {
     if flood {
       tabs.push(Tab {
         name: FLOOD_TAB.into(),
+        kind: Kind::Chat,
         view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()),
         unread: false,
         sources: Vec::new(),
@@ -170,6 +181,9 @@ impl App {
     for t in &mut tabs {
       t.view.glow = set.first_glow;
     }
+    // the ext's strip: feed, whispers, mentions, then your channels. you land on the first channel
+    let active = if tabs.is_empty() { 0 } else { crate::model::tabs::BUILTIN.len() };
+    tabs.splice(0..0, builtin::make_all());
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
     res.media = set.media;
@@ -178,7 +192,7 @@ impl App {
       canvas: Canvas::new(0, 0),
       res,
       tabs,
-      active: 0,
+      active,
       net,
       bar_dirty: true,
       status,
@@ -211,6 +225,7 @@ impl App {
       form_hover: None,
       tab_menu: None,
       bar_hits: Vec::new(),
+      bar_map: Vec::new(),
       plus_hover: false,
       dpi: 1.0,
       zoom_acc: 0.0,
@@ -226,6 +241,8 @@ impl App {
       pin_open: false,
       pin_sig: (None, false, 0, 0),
       moments: Moments::default(),
+      mentions: Mentions::default(),
+      focused: true,
     }
   }
 
@@ -318,6 +335,9 @@ impl App {
   }
 
   fn hint(&self) -> String {
+    if self.kind() == Kind::Mentions {
+      return "enter or a click opens the line in its channel".into();
+    }
     let lead = if self.set.vi { "i type" } else { "type to chat" };
     match &self.me {
       None => format!("ctrl-l log in · {lead}"),
@@ -415,6 +435,15 @@ impl App {
         self.relayout_where(None);
         format!("inline pictures {}", on(self.set.media))
       }
+      Local::Notify => {
+        self.set.notify = !self.set.notify;
+        format!("mention notifications {}", on(self.set.notify))
+      }
+      Local::Tab(Some(k), shown) => {
+        self.set_shown(k, shown);
+        format!("{} tab {}", k.name(), if shown { "shown" } else { "hidden" })
+      }
+      Local::Tab(None, shown) => format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }),
       Local::Zoom(Some(pct)) => return self.zoom_to(pct),
       Local::Zoom(None) => "usage: /zoom 1.5 (anything from 0.5 to 3)".into(),
     };
@@ -432,6 +461,9 @@ impl App {
       self.line.take();
       self.chan_cmd(cmd);
       return self.after_send();
+    }
+    if self.kind() == Kind::Mentions {
+      return self.say("mentions is read-only. open a line to answer it");
     }
     let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
     if let Some(text) = self.line.take() {
@@ -463,6 +495,10 @@ impl App {
     }
   }
 
+  fn kind(&self) -> Kind {
+    self.tabs.get(self.active).map_or(Kind::Chat, |t| t.kind)
+  }
+
   fn view(&mut self) -> Option<&mut ChatView> {
     self.tabs.get_mut(self.active).map(|t| &mut t.view)
   }
@@ -486,8 +522,13 @@ impl App {
     }
   }
 
+  // ctrl-w: leave a channel; a built-in tab just hides (/show brings it back)
   fn close_tab(&mut self) {
-    self.remove_tab(self.active);
+    match self.tabs.get(self.active).map(|t| t.kind) {
+      Some(Kind::Chat) => self.remove_tab(self.active),
+      Some(k) => self.set_shown(k, false),
+      None => {}
+    }
   }
 
   // a catalog changed: rows in that channel (None = all) need new layouts
@@ -526,7 +567,13 @@ impl App {
     }
   }
 
-  fn on_relay(&mut self, p: Platform, key: &str, msgs: Vec<Message>, history: bool) {
+  fn on_relay(&mut self, p: Platform, key: &str, mut msgs: Vec<Message>, history: bool) {
+    for m in &mut msgs {
+      if history {
+        m.flags |= flag::HISTORY;
+      }
+      self.scan_mention(p, key, m);
+    }
     for i in self.tabs_with(p, key) {
       let v = &mut self.tabs[i].view;
       if history {
@@ -573,6 +620,13 @@ impl App {
   }
 
   fn on_chat(&mut self, ch: &str, ev: Chat) {
+    let ev = match ev {
+      Chat::Msg(mut m) if ch != FLOOD_TAB => {
+        self.scan_mention(Platform::Twitch, ch, &mut m);
+        Chat::Msg(m)
+      }
+      ev => ev,
+    };
     let i = if ch == FLOOD_TAB {
       self.tabs.iter().position(|t| &*t.name == FLOOD_TAB)
     } else {
@@ -658,14 +712,22 @@ impl App {
       t.view.invalidate();
     }
     if std::mem::take(&mut self.bar_dirty) {
-      let labels: Vec<TabLabel> = self
-        .tabs
+      let shown: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.visible(i)).collect();
+      let labels: Vec<TabLabel> = shown
         .iter()
-        .enumerate()
-        .map(|(i, t)| TabLabel { name: &t.name, active: i == self.active, unread: t.unread })
+        .map(|&i| {
+          let t = &self.tabs[i];
+          let hot = match t.kind {
+            Kind::Mentions => crate::ui::theme::RED,
+            Kind::Whispers => crate::ui::theme::CYAN,
+            _ => crate::ui::theme::WHITE,
+          };
+          TabLabel { name: &t.name, active: i == self.active, unread: t.unread, hot }
+        })
         .collect();
       let bar = self.bar();
       self.bar_hits = tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status, self.plus_hover);
+      self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
     }
     if self.res.images.next_tick() {
@@ -880,19 +942,17 @@ impl App {
   fn global_key(&mut self, key: Key<&str>) -> bool {
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     let half = self.chat_area().h / 2;
-    let n = self.tabs.len().max(1);
     match key {
       Key::Character("o") if ctrl => self.pick_file(),
       Key::Character("t") if ctrl => self.open_form(None),
       Key::Character("l") if ctrl => self.login(),
       Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
-      Key::Named(NamedKey::Tab) if ctrl => {
-        let next = if self.mods.shift_key() { (self.active + n - 1) % n } else { (self.active + 1) % n };
-        self.select(next);
-      }
+      Key::Named(NamedKey::Tab) if ctrl => self.select(self.step_tab(self.active, self.mods.shift_key())),
       Key::Character(d) if alt && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
         let n = (d.as_bytes()[0] - b'0') as usize;
-        self.select(if n == 0 { 9 } else { n - 1 });
+        if let Some(i) = self.nth_visible(if n == 0 { 9 } else { n - 1 }) {
+          self.select(i);
+        }
       }
       Key::Named(NamedKey::PageDown) => self.scroll(-half * 2),
       Key::Named(NamedKey::PageUp) => self.scroll(half * 2),
@@ -967,7 +1027,7 @@ impl App {
 
   // `r` on the selected line: reply to it on its own platform
   fn reply_selected(&mut self) {
-    let Some(t) = self.tabs.get_mut(self.active) else { return };
+    let Some(t) = self.tabs.get_mut(self.active).filter(|t| t.kind == Kind::Chat) else { return };
     let Some(m) = t.view.selected() else { return };
     if m.id.is_empty() {
       return;
@@ -978,6 +1038,15 @@ impl App {
     }
     self.reply = Some((id, nick));
     self.enter_insert();
+  }
+
+  fn select_start(&mut self) {
+    let h = self.chat_area().h;
+    let res = &mut self.res;
+    if let Some(t) = self.tabs.get_mut(self.active) {
+      t.view.select_start(res, h);
+    }
+    self.wake();
   }
 
   fn select_move(&mut self, by: i32) {
@@ -1027,8 +1096,9 @@ impl App {
       return;
     }
     let res = &mut self.res;
-    if let Some(t) = self.tabs.get_mut(self.active) {
-      t.view.select_at(chat, y, res);
+    let picked = self.tabs.get_mut(self.active).is_some_and(|t| t.view.select_at(chat, y, res));
+    if picked && self.tabs[self.active].kind == Kind::Mentions {
+      self.jump_to_mention();
     }
     self.wake();
   }
@@ -1074,6 +1144,7 @@ impl App {
       match key {
         Key::Character("j") | Key::Named(NamedKey::ArrowDown) => return self.select_move(1),
         Key::Character("k") | Key::Named(NamedKey::ArrowUp) => return self.select_move(-1),
+        Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => return self.jump_to_mention(),
         Key::Character("r") => return self.reply_selected(),
         Key::Character("c") if ctrl => return self.copy_selected(),
         Key::Named(NamedKey::Escape) | Key::Character("v") => {
@@ -1086,13 +1157,10 @@ impl App {
       }
     }
     match key {
-      Key::Character("v") if !ctrl => self.select_move(-1),
+      Key::Character("v") if !ctrl => self.select_start(),
       Key::Character("x") if !ctrl && !alt => self.pin_hide(),
-      Key::Character("t") if chord == Some('g') => self.select((self.active + 1) % self.tabs.len().max(1)),
-      Key::Character("T") if chord == Some('g') => {
-        let n = self.tabs.len().max(1);
-        self.select((self.active + n - 1) % n);
-      }
+      Key::Character("t") if chord == Some('g') => self.select(self.step_tab(self.active, false)),
+      Key::Character("T") if chord == Some('g') => self.select(self.step_tab(self.active, true)),
       Key::Character("g") if chord == Some('g') => {
         let res = &mut self.res;
         if let Some(t) = self.tabs.get_mut(self.active) {
@@ -1158,10 +1226,14 @@ impl ApplicationHandler<NetEvent> for App {
         let Some(i) = self.tabs.iter().position(|t| t.name == ch) else {
           return;
         };
-        let history = events
+        let history: Vec<Message> = events
           .into_iter()
           .filter_map(|e| match e {
-            Chat::Msg(m) => Some(m),
+            Chat::Msg(mut m) => {
+              m.flags |= flag::HISTORY;
+              self.scan_mention(Platform::Twitch, &ch, &mut m);
+              Some(m)
+            }
             _ => None,
           })
           .collect();
@@ -1221,6 +1293,7 @@ impl ApplicationHandler<NetEvent> for App {
           None => String::new(),
         };
         self.me = me;
+        self.set_mention_names();
         self.bar_dirty = true;
         self.input_dirty = true;
         self.wake();
@@ -1315,6 +1388,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
+      WindowEvent::Focused(f) => self.focused = f,
       WindowEvent::Occluded(o) => {
         self.occluded = o;
         if !o {

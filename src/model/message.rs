@@ -26,6 +26,30 @@ pub mod flag {
   pub const OWN: u8 = 1 << 4;
   // first line from this person in this tab this session (the glow)
   pub const NEW: u8 = 1 << 5;
+  // red edge: the line mentions you (the ext's mention tint, as an edge) or a send that failed
+  pub const ALERT: u8 = 1 << 6;
+  // heatsync-orange edge: something you sent (whispers)
+  pub const BRAND: u8 = 1 << 7;
+}
+
+// a run of text with its own ink, drawn around the name (feed ids/heat, whisper arrows)
+#[derive(Clone, Debug)]
+pub struct Seg {
+  pub text: Box<str>,
+  pub ink: u32,
+  pub bold: bool,
+}
+
+// what only some lines carry, boxed so ordinary chat pays one pointer
+#[derive(Clone, Debug, Default)]
+pub struct Extra {
+  // the room the line came from (mentions tab): resolves its emotes/badges and shows as a tag
+  pub chan: Box<str>,
+  // drawn before the name / between the name and the colon
+  pub head: Box<[Seg]>,
+  pub tail: Box<[Seg]>,
+  // left edge color when no flag asks for one (feed posts: the heat tier); 0 = none
+  pub edge: u32,
 }
 
 // image url for a byte range of the body
@@ -55,6 +79,7 @@ pub struct Message {
   pub reply_to: Option<Box<str>>,
   // usernotice system text shown above the user's part (sub/raid/announcement)
   pub system: Option<Box<str>>,
+  pub x: Option<Box<Extra>>,
 }
 
 impl Message {
@@ -75,6 +100,7 @@ impl Message {
       badges: Box::new([]),
       reply_to: None,
       system: None,
+      x: None,
     }
   }
 

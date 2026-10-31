@@ -8,6 +8,8 @@ pub struct TabLabel<'a> {
   pub name: &'a str,
   pub active: bool,
   pub unread: bool,
+  // the color of an unread tab: white for chat, red for mentions, cyan for whispers (the ext's)
+  pub hot: u32,
 }
 
 // returns each tab's rect, then the `+` rect last (for clicks)
@@ -39,7 +41,7 @@ pub fn draw(
     r
   };
   for t in tabs {
-    let ink = if t.unread { theme::WHITE } else { theme::DIM };
+    let ink = if t.unread { t.hot } else { theme::DIM };
     hits.push(cell(c, text, &mut x, &format!(" {} ", t.name), ink, t.unread || t.active, t.active));
   }
   hits.push(cell(c, text, &mut x, " + ", theme::WHITE, true, plus_hover));

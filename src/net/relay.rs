@@ -69,6 +69,7 @@ fn base(platform: Platform, id: &str, login: &str, nick: &str, color: Option<&st
     badges: Box::new([]),
     reply_to: None,
     system: None,
+    x: None,
   }
 }
 

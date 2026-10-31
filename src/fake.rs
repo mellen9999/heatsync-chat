@@ -52,6 +52,7 @@ impl Fake {
       badges: Box::new([]),
       reply_to: None,
       system: None,
+      x: None,
     }
   }
 }

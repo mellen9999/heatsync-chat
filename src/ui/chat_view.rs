@@ -13,7 +13,7 @@ use super::theme;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
-use crate::model::message::{Kind, Message, Platform, flag};
+use crate::model::message::{Kind, Message, Platform, Seg, flag};
 use crate::model::seen::Seen;
 use crate::util::time::hhmm;
 
@@ -96,6 +96,12 @@ pub struct ChatView {
   // yellow edge (magenta = twitch first message ever) on a person's first line this session (setting first_glow)
   pub glow: bool,
   seen: Seen,
+  // a list read from the top (the feed, newest first): `scroll` counts px down from the first row
+  // instead of up from the last, and it never auto-follows
+  pub top: bool,
+  view_h: i32,
+  // dim text shown while there are no lines (what this tab is for, or why it is empty)
+  empty: Box<str>,
 }
 
 pub enum Paint {
@@ -107,9 +113,23 @@ pub enum Paint {
 
 const MARK_W: i32 = 2;
 
+// the room a line resolves its emotes and badges against: its own when copied into another tab
+fn room<'a>(m: &'a Message, tab: &'a str) -> &'a str {
+  m.x.as_deref().map(|x| &*x.chan).filter(|c| !c.is_empty()).unwrap_or(tab)
+}
+
+fn seg(s: &mut String, spans: &mut Vec<Span>, g: &Seg) {
+  let a = s.len();
+  s.push_str(&g.text);
+  spans.push(Span { range: a..s.len(), ink: Ink(g.ink), bold: g.bold });
+}
+
 fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags: bool) -> Laid {
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
+  // a line copied into another tab (mentions) still resolves against its own room
+  let x = m.x.as_deref();
+  let chan = room(m, chan);
   let dim = |s: &mut String, spans: &mut Vec<Span>, t: &str| {
     let a = s.len();
     s.push_str(t);
@@ -136,6 +156,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
     s.push_str(t);
     spans.push(Span { range: a..a + 3, ink: Ink(c), bold: true });
   }
+  if let Some(x) = x.filter(|x| !x.chan.is_empty() && m.kind != Kind::System) {
+    dim(&mut s, &mut spans, &format!("#{} ", x.chan));
+  }
   let mut ib = Vec::new();
   let mut boxes = Vec::new();
   let mut painted = None;
@@ -150,6 +173,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
       spans.push(Span { range: a..s.len(), ink: Ink(m.color), bold: false });
     }
   } else {
+    for g in x.map_or(&[][..], |x| &x.head) {
+      seg(&mut s, &mut spans, g);
+    }
     badges(res, chan, m, &mut s, &mut ib, &mut boxes);
     let n0 = s.len();
     s.push_str(&m.nick);
@@ -157,6 +183,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
     painted = twitch_uid(m).and_then(|uid| Some((uid, res.cosmetics.get(uid)?.paint.clone()?)));
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
     spans.push(Span { range: n0..s.len(), ink: Ink(m.color | tag), bold: true });
+    for g in x.map_or(&[][..], |x| &x.tail) {
+      seg(&mut s, &mut spans, g);
+    }
     if m.kind == Kind::Chat {
       s.push(':');
     }
@@ -386,6 +415,16 @@ impl ChatView {
       selected: None,
       glow: true,
       seen: Seen::default(),
+      top: false,
+      view_h: 0,
+      empty: "".into(),
+    }
+  }
+
+  pub fn set_empty(&mut self, text: &str) {
+    if *self.empty != *text {
+      self.empty = text.into();
+      self.stale = true;
     }
   }
 
@@ -514,9 +553,10 @@ impl ChatView {
   pub fn select_move(&mut self, by: i32, res: &mut Res, view_h: i32) {
     let Some(last) = self.rows.len().checked_sub(1) else { return };
     let mut i = match self.selected.and_then(|s| self.index_of(s)) {
-      Some(i) => i,
-      None => last + 1,
-    } as i64;
+      Some(i) => i as i64,
+      None if self.top => -1,
+      None => last as i64 + 1,
+    };
     let mut left = by.unsigned_abs().max(1);
     let step = if by < 0 { -1 } else { 1 };
     let mut found = None;
@@ -530,20 +570,60 @@ impl ChatView {
     }
     let Some(i) = found.or_else(|| self.selected.and_then(|s| self.index_of(s))) else { return };
     self.selected = Some(self.rows[i].seq);
-    // distance from the bottom of the content to the bottom of this row
-    let below: i32 = (i + 1..self.rows.len()).map(|j| self.height_at(j, res)).sum();
+    self.reveal(i, res, view_h);
+  }
+
+  // scroll just enough to show row `i`
+  fn reveal(&mut self, i: usize, res: &mut Res, view_h: i32) {
     let h = self.height_at(i, res);
-    if below < self.scroll {
-      self.scroll = below;
-    } else if below + h > self.scroll + view_h {
-      self.scroll = below + h - view_h;
+    if self.top {
+      let above: i32 = (0..i).map(|j| self.height_at(j, res)).sum();
+      if above < self.scroll {
+        self.scroll = above;
+      } else if above + h > self.scroll + view_h {
+        self.scroll = above + h - view_h;
+      }
+    } else {
+      // distance from the bottom of the content to the bottom of this row
+      let below: i32 = (i + 1..self.rows.len()).map(|j| self.height_at(j, res)).sum();
+      if below < self.scroll {
+        self.scroll = below;
+      } else if below + h > self.scroll + view_h {
+        self.scroll = below + h - view_h;
+      }
     }
     self.stale = true;
   }
 
+  // the first press of `v`: the newest line in a chat, the top post in a list
+  pub fn select_start(&mut self, res: &mut Res, view_h: i32) {
+    self.select_move(if self.top { 1 } else { -1 }, res, view_h);
+  }
+
+  // pick the line with this id and bring it on screen. false = it is not here (scrolled out of the ring)
+  pub fn select_id(&mut self, id: &str, res: &mut Res, view_h: i32) -> bool {
+    if id.is_empty() {
+      return false;
+    }
+    let Some(i) = self.rows.iter().position(|r| &*r.msg.id == id) else { return false };
+    self.selected = Some(self.rows[i].seq);
+    self.reveal(i, res, view_h);
+    true
+  }
+
+  // the y of the last row's bottom edge as drawn
+  fn edge(&mut self, area: Rect, res: &mut Res) -> i32 {
+    if !self.top {
+      return area.bottom() + self.scroll;
+    }
+    let h = self.content_height(res);
+    self.scroll = self.scroll.clamp(0, (h - area.h).max(0));
+    area.y + h - self.scroll
+  }
+
   // the line under y (in `area`'s coordinates), as drawn last
   pub fn select_at(&mut self, area: Rect, y: i32, res: &mut Res) -> bool {
-    let mut bottom = area.bottom() + self.scroll;
+    let mut bottom = self.edge(area, res);
     for i in (0..self.rows.len()).rev() {
       if bottom <= area.y {
         break;
@@ -564,7 +644,7 @@ impl ChatView {
 
   // the emote under (x, y), as drawn last. badges and plain text are not emotes
   pub fn emote_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<EmoteHit> {
-    let mut bottom = area.bottom() + self.scroll;
+    let mut bottom = self.edge(area, res);
     for i in (0..self.rows.len()).rev() {
       if bottom <= area.y {
         return None;
@@ -584,7 +664,7 @@ impl ChatView {
         })?;
         let (a, b) = (eb.word.0 as usize, eb.word.1 as usize);
         let word = m.body.get(a..b).filter(|w| !w.is_empty())?;
-        let (url, _, zero_width, scope) = find_word(res, &self.channel, m, a, b, word)?;
+        let (url, _, zero_width, scope) = find_word(res, room(m, &self.channel), m, a, b, word)?;
         return Some(EmoteHit { name: word.into(), url, zero_width, scope });
       }
       bottom = top;
@@ -592,19 +672,21 @@ impl ChatView {
     None
   }
 
+  // px > 0 moves toward older lines (up the screen)
   pub fn scroll_by(&mut self, px: i32, res: &mut Res) {
     let max = self.content_height(res);
-    self.scroll = (self.scroll + px).clamp(0, max);
+    self.scroll =
+      if self.top { (self.scroll - px).clamp(0, (max - self.view_h).max(0)) } else { (self.scroll + px).clamp(0, max) };
     self.stale = true;
   }
 
   pub fn scroll_to_bottom(&mut self) {
-    self.scroll = 0;
+    self.scroll = if self.top { i32::MAX } else { 0 };
     self.stale = true;
   }
 
   pub fn scroll_to_top(&mut self, res: &mut Res) {
-    self.scroll = self.content_height(res);
+    self.scroll = if self.top { 0 } else { self.content_height(res) };
     self.stale = true;
   }
 
@@ -622,6 +704,7 @@ impl ChatView {
 
   // what the next frame needs, given what changed since the last draw
   pub fn take_paint(&mut self, res: &mut Res, view_h: i32) -> Paint {
+    self.view_h = view_h;
     let n = std::mem::take(&mut self.pending);
     let mut shift = 0;
     let (w, ts, tags) = (self.width, self.timestamps, self.tags);
@@ -630,6 +713,10 @@ impl ChatView {
       r.height = laid.layout.height().ceil() as i32;
       shift += r.height;
       r.laid = Some(Box::new(laid));
+    }
+    if self.top {
+      // a list never blits: whatever changed, repaint it whole
+      return if std::mem::take(&mut self.stale) || n > 0 { Paint::Full } else { Paint::Nothing };
     }
     if !self.pinned() {
       // keep the reader's place: content grew under them
@@ -658,8 +745,14 @@ impl ChatView {
     let clip = clip.intersect(area);
     c.fill(clip, theme::BLACK);
     self.anims.retain(|a| a.rect.intersect(clip).is_empty());
+    if self.rows.is_empty() && !self.empty.is_empty() {
+      let spans = [Span { range: 0..self.empty.len(), ink: Ink(theme::DIM), bold: false }];
+      let l = res.text.layout(&self.empty, &spans, &[], (self.width - MARK_W) as f32 - 2.0 * theme::PAD_X);
+      res.text.draw(&l, c, (area.x + MARK_W) as f32 + theme::PAD_X, area.y as f32, clip, |_, _| {});
+      return;
+    }
     let (w, ts, tags, zebra) = (self.width, self.timestamps, self.tags, self.zebra);
-    let mut bottom = area.bottom() + self.scroll;
+    let mut bottom = self.edge(area, res);
     let mut drawn_lo = self.rows.len();
     for (i, r) in self.rows.iter_mut().enumerate().rev() {
       if bottom <= area.y {
@@ -677,14 +770,18 @@ impl ChatView {
         if bg != theme::BLACK {
           c.fill(row.intersect(clip), bg);
         }
-        let mark = if r.msg.has(flag::FIRST) {
+        let mark = if r.msg.has(flag::ALERT) {
+          Some(theme::RED)
+        } else if r.msg.has(flag::BRAND) {
+          Some(theme::HEATSYNC)
+        } else if r.msg.has(flag::FIRST) {
           Some(theme::MAGENTA)
         } else if r.msg.has(flag::HIGHLIGHTED) {
           Some(theme::CYAN)
         } else if r.msg.has(flag::NEW) && self.glow {
           Some(theme::YELLOW)
         } else {
-          None
+          r.msg.x.as_ref().map(|x| x.edge).filter(|&e| e != 0)
         };
         if let Some(m) = mark {
           c.fill(Rect::new(area.x, top, MARK_W, r.height).intersect(clip), m);
@@ -966,5 +1063,91 @@ mod tests {
     res.blocked.block("Kappa", url, Scope::Channel);
     v.relayout();
     assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
+  }
+
+  fn plain(id: &str, body: &str) -> Message {
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.id = id.into();
+    m.nick = "bob".into();
+    m.body = body.into();
+    m
+  }
+
+  #[test]
+  fn alert_lines_get_a_red_edge_and_copies_keep_their_room() {
+    use crate::model::message::{Extra, Seg};
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.glow = false;
+    v.resize(400);
+    let mut m = plain("a", "hello");
+    v.push(m.clone());
+    m.flags |= flag::ALERT;
+    m.id = "b".into();
+    v.push(m);
+    let area = Rect::new(0, 0, 400, 80);
+    let mut c = Canvas::new(400, 80);
+    v.draw(&mut c, &mut res, area, area);
+    let edge = |y: usize| c.px[y * 400];
+    // newest line sits at the bottom, red; the one above it has no edge
+    assert_eq!(edge(70), theme::RED);
+    assert_eq!(edge(50), theme::BLACK);
+    // a copied line draws a room tag and head/tail segs around the name
+    let mut x = plain("c", "hi");
+    x.x = Some(Box::new(Extra {
+      chan: "forsen".into(),
+      head: Box::new([Seg { text: ">>1 ".into(), ink: theme::YELLOW, bold: true }]),
+      tail: Box::new([Seg { text: " 5".into(), ink: theme::WHITE, bold: false }]),
+      edge: 0,
+    }));
+    let l = layout_row(&mut res, "tab", &x, 400, false, false);
+    let n = l.layout.lines().count();
+    assert_eq!(n, 1);
+    assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), 400, false, false).layout.width());
+  }
+
+  #[test]
+  fn a_top_list_reads_from_the_first_row_and_scrolls_down() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(50, "feed".into());
+    v.top = true;
+    v.zebra = false;
+    v.resize(400);
+    for i in 0..30 {
+      v.push(plain(&format!("p{i}"), &format!("post {i}")));
+    }
+    let area = Rect::new(0, 0, 400, 100);
+    let mut c = Canvas::new(400, 100);
+    let ink = |c: &Canvas, y0: usize, y1: usize| (y0 * 400..y1 * 400).any(|i| c.px[i] != theme::BLACK);
+    assert!(matches!(v.take_paint(&mut res, 100), Paint::Full));
+    v.draw(&mut c, &mut res, area, area);
+    // first post at the very top, and a short list hangs from the top too
+    assert!(ink(&c, 0, 20));
+    // scrolling "down the list" (wheel down = negative px) moves content up
+    v.scroll_by(-40, &mut res);
+    assert!(matches!(v.take_paint(&mut res, 100), Paint::Full));
+    v.draw(&mut c, &mut res, area, area);
+    assert!(ink(&c, 0, 20));
+    // end of list clamps
+    v.scroll_to_bottom();
+    v.draw(&mut c, &mut res, area, area);
+    assert!(ink(&c, 80, 100));
+    v.scroll_to_top(&mut res);
+    // selection starts at the top post and reveals what it moves to
+    v.select_start(&mut res, 100);
+    assert_eq!(&*v.selected().unwrap().id, "p0");
+    v.select_move(25, &mut res, 100);
+    assert_eq!(&*v.selected().unwrap().id, "p25");
+    v.draw(&mut c, &mut res, area, area);
+    assert!(v.select_id("p3", &mut res, 100));
+    assert_eq!(&*v.selected().unwrap().id, "p3");
+    assert!(!v.select_id("nope", &mut res, 100));
+    // a click lands on the row drawn there
+    v.scroll_to_top(&mut res);
+    v.draw(&mut c, &mut res, area, area);
+    assert!(v.select_at(area, 5, &mut res));
+    assert_eq!(&*v.selected().unwrap().id, "p0");
   }
 }

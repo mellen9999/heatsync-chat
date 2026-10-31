@@ -197,6 +197,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     body: body.into(),
     reply_to: l.tag("reply-parent-display-name").map(Into::into),
     system: None,
+    x: None,
   }
 }
 

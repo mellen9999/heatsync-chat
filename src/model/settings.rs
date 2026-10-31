@@ -1,4 +1,5 @@
 // user prefs, persisted as `settings` (key=value lines). vi + auto_hide default off: a plain chat box
+use crate::model::tabs::Kind;
 use crate::store;
 
 pub const ZOOM_MIN: u16 = 50;
@@ -29,6 +30,13 @@ pub struct Settings {
   pub moments: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
+  // built-in tabs on the bar (all on, like the ext once you are signed in; /hide and /show)
+  pub tab_feed: bool,
+  pub tab_whispers: bool,
+  pub tab_mentions: bool,
+  // a desktop notification for an @mention while the window is not focused. default off, like the
+  // ext's hs_notifications: nothing leaves the window unless asked
+  pub notify: bool,
 }
 
 impl Default for Settings {
@@ -44,6 +52,10 @@ impl Default for Settings {
       ev_game: true,
       moments: true,
       media: true,
+      tab_feed: true,
+      tab_whispers: true,
+      tab_mentions: true,
+      notify: false,
     }
   }
 }
@@ -52,6 +64,24 @@ impl Settings {
   // the multiplier on the window's scale factor
   pub fn scale(&self) -> f32 {
     self.zoom as f32 / 100.0
+  }
+
+  pub fn shown(&self, k: Kind) -> bool {
+    match k {
+      Kind::Chat => true,
+      Kind::Feed => self.tab_feed,
+      Kind::Whispers => self.tab_whispers,
+      Kind::Mentions => self.tab_mentions,
+    }
+  }
+
+  pub fn show(&mut self, k: Kind, on: bool) {
+    match k {
+      Kind::Chat => {}
+      Kind::Feed => self.tab_feed = on,
+      Kind::Whispers => self.tab_whispers = on,
+      Kind::Mentions => self.tab_mentions = on,
+    }
   }
 
   pub fn parse(s: &str) -> Self {
@@ -69,6 +99,10 @@ impl Settings {
         "ev_game" => out.ev_game = on,
         "moments" => out.moments = on,
         "media" => out.media = on,
+        "tab_feed" => out.tab_feed = on,
+        "tab_whispers" => out.tab_whispers = on,
+        "tab_mentions" => out.tab_mentions = on,
+        "notify" => out.notify = on,
         "zoom" => {
           if let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite()) {
             out.zoom = clamp_zoom((z * 100.0).round() as i32);
@@ -82,7 +116,7 @@ impl Settings {
 
   pub fn render(&self) -> String {
     format!(
-      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\nzoom={}\n",
+      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\ntab_feed={}\ntab_whispers={}\ntab_mentions={}\nnotify={}\nzoom={}\n",
       self.vi,
       self.auto_hide,
       self.first_glow,
@@ -92,6 +126,10 @@ impl Settings {
       self.ev_game,
       self.moments,
       self.media,
+      self.tab_feed,
+      self.tab_whispers,
+      self.tab_mentions,
+      self.notify,
       self.scale()
     )
   }
@@ -123,10 +161,27 @@ pub enum Local {
   Media,
   // `/zoom 1.5`; None = no usable number
   Zoom(Option<u16>),
+  // desktop notification on an @mention
+  Notify,
+  // `/hide feed`, `/show mentions`; None = no such tab
+  Tab(Option<Kind>, bool),
 }
 
-pub const LOCAL: [&str; 10] =
-  ["/vi", "/autohide", "/glow", "/paints", "/online", "/offline", "/game", "/moments", "/media", "/zoom"];
+pub const LOCAL: [&str; 13] = [
+  "/vi",
+  "/autohide",
+  "/glow",
+  "/paints",
+  "/online",
+  "/offline",
+  "/game",
+  "/moments",
+  "/media",
+  "/zoom",
+  "/notify",
+  "/hide",
+  "/show",
+];
 
 pub fn local_cmd(text: &str) -> Option<Local> {
   let low = text.trim().to_ascii_lowercase();
@@ -137,7 +192,15 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     // 1.5 and 150 both mean 150%
     return Some(Local::Zoom(z.map(|z| clamp_zoom(if z < 10.0 { (z * 100.0).round() } else { z.round() } as i32))));
   }
+  for (word, on) in [("/hide", false), ("/show", true)] {
+    if let Some(rest) = low.strip_prefix(word)
+      && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+      return Some(Local::Tab(Kind::parse(rest), on));
+    }
+  }
   match low.as_str() {
+    "/notify" => Some(Local::Notify),
     "/vi" => Some(Local::Vi),
     "/autohide" => Some(Local::AutoHide),
     "/glow" => Some(Local::Glow),
@@ -169,7 +232,11 @@ mod tests {
         ev_offline: false,
         ev_game: true,
         moments: true,
-        media: true
+        media: true,
+        tab_feed: true,
+        tab_whispers: true,
+        tab_mentions: true,
+        notify: false
       }
     );
     assert_eq!(Settings::parse(""), Settings::default());
@@ -215,6 +282,22 @@ mod tests {
     assert_eq!(local_cmd("/zoom"), Some(Local::Zoom(None)));
     assert_eq!(local_cmd("/zoom abc"), Some(Local::Zoom(None)));
     assert_eq!(local_cmd("/zoomer"), None);
+  }
+
+  #[test]
+  fn tab_and_notify_commands() {
+    assert_eq!(local_cmd("/hide feed"), Some(Local::Tab(Some(Kind::Feed), false)));
+    assert_eq!(local_cmd("/SHOW  Mentions"), Some(Local::Tab(Some(Kind::Mentions), true)));
+    assert_eq!(local_cmd("/hide"), Some(Local::Tab(None, false)));
+    assert_eq!(local_cmd("/show nope"), Some(Local::Tab(None, true)));
+    assert_eq!(local_cmd("/hidden"), None);
+    assert_eq!(local_cmd("/notify"), Some(Local::Notify));
+    let mut s = Settings::default();
+    s.show(Kind::Whispers, false);
+    s.notify = true;
+    let back = Settings::parse(&s.render());
+    assert!(!back.shown(Kind::Whispers) && back.shown(Kind::Feed) && back.notify);
+    assert!(back.shown(Kind::Chat));
   }
 
   #[test]

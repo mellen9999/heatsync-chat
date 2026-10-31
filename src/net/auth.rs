@@ -143,6 +143,8 @@ pub struct Me {
   pub twitch: Option<Box<str>>,
   // twitch user id: our own heatsync inventory is the sender set under this id
   pub twitch_id: Option<u64>,
+  // every name linked to the account (heatsync, twitch, kick, youtube): all of them ping you
+  pub names: Vec<Box<str>>,
 }
 
 pub enum Check {
@@ -168,7 +170,8 @@ pub async fn check(http: &reqwest::Client, token: &str) -> Result<Check, String>
     Some(Value::String(x)) => x.parse().ok(),
     _ => None,
   };
-  let me = Me { username: s("username").unwrap_or_else(|| "?".into()), twitch: s("twitch_username"), twitch_id };
+  let names = ["username", "twitch_username", "kick_username", "youtube_username"].into_iter().filter_map(s).collect();
+  let me = Me { username: s("username").unwrap_or_else(|| "?".into()), twitch: s("twitch_username"), twitch_id, names };
   Ok(Check::Ok(me, v.get("token").and_then(Value::as_str).filter(|t| valid_token(t)).map(Into::into)))
 }
 

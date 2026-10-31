@@ -5,6 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Cmd as ChanCmd, Form, Spec};
 use crate::model::message::Platform;
+use crate::model::tabs::Kind;
 use crate::net::Cmd;
 use crate::net::hs_ws::Cmd as HsCmd;
 use crate::ui::canvas::Rect;
@@ -17,6 +18,8 @@ use crate::ui::union;
 pub enum TabAct {
   Edit,
   Remove,
+  // a built-in tab leaves the bar
+  Hide,
 }
 
 pub struct TabMenu {
@@ -64,7 +67,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
   let first = sources.first().map_or(Box::from(""), |s| s.1.clone());
   let mut view = ChatView::new(SCROLLBACK, first);
   view.tags = tags(&sources);
-  Tab { name: spec.name().into(), view, unread: false, sources, target: 0 }
+  Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, sources, target: 0 }
 }
 
 // source tags show on merged tabs and on anything not plain twitch
@@ -148,9 +151,10 @@ impl App {
     }
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
     self.save_tabs();
-    if self.tabs.is_empty() {
+    if !self.tabs.iter().any(|t| t.kind == Kind::Chat) {
       self.status = "no channels — click + or press ctrl-t to add one".into();
     }
+    self.fix_active();
     self.activate(self.active);
   }
 
@@ -331,13 +335,14 @@ impl App {
 
   // ---- the tab bar ----
 
+  // position in the drawn bar: shown tabs in order, then the + button last
   fn tab_at(&self, x: i32, y: i32) -> Option<usize> {
     self.bar_hits.iter().position(|r| r.contains(x, y))
   }
 
   pub(super) fn bar_hover(&mut self) {
     let (x, y) = self.pointer;
-    let on = self.tab_at(x, y).is_some_and(|i| i == self.tabs.len());
+    let on = self.tab_at(x, y).is_some_and(|p| p == self.bar_map.len());
     if on != self.plus_hover {
       self.plus_hover = on;
       self.bar_dirty = true;
@@ -347,21 +352,23 @@ impl App {
 
   pub(super) fn bar_click(&mut self) {
     match self.tab_at(self.pointer.0, self.pointer.1) {
-      Some(i) if i == self.tabs.len() => self.open_form(None),
-      Some(i) => self.select(i),
+      Some(p) if p == self.bar_map.len() => self.open_form(None),
+      Some(p) => self.select(self.bar_map[p]),
       None => {}
     }
   }
 
   pub(super) fn bar_right_click(&mut self) {
     let (x, y) = self.pointer;
-    let Some(i) = self.tab_at(x, y).filter(|&i| i < self.tabs.len()) else { return };
-    if self.tabs[i].sources.is_empty() {
-      return;
-    }
-    let at = (self.bar_hits[i].x, self.bar().bottom());
-    self.tab_menu =
-      Some(TabMenu { menu: Menu::new(vec![(TabAct::Edit, "edit"), (TabAct::Remove, "remove")], at), tab: i });
+    let Some(p) = self.tab_at(x, y).filter(|&p| p < self.bar_map.len()) else { return };
+    let i = self.bar_map[p];
+    let at = (self.bar_hits[p].x, self.bar().bottom());
+    let items = match self.tabs[i].kind {
+      Kind::Chat if self.tabs[i].sources.is_empty() => return,
+      Kind::Chat => vec![(TabAct::Edit, "edit"), (TabAct::Remove, "remove")],
+      _ => vec![(TabAct::Hide, "hide")],
+    };
+    self.tab_menu = Some(TabMenu { menu: Menu::new(items, at), tab: i });
     self.tab_menu_changed();
   }
 
@@ -379,6 +386,11 @@ impl App {
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
       Some(TabAct::Remove) => self.remove_tab(m.tab),
+      Some(TabAct::Hide) => {
+        if let Some(k) = self.tabs.get(m.tab).map(|t| t.kind) {
+          self.set_shown(k, false);
+        }
+      }
       None => {}
     }
   }
