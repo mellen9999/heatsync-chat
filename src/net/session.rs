@@ -43,12 +43,16 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: Unb
         None => return,
         Some(Cmd::Login) => {
           st.out.status("finish logging in in your browser…");
+          eprintln!("login: opening the browser");
           match auth::login(&st.http).await {
             Ok(t) => {
               st.token = Some(t);
               next = Instant::now();
             }
-            Err(e) => st.out.status(format!("login failed: {e}")),
+            Err(e) => {
+              eprintln!("login failed: {e}");
+              st.out.status(format!("login failed: {e}"));
+            }
           }
         }
         Some(Cmd::Logout) => {

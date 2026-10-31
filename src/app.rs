@@ -555,6 +555,11 @@ impl App {
     if key == Key::Named(NamedKey::Tab) {
       return self.tab_complete(self.mods.shift_key());
     }
+    match key {
+      Key::Character("l") if ctrl => return self.login(),
+      Key::Character("L") if ctrl => return self.net.send(Cmd::Logout),
+      _ => {}
+    }
     // any other key commits the current candidate
     self.complete = None;
     let l = &mut self.line;
