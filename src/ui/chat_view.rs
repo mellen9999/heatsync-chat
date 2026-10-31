@@ -299,6 +299,20 @@ impl ChatView {
     }
   }
 
+  // recent chatters, newest first (tab-complete after `@`)
+  pub fn chatters(&self) -> Vec<&str> {
+    let mut seen = HashSet::new();
+    self
+      .rows
+      .iter()
+      .rev()
+      .filter(|r| r.msg.kind != Kind::System && !r.msg.nick.is_empty())
+      .map(|r| &*r.msg.nick)
+      .filter(|n| seen.insert(*n))
+      .take(300)
+      .collect()
+  }
+
   // a twitch sender's heatsync inventory arrived or changed: re-resolve only their lines
   pub fn touch_sender(&mut self, uid: &str) {
     for r in self.rows.iter_mut().filter(|r| r.msg.platform == Platform::Twitch && &*r.msg.user_id == uid) {

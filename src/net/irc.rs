@@ -1,5 +1,5 @@
 // twitch irc: line parser (pure) + one anonymous websocket session per process
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -200,6 +200,21 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
   }
 }
 
+// USERSTATE after our PRIVMSG: twitch's id/color/badges for the line, our own text
+fn own_message(l: &Line, nick: &str, me_id: &str, text: &str) -> Message {
+  let (body, kind) = match text.strip_prefix("/me ") {
+    Some(b) => (b, Kind::Action),
+    None => (text, Kind::Chat),
+  };
+  let mut m = user_message(l, body, kind);
+  m.login = nick.into();
+  m.user_id = me_id.into();
+  m.ts = now_ms();
+  // USERSTATE carries emote-sets, not positions: twitch emotes resolve through the catalogs instead
+  m.emotes = Box::new([]);
+  m
+}
+
 pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
   let ch: Box<str> = l.channel()?.into();
   let ev = match l.command {
@@ -238,6 +253,37 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
 pub enum Cmd {
   Join(Box<str>),
   Part(Box<str>),
+  // None = back to anonymous. either way the connection restarts under the new identity
+  Login(Option<Creds>),
+  Send { chan: Box<str>, text: String, reply: Option<Box<str>> },
+}
+
+pub struct Creds {
+  pub token: String,
+  pub nick: String,
+}
+
+// a sent line waits for twitch's USERSTATE (which carries its id, color, badges) to be shown
+struct Sent {
+  chan: Box<str>,
+  text: String,
+}
+
+const MAX_PENDING: usize = 20;
+const MAX_SEND: usize = 500;
+
+// what goes on the wire for a send: one line, no injection of a second irc command
+fn privmsg(chan: &str, text: &str, reply: Option<&str>) -> Option<String> {
+  let text: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_SEND).collect();
+  let text = text.trim();
+  if !valid_channel(chan) || text.is_empty() {
+    return None;
+  }
+  let tag = match reply.filter(|id| id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')) {
+    Some(id) => format!("@reply-parent-msg-id={id} "),
+    None => String::new(),
+  };
+  Some(format!("{tag}PRIVMSG #{chan} :{text}"))
 }
 
 pub fn valid_channel(c: &str) -> bool {
@@ -245,16 +291,29 @@ pub fn valid_channel(c: &str) -> bool {
 }
 
 // owns the joined set; reconnects forever with backoff until the ui drops its sender
+enum End {
+  Quit,
+  Reconnect,
+  // identity changed: reconnect now, no backoff
+  Relogin,
+}
+
 pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let mut chans = BTreeSet::new();
+  let mut creds: Option<Creds> = None;
   let mut attempts = 0u32;
   loop {
     match connect_async(URL).await {
       Ok((ws, _)) => {
         let started = Instant::now();
-        out.status("twitch connected");
-        if session(ws, &mut rx, &mut chans, &out).await.is_err() {
-          return;
+        out.status(if creds.is_some() { "twitch connected" } else { "twitch connected (read-only)" });
+        match session(ws, &mut rx, &mut chans, &mut creds, &out).await {
+          End::Quit => return,
+          End::Relogin => {
+            attempts = 0;
+            continue;
+          }
+          End::Reconnect => {}
         }
         if started.elapsed() >= STABLE {
           attempts = 0;
@@ -269,6 +328,11 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       tokio::select! {
         _ = &mut wait => break,
         cmd = rx.recv() => match cmd {
+          Some(Cmd::Login(c)) => {
+            creds = c;
+            break;
+          }
+          Some(Cmd::Send { chan, .. }) => unsent(&out, chan, "not connected to twitch, message not sent"),
           Some(c) => { apply(&mut chans, c); }
           None => return,
         },
@@ -277,11 +341,15 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   }
 }
 
+fn unsent(out: &Out, chan: Box<str>, why: &str) {
+  out.chat(chan, Chat::Msg(Message::system(now_ms(), Platform::Twitch, why)));
+}
+
 fn apply(chans: &mut BTreeSet<Box<str>>, c: Cmd) -> Option<String> {
   match c {
     Cmd::Join(ch) if valid_channel(&ch) => chans.insert(ch.clone()).then(|| format!("JOIN #{ch}")),
     Cmd::Part(ch) => chans.remove(&ch).then(|| format!("PART #{ch}")),
-    Cmd::Join(_) => None,
+    _ => None,
   }
 }
 
@@ -292,12 +360,18 @@ async fn session(
   ws: Socket,
   rx: &mut mpsc::UnboundedReceiver<Cmd>,
   chans: &mut BTreeSet<Box<str>>,
+  creds: &mut Option<Creds>,
   out: &Out,
-) -> Result<(), ()> {
+) -> End {
   let (mut tx, mut read) = ws.split();
-  let nick = format!("justinfan{}", 10000 + now_ms() % 80000);
+  let (pass, nick) = match creds {
+    Some(c) => (format!("oauth:{}", c.token), c.nick.clone()),
+    None => ("SCHMOOPIIE".to_owned(), format!("justinfan{}", 10000 + now_ms() % 80000)),
+  };
   let mut hello =
-    vec!["CAP REQ :twitch.tv/tags twitch.tv/commands".to_owned(), "PASS SCHMOOPIIE".into(), format!("NICK {nick}")];
+    vec!["CAP REQ :twitch.tv/tags twitch.tv/commands".to_owned(), format!("PASS {pass}"), format!("NICK {nick}")];
+  let mut pending: VecDeque<Sent> = VecDeque::new();
+  let mut me_id: Box<str> = "".into();
   // batched joins stay under the 20-per-10s anon limit for normal tab counts
   let names: Vec<_> = chans.iter().map(|c| format!("#{c}")).collect();
   for chunk in names.chunks(20) {
@@ -305,7 +379,7 @@ async fn session(
   }
   for l in hello {
     if tx.send(Ws::text(l)).await.is_err() {
-      return Ok(());
+      return End::Reconnect;
     }
   }
   let mut last_rx = Instant::now();
@@ -316,39 +390,90 @@ async fn session(
       frame = read.next() => {
         let text = match frame {
           Some(Ok(Ws::Text(t))) => t,
-          Some(Ok(Ws::Close(_))) | None | Some(Err(_)) => return Ok(()),
+          Some(Ok(Ws::Close(_))) | None | Some(Err(_)) => return End::Reconnect,
           Some(Ok(_)) => continue,
         };
         last_rx = Instant::now();
         for raw in text.split("\r\n").filter(|l| !l.is_empty()) {
           if let Some(p) = raw.strip_prefix("PING") {
             if tx.send(Ws::text(format!("PONG{p}"))).await.is_err() {
-              return Ok(());
+              return End::Reconnect;
             }
             continue;
           }
           let Some(line) = parse(raw) else { continue };
-          if line.command == "RECONNECT" {
-            return Ok(());
+          match line.command {
+            "RECONNECT" => return End::Reconnect,
+            "GLOBALUSERSTATE" => {
+              me_id = line.tag("user-id").filter(|u| u.bytes().all(|b| b.is_ascii_digit())).unwrap_or_default().into();
+              out.status(format!("twitch connected as {nick}"));
+            }
+            // a bad/expired token: say so and fall back to reading anonymously
+            "NOTICE" if line.channel().is_none() && line.trailing().is_some_and(|t| t.contains("authentication failed") || t.contains("Improperly formatted auth")) => {
+              out.status("twitch login rejected, reading only");
+              *creds = None;
+              return End::Relogin;
+            }
+            // our line went through: show it the way others see it
+            "USERSTATE" if line.tag("id").is_some() => {
+              let ch = line.channel().unwrap_or("");
+              if let Some(i) = pending.iter().position(|p| &*p.chan == ch) {
+                let Some(p) = pending.remove(i) else { continue };
+                let m = own_message(&line, &nick, &me_id, &p.text);
+                if !out.chat(p.chan, Chat::Msg(m)) {
+                  return End::Quit;
+                }
+              }
+              continue;
+            }
+            // twitch refused the line (rate limit, duplicate, banned…): its notice is shown, drop the wait
+            "NOTICE" if line.tag("msg-id").is_some_and(|id| id.starts_with("msg_")) => {
+              if let Some(i) = line.channel().and_then(|ch| pending.iter().position(|p| &*p.chan == ch)) {
+                pending.remove(i);
+              }
+            }
+            _ => {}
           }
           if let Some((ch, ev)) = to_chat(&line) && !out.chat(ch, ev) {
-            return Err(());
+            return End::Quit;
           }
         }
       }
       cmd = rx.recv() => {
-        let Some(c) = cmd else { return Err(()) };
-        if let Some(l) = apply(chans, c) && tx.send(Ws::text(l)).await.is_err() {
-          return Ok(());
+        let line = match cmd {
+          None => return End::Quit,
+          Some(Cmd::Login(c)) => {
+            *creds = c;
+            return End::Relogin;
+          }
+          Some(Cmd::Send { chan, text, reply }) => {
+            if creds.is_none() {
+              unsent(out, chan, "log in to send (ctrl-l)");
+              continue;
+            }
+            let Some(l) = privmsg(&chan, &text, reply.as_deref()) else { continue };
+            if pending.len() == MAX_PENDING {
+              pending.pop_front();
+            }
+            pending.push_back(Sent { chan, text });
+            l
+          }
+          Some(c) => match apply(chans, c) {
+            Some(l) => l,
+            None => continue,
+          },
+        };
+        if tx.send(Ws::text(line)).await.is_err() {
+          return End::Reconnect;
         }
       }
       _ = tick.tick() => {
         if last_rx.elapsed() > SILENCE_LIMIT {
           out.status("twitch silent, reconnecting");
-          return Ok(());
+          return End::Reconnect;
         }
         if tx.send(Ws::text("PING :tmi.twitch.tv")).await.is_err() {
-          return Ok(());
+          return End::Reconnect;
         }
       }
     }
@@ -427,6 +552,18 @@ mod tests {
         let _ = to_chat(&l);
       }
     }
+  }
+
+  #[test]
+  fn send_line_is_one_command() {
+    assert_eq!(privmsg("forsen", "hi\r\nJOIN #x", None).as_deref(), Some("PRIVMSG #forsen :hi  JOIN #x"));
+    assert_eq!(
+      privmsg("forsen", "yo", Some("abc-1")).as_deref(),
+      Some("@reply-parent-msg-id=abc-1 PRIVMSG #forsen :yo")
+    );
+    assert_eq!(privmsg("forsen", "yo", Some("a b;x=1")).as_deref(), Some("PRIVMSG #forsen :yo"));
+    assert_eq!(privmsg("forsen", "   ", None), None);
+    assert_eq!(privmsg("Bad Chan", "x", None), None);
   }
 
   #[test]

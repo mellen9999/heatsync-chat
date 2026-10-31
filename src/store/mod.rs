@@ -14,10 +14,30 @@ pub fn read(name: &str) -> Option<String> {
 }
 
 pub fn write(name: &str, data: &str) -> std::io::Result<()> {
+  write_mode(name, data, 0o644)
+}
+
+// owner-only (the login token): created 0600 before a byte is written, so it is never world-readable
+pub fn write_secret(name: &str, data: &str) -> std::io::Result<()> {
+  write_mode(name, data, 0o600)
+}
+
+pub fn remove(name: &str) {
+  if let Some(d) = dir() {
+    let _ = std::fs::remove_file(d.join(name));
+  }
+}
+
+fn write_mode(name: &str, data: &str, mode: u32) -> std::io::Result<()> {
+  use std::io::Write;
+  use std::os::unix::fs::OpenOptionsExt;
   let d = dir().ok_or_else(|| std::io::Error::other("no home directory"))?;
   std::fs::create_dir_all(&d)?;
   let tmp = d.join(format!(".{name}.tmp"));
-  std::fs::write(&tmp, data)?;
+  let _ = std::fs::remove_file(&tmp);
+  let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(&tmp)?;
+  f.write_all(data.as_bytes())?;
+  f.sync_all()?;
   std::fs::rename(tmp, d.join(name))
 }
 

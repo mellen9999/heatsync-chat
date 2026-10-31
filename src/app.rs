@@ -11,13 +11,17 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::fake::Fake;
+use crate::model::complete::{Complete, rank};
+use crate::model::line::Line;
 use crate::model::message::{Message, Platform};
+use crate::net::auth::Me;
 use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::irc::Chat;
 use crate::net::{Cmd, Net, NetEvent};
 use crate::store;
 use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::chat_view::{ChatView, Paint};
+use crate::ui::input_bar;
 use crate::ui::res::Res;
 use crate::ui::tab_bar::{self, TabLabel};
 use crate::ui::union;
@@ -35,12 +39,17 @@ struct Gfx {
   surface: Surface<Rc<Window>, Rc<Window>>,
 }
 
+// platform tag text + color shown before the input on merged tabs
+type Tag = (&'static str, u32);
+
 struct Tab {
   name: Box<str>,
   view: ChatView,
   unread: bool,
   // every feed merged into this tab: (platform, routing key)
   sources: Vec<(Platform, Box<str>)>,
+  // which source the input sends to (ctrl-n cycles on merged tabs)
+  target: usize,
 }
 
 // tab names: `forsen` (twitch + its linked kick/youtube), `kick:slug`, `yt:handle`
@@ -82,6 +91,13 @@ pub struct App {
   damage_hist: [Option<Rect>; 2],
   // pending heap trim after bursts of parsing (emote sets, history)
   trim_at: Option<Instant>,
+  // the message being typed; insert = keys type into it, else they drive the chat (vim normal)
+  line: Line,
+  insert: bool,
+  complete: Option<Complete>,
+  input_h: i32,
+  input_dirty: bool,
+  me: Option<Me>,
 }
 
 impl App {
@@ -102,7 +118,7 @@ impl App {
       }
       let mut view = ChatView::new(SCROLLBACK, key.clone());
       view.tags = p != Platform::Twitch;
-      tabs.push(Tab { name, view, unread: false, sources: vec![(p, key)] });
+      tabs.push(Tab { name, view, unread: false, sources: vec![(p, key)], target: 0 });
     }
     if flood {
       tabs.push(Tab {
@@ -110,6 +126,7 @@ impl App {
         view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()),
         unread: false,
         sources: Vec::new(),
+        target: 0,
       });
     }
     let status =
@@ -133,6 +150,12 @@ impl App {
       occluded: false,
       damage_hist: [None; 2],
       trim_at: None,
+      line: Line::default(),
+      insert: false,
+      complete: None,
+      input_h: 0,
+      input_dirty: true,
+      me: None,
     }
   }
 
@@ -142,7 +165,56 @@ impl App {
 
   fn chat_area(&self) -> Rect {
     let b = self.bar().h;
-    Rect::new(0, b, self.canvas.w, (self.canvas.h - b).max(0))
+    Rect::new(0, b, self.canvas.w, (self.canvas.h - b - self.input_h).max(0))
+  }
+
+  fn input_area(&self) -> Rect {
+    Rect::new(0, (self.canvas.h - self.input_h).max(0), self.canvas.w, self.input_h)
+  }
+
+  fn hint(&self) -> String {
+    match &self.me {
+      None => "ctrl-l log in · i type".into(),
+      Some(me) => format!("i type as {}", me.username),
+    }
+  }
+
+  // where the input sends: the tab's target source, tagged when the tab merges platforms
+  fn target(&self) -> Option<(Platform, &str, Option<Tag>)> {
+    let t = self.tabs.get(self.active)?;
+    let (p, key) = t.sources.get(t.target)?;
+    let tag = match p {
+      Platform::Twitch => ("[T] ", crate::ui::theme::TWITCH),
+      Platform::Kick => ("[K] ", crate::ui::theme::GREEN),
+      Platform::Youtube => ("[Y] ", crate::ui::theme::RED),
+    };
+    Some((*p, key, (t.sources.len() > 1).then_some(tag)))
+  }
+
+  fn set_insert(&mut self, on: bool) {
+    self.insert = on;
+    self.input_dirty = true;
+    self.wake();
+  }
+
+  fn send(&mut self) {
+    let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
+    if let Some(text) = self.line.take() {
+      self.net.send(Cmd::Send { platform, chan, text, reply: None });
+      if let Some(v) = self.view() {
+        v.scroll_to_bottom();
+      }
+    }
+  }
+
+  fn login(&mut self) {
+    if let Some(me) = &self.me {
+      self.status = format!("logged in as {} (ctrl-shift-l logs out)", me.username);
+      self.bar_dirty = true;
+      self.wake();
+    } else {
+      self.net.send(Cmd::Login);
+    }
   }
 
   fn wake(&self) {
@@ -169,6 +241,7 @@ impl App {
       self.tabs[i].unread = false;
       self.tabs[i].view.invalidate();
       self.bar_dirty = true;
+      self.input_dirty = true;
       self.wake();
     }
   }
@@ -280,6 +353,7 @@ impl App {
     }
     t.view.tags = t.sources.len() > 1;
     t.view.relayout();
+    self.input_dirty = true;
     if i == self.active {
       self.wake();
     }
@@ -320,8 +394,24 @@ impl App {
   }
 
   fn redraw(&mut self) {
-    let area = self.chat_area();
     let mut dirty: Option<Rect> = None;
+    if std::mem::take(&mut self.input_dirty) {
+      let hint = self.hint();
+      let tag = self.target().and_then(|t| t.2);
+      let bar = input_bar::Bar { line: &self.line, insert: self.insert, target: tag, hint: &hint };
+      let h = input_bar::height(&mut self.res.text, &bar, self.canvas.w);
+      if h != self.input_h {
+        // the chat area changed size: repaint it whole
+        self.input_h = h;
+        if let Some(t) = self.tabs.get_mut(self.active) {
+          t.view.invalidate();
+        }
+      }
+      let r = self.input_area();
+      input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar);
+      dirty = Some(r);
+    }
+    let area = self.chat_area();
     if std::mem::take(&mut self.bar_dirty) {
       let labels: Vec<TabLabel> = self
         .tabs
@@ -331,7 +421,7 @@ impl App {
         .collect();
       let bar = self.bar();
       tab_bar::draw(&mut self.canvas, &mut self.res.text, bar, &labels, &self.status);
-      dirty = Some(bar);
+      dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
     }
     if self.res.images.next_tick() {
       self.trim_soon();
@@ -417,10 +507,89 @@ impl App {
     }
     self.canvas.resize(w as i32, h as i32);
     self.damage_hist = [None; 2];
+    self.input_dirty = true;
     for t in &mut self.tabs {
       t.view.resize(w as i32);
     }
     self.bar_dirty = true;
+    self.wake();
+  }
+
+  // tab / shift-tab: first press finds candidates for the word before the cursor, then cycles them
+  fn tab_complete(&mut self, back: bool) {
+    if self.complete.is_none() {
+      let (start, word) = self.line.current_word();
+      let end = start + word.len();
+      let tab = self.tabs.get(self.active);
+      let chan = tab.map_or("", |t| &*t.view.channel);
+      let matches = if let Some(nick) = word.strip_prefix('@') {
+        let names = tab.map_or_else(Vec::new, |t| t.view.chatters());
+        rank(nick, [names]).into_iter().map(|n| format!("@{n}").into()).collect()
+      } else {
+        let own =
+          self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.senders.names(id, now_ms()));
+        rank(word, [self.res.emotes.channel_names(chan), own, self.res.emotes.global_names()])
+      };
+      if matches.is_empty() {
+        return;
+      }
+      self.complete = Some(Complete { start, end, matches, at: usize::MAX });
+    }
+    let Some(c) = &mut self.complete else { return };
+    let n = c.matches.len();
+    c.at = match (c.at, back) {
+      (usize::MAX, false) => 0,
+      (usize::MAX, true) => n - 1,
+      (i, false) => (i + 1) % n,
+      (i, true) => (i + n - 1) % n,
+    };
+    let pick = c.matches[c.at].clone();
+    self.line.replace(c.start..c.end, &pick);
+    c.end = c.start + pick.len();
+    self.input_dirty = true;
+    self.wake();
+  }
+
+  fn key_insert(&mut self, key: Key<&str>, text: Option<&str>) {
+    let ctrl = self.mods.control_key();
+    if key == Key::Named(NamedKey::Tab) {
+      return self.tab_complete(self.mods.shift_key());
+    }
+    // any other key commits the current candidate
+    self.complete = None;
+    let l = &mut self.line;
+    match key {
+      Key::Named(NamedKey::Escape) => return self.set_insert(false),
+      Key::Named(NamedKey::Enter) => self.send(),
+      Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),
+      Key::Named(NamedKey::Backspace) => l.backspace(),
+      Key::Named(NamedKey::Delete) => l.delete(),
+      Key::Named(NamedKey::ArrowLeft) if ctrl => l.word_left(),
+      Key::Named(NamedKey::ArrowRight) if ctrl => l.word_right(),
+      Key::Named(NamedKey::ArrowLeft) => l.left(),
+      Key::Named(NamedKey::ArrowRight) => l.right(),
+      Key::Named(NamedKey::Home) => l.home(),
+      Key::Named(NamedKey::End) => l.end(),
+      Key::Named(NamedKey::ArrowUp) => l.older(),
+      Key::Named(NamedKey::ArrowDown) => l.newer(),
+      Key::Character("a") if ctrl => l.home(),
+      Key::Character("e") if ctrl => l.end(),
+      Key::Character("w") if ctrl => l.delete_word_back(),
+      Key::Character("u") if ctrl => l.clear_to_start(),
+      Key::Character("k") if ctrl => l.clear_to_end(),
+      Key::Character("n") if ctrl => {
+        if let Some(t) = self.tabs.get_mut(self.active) {
+          t.target = (t.target + 1) % t.sources.len().max(1);
+        }
+      }
+      Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !self.mods.alt_key() => {
+        if let Some(t) = text {
+          l.insert(t);
+        }
+      }
+      _ => return,
+    }
+    self.input_dirty = true;
     self.wake();
   }
 
@@ -451,6 +620,9 @@ impl App {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => self.scroll(-line),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => self.scroll(line),
       Key::Character("w") if ctrl => self.close_tab(),
+      Key::Character("l") if ctrl => self.login(),
+      Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
+      Key::Character("i" | "a") | Key::Named(NamedKey::Enter) if !ctrl && !alt => self.set_insert(true),
       Key::Character("d") if ctrl => self.scroll(-half),
       Key::Character("u") if ctrl => self.scroll(half),
       Key::Named(NamedKey::PageDown) => self.scroll(-half * 2),
@@ -549,6 +721,21 @@ impl ApplicationHandler<NetEvent> for App {
         }
         self.trim_soon();
       }
+      NetEvent::Me(me) => {
+        // our own inventory feeds tab-complete: fetch it now, not on first sight of our own line
+        if let Some(id) = me.as_ref().and_then(|m| m.twitch_id) {
+          self.res.senders.lookup(id, "", now_ms());
+          self.wake();
+        }
+        self.status = match &me {
+          Some(m) => format!("logged in as {}", m.username),
+          None => String::new(),
+        };
+        self.me = me;
+        self.bar_dirty = true;
+        self.input_dirty = true;
+        self.wake();
+      }
       NetEvent::SendersStale { ids, ver, removed } => {
         if self.prof {
           eprintln!("senders stale {}", ids.len());
@@ -624,7 +811,11 @@ impl ApplicationHandler<NetEvent> for App {
         self.scroll(px);
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-        self.key(event.logical_key.as_ref());
+        if self.insert {
+          self.key_insert(event.logical_key.as_ref(), event.text.as_deref());
+        } else {
+          self.key(event.logical_key.as_ref());
+        }
       }
       _ => {}
     }

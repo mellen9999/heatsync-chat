@@ -31,6 +31,10 @@ impl Scope {
   fn get(&self, word: &str) -> Option<&Emote> {
     ORDER.iter().find_map(|p| self.sets.get(p)?.get(word))
   }
+
+  fn names(&self) -> Vec<&str> {
+    self.sets.values().flat_map(|s| s.keys().map(|k| &**k)).collect()
+  }
 }
 
 // which provider wins a name both define (ext setting emoteProviderPriority, default ffz)
@@ -62,6 +66,14 @@ impl Emotes {
 
   pub fn global(&self, word: &str) -> Option<&Emote> {
     self.global.get(word)
+  }
+
+  pub fn channel_names(&self, channel: &str) -> Vec<&str> {
+    self.channels.get(channel).map_or_else(Vec::new, Scope::names)
+  }
+
+  pub fn global_names(&self) -> Vec<&str> {
+    self.global.names()
   }
 }
 

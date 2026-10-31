@@ -1,11 +1,13 @@
 // all network io lives on one background thread running a current-thread tokio runtime.
 // the ui talks to it through `Net` and hears back through winit user events
+pub mod auth;
 pub mod hs_ws;
 pub mod irc;
 mod links;
 mod recent;
 pub mod relay;
 mod senders;
+mod session;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,6 +44,8 @@ pub enum NetEvent {
   // heatsync inventories for twitch user ids
   Senders(Vec<(u64, SenderSet)>),
   SendersStale { ids: Vec<u64>, ver: Option<Box<str>>, removed: Option<Box<str>> },
+  // logged in as / logged out
+  Me(Option<auth::Me>),
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -81,6 +85,10 @@ pub enum Cmd {
   Backfill(Platform, Box<str>, Box<str>),
   // twitch user id → their heatsync inventory (version set after a ws invalidation)
   Sender(u64, Option<Box<str>>),
+  Login,
+  Logout,
+  // reply = the platform message id being answered
+  Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Box<str>> },
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -254,6 +262,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   tokio::spawn(hs_ws::run(hs_rx, out.clone()));
   let (snd_tx, snd_rx) = mpsc::unbounded_channel();
   tokio::spawn(senders::run(http.clone(), snd_rx, out.clone()));
+  let (sess_tx, sess_rx) = mpsc::unbounded_channel();
+  tokio::spawn(session::run(http.clone(), sess_rx, irc_tx.clone(), out.clone()));
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
@@ -278,6 +288,23 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Backfill(p, key, archive) => {
         tokio::spawn(links::backfill(http.clone(), p, key, archive, out.clone()));
+      }
+      Cmd::Login => {
+        let _ = sess_tx.send(session::Cmd::Login);
+      }
+      Cmd::Logout => {
+        let _ = sess_tx.send(session::Cmd::Logout);
+      }
+      Cmd::Send { platform: Platform::Twitch, chan, text, reply } => {
+        let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
+      }
+      Cmd::Send { platform: Platform::Kick, chan, text, reply } => {
+        let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply });
+      }
+      Cmd::Send { platform: Platform::Youtube, chan, .. } => {
+        let m =
+          Message::system(crate::util::time::now_ms(), Platform::Youtube, "sending to youtube isn't supported yet");
+        out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
       }
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));

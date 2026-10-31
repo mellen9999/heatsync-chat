@@ -61,6 +61,13 @@ impl Senders {
     e.set.get(word).filter(|x| ts >= x.from.saturating_sub(SLACK_MS) && ts < x.until.saturating_add(SLACK_MS))
   }
 
+  // what `id` can type right now (tab-complete for our own lines)
+  pub fn names(&self, id: u64, now: i64) -> Vec<&str> {
+    self.map.get(&id).map_or_else(Vec::new, |e| {
+      e.set.iter().filter(|(_, x)| now >= x.from.saturating_sub(SLACK_MS) && now < x.until).map(|(k, _)| &**k).collect()
+    })
+  }
+
   pub fn take_wanted(&mut self) -> Vec<u64> {
     std::mem::take(&mut self.wanted)
   }

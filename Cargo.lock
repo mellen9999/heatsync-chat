@@ -738,6 +738,7 @@ dependencies = [
  "parley",
  "png",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

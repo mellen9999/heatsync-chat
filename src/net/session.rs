@@ -1,0 +1,166 @@
+// the logged-in heatsync session: token on disk (0600), who we are, the twitch irc credential it
+// brokers, and kick sends. one task, so login/logout/renewal never race each other
+use std::time::Duration;
+
+use serde_json::{Value, json};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::time::{Instant, sleep_until};
+
+use super::auth::{self, Check};
+use super::irc::{self, Creds};
+use super::{NetEvent, ORIGIN, Out};
+use crate::model::message::{Message, Platform};
+use crate::store;
+use crate::util::time::now_ms;
+
+const TOKEN: &str = "token";
+// /api/auth/check slides the session once <24h is left; checking this often keeps it alive forever
+const RENEW: Duration = Duration::from_secs(6 * 3600);
+const RETRY: Duration = Duration::from_secs(60);
+
+pub enum Cmd {
+  Login,
+  Logout,
+  Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
+}
+
+struct State {
+  http: reqwest::Client,
+  irc: UnboundedSender<irc::Cmd>,
+  out: Out,
+  token: Option<String>,
+  // what irc is logged in as, so a renewal that changes nothing doesn't reconnect chat
+  irc_as: Option<(String, String)>,
+}
+
+pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: UnboundedSender<irc::Cmd>, out: Out) {
+  let token = store::read(TOKEN).map(|s| s.trim().to_owned()).filter(|t| auth::valid_token(t));
+  let mut st = State { http, irc, out, token, irc_as: None };
+  let mut next = Instant::now();
+  loop {
+    tokio::select! {
+      c = rx.recv() => match c {
+        None => return,
+        Some(Cmd::Login) => {
+          st.out.status("finish logging in in your browser…");
+          match auth::login(&st.http).await {
+            Ok(t) => {
+              st.token = Some(t);
+              next = Instant::now();
+            }
+            Err(e) => st.out.status(format!("login failed: {e}")),
+          }
+        }
+        Some(Cmd::Logout) => {
+          if let Some(t) = st.token.take() {
+            auth::logout(&st.http, &t).await;
+          }
+          st.forget("logged out");
+        }
+        Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
+      },
+      _ = sleep_until(next), if st.token.is_some() => {
+        next = Instant::now() + if st.check().await { RENEW } else { RETRY };
+      }
+    }
+  }
+}
+
+impl State {
+  fn forget(&mut self, why: &str) {
+    self.token = None;
+    store::remove(TOKEN);
+    if self.irc_as.take().is_some() {
+      let _ = self.irc.send(irc::Cmd::Login(None));
+    }
+    self.out.send(NetEvent::Me(None));
+    self.out.status(why);
+  }
+
+  // false = couldn't reach heatsync; try again soon
+  async fn check(&mut self) -> bool {
+    let Some(t) = self.token.clone() else { return true };
+    let me = match auth::check(&self.http, &t).await {
+      Ok(Check::Ok(me, renewed)) => {
+        let t = renewed.unwrap_or(t);
+        if let Err(e) = store::write_secret(TOKEN, &t) {
+          self.out.status(format!("couldn't save login: {e}"));
+        }
+        self.token = Some(t);
+        me
+      }
+      Ok(Check::Expired) => {
+        self.forget("session expired, log in again (ctrl-l)");
+        return true;
+      }
+      Err(e) => {
+        self.out.status(format!("heatsync unreachable ({e})"));
+        return false;
+      }
+    };
+    let twitch = me.twitch.is_some();
+    self.out.send(NetEvent::Me(Some(me)));
+    if !twitch {
+      return true;
+    }
+    let Some(t) = self.token.as_deref() else { return true };
+    match auth::chat_token(&self.http, t).await {
+      Ok((token, nick)) => {
+        let now = Some((token.clone(), nick.clone()));
+        if self.irc_as != now {
+          self.irc_as = now;
+          let _ = self.irc.send(irc::Cmd::Login(Some(Creds { token, nick })));
+        }
+      }
+      Err(e) => self.out.status(format!("twitch chat: {e}")),
+    }
+    true
+  }
+
+  async fn kick(&mut self, chan: Box<str>, text: String, reply: Option<Box<str>>) {
+    let why = match &self.token {
+      None => Some("log in to send (ctrl-l)".to_owned()),
+      Some(t) => kick_send(&self.http, t, &chan, &text, reply.as_deref()).await.err(),
+    };
+    if let Some(why) = why {
+      let m = Message::system(now_ms(), Platform::Kick, format!("not sent: {why}"));
+      self.out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });
+    }
+  }
+}
+
+// the line comes back through the heatsync relay like everyone else's
+async fn kick_send(
+  http: &reqwest::Client,
+  token: &str,
+  chan: &str,
+  text: &str,
+  reply: Option<&str>,
+) -> Result<(), String> {
+  let mut body = json!({ "channel": chan, "text": text });
+  if let Some(id) = reply {
+    body["reply_to_message_id"] = json!(id);
+  }
+  let r = http
+    .post(format!("{ORIGIN}/api/kick/chat/send"))
+    .bearer_auth(token)
+    .header("content-type", "application/json")
+    .body(body.to_string())
+    .send()
+    .await
+    .map_err(|e| e.to_string())?;
+  if r.status().is_success() {
+    return Ok(());
+  }
+  let code = r.status().as_u16();
+  let v: Value = r.bytes().await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+  Err(match v.get("error_code").and_then(Value::as_str) {
+    Some("not_linked") => "link kick on heatsync.org first".into(),
+    Some("scope_missing") => "re-link kick on heatsync.org to allow sending".into(),
+    Some("token_expired") => "kick login expired, re-link on heatsync.org".into(),
+    Some("rate_limited") => "slow down".into(),
+    _ => {
+      v.get("error").and_then(Value::as_str).map_or_else(|| format!("http {code}"), |e| e.chars().take(100).collect())
+    }
+  })
+}
