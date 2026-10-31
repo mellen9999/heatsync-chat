@@ -9,6 +9,7 @@ use tokio::time::{Instant, sleep_until};
 use super::auth::{self, Check};
 use super::emote_ops::{self, EmoteCmd};
 use super::irc::{self, Creds};
+use super::upload;
 use super::{NetEvent, ORIGIN, Out};
 use crate::model::message::{Message, Platform};
 use crate::store;
@@ -23,6 +24,8 @@ pub enum Cmd {
   Login,
   Logout,
   Emote(EmoteCmd),
+  Upload(std::path::PathBuf),
+  Pick,
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
 }
 
@@ -67,6 +70,8 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: Unb
           Some(t) => emote_ops::run(&st.http, t, c, &st.out).await,
           None => st.out.status("log in first (ctrl-l)"),
         },
+        Some(Cmd::Upload(p)) => st.upload(p),
+        Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
       },
       _ = sleep_until(next), if st.token.is_some() => {
@@ -77,6 +82,38 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: Unb
 }
 
 impl State {
+  // uploads run on their own task: a 45MB video must not stall renewals or kick sends
+  fn upload(&self, path: std::path::PathBuf) {
+    match &self.token {
+      Some(t) => {
+        tokio::spawn(upload::run(self.http.clone(), t.clone(), path, self.out.clone()));
+      }
+      None => {
+        self.out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
+      }
+    }
+  }
+
+  // the dialog blocks, so it gets a blocking thread; its pick is then uploaded like a drop
+  fn pick(&self) {
+    let (http, token, out) = (self.http.clone(), self.token.clone(), self.out.clone());
+    tokio::spawn(async move {
+      let r = tokio::task::spawn_blocking(upload::choose).await.unwrap_or(upload::Upload::Cancelled);
+      match (r, token) {
+        (upload::Upload::Url(p), Some(t)) => {
+          out.status("uploading…");
+          upload::run(http, t, p.into(), out).await
+        }
+        (upload::Upload::Url(_), None) => {
+          out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
+        }
+        (other, _) => {
+          out.send(NetEvent::Upload(other));
+        }
+      }
+    });
+  }
+
   fn forget(&mut self, why: &str) {
     self.token = None;
     store::remove(TOKEN);

@@ -26,6 +26,8 @@ pub struct Bar<'a> {
   pub preedit_caret: usize,
   // the picker is open or the pointer is on the button: drawn reversed
   pub picker_on: bool,
+  // the upload button: an upload is running, the path prompt is open or the pointer is on it
+  pub upload_on: bool,
   pub logo: &'a Logo,
 }
 
@@ -33,6 +35,12 @@ pub struct Bar<'a> {
 pub fn button(area: Rect, line: i32) -> Rect {
   let w = line * 3 / 2;
   Rect::new(area.right() - w, area.y, w, line.min(area.h))
+}
+
+// the upload arrow, just left of the logo
+pub fn upload_button(area: Rect, line: i32) -> Rect {
+  let b = button(area, line);
+  Rect::new(b.x - b.w, b.y, b.w, b.h)
 }
 
 struct Laid {
@@ -71,7 +79,7 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
     s.push_str(b.preedit);
     s.push_str(tail);
   }
-  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 1.5;
+  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0;
   Laid { l: text.layout(&s, &spans, &[], room), at, pre }
 }
 
@@ -152,5 +160,13 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
     let (w, h) = (d.w as i32, d.h as i32);
     c.rgba(btn.x + (btn.w - w) / 2, btn.y + (btn.h - h) / 2, w, h, &f.rgba, btn);
   }
+  let up = upload_button(area, text.line_px as i32);
+  let (bg, fg) = if b.upload_on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
+  c.fill(up, bg);
+  let arrow = "↑";
+  let span = Span { range: 0..arrow.len(), ink: Ink(fg), bold: true };
+  let gl = text.layout(arrow, &[span], &[], 1000.0);
+  let (gw, gh) = (gl.full_width(), gl.height());
+  text.draw(&gl, c, up.x as f32 + (up.w as f32 - gw) / 2.0, up.y as f32 + (up.h as f32 - gh) / 2.0, up, |_, _| {});
   Rect::new(x, y, CURSOR_W, h)
 }

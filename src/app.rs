@@ -13,6 +13,7 @@ use winit::window::{Window, WindowId};
 
 mod emote;
 mod picker;
+mod upload;
 
 use crate::fake::Fake;
 use crate::model::complete::{Complete, rank};
@@ -124,6 +125,10 @@ pub struct App {
   recents: Recents,
   // pointer is over the logo button
   btn_hover: bool,
+  up_hover: bool,
+  // the built-in path prompt (no file dialog installed), and an upload or dialog in flight
+  prompt: Option<Line>,
+  uploading: bool,
 }
 
 impl App {
@@ -195,6 +200,9 @@ impl App {
       picker: None,
       recents: Recents::load(),
       btn_hover: false,
+      up_hover: false,
+      prompt: None,
+      uploading: false,
     }
   }
 
@@ -202,7 +210,7 @@ impl App {
   fn wants_text(&self) -> bool {
     match &self.picker {
       Some(p) => p.focus == Focus::Search,
-      None => self.mode == Mode::Insert,
+      None => self.prompt.is_some() || self.mode == Mode::Insert,
     }
   }
 
@@ -248,6 +256,8 @@ impl App {
           if let Some(p) = &mut self.picker {
             p.type_str(&text);
             self.picker_reveal();
+          } else if let Some(p) = &mut self.prompt {
+            p.insert(&text);
           } else {
             self.complete = None;
             self.line.insert(&text);
@@ -287,7 +297,7 @@ impl App {
 
   // auto-hide: an empty bar takes no room (mode and reply stay as they are)
   fn hidden(&self) -> bool {
-    self.set.auto_hide && self.line.text.is_empty() && !self.ime.composing()
+    self.set.auto_hide && self.line.text.is_empty() && !self.ime.composing() && self.prompt.is_none()
   }
 
   // where the input sends: the tab's target source, tagged when the tab merges platforms
@@ -553,19 +563,27 @@ impl App {
     let mut dirty: Option<Rect> = None;
     if std::mem::take(&mut self.input_dirty) {
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
-      let hint = if show_hint { self.hint() } else { String::new() };
+      let hint = match &self.prompt {
+        Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
+        None if show_hint => self.hint(),
+        None => String::new(),
+      };
       let hidden = self.hidden();
-      let tag = self.target().and_then(|t| t.2);
-      let reply = self.reply.as_ref().map(|r| &*r.1);
+      let tag = match &self.prompt {
+        Some(_) => Some(("path: ", crate::ui::theme::YELLOW)),
+        None => self.target().and_then(|t| t.2),
+      };
+      let reply = self.reply.as_ref().filter(|_| self.prompt.is_none()).map(|r| &*r.1);
       let bar = input_bar::Bar {
-        line: &self.line,
-        mode: self.mode,
+        line: self.prompt.as_ref().unwrap_or(&self.line),
+        mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
         target: tag,
         hint: &hint,
         reply,
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
         picker_on: self.picker.is_some() || self.btn_hover,
+        upload_on: self.uploading || self.prompt.is_some() || self.up_hover,
         logo: &self.res.logo,
       };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
@@ -803,6 +821,7 @@ impl App {
     let half = self.chat_area().h / 2;
     let n = self.tabs.len().max(1);
     match key {
+      Key::Character("o") if ctrl => self.pick_file(),
       Key::Character("l") if ctrl => self.login(),
       Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
       Key::Named(NamedKey::Tab) if ctrl => {
@@ -913,6 +932,9 @@ impl App {
     let (chat, input) = (self.chat_area(), self.input_area());
     if self.over_button() {
       return self.toggle_picker();
+    }
+    if self.over_upload() {
+      return self.pick_file();
     }
     if self.picker.is_some() {
       return self.picker_click();
@@ -1159,6 +1181,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       NetEvent::Links { tab, kick, yt } => self.on_links(&tab, kick, yt),
+      NetEvent::Upload(u) => self.on_upload(u),
       NetEvent::Status(s) => {
         self.status = s;
         self.bar_dirty = true;
@@ -1197,9 +1220,10 @@ impl ApplicationHandler<NetEvent> for App {
         self.pointer = (position.x as i32, position.y as i32);
         self.menu_hover();
         self.picker_hover();
-        let over = self.over_button();
-        if over != self.btn_hover {
+        let (over, up) = (self.over_button(), self.over_upload());
+        if over != self.btn_hover || up != self.up_hover {
           self.btn_hover = over;
+          self.up_hover = up;
           self.input_dirty = true;
           self.wake();
         }
@@ -1207,6 +1231,7 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
       WindowEvent::Ime(ev) => self.on_ime(ev),
+      WindowEvent::DroppedFile(p) => self.upload_file(p),
       WindowEvent::MouseWheel { delta, .. } => {
         let px = match delta {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
@@ -1222,6 +1247,9 @@ impl ApplicationHandler<NetEvent> for App {
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
         if self.mods.control_key() && k == Key::Character(";") {
           return self.toggle_picker();
+        }
+        if self.prompt.is_some() {
+          return self.prompt_key(k, t);
         }
         if self.picker.is_some() {
           return self.picker_key(k, t);

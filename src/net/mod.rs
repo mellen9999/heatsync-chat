@@ -9,6 +9,7 @@ mod recent;
 pub mod relay;
 mod senders;
 mod session;
+pub mod upload;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,6 +52,7 @@ pub enum NetEvent {
   BlockedHashes(Vec<Box<str>>),
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
   Inventory { removed: Option<Box<str>> },
+  Upload(upload::Upload),
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -99,6 +101,9 @@ pub enum Cmd {
   Login,
   Logout,
   Emote(emote_ops::EmoteCmd),
+  // upload this file / ask a file dialog for one, then upload it
+  Upload(std::path::PathBuf),
+  Pick,
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
 }
 
@@ -309,6 +314,12 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Emote(c) => {
         let _ = sess_tx.send(session::Cmd::Emote(c));
+      }
+      Cmd::Upload(p) => {
+        let _ = sess_tx.send(session::Cmd::Upload(p));
+      }
+      Cmd::Pick => {
+        let _ = sess_tx.send(session::Cmd::Pick);
       }
       Cmd::Send { platform: Platform::Twitch, chan, text, reply } => {
         let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
