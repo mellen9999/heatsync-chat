@@ -328,8 +328,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id) });
       }
       Cmd::Send { platform: Platform::Youtube, chan, .. } => {
-        let m =
-          Message::system(crate::util::time::now_ms(), Platform::Youtube, "sending to youtube isn't supported yet");
+        let m = Message::system(crate::util::time::now_ms(), Platform::Youtube, "youtube is read-only here for now");
         out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
       }
       Cmd::Sender(id, ver) => {
