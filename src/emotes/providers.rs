@@ -178,6 +178,8 @@ pub fn twitch_global(v: &Value) -> Set {
     };
     // 1.0 is the 28px size; the catalog lists 3.0
     let url = url.strip_suffix("/3.0").map_or_else(|| url.to_owned(), |b| format!("{b}/1.0"));
+    // the catalog lists the light-theme art; this window is dark
+    let url = url.replace("/light/", "/dark/");
     put(&mut out, name, Emote { url: url.into(), w: 0, h: 0, zero_width: false });
   }
   out
@@ -232,7 +234,7 @@ mod tests {
     assert!(s["Kappa"].url.ends_with("/dark/1.0"));
     // the live catalog wraps the rows: `{"emotes": [...]}`
     let wrapped = json!({"emotes": [{"name": "Kappa", "provider": "twitch", "url": "https://static-cdn.jtvnw.net/emoticons/v2/25/static/light/1.0"}]});
-    assert!(twitch_global(&wrapped).contains_key("Kappa"));
+    assert!(twitch_global(&wrapped)["Kappa"].url.ends_with("/dark/1.0"));
   }
 
   #[test]
