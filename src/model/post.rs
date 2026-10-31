@@ -28,6 +28,8 @@ pub struct Post {
   pub replies: u32,
   pub reply_to: Option<Box<str>>,
   pub is_op: bool,
+  // the thread's author replying in their own thread (ext [OP] in magenta)
+  pub thread_op: bool,
   pub voted: bool,
   pub edited: bool,
   // the AUTHOR's own heatsync emotes, server-resolved: the only heatsync emote source for a post
@@ -109,6 +111,7 @@ pub fn parse(v: &Value) -> Option<Post> {
     ts: name("created_at").and_then(parse_iso).unwrap_or_else(now_ms),
     heat: num("heat"),
     replies: num("reply_count"),
+    thread_op: v.get("is_thread_op").and_then(Value::as_bool).unwrap_or(false),
     is_op: v.get("is_op").and_then(Value::as_bool).unwrap_or(reply_to.is_none()),
     reply_to,
     voted: v.get("user_vote").and_then(Value::as_i64) == Some(1),
@@ -157,9 +160,16 @@ pub fn short(id: &str) -> &str {
 // `me` = your heatsync name, `signed_in` = a token exists (the ▲ shows only then, and never on your own post)
 pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
   let own = me.is_some_and(|m| m.eq_ignore_ascii_case(&p.user));
-  let tag = if p.is_op { ("[OP] ", theme::GREEN) } else { ("[RE] ", theme::BLUE) };
+  // ext palette: >>id yellow (mention), [OP] red, the OP in their own thread magenta, [RE] cyan (reply)
+  let tag = if p.thread_op {
+    ("[OP] ", theme::MAGENTA)
+  } else if p.is_op {
+    ("[OP] ", theme::RED)
+  } else {
+    ("[RE] ", theme::CYAN)
+  };
   let mut head = vec![
-    Seg { text: format!(">>{} ", short(&p.id)).into(), ink: theme::CYAN, bold: false },
+    Seg { text: format!(">>{} ", short(&p.id)).into(), ink: theme::YELLOW, bold: false },
     Seg { text: tag.0.into(), ink: tag.1, bold: true },
   ];
   if let Some(pl) = p.platform {
@@ -273,5 +283,18 @@ mod tests {
     let m = message(&parse(&sample()).unwrap(), None, false);
     assert_eq!(m.hs.len(), 2);
     assert_eq!(&*m.user_id, "", "no twitch id, so no sender-inventory lookup can run for a feed author");
+  }
+
+  #[test]
+  fn tag_colors_follow_the_ext() {
+    let ink = |v: Value| {
+      let x = message(&parse(&v).unwrap(), None, false).x.unwrap();
+      (x.head[0].ink, x.head[1].ink)
+    };
+    assert_eq!(ink(json!({"base36_id": "2o", "content": "x", "username": "a"})), (theme::YELLOW, theme::RED));
+    let re = json!({"base36_id": "2p", "content": "x", "username": "b", "reply_to": "2o"});
+    assert_eq!(ink(re).1, theme::CYAN);
+    let own = json!({"base36_id": "2q", "content": "x", "username": "a", "reply_to": "2o", "is_thread_op": true});
+    assert_eq!(ink(own).1, theme::MAGENTA);
   }
 }
