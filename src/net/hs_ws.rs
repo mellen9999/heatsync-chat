@@ -347,6 +347,10 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Moment { platform, key, text })
     }
     "pin:set" | "pin:clear" => pin::frame(v, ty == "pin:set").and_then(send),
+    "new-message" => {
+      let p = crate::model::post::parse(v.get("data")?)?;
+      send(NetEvent::FeedLive(p))
+    }
     "whisper:new" => {
       let w = crate::model::whisper::parse(v, 0, None)?;
       send(NetEvent::Whispers { items: vec![w], live: true })

@@ -1,6 +1,7 @@
 pub mod chan;
 pub mod color;
 pub mod complete;
+pub mod feed;
 pub mod ime;
 pub mod line;
 pub mod mention;
@@ -8,6 +9,7 @@ pub mod message;
 pub mod pathcomp;
 pub mod picker;
 pub mod pin;
+pub mod post;
 pub mod seen;
 pub mod settings;
 pub mod stream_events;

@@ -72,6 +72,14 @@ pub enum NetEvent {
   // twitch whispers: one pushed live, or the history read when the tab first opened
   Whispers { items: Vec<crate::model::whisper::Whisper>, live: bool },
   // a send settled: who it went to (resolved), or why not
+  // the feed: a page, why it failed (http status, 0 = no answer), a thread, a vote or a post settling,
+  // and a post pushed live
+  Feed(social::Page),
+  FeedFailed { status: u16 },
+  Thread { id: Box<str>, res: Result<(crate::model::post::Post, Vec<crate::model::post::Post>), u16> },
+  Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
+  Posted { res: Result<crate::model::post::Post, u16> },
+  FeedLive(crate::model::post::Post),
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 

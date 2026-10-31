@@ -61,8 +61,10 @@ impl App {
 
   // a tab came into view: load what it shows the first time (or when stale)
   pub(super) fn entered(&mut self) {
-    if self.kind() == Kind::Whispers {
-      self.whispers_load();
+    match self.kind() {
+      Kind::Whispers => self.whispers_load(),
+      Kind::Feed => self.feed_entered(),
+      _ => {}
     }
   }
 

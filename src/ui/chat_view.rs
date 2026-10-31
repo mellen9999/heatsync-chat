@@ -475,6 +475,23 @@ impl ChatView {
     true
   }
 
+  // swap the whole list for a new one (a list that changes under the reader): the scroll stays and
+  // the selection follows its line by id
+  pub fn reload(&mut self, msgs: Vec<Message>) {
+    let keep = self.selected().map(|m| m.id.clone()).filter(|id| !id.is_empty());
+    let scroll = self.scroll;
+    self.clear();
+    self.scroll = scroll;
+    for m in msgs {
+      self.seq_back += 1;
+      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None });
+    }
+    while self.rows.len() > self.cap {
+      self.rows.pop_back();
+    }
+    self.selected = keep.and_then(|id| self.rows.iter().find(|r| *r.msg.id == *id).map(|r| r.seq));
+  }
+
   // forget every line (a list reloading)
   pub fn clear(&mut self) {
     self.rows.clear();
@@ -1182,6 +1199,23 @@ mod tests {
     assert_eq!(v.len(), 0);
     v.push(plain("c", "three"));
     assert_eq!(v.len(), 1);
+    assert!(v.selected().is_none());
+  }
+
+  #[test]
+  fn reload_keeps_scroll_and_selection() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "c".into());
+    v.top = true;
+    v.resize(400);
+    for id in ["a", "b", "c"] {
+      v.push(plain(id, id));
+    }
+    assert!(v.select_id("b", &mut res, 200));
+    v.reload(vec![plain("z", "new"), plain("a", "a"), plain("b", "b")]);
+    assert_eq!(v.len(), 3);
+    assert_eq!(&*v.selected().unwrap().id, "b");
+    v.reload(vec![plain("q", "only")]);
     assert!(v.selected().is_none());
   }
 }

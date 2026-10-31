@@ -14,6 +14,7 @@ use winit::window::{Window, WindowId};
 mod builtin;
 mod clip;
 mod emote;
+mod feed;
 mod mentions;
 mod picker;
 mod pin;
@@ -26,6 +27,7 @@ mod zoom;
 use crate::fake::Fake;
 use crate::model::chan::{self, Form};
 use crate::model::complete::{Complete, rank};
+use crate::model::feed::Feed;
 use crate::model::ime::Ime;
 use crate::model::line::Line;
 use crate::model::mention::Mentions;
@@ -155,6 +157,9 @@ pub struct App {
   // the whispers timeline, and whether this login's history was asked for
   whispers: Timeline,
   whispers_loaded: bool,
+  // the feed tab's posts and open thread; the text of a post in flight (put back if it fails)
+  feed: Feed,
+  pending_post: Option<String>,
 }
 
 impl App {
@@ -250,6 +255,8 @@ impl App {
       focused: true,
       whispers: Timeline::default(),
       whispers_loaded: false,
+      feed: Feed::default(),
+      pending_post: None,
     }
   }
 
@@ -344,6 +351,9 @@ impl App {
   fn hint(&self) -> String {
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
+    }
+    if self.kind() == Kind::Feed {
+      return self.feed_hint();
     }
     if self.kind() == Kind::Whispers {
       return match self.whisper_label() {
@@ -473,6 +483,10 @@ impl App {
     if let Some(cmd) = chan::command(&self.line.text) {
       self.line.take();
       self.chan_cmd(cmd);
+      return self.after_send();
+    }
+    if self.kind() == Kind::Feed && !self.line.text.trim().is_empty() {
+      self.feed_post();
       return self.after_send();
     }
     if let Some(cmd) = whisper::command(&self.line.text) {
@@ -1170,6 +1184,12 @@ impl App {
         Key::Character("j") | Key::Named(NamedKey::ArrowDown) => return self.select_move(1),
         Key::Character("k") | Key::Named(NamedKey::ArrowUp) => return self.select_move(-1),
         Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => return self.jump_to_mention(),
+        Key::Named(NamedKey::Enter) if self.kind() == Kind::Feed => return self.feed_activate(),
+        Key::Character("u") if self.kind() == Kind::Feed => return self.feed_vote(),
+        Key::Character("r") if self.kind() == Kind::Feed => return self.feed_reply(),
+        Key::Character("h") | Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Backspace) if self.feed_back() => {
+          return;
+        }
         Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => return self.whisper_activate(),
         Key::Character("r") if self.kind() == Kind::Whispers => return self.whisper_reply_selected(),
         Key::Character("r") => return self.reply_selected(),
@@ -1184,6 +1204,7 @@ impl App {
       }
     }
     match key {
+      Key::Named(NamedKey::Escape) | Key::Character("h") if !ctrl && self.feed_back() => {}
       Key::Character("v") if !ctrl => self.select_start(),
       Key::Character("x") if !ctrl && !alt => self.pin_hide(),
       Key::Character("t") if chord == Some('g') => self.select(self.step_tab(self.active, false)),
@@ -1272,6 +1293,12 @@ impl ApplicationHandler<NetEvent> for App {
       }
       NetEvent::Whispers { items, live } => self.on_whispers(items, live),
       NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
+      NetEvent::Feed(p) => self.on_feed(p),
+      NetEvent::FeedFailed { status } => self.on_feed_failed(status),
+      NetEvent::Thread { id, res } => self.on_thread(id, res),
+      NetEvent::Voted { id, res } => self.on_voted(id, res),
+      NetEvent::Posted { res } => self.on_posted(res),
+      NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
@@ -1324,6 +1351,7 @@ impl ApplicationHandler<NetEvent> for App {
         // a different login starts with a clean whispers tab
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
+          self.feed_reset();
         }
         self.me = me;
         self.whisper_empty();

@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
+use crate::model::post::{self, Post};
 use crate::model::whisper::{self, Fail, Who};
 use crate::ui::theme;
 
@@ -11,7 +12,23 @@ const MAX_BODY: usize = 4 << 20;
 const CONVERSATIONS: usize = 8;
 const PER_CONVERSATION: usize = 40;
 
+// one page of the feed. `hot` = the follows feed was empty so this is the hot (or newest) fallback;
+// `cold` = even hot had nothing carrying heat
+pub struct Page {
+  pub page: u32,
+  pub posts: Vec<Post>,
+  pub hot: bool,
+  pub cold: bool,
+  pub more: bool,
+}
+
 pub enum Cmd {
+  // page 1 = a fresh load; later pages append
+  Feed { page: u32 },
+  Thread { id: Box<str> },
+  Vote { id: Box<str> },
+  // reply_to None = a top-level post
+  Post { text: String, reply_to: Option<Box<str>> },
   WhisperHistory { me: u64 },
   // `id` is the twitch user id when we already know it, else it is looked up from the login
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
@@ -19,6 +36,10 @@ pub enum Cmd {
 
 pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Out) {
   match cmd {
+    Cmd::Feed { page } => feed(&http, token.as_deref(), page, &out).await,
+    Cmd::Thread { id } => thread(&http, token.as_deref(), id, &out).await,
+    Cmd::Vote { id } => vote(&http, token.as_deref(), id, &out).await,
+    Cmd::Post { text, reply_to } => publish(&http, token.as_deref(), text, reply_to, &out).await,
     Cmd::WhisperHistory { me } => {
       if let Some(t) = token {
         history(&http, &t, me, &out).await;
@@ -53,6 +74,94 @@ async fn call(req: reqwest::RequestBuilder) -> (u16, Value) {
 
 fn get(http: &reqwest::Client, token: &str, path: &str) -> reqwest::RequestBuilder {
   http.get(format!("{ORIGIN}{path}")).bearer_auth(token)
+}
+
+// a read that works logged out too (the feed and threads are public)
+fn read(http: &reqwest::Client, token: Option<&str>, path: &str) -> reqwest::RequestBuilder {
+  let r = http.get(format!("{ORIGIN}{path}"));
+  match token {
+    Some(t) => r.bearer_auth(t),
+    None => r,
+  }
+}
+
+fn posts_of(v: Option<&Value>, ops_only: bool, drop_anon: bool) -> Vec<Post> {
+  let rows = v.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+  rows
+    .iter()
+    .take(MAX_ROWS)
+    .filter_map(post::parse)
+    .filter(|p| (!ops_only || p.is_op) && !(drop_anon && p.anon))
+    .collect()
+}
+
+const PER_PAGE: usize = 30;
+const MAX_ROWS: usize = 150;
+
+// ext fetchFeed: the follows timeline, and on an empty first page the hot posts of the month
+async fn feed(http: &reqwest::Client, token: Option<&str>, page: u32, out: &Out) {
+  let path = format!("/api/messages?sort=time&limit={PER_PAGE}&page={page}&following=true");
+  let (status, v) = call(read(http, token, &path)).await;
+  if status != 200 {
+    return void(out.send(NetEvent::FeedFailed { status }));
+  }
+  let posts = posts_of(v.get("messages"), true, true);
+  let more = v.pointer("/pagination/hasMore").and_then(Value::as_bool).unwrap_or(posts.len() >= PER_PAGE);
+  if page == 1 && posts.is_empty() {
+    let (st, h) = call(read(http, token, "/api/messages/hot?limit=30&hours=720")).await;
+    let hot = if st == 200 { posts_of(h.get("messages"), true, false) } else { Vec::new() };
+    if !hot.is_empty() {
+      let cold = h.get("fallback").and_then(Value::as_bool) == Some(true);
+      return void(out.send(NetEvent::Feed(Page { page, posts: hot, hot: true, cold, more: false })));
+    }
+  }
+  void(out.send(NetEvent::Feed(Page { page, posts, hot: false, cold: false, more })))
+}
+
+fn void(_: bool) {}
+
+// the OP and its replies, replies oldest first (the server pages newest first)
+async fn thread(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {
+  let (status, v) = call(read(http, token, &format!("/api/thread/{id}"))).await;
+  let op = (status == 200).then(|| v.get("original").and_then(post::parse)).flatten();
+  let res = op.map(|op| {
+    let mut replies = posts_of(v.get("replies"), false, false);
+    replies.reverse();
+    (op, replies)
+  });
+  void(out.send(NetEvent::Thread { id, res: res.ok_or(status) }))
+}
+
+fn authed(http: &reqwest::Client, token: &str, path: &str, body: String) -> reqwest::RequestBuilder {
+  http.post(format!("{ORIGIN}{path}")).bearer_auth(token).header("content-type", "application/json").body(body)
+}
+
+// toggles your upvote. ok = (voted now, heat if the server said)
+async fn vote(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {
+  let Some(t) = token else { return void(out.send(NetEvent::Voted { id, res: Err(401) })) };
+  let (status, v) =
+    call(authed(http, t, &format!("/api/messages/{id}/vote"), json!({ "vote_type": 1 }).to_string())).await;
+  let res = if status == 200 && v.get("success").and_then(Value::as_bool) == Some(true) {
+    let heat = v.get("heat").and_then(Value::as_f64).filter(|h| h.is_finite() && *h >= 0.0).map(|h| h.min(1e9) as u32);
+    Ok((v.get("user_vote").and_then(Value::as_i64) == Some(1), heat))
+  } else {
+    Err(status)
+  };
+  void(out.send(NetEvent::Voted { id, res }))
+}
+
+async fn publish(http: &reqwest::Client, token: Option<&str>, text: String, reply_to: Option<Box<str>>, out: &Out) {
+  let Some(t) = token else { return void(out.send(NetEvent::Posted { res: Err(401) })) };
+  let mut body = json!({ "content": text });
+  if let Some(r) = &reply_to {
+    body["reply_to"] = json!(r);
+  }
+  let (status, v) = call(authed(http, t, "/api/messages", body.to_string())).await;
+  let res = match v.get("message").and_then(post::parse) {
+    Some(p) if (200..300).contains(&status) => Ok(p),
+    _ => Err(if (200..300).contains(&status) { 500 } else { status }),
+  };
+  void(out.send(NetEvent::Posted { res }))
 }
 
 async fn history(http: &reqwest::Client, token: &str, me: u64, out: &Out) {
