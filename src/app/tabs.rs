@@ -163,7 +163,8 @@ impl App {
   }
 
   fn add_tab(&mut self, spec: &Spec) {
-    let tab = make_tab(&self.net, spec);
+    let mut tab = make_tab(&self.net, spec);
+    tab.view.resize(self.canvas.w);
     self.tabs.push(tab);
     self.status.clear();
     self.save_tabs();
@@ -185,6 +186,7 @@ impl App {
     if t.view.channel != first {
       t.view = ChatView::new(SCROLLBACK, first);
       t.view.filtered = true;
+      t.view.resize(self.canvas.w);
     }
     t.view.tags = tags(&new);
     t.view.relayout();

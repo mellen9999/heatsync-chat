@@ -156,6 +156,8 @@ pub enum Paint {
 }
 
 const MARK_W: i32 = 2;
+// narrowest width a row lays out at: a transient 0 (view born before the first resize) must not wrap one word per line
+const MIN_W: i32 = 160;
 
 // the room a line resolves its emotes and badges against: its own when copied into another tab
 fn room<'a>(m: &'a Message, tab: &'a str) -> &'a str {
@@ -508,7 +510,7 @@ impl ChatView {
       cap,
       seq_back: 0,
       seq_front: 0,
-      width: 0,
+      width: MIN_W,
       scroll: 0,
       pending: 0,
       stale: true,
@@ -774,6 +776,7 @@ impl ChatView {
   }
 
   pub fn resize(&mut self, width: i32) {
+    let width = width.max(MIN_W);
     if width != self.width {
       self.width = width;
       self.relayout();
@@ -1765,6 +1768,24 @@ mod tests {
     v.draw(&mut c, &mut res, area, area);
     assert!(v.select_at(area, 5, &mut res));
     assert_eq!(&*v.selected().unwrap().id, "p0");
+  }
+  #[test]
+  fn a_view_made_after_startup_lays_a_system_line_on_one_row() {
+    let mut res = Res::new(1.0);
+    let sys = || Message::system(1, Platform::Kick, "not sent: log in to send (ctrl-l)");
+    let mut v = ChatView::new(10, "dellor".into());
+    v.push(sys());
+    v.resize(600);
+    let one = v.height_at(0, &mut res);
+    let line = layout_row(&mut res, "dellor", &plain("c", "x"), false, 600, NO_OPTS).layout.height().ceil() as i32;
+    assert_eq!(one, line, "one row at a normal width");
+    // a transient 0 clamps: a few rows at worst, never a word per line (9 words)
+    let mut w = ChatView::new(10, "dellor".into());
+    w.push(sys());
+    w.resize(0);
+    assert!(w.height_at(0, &mut res) <= 4 * line);
+    w.resize(600);
+    assert_eq!(w.height_at(0, &mut res), one);
   }
   #[test]
   fn replace_and_clear() {
