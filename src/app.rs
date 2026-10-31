@@ -1433,6 +1433,9 @@ impl ApplicationHandler<NetEvent> for App {
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
           self.feed_reset();
+          self.res.blocked.clear_server();
+          self.mod_in.clear();
+          self.relayout_where(None);
         }
         self.me = me;
         self.whisper_empty();

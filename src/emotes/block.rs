@@ -138,8 +138,10 @@ fn any_form(url: &str, mut f: impl FnMut(&str) -> bool) -> bool {
 pub struct Blocked {
   // locally blocked names (the render gate, like the ext's blockedEmoteNames)
   names: HashSet<Box<str>>,
-  // hashes: ours plus the server's list (other devices)
+  // hashes of our own blocks
   hashes: HashSet<Box<str>>,
+  // the logged-in account's server list (other devices): replaced on every fetch, dropped on logout
+  server: HashSet<Box<str>>,
 }
 
 impl Blocked {
@@ -161,10 +163,10 @@ impl Blocked {
     if self.names.contains(name) {
       return true;
     }
-    if self.hashes.is_empty() {
+    if self.hashes.is_empty() && self.server.is_empty() {
       return false;
     }
-    any_form(url, |h| self.hashes.contains(h))
+    any_form(url, |h| self.hashes.contains(h) || self.server.contains(h))
   }
 
   // true when this changed anything. `hash` is what to file it under (see `emote_hash`)
@@ -182,7 +184,9 @@ impl Blocked {
     let mut gone = Vec::new();
     self.names.remove(name);
     any_form(url, |h| {
-      if self.hashes.remove(h) {
+      let a = self.hashes.remove(h);
+      let b = self.server.remove(h);
+      if a || b {
         gone.push(h.to_owned());
       }
       false
@@ -195,7 +199,12 @@ impl Blocked {
 
   // the server's list replaces what an earlier fetch said; local names stay
   pub fn set_server(&mut self, hashes: Vec<Box<str>>) {
-    self.hashes.extend(hashes.into_iter().filter(|h| valid_hash(h)).take(MAX_BLOCKED));
+    self.server = hashes.into_iter().filter(|h| valid_hash(h)).take(MAX_BLOCKED).collect();
+  }
+
+  // logged out or switched account: the old account's list must not keep hiding emotes
+  pub fn clear_server(&mut self) {
+    self.server.clear();
   }
 
   pub fn save(&self) {
@@ -304,6 +313,21 @@ mod tests {
   }
 
   #[test]
+  fn server_list_is_replaced_and_dropped_on_logout() {
+    let mut b = Blocked::default();
+    b.set_server(vec!["01ABC".into()]);
+    assert!(b.contains("x", SEVENTV));
+    b.set_server(vec!["other".into()]);
+    assert!(!b.contains("x", SEVENTV));
+    b.set_server(vec!["01ABC".into()]);
+    b.clear_server();
+    assert!(!b.contains("x", SEVENTV));
+    b.block("Mine", "https://cdn.7tv.app/emote/ZZZ/1x.webp", Scope::Channel);
+    b.clear_server();
+    assert!(b.contains("Mine", ""));
+  }
+
+  #[test]
   fn block_by_name_or_hash() {
     let mut b = Blocked::default();
     assert!(!b.contains("KEKW", SEVENTV));
@@ -326,6 +350,6 @@ mod tests {
     let mut b = Blocked::default();
     b.set_server(vec!["01ABC".into(), "bad hash!".into(), "".into()]);
     assert!(b.contains("x", SEVENTV));
-    assert_eq!(b.hashes.len(), 1);
+    assert_eq!(b.server.len(), 1);
   }
 }
