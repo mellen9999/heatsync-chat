@@ -114,6 +114,8 @@ pub struct Vi {
   pending: Option<char>,
   last_find: Option<(char, char)>,
   reg: String,
+  // the register was just written by a yank: the app mirrors it to the system clipboard
+  fresh: bool,
   undo: Vec<Snap>,
   redo: Vec<Snap>,
   last: Option<Edit>,
@@ -216,6 +218,11 @@ fn target(b: &Buf, key: char, n: usize, ch: Option<char>) -> Option<usize> {
 }
 
 impl Vi {
+  // the text of a yank since the last call, once
+  pub fn take_fresh(&mut self) -> Option<String> {
+    std::mem::take(&mut self.fresh).then(|| self.reg.clone())
+  }
+
   // nothing half-typed (count, operator, f/t/r/g waiting)
   pub fn idle(&self) -> bool {
     self.count == 0 && self.op.is_none() && self.pending.is_none()
@@ -451,6 +458,7 @@ impl Vi {
   // dd cc yy
   fn whole_line(&mut self, b: &mut Buf, op: char) -> Action {
     self.reg = b.slice(0, b.len());
+    self.fresh = op == 'y';
     if op == 'y' {
       return Action::None;
     }
@@ -493,6 +501,7 @@ impl Vi {
     };
     let Some((s, e)) = range.filter(|r| r.0 < r.1) else { return Action::None };
     self.reg = b.slice(s, e);
+    self.fresh = op == 'y';
     match op {
       'y' => b.pos = s,
       _ => {
@@ -837,6 +846,18 @@ mod tests {
     assert_eq!(s.text(), "fresh");
     s.keys("0sZ<esc>");
     assert_eq!(s.text(), "Zresh");
+  }
+
+  #[test]
+  fn only_yanks_are_fresh() {
+    let mut s = Sim::new("foo bar", 0);
+    s.keys("yw");
+    assert_eq!(s.v.take_fresh().as_deref(), Some("foo "));
+    assert_eq!(s.v.take_fresh(), None, "once");
+    s.keys("dw");
+    assert_eq!(s.v.take_fresh(), None, "deletes stay off the system clipboard");
+    s.keys("x");
+    assert_eq!(s.v.take_fresh(), None);
   }
 
   #[test]

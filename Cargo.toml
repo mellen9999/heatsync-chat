@@ -22,6 +22,7 @@ libc = "0.2"
 image-webp = "0.2"
 gif = "0.14"
 png = "0.18"
+arboard = { version = "3.7.0", default-features = false, features = ["image-data", "wayland-data-control"] }
 
 [profile.release]
 lto = "fat"

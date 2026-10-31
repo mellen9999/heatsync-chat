@@ -173,9 +173,39 @@ fn why(code: u16, v: &Value) -> String {
   }
 }
 
+// raw rgba pixels (a pasted screenshot) as a png, in memory. none if the size and bytes disagree
+pub fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
+  if w == 0 || h == 0 || rgba.len() as u64 != u64::from(w) * u64::from(h) * 4 {
+    return None;
+  }
+  let mut out = Vec::new();
+  let mut e = png::Encoder::new(&mut out, w, h);
+  e.set_color(png::ColorType::Rgba);
+  e.set_depth(png::BitDepth::Eight);
+  e.set_compression(png::Compression::Fast);
+  e.write_header().ok()?.write_image_data(rgba).ok()?;
+  Some(out)
+}
+
 async fn post(http: &reqwest::Client, token: &str, path: PathBuf) -> Result<String, String> {
   let p = path.clone();
   let (bytes, m) = tokio::task::spawn_blocking(move || load(&p)).await.map_err(|e| e.to_string())??;
+  send(http, token, bytes, m).await
+}
+
+async fn post_pixels(http: &reqwest::Client, token: &str, w: u32, h: u32, rgba: Vec<u8>) -> Result<String, String> {
+  let bytes = tokio::task::spawn_blocking(move || encode_png(w, h, &rgba))
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or("couldn't read that picture")?;
+  let m = img("image/png", "png");
+  if let Some(e) = too_big(&m, bytes.len() as u64) {
+    return Err(e);
+  }
+  send(http, token, bytes, m).await
+}
+
+async fn send(http: &reqwest::Client, token: &str, bytes: Vec<u8>, m: Media) -> Result<String, String> {
   let b = boundary();
   let body = multipart(&b, &m, &bytes);
   drop(bytes);
@@ -206,6 +236,14 @@ async fn post(http: &reqwest::Client, token: &str, path: PathBuf) -> Result<Stri
     .and_then(Value::as_str)
     .and_then(absolute)
     .ok_or_else(|| "heatsync sent back a link i don't trust".into())
+}
+
+pub async fn run_pixels(http: reqwest::Client, token: String, w: u32, h: u32, rgba: Vec<u8>, out: Out) {
+  let ev = match post_pixels(&http, &token, w, h, rgba).await {
+    Ok(u) => Upload::Url(u),
+    Err(e) => Upload::Failed(e),
+  };
+  out.send(NetEvent::Upload(ev));
 }
 
 pub async fn run(http: reqwest::Client, token: String, path: PathBuf, out: Out) {
@@ -258,6 +296,14 @@ pub fn choose() -> Upload {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn pixels_become_a_png_that_sniffs() {
+    let png = encode_png(2, 1, &[255, 0, 0, 255, 0, 255, 0, 255]).unwrap();
+    assert_eq!(sniff(&png).unwrap().mime, "image/png");
+    assert!(encode_png(2, 2, &[0; 4]).is_none(), "size and bytes must agree");
+    assert!(encode_png(0, 0, &[]).is_none());
+  }
 
   fn png(extra: &[u8]) -> Vec<u8> {
     let mut v = b"\x89PNG\r\n\x1a\n".to_vec();

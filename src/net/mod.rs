@@ -103,6 +103,8 @@ pub enum Cmd {
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
+  // a pasted picture: width, height, rgba bytes
+  Pixels(u32, u32, Vec<u8>),
   Pick,
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
 }
@@ -317,6 +319,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Upload(p) => {
         let _ = sess_tx.send(session::Cmd::Upload(p));
+      }
+      Cmd::Pixels(w, h, px) => {
+        let _ = sess_tx.send(session::Cmd::Pixels(w, h, px));
       }
       Cmd::Pick => {
         let _ = sess_tx.send(session::Cmd::Pick);

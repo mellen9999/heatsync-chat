@@ -21,14 +21,14 @@ impl App {
     self.input_h > 0 && input_bar::upload_button(self.input_area(), self.res.text.line_px as i32).contains(x, y)
   }
 
-  fn say(&mut self, s: impl Into<String>) {
+  pub(super) fn say(&mut self, s: impl Into<String>) {
     self.status = s.into();
     self.bar_dirty = true;
     self.wake();
   }
 
   // can an upload start now? says why not
-  fn upload_ok(&mut self) -> bool {
+  pub(super) fn upload_ok(&mut self) -> bool {
     if self.me.is_none() {
       self.say("log in to upload (ctrl-l)");
       return false;

@@ -17,6 +17,7 @@ pub enum Act {
   Unblock,
   Add,
   Remove,
+  Copy,
 }
 
 pub struct Open {
@@ -27,7 +28,8 @@ pub struct Open {
 
 // the menu rows for an emote, given what it is to you
 fn rows(owned: bool, blocked: bool, logged_in: bool) -> Vec<(Act, &'static str)> {
-  let mut v = vec![if blocked { (Act::Unblock, "unblock") } else { (Act::Block, "block") }];
+  let mut v = vec![(Act::Copy, "copy name")];
+  v.push(if blocked { (Act::Unblock, "unblock") } else { (Act::Block, "block") });
   if logged_in {
     v.push(if owned { (Act::Remove, "remove from my emotes") } else { (Act::Add, "add to my emotes") });
   }
@@ -88,6 +90,13 @@ impl App {
     let hash = emote_hash(&hit.url, scope);
     let name = &hit.name;
     match act {
+      Act::Copy => {
+        self.status.clear();
+        self.copy(name);
+        if self.status.is_empty() {
+          self.status = format!("copied {name}");
+        }
+      }
       Act::Block | Act::Unblock => {
         let block = act == Act::Block;
         let hashes = if block {
@@ -195,8 +204,9 @@ mod tests {
 
   #[test]
   fn menu_rows_follow_state() {
-    assert_eq!(rows(false, false, false), vec![(Act::Block, "block")]);
-    assert_eq!(rows(false, true, true), vec![(Act::Unblock, "unblock"), (Act::Add, "add to my emotes")]);
-    assert_eq!(rows(true, false, true), vec![(Act::Block, "block"), (Act::Remove, "remove from my emotes")]);
+    let copy = (Act::Copy, "copy name");
+    assert_eq!(rows(false, false, false), vec![copy, (Act::Block, "block")]);
+    assert_eq!(rows(false, true, true), vec![copy, (Act::Unblock, "unblock"), (Act::Add, "add to my emotes")]);
+    assert_eq!(rows(true, false, true), vec![copy, (Act::Block, "block"), (Act::Remove, "remove from my emotes")]);
   }
 }

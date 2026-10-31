@@ -25,6 +25,7 @@ pub enum Cmd {
   Logout,
   Emote(EmoteCmd),
   Upload(std::path::PathBuf),
+  Pixels(u32, u32, Vec<u8>),
   Pick,
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
 }
@@ -71,6 +72,7 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: Unb
           None => st.out.status("log in first (ctrl-l)"),
         },
         Some(Cmd::Upload(p)) => st.upload(p),
+        Some(Cmd::Pixels(w, h, px)) => st.pixels(w, h, px),
         Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
       },
@@ -87,6 +89,17 @@ impl State {
     match &self.token {
       Some(t) => {
         tokio::spawn(upload::run(self.http.clone(), t.clone(), path, self.out.clone()));
+      }
+      None => {
+        self.out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
+      }
+    }
+  }
+
+  fn pixels(&self, w: u32, h: u32, px: Vec<u8>) {
+    match &self.token {
+      Some(t) => {
+        tokio::spawn(upload::run_pixels(self.http.clone(), t.clone(), w, h, px, self.out.clone()));
       }
       None => {
         self.out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));

@@ -11,6 +11,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
+mod clip;
 mod emote;
 mod picker;
 mod upload;
@@ -129,6 +130,8 @@ pub struct App {
   // the built-in path prompt (no file dialog installed), and an upload or dialog in flight
   prompt: Option<Line>,
   uploading: bool,
+  // the system clipboard, made on first use
+  clip: Option<arboard::Clipboard>,
 }
 
 impl App {
@@ -202,6 +205,7 @@ impl App {
       btn_hover: false,
       up_hover: false,
       prompt: None,
+      clip: None,
       uploading: false,
     }
   }
@@ -874,7 +878,11 @@ impl App {
       Key::Named(NamedKey::End) => "End",
       _ => return,
     };
-    match self.vi.key(&mut self.line, name) {
+    let act = self.vi.key(&mut self.line, name);
+    if let Some(y) = self.vi.take_fresh() {
+      self.copy(&y);
+    }
+    match act {
       Action::None => {}
       Action::Insert => self.mode = Mode::Insert,
       Action::Send => {
@@ -990,6 +998,7 @@ impl App {
         Key::Character("j") | Key::Named(NamedKey::ArrowDown) => return self.select_move(1),
         Key::Character("k") | Key::Named(NamedKey::ArrowUp) => return self.select_move(-1),
         Key::Character("r") => return self.reply_selected(),
+        Key::Character("c") if ctrl => return self.copy_selected(),
         Key::Named(NamedKey::Escape) | Key::Character("v") => {
           if let Some(v) = self.view() {
             v.deselect();
@@ -1247,6 +1256,9 @@ impl ApplicationHandler<NetEvent> for App {
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
         if self.mods.control_key() && k == Key::Character(";") {
           return self.toggle_picker();
+        }
+        if self.paste_key(&k) {
+          return;
         }
         if self.prompt.is_some() {
           return self.prompt_key(k, t);
