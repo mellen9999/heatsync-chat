@@ -3,8 +3,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use crate::model::picker::{Focus, Item, Picker, Sec};
-use crate::ui::picker::{Geo, draw, geo};
-use crate::ui::res::EMOTE_PX;
+use crate::ui::picker::{Geo, draw, geo_of};
 use crate::util::time::now_ms;
 
 impl App {
@@ -45,19 +44,19 @@ impl App {
     self.wake();
   }
 
-  fn picker_changed(&mut self) {
+  pub(super) fn picker_changed(&mut self) {
     self.input_dirty = true;
     self.wake();
   }
 
   fn picker_geo(&self) -> Geo {
-    geo(self.chat_area(), self.res.text.line_px as i32, self.res.images.px(EMOTE_PX) as i32)
+    geo_of(self.chat_area(), &self.res)
   }
 
   pub fn picker_reveal(&mut self) {
     let g = self.picker_geo();
     if let Some(p) = &mut self.picker {
-      p.reveal(g.cols, g.head, g.cell, g.grid.h);
+      p.reveal(g.m, g.grid.h);
     }
     self.wake();
   }
@@ -86,7 +85,7 @@ impl App {
   pub fn picker_wheel(&mut self, px: i32) {
     let g = self.picker_geo();
     if let Some(p) = &mut self.picker {
-      p.scroll_by(-px, g.cols, g.head, g.cell, g.grid.h);
+      p.scroll_by(-px, g.m, g.grid.h);
     }
     self.wake();
   }
@@ -96,7 +95,7 @@ impl App {
     let (x, y) = self.pointer;
     let Some(p) = &mut self.picker else { return };
     if g.grid.contains(x, y)
-      && let Some(i) = p.cell_at(x - g.grid.x, y - g.grid.y, g.cols, g.head, g.cell)
+      && let Some(i) = p.cell_at(x - g.grid.x, y - g.grid.y, g.m)
       && i != p.sel
     {
       p.sel = i;
@@ -108,9 +107,10 @@ impl App {
   pub fn picker_click(&mut self) {
     let g = self.picker_geo();
     let (x, y) = self.pointer;
-    let hit = self.picker.as_ref().and_then(|p| {
-      g.grid.contains(x, y).then(|| p.cell_at(x - g.grid.x, y - g.grid.y, g.cols, g.head, g.cell)).flatten()
-    });
+    let hit = self
+      .picker
+      .as_ref()
+      .and_then(|p| g.grid.contains(x, y).then(|| p.cell_at(x - g.grid.x, y - g.grid.y, g.m)).flatten());
     if let Some(i) = hit {
       if let Some(p) = &mut self.picker {
         p.sel = i;
@@ -135,12 +135,12 @@ impl App {
     match key {
       Key::Character(";") if ctrl => return self.close_picker(),
       Key::Named(NamedKey::Enter) => return self.picker_pick(self.mods.shift_key()),
-      Key::Named(NamedKey::ArrowLeft) => p.step(-1, 0, g.cols),
-      Key::Named(NamedKey::ArrowRight) => p.step(1, 0, g.cols),
-      Key::Named(NamedKey::ArrowUp) => p.step(0, -1, g.cols),
-      Key::Named(NamedKey::ArrowDown) => p.step(0, 1, g.cols),
-      Key::Named(NamedKey::PageUp) => p.scroll_by(-half * 2, g.cols, g.head, g.cell, g.grid.h),
-      Key::Named(NamedKey::PageDown) => p.scroll_by(half * 2, g.cols, g.head, g.cell, g.grid.h),
+      Key::Named(NamedKey::ArrowLeft) => p.step(-1, 0, g.m),
+      Key::Named(NamedKey::ArrowRight) => p.step(1, 0, g.m),
+      Key::Named(NamedKey::ArrowUp) => p.step(0, -1, g.m),
+      Key::Named(NamedKey::ArrowDown) => p.step(0, 1, g.m),
+      Key::Named(NamedKey::PageUp) => p.scroll_by(-half * 2, g.m, g.grid.h),
+      Key::Named(NamedKey::PageDown) => p.scroll_by(half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::Tab) => p.focus = if focus == Focus::Search { Focus::Grid } else { Focus::Search },
       Key::Named(NamedKey::Escape) if focus == Focus::Search && !p.query.is_empty() => p.clear_query(),
       Key::Named(NamedKey::Escape) => return self.close_picker(),
@@ -155,14 +155,14 @@ impl App {
         }
         _ => return,
       },
-      Key::Character("h") if !ctrl => p.step(-1, 0, g.cols),
-      Key::Character("l") if !ctrl => p.step(1, 0, g.cols),
-      Key::Character("k") if !ctrl => p.step(0, -1, g.cols),
-      Key::Character("j") if !ctrl => p.step(0, 1, g.cols),
+      Key::Character("h") if !ctrl => p.step(-1, 0, g.m),
+      Key::Character("l") if !ctrl => p.step(1, 0, g.m),
+      Key::Character("k") if !ctrl => p.step(0, -1, g.m),
+      Key::Character("j") if !ctrl => p.step(0, 1, g.m),
       Key::Character("g") => p.home(),
       Key::Character("G") => p.end(),
-      Key::Character("d") if ctrl => p.scroll_by(half, g.cols, g.head, g.cell, g.grid.h),
-      Key::Character("u") if ctrl => p.scroll_by(-half, g.cols, g.head, g.cell, g.grid.h),
+      Key::Character("d") if ctrl => p.scroll_by(half, g.m, g.grid.h),
+      Key::Character("u") if ctrl => p.scroll_by(-half, g.m, g.grid.h),
       Key::Character("/" | "i") => p.focus = Focus::Search,
       Key::Character("q") => return self.close_picker(),
       _ => return,
@@ -175,11 +175,12 @@ impl App {
     self.picker_changed();
   }
 
-  // paints the picker over the whole chat area
+  // paints the picker over the whole chat area; animated cells repaint alone on their own clock
   pub fn draw_picker(&mut self) -> Option<crate::ui::canvas::Rect> {
     let area = self.chat_area();
-    let p = self.picker.as_ref()?;
-    draw(&mut self.canvas, &mut self.res, area, p, self.ime.preedit());
-    Some(area)
+    let p = self.picker.as_mut()?;
+    let dirty = draw(&mut self.canvas, &mut self.res, area, p, self.ime.preedit());
+    self.next_anim = p.view.next_anim();
+    dirty
   }
 }
