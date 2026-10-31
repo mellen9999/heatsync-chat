@@ -25,6 +25,12 @@ impl Line {
     self.browsing = None;
   }
 
+  // swap the whole text (vi edits); drops out of history browsing
+  pub fn set_text(&mut self, text: String) {
+    self.text = text;
+    self.browsing = None;
+  }
+
   fn prev(&self, i: usize) -> usize {
     self.text[..i].char_indices().next_back().map_or(0, |(j, _)| j)
   }

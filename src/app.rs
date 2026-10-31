@@ -14,6 +14,8 @@ use crate::fake::Fake;
 use crate::model::complete::{Complete, rank};
 use crate::model::line::Line;
 use crate::model::message::{Message, Platform};
+use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
+use crate::model::vi::{Action, Mode, Vi};
 use crate::net::auth::Me;
 use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::irc::Chat;
@@ -91,9 +93,12 @@ pub struct App {
   damage_hist: [Option<Rect>; 2],
   // pending heap trim after bursts of parsing (emote sets, history)
   trim_at: Option<Instant>,
-  // the message being typed; insert = keys type into it, else they drive the chat (vim normal)
+  // the message being typed. mode: with vi keys off it is always Insert (a plain text box);
+  // with them on, Chat drives the chat, Insert types, Normal is vim on the box
   line: Line,
-  insert: bool,
+  mode: Mode,
+  vi: Vi,
+  set: Settings,
   complete: Option<Complete>,
   // replying to: (platform message id, @nick), sent with the next line
   reply: Option<(Box<str>, Box<str>)>,
@@ -135,6 +140,7 @@ impl App {
     }
     let status =
       if tabs.is_empty() { "no channels — run: heatsync-chat <channel> …".into() } else { String::new() };
+    let set = Settings::load();
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
@@ -155,7 +161,9 @@ impl App {
       damage_hist: [None; 2],
       trim_at: None,
       line: Line::default(),
-      insert: false,
+      mode: if set.vi { Mode::Chat } else { Mode::Insert },
+      vi: Vi::default(),
+      set,
       complete: None,
       reply: None,
       pointer: (0, 0),
@@ -179,10 +187,16 @@ impl App {
   }
 
   fn hint(&self) -> String {
+    let lead = if self.set.vi { "i type" } else { "type to chat" };
     match &self.me {
-      None => "ctrl-l log in · i type".into(),
-      Some(me) => format!("i type as {}", me.username),
+      None => format!("ctrl-l log in · {lead}"),
+      Some(me) => format!("{lead} as {}", me.username),
     }
+  }
+
+  // auto-hide: an empty bar takes no room (mode and reply stay as they are)
+  fn hidden(&self) -> bool {
+    self.set.auto_hide && self.line.text.is_empty()
   }
 
   // where the input sends: the tab's target source, tagged when the tab merges platforms
@@ -197,13 +211,53 @@ impl App {
     Some((*p, key, (t.sources.len() > 1).then_some(tag)))
   }
 
-  fn set_insert(&mut self, on: bool) {
-    self.insert = on;
+  fn set_mode(&mut self, m: Mode) {
+    self.mode = m;
     self.input_dirty = true;
     self.wake();
   }
 
+  fn enter_insert(&mut self) {
+    if self.mode != Mode::Insert {
+      self.vi.begin_insert(&self.line);
+    }
+    self.set_mode(Mode::Insert);
+  }
+
+  // after a send or local command: fresh undo history
+  fn after_send(&mut self) {
+    self.vi.reset();
+    if self.set.vi && self.mode == Mode::Insert {
+      self.vi.begin_insert(&self.line);
+    }
+    self.input_dirty = true;
+    self.wake();
+  }
+
+  // /vi and /autohide: toggle, persist, confirm in the status slot. never sent anywhere
+  fn local(&mut self, cmd: Local) {
+    let on = |b: bool| if b { "on" } else { "off" };
+    self.status = match cmd {
+      Local::Vi => {
+        self.set.vi = !self.set.vi;
+        self.mode = Mode::Insert;
+        format!("vi keys {}", on(self.set.vi))
+      }
+      Local::AutoHide => {
+        self.set.auto_hide = !self.set.auto_hide;
+        format!("auto-hide {}", on(self.set.auto_hide))
+      }
+    };
+    self.set.save();
+    self.bar_dirty = true;
+  }
+
   fn send(&mut self) {
+    if let Some(cmd) = local_cmd(&self.line.text) {
+      self.line.take();
+      self.local(cmd);
+      return self.after_send();
+    }
     let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
     if let Some(text) = self.line.take() {
       let reply = self.reply.take().map(|(id, nick)| Reply { id, nick });
@@ -214,6 +268,7 @@ impl App {
       if let Some(v) = self.view() {
         v.scroll_to_bottom();
       }
+      self.after_send();
     }
   }
 
@@ -406,11 +461,13 @@ impl App {
   fn redraw(&mut self) {
     let mut dirty: Option<Rect> = None;
     if std::mem::take(&mut self.input_dirty) {
-      let hint = self.hint();
+      let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
+      let hint = if show_hint { self.hint() } else { String::new() };
+      let hidden = self.hidden();
       let tag = self.target().and_then(|t| t.2);
       let reply = self.reply.as_ref().map(|r| &*r.1);
-      let bar = input_bar::Bar { line: &self.line, insert: self.insert, target: tag, hint: &hint, reply };
-      let h = input_bar::height(&mut self.res.text, &bar, self.canvas.w);
+      let bar = input_bar::Bar { line: &self.line, mode: self.mode, target: tag, hint: &hint, reply };
+      let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
       if h != self.input_h {
         // the chat area changed size: repaint it whole
         self.input_h = h;
@@ -418,9 +475,11 @@ impl App {
           t.view.invalidate();
         }
       }
-      let r = self.input_area();
-      input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar);
-      dirty = Some(r);
+      if h > 0 {
+        let r = self.input_area();
+        input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar);
+        dirty = Some(r);
+      }
     }
     let area = self.chat_area();
     if std::mem::take(&mut self.bar_dirty) {
@@ -536,6 +595,8 @@ impl App {
       let matches = if let Some(nick) = word.strip_prefix('@') {
         let names = tab.map_or_else(Vec::new, |t| t.view.chatters());
         rank(nick, [names]).into_iter().map(|n| format!("@{n}").into()).collect()
+      } else if start == 0 && word.starts_with('/') {
+        rank(word, [LOCAL.to_vec()])
       } else {
         let own =
           self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.senders.names(id, now_ms()));
@@ -563,22 +624,25 @@ impl App {
 
   fn key_insert(&mut self, key: Key<&str>, text: Option<&str>) {
     let ctrl = self.mods.control_key();
+    if self.global_key(key.clone()) {
+      return;
+    }
     if key == Key::Named(NamedKey::Tab) {
       return self.tab_complete(self.mods.shift_key());
-    }
-    match key {
-      Key::Character("l") if ctrl => return self.login(),
-      Key::Character("L") if ctrl => return self.net.send(Cmd::Logout),
-      _ => {}
     }
     // any other key commits the current candidate
     self.complete = None;
     let l = &mut self.line;
     match key {
-      Key::Named(NamedKey::Escape) => {
-        self.reply = None;
-        return self.set_insert(false);
+      Key::Named(NamedKey::Escape) if self.set.vi => {
+        let empty = l.text.is_empty();
+        if empty {
+          self.reply = None;
+        }
+        self.vi.end_insert(l);
+        return self.set_mode(if empty { Mode::Chat } else { Mode::Normal });
       }
+      Key::Named(NamedKey::Escape) => self.reply = None,
       Key::Named(NamedKey::Enter) => self.send(),
       Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),
       Key::Named(NamedKey::Backspace) => l.backspace(),
@@ -612,6 +676,89 @@ impl App {
     self.wake();
   }
 
+  // keys that work in every mode: login, tab switching, page scroll
+  fn global_key(&mut self, key: Key<&str>) -> bool {
+    let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
+    let half = self.chat_area().h / 2;
+    let n = self.tabs.len().max(1);
+    match key {
+      Key::Character("l") if ctrl => self.login(),
+      Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
+      Key::Named(NamedKey::Tab) if ctrl => {
+        let next = if self.mods.shift_key() { (self.active + n - 1) % n } else { (self.active + 1) % n };
+        self.select(next);
+      }
+      Key::Character(d) if alt && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
+        let n = (d.as_bytes()[0] - b'0') as usize;
+        self.select(if n == 0 { 9 } else { n - 1 });
+      }
+      Key::Named(NamedKey::PageDown) => self.scroll(-half * 2),
+      Key::Named(NamedKey::PageUp) => self.scroll(half * 2),
+      _ => return false,
+    }
+    true
+  }
+
+  // vim normal mode on the message box (vi keys on)
+  fn key_normal(&mut self, key: Key<&str>, text: Option<&str>) {
+    let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
+    if self.global_key(key.clone()) {
+      return;
+    }
+    // an empty box has nothing to navigate: a printable key starts the message
+    if !ctrl
+      && !alt
+      && self.line.text.is_empty()
+      && self.vi.idle()
+      && let (Key::Character(_) | Key::Named(NamedKey::Space), Some(t)) = (key.clone(), text)
+    {
+      self.enter_insert();
+      self.line.insert(t);
+      self.input_dirty = true;
+      return self.wake();
+    }
+    let name = match key {
+      Key::Character("r") if ctrl => "<c-r>",
+      _ if ctrl || alt => return,
+      Key::Character(c) => c,
+      Key::Named(NamedKey::Space) => " ",
+      Key::Named(NamedKey::Escape) => "Esc",
+      Key::Named(NamedKey::Enter) => "Enter",
+      Key::Named(NamedKey::Backspace) => "Backspace",
+      Key::Named(NamedKey::Delete) => "Delete",
+      Key::Named(NamedKey::ArrowUp) => "Up",
+      Key::Named(NamedKey::ArrowDown) => "Down",
+      Key::Named(NamedKey::ArrowLeft) => "Left",
+      Key::Named(NamedKey::ArrowRight) => "Right",
+      Key::Named(NamedKey::Home) => "Home",
+      Key::Named(NamedKey::End) => "End",
+      _ => return,
+    };
+    match self.vi.key(&mut self.line, name) {
+      Action::None => {}
+      Action::Insert => self.mode = Mode::Insert,
+      Action::Send => {
+        self.mode = Mode::Insert;
+        self.send();
+      }
+      Action::HistoryOlder => {
+        self.line.older();
+        Vi::settle(&mut self.line);
+      }
+      Action::HistoryNewer => {
+        self.line.newer();
+        Vi::settle(&mut self.line);
+      }
+      Action::Leave => {
+        self.reply = None;
+        self.mode = Mode::Chat;
+      }
+    }
+    self.complete = None;
+    self.input_dirty = true;
+    self.wake();
+  }
+
   // `r` on the selected line: reply to it on its own platform
   fn reply_selected(&mut self) {
     let Some(t) = self.tabs.get_mut(self.active) else { return };
@@ -624,7 +771,7 @@ impl App {
       t.target = i;
     }
     self.reply = Some((id, nick));
-    self.set_insert(true);
+    self.enter_insert();
   }
 
   fn select_move(&mut self, by: i32) {
@@ -641,7 +788,7 @@ impl App {
     let (x, y) = self.pointer;
     let (chat, input) = (self.chat_area(), self.input_area());
     if input.contains(x, y) {
-      return self.set_insert(true);
+      return self.enter_insert();
     }
     if !chat.contains(x, y) {
       return;
@@ -663,6 +810,9 @@ impl App {
     let ctrl = self.mods.control_key();
     let alt = self.mods.alt_key();
     let chord = self.chord.take();
+    if self.global_key(key.clone()) {
+      return;
+    }
     // a selected line: j/k move it, r replies, esc lets go
     if self.selecting() {
       match key {
@@ -680,10 +830,6 @@ impl App {
     }
     match key {
       Key::Character("v") if !ctrl => self.select_move(-1),
-      Key::Character(d) if alt && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
-        let n = (d.as_bytes()[0] - b'0') as usize;
-        self.select(if n == 0 { 9 } else { n - 1 });
-      }
       Key::Character("t") if chord == Some('g') => self.select((self.active + 1) % self.tabs.len().max(1)),
       Key::Character("T") if chord == Some('g') => {
         let n = self.tabs.len().max(1);
@@ -700,13 +846,9 @@ impl App {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => self.scroll(-line),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => self.scroll(line),
       Key::Character("w") if ctrl => self.close_tab(),
-      Key::Character("l") if ctrl => self.login(),
-      Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
-      Key::Character("i" | "a") | Key::Named(NamedKey::Enter) if !ctrl && !alt => self.set_insert(true),
+      Key::Character("i" | "a") | Key::Named(NamedKey::Enter) if !ctrl && !alt => self.enter_insert(),
       Key::Character("d") if ctrl => self.scroll(-half),
       Key::Character("u") if ctrl => self.scroll(half),
-      Key::Named(NamedKey::PageDown) => self.scroll(-half * 2),
-      Key::Named(NamedKey::PageUp) => self.scroll(half * 2),
       Key::Character("G") | Key::Named(NamedKey::End) => {
         if let Some(v) = self.view() {
           v.scroll_to_bottom();
@@ -893,10 +1035,11 @@ impl ApplicationHandler<NetEvent> for App {
         self.scroll(px);
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-        if self.insert {
-          self.key_insert(event.logical_key.as_ref(), event.text.as_deref());
-        } else {
-          self.key(event.logical_key.as_ref());
+        let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
+        match self.mode {
+          Mode::Insert => self.key_insert(k, t),
+          Mode::Normal => self.key_normal(k, t),
+          Mode::Chat => self.key(k),
         }
       }
       _ => {}
