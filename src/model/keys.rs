@@ -47,6 +47,7 @@ pub static KEYS: [Group; 9] = [
       ("r", "reply to it"),
       ("m", "line menu: copy, mute, block"),
       ("c", "user card"),
+      ("o", "open its first link"),
       ("ctrl-c", "copy the line"),
       ("enter", "open it (mentions, feed)"),
       ("u", "upvote (feed)"),

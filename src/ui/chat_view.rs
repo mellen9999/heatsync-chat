@@ -2,7 +2,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
-use parley::{InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
+use parley::{Cluster, InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
 use super::embed;
@@ -15,6 +15,7 @@ use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
 use crate::model::filter;
 use crate::model::find::Find;
+use crate::model::links::Link;
 use crate::model::message::{Kind, Message, Platform, Seg, flag};
 use crate::model::seen::Seen;
 use crate::util::time::{hhmm, now_ms};
@@ -58,6 +59,9 @@ struct Laid {
   name: Option<PaintedName>,
   // the line's inline picture, asked for at draw time (never for rows only measured)
   embed: Option<ImgId>,
+  // links in the words, and where each one's text sits in the laid-out text
+  links: Vec<Link>,
+  link_runs: Vec<(std::ops::Range<usize>, usize)>,
 }
 
 struct Row {
@@ -203,6 +207,8 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   }
   let mut ib = Vec::new();
   let mut boxes = Vec::new();
+  let mut links = Vec::new();
+  let mut link_runs = Vec::new();
   let mut painted = None;
   let mut embed = None;
   let mut nick = 0..0;
@@ -240,7 +246,11 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     let (pic, fold) = if muted { (None, None) } else { picture(res, m, width) };
     let b0 = s.len();
     if !muted {
-      body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
+      (links, link_runs) = body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
+      // a link's words are drawn in link blue
+      for (r, _) in &link_runs {
+        spans.push(Span { range: r.clone(), ink: Ink(theme::BLUE), bold: false });
+      }
     }
     let ink = match (m.has(flag::CLEARED), m.kind) {
       (true, _) => Some(theme::DIM),
@@ -272,7 +282,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     let (x, w, baseline) = painted_run(&layout)?;
     Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
   });
-  Laid { layout, nick, boxes, name, embed }
+  Laid { layout, nick, boxes, name, embed, links, link_runs }
 }
 
 fn twitch_uid(m: &Message) -> Option<u64> {
@@ -375,7 +385,9 @@ fn body(
   s: &mut String,
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
-) {
+) -> (Vec<Link>, Vec<(std::ops::Range<usize>, usize)>) {
+  let links = crate::model::links::find(&m.body, res.partial_links);
+  let mut runs = Vec::new();
   let h = res.images.px(EMOTE_PX);
   let mut prev_emote = false;
   let mut first = true;
@@ -412,12 +424,18 @@ fn body(
         if !first {
           s.push(' ');
         }
+        let p0 = s.len();
         s.push_str(word);
+        // the words of a link answer clicks
+        for (k, _) in links.iter().enumerate().filter(|(_, l)| l.range.start < b && a < l.range.end) {
+          runs.push((p0..s.len(), k));
+        }
         prev_emote = word.is_empty() && prev_emote;
       }
     }
     first = false;
   }
+  (links, runs)
 }
 
 // the word at body bytes a..b as an emote: twitch's own by position, else by name
@@ -904,6 +922,49 @@ impl ChatView {
         let word = m.body.get(a..b).filter(|w| !w.is_empty())?;
         let (url, _, zero_width, scope) = find_word(res, room(m, &self.channel), m, a, b, word)?;
         return Some(EmoteHit { name: word.into(), url, zero_width, scope });
+      }
+      bottom = top;
+    }
+    None
+  }
+
+  // the link under (x, y), as drawn last: its target
+  pub fn link_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<String> {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        return None;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+        if m.kind == Kind::System || muted {
+          return None;
+        }
+        let mut laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+        if laid.links.is_empty() {
+          return None;
+        }
+        let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
+        let over = laid.layout.lines().any(|line| {
+          let lm = line.metrics();
+          (lm.block_min_coord..lm.block_max_coord).contains(&ly)
+            && line.items().any(|it| match it {
+              PositionedLayoutItem::GlyphRun(gr) => {
+                let at = gr.run().text_range();
+                let hit = laid.link_runs.iter().any(|(r, _)| r.start < at.end && at.start < r.end);
+                hit && (gr.offset()..gr.offset() + gr.advance()).contains(&lx)
+              }
+              _ => false,
+            })
+        });
+        if !over {
+          return None;
+        }
+        // the cluster under the pointer says which link, when one run holds several
+        let at = Cluster::from_point(&laid.layout, lx, ly)?.0.text_range().start;
+        let k = laid.link_runs.iter().find(|(r, _)| r.contains(&at)).map(|(_, k)| *k)?;
+        return Some(laid.links.swap_remove(k).url);
       }
       bottom = top;
     }
@@ -1461,6 +1522,29 @@ mod tests {
     res.blocked.block("Kappa", url, Scope::Channel);
     v.relayout();
     assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
+  }
+
+  #[test]
+  fn links_hit_test_to_their_canonical_target() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "c".into());
+    v.resize(600);
+    let mut m = Fake::new(1).message(1);
+    m.kind = Kind::Chat;
+    m.emotes = Box::new([]);
+    m.body = "aaaa watch?v=Gz0fAz9n_Os bbbb".into();
+    v.push(m);
+    let area = Rect::new(0, 0, 600, 200);
+    let scan = |v: &mut ChatView, res: &mut Res| {
+      (0..600).step_by(2).filter_map(|x| (150..200).find_map(|y| v.link_at(area, x, y, res))).collect::<Vec<_>>()
+    };
+    let urls = scan(&mut v, &mut res);
+    assert!(!urls.is_empty() && urls.iter().all(|u| u == "https://www.youtube.com/watch?v=Gz0fAz9n_Os"), "{urls:?}");
+    // plain words are not links, and the switch turns the partial rule off
+    assert!(v.link_at(area, 2, 199, &mut res).is_none());
+    res.partial_links = false;
+    v.relayout();
+    assert!(scan(&mut v, &mut res).is_empty());
   }
 
   fn plain(id: &str, body: &str) -> Message {

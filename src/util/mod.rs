@@ -1,4 +1,5 @@
 pub mod mem;
+pub mod open;
 pub mod time;
 
 // one url path segment, RFC 3986 unreserved bytes kept and everything else %XX

@@ -9,6 +9,7 @@ pub mod find;
 pub mod ime;
 pub mod keys;
 pub mod line;
+pub mod links;
 pub mod mention;
 pub mod message;
 pub mod modcmd;

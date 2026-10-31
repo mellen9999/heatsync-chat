@@ -37,6 +37,8 @@ pub enum Fx {
   Glow,
   Paints,
   Media,
+  // the partial-link rule flipped: lay every line out again
+  Links,
   // the filter flags changed: judge every line again
   Filters,
   // a built-in tab came or went
@@ -74,7 +76,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 20] = [
+pub static DEFS: [Def; 21] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -140,6 +142,17 @@ pub static DEFS: [Def; 20] = [
     alias: "mediaembeds embeds pictures",
     ctl: pill!(media),
     fx: Fx::Media,
+  },
+  Def {
+    id: "partial_links",
+    cmd: Some("/partiallinks"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "partial links",
+    tip: "also linkify partial and defanged links — bare watch?v= youtube refs and \"site (dot) com\" style domains chats use to dodge link filters.",
+    alias: "partiallinks defang",
+    ctl: pill!(partial_links),
+    fx: Fx::Links,
   },
   Def {
     id: "highlights",

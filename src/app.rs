@@ -20,6 +20,7 @@ mod emote;
 mod feed;
 mod filters;
 mod find;
+mod link;
 mod mentions;
 mod mods;
 mod picker;
@@ -140,6 +141,8 @@ pub struct App {
   // the add/edit channel form (covers the chat), and the menu on a right-clicked tab
   form: Option<Form>,
   form_hover: Option<Hit>,
+  // the pointer is a hand: it sits on a link
+  link_hand: bool,
   tab_menu: Option<tabs::TabMenu>,
   // the floating menu for login and line actions
   pop: Option<pop::Pop>,
@@ -229,6 +232,7 @@ impl App {
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
     res.media = set.media;
+    res.partial_links = set.partial_links;
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
@@ -267,6 +271,7 @@ impl App {
       menu: None,
       form: None,
       form_hover: None,
+      link_hand: false,
       tab_menu: None,
       pop: None,
       card: None,
@@ -1188,7 +1193,7 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
-    if self.emote_press(false) || self.name_press() {
+    if self.link_press() || self.emote_press(false) || self.name_press() {
       return;
     }
     let res = &mut self.res;
@@ -1265,6 +1270,7 @@ impl App {
         Key::Character("r") => return self.reply_selected(),
         Key::Character("m") if !ctrl => return self.line_menu_key(),
         Key::Character("c") if !ctrl => return self.card_selected(),
+        Key::Character("o") if !ctrl && !alt => return self.open_selected_link(),
         Key::Character("c") if ctrl => return self.copy_selected(),
         Key::Named(NamedKey::Escape) | Key::Character("v") => {
           if let Some(v) = self.view() {
@@ -1563,6 +1569,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.form_hover_move();
         self.bar_hover();
         self.picker_hover();
+        self.link_hover();
         let (over, up) = (self.over_button(), self.over_upload());
         if over != self.btn_hover || up != self.up_hover {
           self.btn_hover = over;

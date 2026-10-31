@@ -31,6 +31,8 @@ pub struct Settings {
   pub moments: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
+  // host-less and defanged links (watch?v=…, r/sub/comments/…, site (dot) com) are clickable. default on, like the ext (partialLinksEnabled)
+  pub partial_links: bool,
   // built-in tabs on the bar (all on, like the ext once you are signed in; /hide and /show)
   pub tab_feed: bool,
   pub tab_whispers: bool,
@@ -59,6 +61,7 @@ impl Default for Settings {
       ev_game: true,
       moments: true,
       media: true,
+      partial_links: true,
       tab_feed: true,
       tab_whispers: true,
       tab_mentions: true,
@@ -204,6 +207,7 @@ mod tests {
         ev_game: true,
         moments: true,
         media: true,
+        partial_links: true,
         tab_feed: true,
         tab_whispers: true,
         tab_mentions: true,

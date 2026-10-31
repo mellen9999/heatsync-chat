@@ -27,6 +27,8 @@ pub struct Res {
   pub logo: Logo,
   // inline pictures under chat lines (ext mediaEmbedsEnabled)
   pub media: bool,
+  // host-less and defanged links count as links (ext partialLinksEnabled)
+  pub partial_links: bool,
 }
 
 impl Res {
@@ -43,6 +45,7 @@ impl Res {
       arts: NameArts::default(),
       blocked: Blocked::load(),
       media: true,
+      partial_links: true,
     }
   }
 
