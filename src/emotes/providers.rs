@@ -161,6 +161,22 @@ pub fn ffz(v: &Value, only: Option<&[u64]>) -> Set {
   out
 }
 
+// heatsync's global catalog (`/api/emotes`): only its twitch rows, the globals + unlocks twitch
+// itself serves no anonymous api for
+pub fn twitch_global(v: &Value) -> Set {
+  let mut out = Set::new();
+  let Some(rows) = v.as_array() else { return out };
+  for e in rows.iter().take(5000).filter(|e| e.get("provider").and_then(Value::as_str) == Some("twitch")) {
+    let (Some(name), Some(url)) = (e.get("name").and_then(Value::as_str), e.get("url").and_then(Value::as_str)) else {
+      continue;
+    };
+    // 1.0 is the 28px size; the catalog lists 3.0
+    let url = url.strip_suffix("/3.0").map_or_else(|| url.to_owned(), |b| format!("{b}/1.0"));
+    put(&mut out, name, Emote { url: url.into(), w: 0, h: 0, zero_width: false });
+  }
+  out
+}
+
 pub fn ffz_global(v: &Value) -> Set {
   let defaults: Vec<u64> = v
     .get("default_sets")
@@ -170,6 +186,7 @@ pub fn ffz_global(v: &Value) -> Set {
   ffz(v, Some(&defaults))
 }
 
+pub const HEATSYNC_GLOBAL: &str = "https://heatsync.org/api/emotes";
 pub const SEVENTV_GLOBAL: &str = "https://7tv.io/v3/emote-sets/global";
 pub const BTTV_GLOBAL: &str = "https://api.betterttv.net/3/cached/emotes/global";
 pub const FFZ_GLOBAL: &str = "https://api.frankerfacez.com/v1/set/global";
@@ -187,6 +204,8 @@ pub fn parse_channel(p: Provider, v: &Value) -> Set {
     Provider::SevenTv => seventv_user(v),
     Provider::Bttv => bttv_channel(v),
     Provider::Ffz => ffz(v, None),
+    // twitch channel emotes come positioned in the irc tag, never as a set
+    Provider::Twitch => Set::new(),
   }
 }
 
@@ -194,6 +213,18 @@ pub fn parse_channel(p: Provider, v: &Value) -> Set {
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[test]
+  fn heatsync_catalog_twitch_rows_only() {
+    let v = json!([
+      {"name": "Kappa", "provider": "twitch", "url": "https://static-cdn.jtvnw.net/emoticons/v2/25/static/dark/3.0"},
+      {"name": "OMEGALUL", "provider": "7tv", "url": "https://cdn.7tv.app/emote/x/1x.webp"},
+      {"name": "evil", "provider": "twitch", "url": "https://evil.example/x"},
+    ]);
+    let s = twitch_global(&v);
+    assert_eq!(s.len(), 1);
+    assert!(s["Kappa"].url.ends_with("/dark/1.0"));
+  }
 
   #[test]
   fn seventv_parses_and_flags_zero_width() {

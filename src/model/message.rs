@@ -22,6 +22,8 @@ pub mod flag {
   pub const FIRST: u8 = 1 << 1;
   pub const HIGHLIGHTED: u8 = 1 << 2;
   pub const HISTORY: u8 = 1 << 3;
+  // our own line, echoed from USERSTATE (no emote positions: resolve twitch globals by name)
+  pub const OWN: u8 = 1 << 4;
 }
 
 // image url for a byte range of the body

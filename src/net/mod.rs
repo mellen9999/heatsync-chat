@@ -203,7 +203,8 @@ async fn channel_badges(http: reqwest::Client, ch: Box<str>, out: Out) {
 
 async fn global_emotes(http: reqwest::Client, out: Out) {
   type Parse = fn(&serde_json::Value) -> Set;
-  let sets: [(Provider, &str, Parse); 3] = [
+  let sets: [(Provider, &str, Parse); 4] = [
+    (Provider::Twitch, providers::HEATSYNC_GLOBAL, providers::twitch_global),
     (Provider::SevenTv, providers::SEVENTV_GLOBAL, providers::seventv),
     (Provider::Bttv, providers::BTTV_GLOBAL, providers::bttv_global),
     (Provider::Ffz, providers::FFZ_GLOBAL, providers::ffz_global),

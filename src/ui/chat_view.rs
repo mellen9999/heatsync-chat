@@ -212,6 +212,11 @@ fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &s
   if let Some(x) = sender.and_then(|id| res.senders.lookup(id, word, m.ts)) {
     return Some((x.url.clone(), (x.w, x.h), x.zero_width));
   }
+  if m.has(flag::OWN)
+    && let Some(x) = res.emotes.twitch_global(word)
+  {
+    return Some(e(x));
+  }
   res.emotes.global(word).map(e)
 }
 

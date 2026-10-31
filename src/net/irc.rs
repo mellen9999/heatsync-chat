@@ -212,6 +212,7 @@ fn own_message(l: &Line, nick: &str, me_id: &str, text: &str) -> Message {
   m.ts = now_ms();
   // USERSTATE carries emote-sets, not positions: twitch emotes resolve through the catalogs instead
   m.emotes = Box::new([]);
+  m.flags |= flag::OWN;
   m
 }
 

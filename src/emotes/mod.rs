@@ -9,6 +9,9 @@ pub enum Provider {
   SevenTv,
   Bttv,
   Ffz,
+  // twitch's own globals. never in ORDER: other people's lines get twitch emotes from the
+  // irc `emotes` tag (only what they can actually use); this set is for our own echo + completion
+  Twitch,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +69,10 @@ impl Emotes {
 
   pub fn global(&self, word: &str) -> Option<&Emote> {
     self.global.get(word)
+  }
+
+  pub fn twitch_global(&self, word: &str) -> Option<&Emote> {
+    self.global.sets.get(&Provider::Twitch)?.get(word)
   }
 
   pub fn channel_names(&self, channel: &str) -> Vec<&str> {
