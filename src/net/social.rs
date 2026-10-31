@@ -229,7 +229,7 @@ async fn send(http: &reqwest::Client, token: &str, login: &str, id: Option<Box<s
   if (200..300).contains(&status) && v.get("error").is_none() { Ok(who) } else { Err(classify(status, &v)) }
 }
 
-async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, Fail> {
+pub(super) async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, Fail> {
   let (status, v) = call(http.get(format!("{ORIGIN}/api/resolve/twitch/{login}"))).await;
   if status == 404 {
     return Err(Fail::Other(format!("twitch user \"{login}\" not found").into()));

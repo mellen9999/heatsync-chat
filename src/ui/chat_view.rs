@@ -520,6 +520,12 @@ impl ChatView {
     }
   }
 
+  // a twitch chatter's numeric id, from their latest line here
+  pub fn user_id_of(&self, login: &str) -> Option<Box<str>> {
+    let r = self.rows.iter().rev().find(|r| &*r.msg.login == login && !r.msg.user_id.is_empty())?;
+    Some(r.msg.user_id.clone())
+  }
+
   // recent chatters, newest first (tab-complete after `@`)
   pub fn chatters(&self) -> Vec<&str> {
     let mut seen = HashSet::new();

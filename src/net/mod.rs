@@ -6,6 +6,7 @@ pub mod emote_ops;
 pub mod hs_ws;
 pub mod irc;
 mod links;
+pub mod modact;
 pub mod pin;
 mod recent;
 pub mod relay;
@@ -80,6 +81,8 @@ pub enum NetEvent {
   Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
   Posted { res: Result<crate::model::post::Post, u16> },
   FeedLive(crate::model::post::Post),
+  // a mod action settled
+  ModDone(Box<modact::Done>),
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -142,8 +145,10 @@ pub enum Cmd {
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
   // whispers and feed calls bound to the login
   Social(social::Cmd),
-  // log in again asking for one more permission pack (twitch whispers)
+  // log in again asking for one more permission pack (twitch whispers, mod)
   Relink(&'static str),
+  // a ban, timeout, delete… in a room we moderate
+  Mod(modact::Req),
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -398,6 +403,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Login(p) => {
         let _ = sess_tx.send(session::Cmd::Login(p, "base"));
+      }
+      Cmd::Mod(r) => {
+        let _ = sess_tx.send(session::Cmd::Mod(r));
       }
       Cmd::Relink(pack) => {
         let _ = sess_tx.send(session::Cmd::Login(auth::Provider::Twitch, pack));

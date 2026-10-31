@@ -6,6 +6,7 @@ pub mod ime;
 pub mod line;
 pub mod mention;
 pub mod message;
+pub mod modcmd;
 pub mod pathcomp;
 pub mod picker;
 pub mod pin;

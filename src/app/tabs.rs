@@ -130,7 +130,8 @@ impl App {
       Platform::Twitch => {
         self.res.emotes.drop_channel(&key);
         self.res.badges.drop_channel(&key);
-        self.rooms.retain(|r| *r != key);
+        self.rooms.retain(|r| r.0 != key);
+        self.mod_in.remove(&key);
         self.net.send(Cmd::Part(key));
       }
       Platform::Kick => self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key))),

@@ -159,6 +159,14 @@ pub enum Chat {
   Room {
     id: Box<str>,
   },
+  // our own badges here say we moderate (or own) the channel
+  Mod(bool),
+}
+
+// USERSTATE's badges: a moderator or the broadcaster can use the mod tools
+fn can_mod(l: &Line) -> bool {
+  l.tag("badges")
+    .is_some_and(|b| b.split(',').any(|x| matches!(x.split('/').next(), Some("moderator" | "broadcaster"))))
 }
 
 fn ts_of(l: &Line) -> i64 {
@@ -247,6 +255,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       None => Chat::ClearAll,
     },
     "ROOMSTATE" => Chat::Room { id: l.tag("room-id")?.into() },
+    "USERSTATE" => Chat::Mod(can_mod(l)),
     _ => return None,
   };
   Some((ch, ev))
@@ -420,6 +429,9 @@ async fn session(
             // our line went through: show it the way others see it
             "USERSTATE" if line.tag("id").is_some() => {
               let ch = line.channel().unwrap_or("");
+              if !out.chat(ch.into(), Chat::Mod(can_mod(&line))) {
+                return End::Quit;
+              }
               if let Some(i) = pending.iter().position(|p| &*p.chan == ch) {
                 let Some(p) = pending.remove(i) else { continue };
                 let mut m = own_message(&line, &nick, &me_id, &p.text);
@@ -489,6 +501,18 @@ mod tests {
   use super::*;
 
   const PRIV: &str = "@badge-info=;badges=moderator/1;color=#0000FF;display-name=Xqc;emotes=25:6-10/1902:12-16;first-msg=1;id=abc-123;login=xqc;tmi-sent-ts=1700000000000 :xqc!xqc@xqc.tmi.twitch.tv PRIVMSG #forsen :hello Kappa Keepo";
+
+  #[test]
+  fn userstate_badges_say_if_we_moderate() {
+    let st = |b: &str| format!("@badges={b};color=#fff;display-name=Me :tmi.twitch.tv USERSTATE #forsen");
+    for (b, want) in [("moderator/1,subscriber/6", true), ("broadcaster/1", true), ("subscriber/6", false), ("", false)]
+    {
+      let raw = st(b);
+      let l = parse(&raw).unwrap();
+      let (_, ev) = to_chat(&l).unwrap();
+      assert!(matches!(ev, Chat::Mod(x) if x == want), "{b}");
+    }
+  }
 
   #[test]
   fn parses_privmsg() {

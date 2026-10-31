@@ -32,6 +32,7 @@ pub enum Cmd {
   Pick,
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
   Social(super::social::Cmd),
+  Mod(super::modact::Req),
 }
 
 struct State {
@@ -88,6 +89,9 @@ pub async fn run(
         Some(Cmd::Pixels(w, h, px)) => st.pixels(w, h, px),
         Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
+        Some(Cmd::Mod(r)) => {
+          tokio::spawn(super::modact::run(st.http.clone(), st.token.clone(), r, st.out.clone()));
+        }
         Some(Cmd::Social(c)) => {
           tokio::spawn(super::social::run(st.http.clone(), st.token.clone(), c, st.out.clone()));
         }

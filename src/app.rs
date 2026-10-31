@@ -16,6 +16,7 @@ mod clip;
 mod emote;
 mod feed;
 mod mentions;
+mod mods;
 mod picker;
 mod pin;
 mod pop;
@@ -96,7 +97,9 @@ pub struct App {
   flood: Option<Instant>,
   prof: bool,
   // twitch room id per channel, once known (roomstate repeats on every mode change)
-  rooms: Vec<Box<str>>,
+  rooms: Vec<(Box<str>, Box<str>)>,
+  // twitch channels where our badges say we moderate (or own) the room
+  mod_in: std::collections::HashSet<Box<str>>,
   next_anim: Option<Instant>,
   occluded: bool,
   // damage of recent presents, for buffers handed back with age > 1
@@ -215,6 +218,7 @@ impl App {
       flood: flood.then(Instant::now),
       prof: std::env::var_os("HSC_PROF").is_some(),
       rooms: Vec::new(),
+      mod_in: Default::default(),
       next_anim: None,
       occluded: false,
       damage_hist: [None; 2],
@@ -466,6 +470,10 @@ impl App {
         self.set.notify = !self.set.notify;
         format!("mention notifications {}", on(self.set.notify))
       }
+      Local::ConfirmBan => {
+        self.set.confirm_ban = !self.set.confirm_ban;
+        format!("ask before banning {}", on(self.set.confirm_ban))
+      }
       Local::Tab(Some(k), shown) => {
         self.set_shown(k, shown);
         format!("{} tab {}", k.name(), if shown { "shown" } else { "hidden" })
@@ -487,6 +495,11 @@ impl App {
     if let Some(cmd) = chan::command(&self.line.text) {
       self.line.take();
       self.chan_cmd(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
+      self.line.take();
+      self.mod_slash(cmd);
       return self.after_send();
     }
     if self.kind() == Kind::Feed && !self.line.text.trim().is_empty() {
@@ -677,12 +690,13 @@ impl App {
       }
       Chat::ClearAll => tab.view.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
       Chat::Room { id } => {
-        if !self.rooms.iter().any(|r| **r == *ch) {
-          self.rooms.push(ch.into());
+        if !self.rooms.iter().any(|r| *r.0 == *ch) {
+          self.rooms.push((ch.into(), id.clone()));
           self.net.send(Cmd::Room(ch.into(), id));
         }
         return;
       }
+      Chat::Mod(on) => return self.on_mod_state(ch, on),
     }
     if i == self.active {
       self.wake();
@@ -891,7 +905,7 @@ impl App {
         let names = tab.map_or_else(Vec::new, |t| t.view.chatters());
         rank(nick, [names]).into_iter().map(|n| format!("@{n}").into()).collect()
       } else if start == 0 && word.starts_with('/') {
-        rank(word, [LOCAL.to_vec(), chan::COMMANDS.to_vec()])
+        rank(word, [LOCAL.to_vec(), chan::COMMANDS.to_vec(), crate::model::modcmd::COMMANDS.to_vec()])
       } else {
         let own =
           self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.senders.names(id, now_ms()));
@@ -1166,7 +1180,9 @@ impl App {
       self.menu = None;
       return self.menu_changed();
     }
-    self.emote_press(true);
+    if !self.emote_press(true) {
+      self.line_right_click();
+    }
   }
 
   fn selecting(&self) -> bool {
@@ -1197,6 +1213,7 @@ impl App {
         Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => return self.whisper_activate(),
         Key::Character("r") if self.kind() == Kind::Whispers => return self.whisper_reply_selected(),
         Key::Character("r") => return self.reply_selected(),
+        Key::Character("m") if !ctrl => return self.line_menu_key(),
         Key::Character("c") if ctrl => return self.copy_selected(),
         Key::Named(NamedKey::Escape) | Key::Character("v") => {
           if let Some(v) = self.view() {
@@ -1295,6 +1312,7 @@ impl ApplicationHandler<NetEvent> for App {
           self.wake();
         }
       }
+      NetEvent::ModDone(d) => self.on_mod_done(*d),
       NetEvent::Whispers { items, live } => self.on_whispers(items, live),
       NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
       NetEvent::Feed(p) => self.on_feed(p),

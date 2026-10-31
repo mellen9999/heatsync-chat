@@ -37,6 +37,8 @@ pub struct Settings {
   // a desktop notification for an @mention while the window is not focused. default off, like the
   // ext's hs_notifications: nothing leaves the window unless asked
   pub notify: bool,
+  // ask before a ban goes out (the ext's modConfirmBan; here on by default: a ban is permanent)
+  pub confirm_ban: bool,
 }
 
 impl Default for Settings {
@@ -56,6 +58,7 @@ impl Default for Settings {
       tab_whispers: true,
       tab_mentions: true,
       notify: false,
+      confirm_ban: true,
     }
   }
 }
@@ -103,6 +106,7 @@ impl Settings {
         "tab_whispers" => out.tab_whispers = on,
         "tab_mentions" => out.tab_mentions = on,
         "notify" => out.notify = on,
+        "confirm_ban" => out.confirm_ban = on,
         "zoom" => {
           if let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite()) {
             out.zoom = clamp_zoom((z * 100.0).round() as i32);
@@ -116,7 +120,7 @@ impl Settings {
 
   pub fn render(&self) -> String {
     format!(
-      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\ntab_feed={}\ntab_whispers={}\ntab_mentions={}\nnotify={}\nzoom={}\n",
+      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\ntab_feed={}\ntab_whispers={}\ntab_mentions={}\nnotify={}\nconfirm_ban={}\nzoom={}\n",
       self.vi,
       self.auto_hide,
       self.first_glow,
@@ -130,6 +134,7 @@ impl Settings {
       self.tab_whispers,
       self.tab_mentions,
       self.notify,
+      self.confirm_ban,
       self.scale()
     )
   }
@@ -163,11 +168,13 @@ pub enum Local {
   Zoom(Option<u16>),
   // desktop notification on an @mention
   Notify,
+  // ask before banning
+  ConfirmBan,
   // `/hide feed`, `/show mentions`; None = no such tab
   Tab(Option<Kind>, bool),
 }
 
-pub const LOCAL: [&str; 13] = [
+pub const LOCAL: [&str; 14] = [
   "/vi",
   "/autohide",
   "/glow",
@@ -179,6 +186,7 @@ pub const LOCAL: [&str; 13] = [
   "/media",
   "/zoom",
   "/notify",
+  "/confirmban",
   "/hide",
   "/show",
 ];
@@ -201,6 +209,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
   }
   match low.as_str() {
     "/notify" => Some(Local::Notify),
+    "/confirmban" => Some(Local::ConfirmBan),
     "/vi" => Some(Local::Vi),
     "/autohide" => Some(Local::AutoHide),
     "/glow" => Some(Local::Glow),
@@ -236,7 +245,8 @@ mod tests {
         tab_feed: true,
         tab_whispers: true,
         tab_mentions: true,
-        notify: false
+        notify: false,
+        confirm_ban: true
       }
     );
     assert_eq!(Settings::parse(""), Settings::default());
