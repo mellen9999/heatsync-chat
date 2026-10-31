@@ -51,12 +51,16 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<PaintId>, out:
           return;
         }
       }
-      None => tokio::time::sleep(COOLDOWN).await,
+      // a failed batch asks again itself: the rows that wanted it are laid out already and won't ask twice
+      None => {
+        tokio::time::sleep(COOLDOWN).await;
+        ids.into_iter().for_each(|id| add(&mut queue, id));
+      }
     }
   }
 }
 
-// None on failure: the ui's in-flight timer retries; an error is not "wears nothing".
+// None on failure: `run` retries after a cooldown; an error is not "wears nothing".
 // 7tv's route knows twitch and kick ids only; heatsync's own paints cover every namespace. the answers
 // are read back per id, so a native "5" and twitch 5 (one wire string) still get their own verdicts
 async fn batch(

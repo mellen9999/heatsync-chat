@@ -1385,6 +1385,168 @@ impl ApplicationHandler<NetEvent> for App {
   }
 
   fn user_event(&mut self, _: &ActiveEventLoop, ev: NetEvent) {
+    self.on_net(ev);
+  }
+
+  fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
+    match ev {
+      WindowEvent::CloseRequested => el.exit(),
+      WindowEvent::Resized(s) => self.resize(s.width, s.height),
+      WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+        self.dpi = scale_factor as f32;
+        self.apply_scale();
+      }
+      WindowEvent::RedrawRequested => {
+        let t = Instant::now();
+        self.redraw();
+        if self.prof {
+          eprintln!("frame {:.3}ms img {}KB", t.elapsed().as_secs_f64() * 1e3, self.res.images.bytes() >> 10);
+        }
+      }
+      WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
+      WindowEvent::Focused(f) => {
+        self.focused = f;
+        if !f {
+          self.hide_tip();
+        }
+      }
+      WindowEvent::Occluded(o) => {
+        self.occluded = o;
+        if !o {
+          self.wake();
+        }
+      }
+      WindowEvent::CursorMoved { position, .. } => {
+        self.pointer = (position.x as i32, position.y as i32);
+        self.menu_hover();
+        self.tab_menu_hover();
+        self.pop_hover();
+        self.card_hover();
+        self.screen_hover();
+        self.form_hover_move();
+        self.bar_hover();
+        self.picker_hover();
+        self.link_hover();
+        self.tip_hover();
+        let (over, up) = (self.over_button(), self.over_upload());
+        if over != self.btn_hover || up != self.up_hover {
+          self.btn_hover = over;
+          self.up_hover = up;
+          self.input_dirty = true;
+          self.wake();
+        }
+      }
+      WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
+      WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
+      WindowEvent::Ime(ev) => self.on_ime(ev),
+      WindowEvent::DroppedFile(p) => self.upload_file(p),
+      WindowEvent::CursorLeft { .. } => self.hide_tip(),
+      WindowEvent::MouseWheel { delta, .. } => {
+        self.hide_tip();
+        let px = match delta {
+          MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
+          MouseScrollDelta::PixelDelta(p) => p.y as i32,
+        };
+        let lines = match delta {
+          MouseScrollDelta::LineDelta(_, y) => Some(y),
+          MouseScrollDelta::PixelDelta(_) => None,
+        };
+        if self.zoom_wheel(lines, px as f32) || self.form.is_some() {
+          return;
+        }
+        if self.screen.is_some() {
+          self.screen_wheel(px);
+        } else if self.picker.is_some() {
+          self.picker_wheel(px);
+        } else {
+          self.scroll(px);
+        }
+      }
+      WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+        self.hide_tip();
+        let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
+        if self.zoom_key(&k) {
+          return;
+        }
+        if self.form.is_some() {
+          if self.paste_key(&k) {
+            return;
+          }
+          return self.form_key(k, t);
+        }
+        if self.mods.control_key() && k == Key::Character(",") {
+          return self.toggle_screen(screen::Page::Settings);
+        }
+        if k == Key::Named(NamedKey::F1) {
+          return self.toggle_screen(screen::Page::Keys);
+        }
+        if self.screen.is_some() {
+          return self.screen_key(k, t);
+        }
+        if self.mods.control_key() && k == Key::Character(";") {
+          return self.toggle_picker();
+        }
+        if self.paste_key(&k) {
+          return;
+        }
+        if self.prompt.is_some() {
+          return self.prompt_key(k, t);
+        }
+        if self.picker.is_some() {
+          return self.picker_key(k, t);
+        }
+        if self.pop.is_some() {
+          return self.pop_key(k);
+        }
+        if self.card.is_some() {
+          return self.card_key(k);
+        }
+        if self.tab_menu.is_some() {
+          return self.tab_menu_key(k);
+        }
+        if self.menu.is_some() {
+          return self.menu_key(k);
+        }
+        match self.mode {
+          Mode::Insert => self.key_insert(k, t),
+          Mode::Normal => self.key_normal(k, t),
+          Mode::Chat => self.key(k),
+        }
+      }
+      _ => {}
+    }
+  }
+
+  fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+    self.sync_ime();
+    let now = Instant::now();
+    if let Some(next) = self.flood
+      && now >= next
+    {
+      let m = self.fake.message(now_ms());
+      self.on_chat(FLOOD_TAB, Chat::Msg(m));
+      self.flood = Some(now + FLOOD_EVERY);
+    }
+    if self.trim_at.is_some_and(|t| t <= now) {
+      self.trim_at = None;
+      crate::util::mem::trim();
+    }
+    // animations sleep while the window is hidden
+    let anim = self.next_anim.filter(|_| !self.occluded);
+    if anim.is_some_and(|t| t <= now) {
+      self.wake();
+    }
+    if self.mute_due.is_some_and(|t| t <= now) {
+      self.mute_tick();
+    }
+    let wake = [self.flood, anim, self.trim_at, self.mute_due].into_iter().flatten().min();
+    el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
+  }
+}
+
+impl App {
+  // every net event lands here; the window handler and the headless live probe share it
+  fn on_net(&mut self, ev: NetEvent) {
     match ev {
       NetEvent::Chat(ch, c) => self.on_chat(&ch, c),
       NetEvent::Backfill(ch, events) => {
@@ -1570,249 +1732,105 @@ impl ApplicationHandler<NetEvent> for App {
       }
     }
   }
-
-  fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
-    match ev {
-      WindowEvent::CloseRequested => el.exit(),
-      WindowEvent::Resized(s) => self.resize(s.width, s.height),
-      WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-        self.dpi = scale_factor as f32;
-        self.apply_scale();
-      }
-      WindowEvent::RedrawRequested => {
-        let t = Instant::now();
-        self.redraw();
-        if self.prof {
-          eprintln!("frame {:.3}ms img {}KB", t.elapsed().as_secs_f64() * 1e3, self.res.images.bytes() >> 10);
-        }
-      }
-      WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
-      WindowEvent::Focused(f) => {
-        self.focused = f;
-        if !f {
-          self.hide_tip();
-        }
-      }
-      WindowEvent::Occluded(o) => {
-        self.occluded = o;
-        if !o {
-          self.wake();
-        }
-      }
-      WindowEvent::CursorMoved { position, .. } => {
-        self.pointer = (position.x as i32, position.y as i32);
-        self.menu_hover();
-        self.tab_menu_hover();
-        self.pop_hover();
-        self.card_hover();
-        self.screen_hover();
-        self.form_hover_move();
-        self.bar_hover();
-        self.picker_hover();
-        self.link_hover();
-        self.tip_hover();
-        let (over, up) = (self.over_button(), self.over_upload());
-        if over != self.btn_hover || up != self.up_hover {
-          self.btn_hover = over;
-          self.up_hover = up;
-          self.input_dirty = true;
-          self.wake();
-        }
-      }
-      WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
-      WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
-      WindowEvent::Ime(ev) => self.on_ime(ev),
-      WindowEvent::DroppedFile(p) => self.upload_file(p),
-      WindowEvent::CursorLeft { .. } => self.hide_tip(),
-      WindowEvent::MouseWheel { delta, .. } => {
-        self.hide_tip();
-        let px = match delta {
-          MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
-          MouseScrollDelta::PixelDelta(p) => p.y as i32,
-        };
-        let lines = match delta {
-          MouseScrollDelta::LineDelta(_, y) => Some(y),
-          MouseScrollDelta::PixelDelta(_) => None,
-        };
-        if self.zoom_wheel(lines, px as f32) || self.form.is_some() {
-          return;
-        }
-        if self.screen.is_some() {
-          self.screen_wheel(px);
-        } else if self.picker.is_some() {
-          self.picker_wheel(px);
-        } else {
-          self.scroll(px);
-        }
-      }
-      WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-        self.hide_tip();
-        let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
-        if self.zoom_key(&k) {
-          return;
-        }
-        if self.form.is_some() {
-          if self.paste_key(&k) {
-            return;
-          }
-          return self.form_key(k, t);
-        }
-        if self.mods.control_key() && k == Key::Character(",") {
-          return self.toggle_screen(screen::Page::Settings);
-        }
-        if k == Key::Named(NamedKey::F1) {
-          return self.toggle_screen(screen::Page::Keys);
-        }
-        if self.screen.is_some() {
-          return self.screen_key(k, t);
-        }
-        if self.mods.control_key() && k == Key::Character(";") {
-          return self.toggle_picker();
-        }
-        if self.paste_key(&k) {
-          return;
-        }
-        if self.prompt.is_some() {
-          return self.prompt_key(k, t);
-        }
-        if self.picker.is_some() {
-          return self.picker_key(k, t);
-        }
-        if self.pop.is_some() {
-          return self.pop_key(k);
-        }
-        if self.card.is_some() {
-          return self.card_key(k);
-        }
-        if self.tab_menu.is_some() {
-          return self.tab_menu_key(k);
-        }
-        if self.menu.is_some() {
-          return self.menu_key(k);
-        }
-        match self.mode {
-          Mode::Insert => self.key_insert(k, t),
-          Mode::Normal => self.key_normal(k, t),
-          Mode::Chat => self.key(k),
-        }
-      }
-      _ => {}
-    }
-  }
-
-  fn about_to_wait(&mut self, el: &ActiveEventLoop) {
-    self.sync_ime();
-    let now = Instant::now();
-    if let Some(next) = self.flood
-      && now >= next
-    {
-      let m = self.fake.message(now_ms());
-      self.on_chat(FLOOD_TAB, Chat::Msg(m));
-      self.flood = Some(now + FLOOD_EVERY);
-    }
-    if self.trim_at.is_some_and(|t| t <= now) {
-      self.trim_at = None;
-      crate::util::mem::trim();
-    }
-    // animations sleep while the window is hidden
-    let anim = self.next_anim.filter(|_| !self.occluded);
-    if anim.is_some_and(|t| t <= now) {
-      self.wake();
-    }
-    if self.mute_due.is_some_and(|t| t <= now) {
-      self.mute_tick();
-    }
-    let wake = [self.flood, anim, self.trim_at, self.mute_due].into_iter().flatten().min();
-    el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
-  }
 }
 
 pub fn persist(channels: &[Box<str>]) {
   store::save_tabs(channels);
 }
 
-// the whole app, no window: real network in, real redraw out. needs a wayland/x11 session for the event
-// loop (not a window). run with XDG_CONFIG_HOME + XDG_CACHE_HOME pointed at an empty dir
+// the whole app, no window and no event loop: real network in over a channel, real layout + redraw
+// into the canvas. run with HOME/XDG_CONFIG_HOME/XDG_CACHE_HOME pointed at an empty dir
 #[cfg(test)]
 mod live {
   use super::*;
-  use winit::event_loop::EventLoop;
-  use winit::platform::wayland::EventLoopBuilderExtWayland;
+  use crate::cosmetics::id::PaintId;
+  use crate::net::Out;
 
-  struct Headless {
-    app: App,
-    deadline: Instant,
-    amber: usize,
-    asked: bool,
+  // ennortix's solid #ffb000 base (the [H] brand orange is #ff8700, so it never counts)
+  fn amber(c: &crate::ui::canvas::Canvas) -> usize {
+    c.px.iter().filter(|p| (*p >> 16 & 255) > 200 && (165..=190).contains(&(*p >> 8 & 255)) && (*p & 255) < 60).count()
   }
 
-  impl Headless {
-    fn look(&mut self) {
-      self.app.redraw();
-      self.amber = self
-        .app
-        .canvas
-        .px
-        .iter()
-        .filter(|p| (*p >> 16 & 255) > 200 && (*p >> 8 & 255) > 120 && (*p & 255) < 60 && (*p >> 8 & 255) < 200)
-        .count();
-    }
-  }
-
-  impl ApplicationHandler<NetEvent> for Headless {
-    fn resumed(&mut self, el: &ActiveEventLoop) {
-      el.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250)));
-    }
-    fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
-    fn user_event(&mut self, el: &ActiveEventLoop, ev: NetEvent) {
-      if let NetEvent::Cosmetics(g) = &ev {
-        eprintln!(
-          "cosmetics event: {:?}",
-          g.iter()
-            .map(|(i, c)| (i.clone(), c.as_ref().map(|c| (c.paint.is_some(), c.badge.is_some()))))
-            .collect::<Vec<_>>()
-        );
-      }
-      self.app.user_event(el, ev);
-      self.look();
-    }
-    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
-      self.look();
-      if Instant::now() > self.deadline {
-        return el.exit();
-      }
-      el.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250)));
-      self.asked = true;
-    }
-  }
-
+  // twitch line from ennortix -> paint fetched -> stored -> looked up by the renderer -> amber pixels
   #[test]
   #[ignore]
   fn live_app_paints_ennortix() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let el = EventLoop::<NetEvent>::with_user_event().with_any_thread(true).build().expect("event loop");
-    let net = Net::spawn(el.create_proxy());
-    let mut app = App::new(net, vec!["nl_kripp".into()], false);
-    app.dpi = 1.5;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let net = Net::spawn_out(Out::Pipe(tx));
+    let mut app = App::new(net, vec!["nl_kripp yt:@kripparrian".into()], false);
+    app.dpi = std::env::var("HSC_PROBE_DPI").ok().and_then(|v| v.parse().ok()).unwrap_or(1.5);
     app.res.set_scale(app.scale());
     app.canvas.resize(420, 800);
     for t in &mut app.tabs {
       t.view.resize(420);
     }
-    let mut h = Headless { app, deadline: Instant::now() + Duration::from_secs(12), amber: 0, asked: false };
-    let _ = el.run_app(&mut h);
-    let n = h.app.tabs[h.app.active].view.len();
-    eprintln!(
-      "rows {n} amber px {} ennortix has paint: {:?}",
-      h.amber,
-      h.app.res.cosmetics.get(&crate::cosmetics::id::PaintId::Twitch(37005319)).map(|c| c.paint.is_some())
-    );
+    let id = PaintId::Twitch(37005319);
+    let deadline = Instant::now() + Duration::from_secs(25);
+    let (mut stored, mut line, mut sent) = (false, None::<(Box<str>, Message)>, false);
+    let mut px = 0;
+    while Instant::now() < deadline && !(sent && px > 30) {
+      if let Ok(ev) = rx.recv_timeout(Duration::from_millis(250)) {
+        if let NetEvent::Backfill(ch, evs) = &ev {
+          let hit = evs.iter().rev().find_map(|e| match e {
+            Chat::Msg(m) if PaintId::of_message(m).as_ref() == Some(&id) => Some(m.clone()),
+            _ => None,
+          });
+          line = line.or(hit.map(|m| (ch.clone(), m)));
+        }
+        app.on_net(ev);
+      }
+      app.redraw();
+      stored = stored || app.res.cosmetics.get(&id).is_some_and(|c| c.paint.is_some());
+      // their paint is in: a fresh live line from them lands at the bottom of the tab
+      if let (true, Some((ch, m)), false) = (stored, &line, sent) {
+        let mut m = m.clone();
+        m.id = "live-probe".into();
+        m.flags &= !flag::HISTORY;
+        app.on_net(NetEvent::Chat(ch.clone(), Chat::Msg(m)));
+        sent = true;
+        app.tabs[app.active].view.scroll_to_bottom();
+      }
+      app.redraw();
+      px = amber(&app.canvas);
+    }
+    // heatsync says their paint changed: the refetch must not lose the look
+    let frame = serde_json::json!({"type": "cosmetic:changed", "ids": [id.wire()]});
+    app.on_net(NetEvent::CosmeticsChanged(crate::net::hs_ws::cosmetic_ids(&frame)));
+    let again = Instant::now() + Duration::from_secs(4);
+    while Instant::now() < again {
+      if let Ok(ev) = rx.recv_timeout(Duration::from_millis(250)) {
+        app.on_net(ev);
+      }
+      app.redraw();
+    }
+    app.tabs[app.active].view.scroll_to_bottom();
+    app.redraw();
+    let after = amber(&app.canvas);
+    assert!(after > 30, "paint lost after cosmetic:changed (amber px {after})");
+    // the old lines too: scroll the whole history past the viewport, a painted name shows somewhere
+    let mut seen = 0;
+    app.tabs[app.active].view.scroll_to_top(&mut app.res);
+    for _ in 0..400 {
+      app.redraw();
+      seen = seen.max(app.tabs[app.active].view.animated_names());
+      app.tabs[app.active].view.scroll_by(-400, &mut app.res);
+    }
+    assert!(seen > 0, "no painted ennortix line anywhere in the history");
+    let n = app.tabs[app.active].view.len();
+    eprintln!("rows {n} amber px {px} has paint: {:?}", app.res.cosmetics.get(&id).map(|c| c.paint.is_some()));
     if let Some(path) = std::env::var_os("HSC_DUMP") {
-      let c = &h.app.canvas;
+      let c = &app.canvas;
       let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
       c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
       let _ = std::fs::write(path, out);
     }
-    assert!(h.amber > 30, "no amber name on screen");
+    assert!(stored, "ennortix paint never stored under {id:?}");
+    assert!(sent, "no ennortix line came through the tab");
+    let painted = app.tabs[app.active].view.animated_names();
+    assert!(
+      painted > 0 && px > 30,
+      "paint stored but the renderer shows none (painted names {painted}, amber px {px})"
+    );
   }
 }

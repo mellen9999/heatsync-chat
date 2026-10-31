@@ -270,7 +270,7 @@ fn kick_room(v: &Value) -> Option<Box<str>> {
 
 // whose cosmetics changed, from a `cosmetic:changed` frame. a bare id is a users.id: a twitch chatter,
 // or a heatsync-native account with the same digits, so it refreshes both (never kick/yt, which are prefixed)
-fn cosmetic_ids(v: &Value) -> Vec<PaintId> {
+pub(crate) fn cosmetic_ids(v: &Value) -> Vec<PaintId> {
   let list = v.get("ids").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
   let mut out = Vec::new();
   for s in list.iter().take(MAX_BATCH).filter_map(Value::as_str) {
