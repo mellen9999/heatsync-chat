@@ -94,6 +94,7 @@ impl App {
 
   pub(super) fn close_prompt(&mut self) {
     if self.prompt.take().is_some() {
+      self.finding = false;
       self.ime.clear();
       self.input_dirty = true;
       self.wake();
@@ -101,6 +102,9 @@ impl App {
   }
 
   pub(super) fn prompt_key(&mut self, key: Key<&str>, text: Option<&str>) {
+    if self.finding {
+      return self.find_key(key, text);
+    }
     let ctrl = self.mods.control_key();
     let Some(l) = self.prompt.as_mut() else { return };
     match key {

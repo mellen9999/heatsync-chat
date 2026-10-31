@@ -121,7 +121,12 @@ impl App {
       return self.wake();
     }
     match self.prompt.as_mut() {
-      Some(l) => l.insert(t),
+      Some(l) => {
+        l.insert(t);
+        if self.finding {
+          self.find_live();
+        }
+      }
       None => {
         self.line.insert(t);
         self.complete = None;

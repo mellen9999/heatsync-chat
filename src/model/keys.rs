@@ -34,6 +34,7 @@ pub static KEYS: [Group; 9] = [
       ("/", "search this tab"),
       ("ctrl-f", "search this tab (any mode)"),
       ("n  N", "next, previous match"),
+      ("ctrl-g", "next match (shift: previous)"),
       ("esc", "clear the search"),
       ("x", "hide the pinned line"),
       ("ctrl-w", "close the tab"),

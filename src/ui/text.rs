@@ -24,6 +24,8 @@ pub struct Ink(pub u32);
 impl Ink {
   // set on a painted username's brush: its glyphs are skipped here, the row draws the shaded bitmap
   pub const PAINTED: u32 = 1 << 24;
+  // set on a search hit: drawn in reverse video, white behind black glyphs
+  pub const REVERSE: u32 = 1 << 25;
 }
 
 impl Default for Ink {
@@ -149,6 +151,12 @@ impl Text {
         if ink & Ink::PAINTED != 0 {
           continue;
         }
+        if ink & Ink::REVERSE != 0 {
+          let (x, y0, y1) = (ox + gr.offset(), oy + m.block_min_coord, oy + m.block_max_coord);
+          let bar = Rect::new(x.floor() as i32, y0.floor() as i32, gr.advance().ceil() as i32, (y1 - y0).ceil() as i32);
+          c.fill(bar.intersect(clip), theme::WHITE);
+        }
+        let ink = ink & 0xff_ffff;
         let coords = run.normalized_coords();
         let key = |g: &parley::Glyph| {
           let gx = ox + g.x;

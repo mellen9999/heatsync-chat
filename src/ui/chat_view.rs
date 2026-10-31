@@ -14,6 +14,7 @@ use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
 use crate::model::filter;
+use crate::model::find::Find;
 use crate::model::message::{Kind, Message, Platform, Seg, flag};
 use crate::model::seen::Seen;
 use crate::util::time::{hhmm, now_ms};
@@ -67,11 +68,13 @@ struct Row {
   laid: Option<Box<Laid>>,
   // the filters' verdict (model::filter HIDDEN / MUTED / MARKED), kept off the data so it can change
   look: u8,
+  // the tab's search doesn't match this line: out of sight like a filtered one
+  miss: bool,
 }
 
 impl Row {
   fn hidden(&self) -> bool {
-    self.look & filter::HIDDEN != 0
+    self.look & filter::HIDDEN != 0 || self.miss
   }
 
   fn muted(&self) -> bool {
@@ -123,6 +126,8 @@ pub struct ChatView {
   tab_hidden: HashSet<Box<str>>,
   // the text of the last line shown, for hide duplicates
   last_text: Box<str>,
+  // the search typed with / or ctrl-f: only matching lines show, hits in reverse video
+  search: Option<Find>,
 }
 
 pub enum Paint {
@@ -145,7 +150,23 @@ fn seg(s: &mut String, spans: &mut Vec<Span>, g: &Seg) {
   spans.push(Span { range: a..s.len(), ink: Ink(g.ink), bold: g.bold });
 }
 
-fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, ts: bool, tags: bool) -> Laid {
+// what a row's layout depends on besides the line itself
+#[derive(Clone, Copy)]
+struct Opts<'a> {
+  ts: bool,
+  tags: bool,
+  find: Option<&'a Find>,
+}
+
+// built from fields, not a method, so a row can be borrowed mutably next to it
+macro_rules! opts {
+  ($v:expr) => {
+    Opts { ts: $v.timestamps, tags: $v.tags, find: $v.search.as_ref() }
+  };
+}
+
+fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o: Opts) -> Laid {
+  let Opts { ts, tags, find } = o;
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
   // a line copied into another tab (mentions) still resolves against its own room
@@ -185,6 +206,8 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, t
   let mut painted = None;
   let mut embed = None;
   let mut nick = 0..0;
+  // where the words sit in the text, for search hits
+  let mut words = 0..0;
   if m.kind == Kind::System {
     // stream lines carry their color (green live, magenta game switch); notices stay dim
     if m.color == 0 {
@@ -227,6 +250,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, t
     if let Some(c) = ink {
       spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
+    words = b0..s.len();
     // the picture sits on its own line under the text once its size is known
     if let Some(id) = pic {
       embed = Some(id);
@@ -236,6 +260,12 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, t
         boxes.push(EmoteBox { img: id, zw: Vec::new(), bg: None, word: (0, 0), blocked: false });
       }
     }
+  }
+  if let Some(f) = find {
+    // a painted name is drawn from its own bitmap: leave it be
+    let name = if painted.is_some() { 0..0 } else { nick.clone() };
+    let words = if m.kind == Kind::System { 0..s.len() } else { words };
+    hits(f, &s, &name, words, &mut spans);
   }
   let layout = res.text.layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
   let name = painted.and_then(|(uid, paint)| {
@@ -269,6 +299,23 @@ fn painted_run(layout: &TextLayout) -> Option<(f32, f32, f32)> {
     }
   }
   found.map(|(x0, x1, base)| (x0, x1 - x0, base))
+}
+
+// search hits in reverse video: the term wherever it sits in the name or the words; for @name, the name
+fn hits(f: &Find, s: &str, nick: &std::ops::Range<usize>, words: std::ops::Range<usize>, spans: &mut Vec<Span>) {
+  let ink = Ink(theme::BLACK | Ink::REVERSE);
+  if f.user() {
+    if !nick.is_empty() {
+      spans.push(Span { range: nick.clone(), ink, bold: true });
+    }
+    return;
+  }
+  for r in [nick.clone(), words] {
+    let Some(part) = s.get(r.clone()) else { continue };
+    for h in f.spans(part) {
+      spans.push(Span { range: r.start + h.start..r.start + h.end, ink, bold: false });
+    }
+  }
 }
 
 // the line's inline picture: its slot, and the link word to fold away once the picture is on screen
@@ -447,6 +494,7 @@ impl ChatView {
       filtered: false,
       tab_hidden: HashSet::new(),
       last_text: "".into(),
+      search: None,
     }
   }
 
@@ -474,7 +522,8 @@ impl ChatView {
     }
     self.seq_back += 1;
     let look = self.look_of(&msg);
-    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None, look });
+    let miss = self.missed(&msg);
+    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None, look, miss });
     self.pending += 1;
   }
 
@@ -486,10 +535,66 @@ impl ChatView {
     let skip = fresh.len().saturating_sub(room);
     for msg in fresh.into_iter().skip(skip).rev() {
       self.seq_front -= 1;
-      self.rows.push_front(Row { seq: self.seq_front, msg, height: 0, laid: None, look: 0 });
+      let miss = self.missed(&msg);
+      self.rows.push_front(Row { seq: self.seq_front, msg, height: 0, laid: None, look: 0, miss });
     }
     self.refilter();
     self.stale = true;
+  }
+
+  // the search says this line is not one of its matches
+  fn missed(&self, m: &Message) -> bool {
+    self.search.as_ref().is_some_and(|f| !f.test(&m.nick, &m.login, &m.body))
+  }
+
+  // start, change or (empty query) end the search: lines that don't match go out of sight. returns how
+  // many lines show. a picked line stays on screen; otherwise the view goes to the newest
+  pub fn set_search(&mut self, q: &str, res: &mut Res, view_h: i32) -> usize {
+    self.search = Find::parse(q);
+    let find = self.search.as_ref();
+    for r in &mut self.rows {
+      r.miss = find.is_some_and(|f| !f.test(&r.msg.nick, &r.msg.login, &r.msg.body));
+      Self::touch(r);
+    }
+    self.stale = true;
+    match self.selected.and_then(|s| self.index_of(s)) {
+      Some(i) if !self.rows[i].hidden() => self.reveal(i, res, view_h),
+      _ => {
+        self.selected = None;
+        self.scroll = 0;
+      }
+    }
+    self.found()
+  }
+
+  pub fn searching(&self) -> bool {
+    self.search.is_some()
+  }
+
+  // lines on show (system notices don't count as matches)
+  pub fn found(&self) -> usize {
+    self.rows.iter().filter(|r| !r.hidden() && r.msg.kind != Kind::System).count()
+  }
+
+  // n / N: the next or previous match, wrapping; (place, of) for the status line. starts at the oldest (n)
+  // or newest (N) like the ext
+  pub fn search_step(&mut self, dir: i32, res: &mut Res, view_h: i32) -> Option<(usize, usize)> {
+    let hits: Vec<usize> =
+      (0..self.rows.len()).filter(|&i| !self.rows[i].hidden() && self.rows[i].msg.kind != Kind::System).collect();
+    let n = hits.len() as i32;
+    if n == 0 {
+      return None;
+    }
+    let cur = self.selected.and_then(|s| self.index_of(s)).and_then(|i| hits.iter().position(|&h| h == i));
+    let k = match cur {
+      Some(c) => (c as i32 + dir).rem_euclid(n),
+      None if dir > 0 => 0,
+      None => n - 1,
+    };
+    let i = hits[k as usize];
+    self.selected = Some(self.rows[i].seq);
+    self.reveal(i, res, view_h);
+    Some((k as usize + 1, n as usize))
   }
 
   // the filters' verdict on a new line (a list tab shows everything)
@@ -549,9 +654,11 @@ impl ChatView {
     let Some(i) = self.rows.iter().position(|r| &*r.msg.id == id) else { return false };
     let look =
       if self.filtered { filter::with(|f| f.judge(&m, now_ms(), &self.tab_hidden, &mut "".into())) } else { 0 };
+    let miss = self.missed(&m);
     let r = &mut self.rows[i];
     r.msg = m;
     r.look = look;
+    r.miss = miss;
     Self::touch(r);
     self.stale = true;
     true
@@ -566,7 +673,8 @@ impl ChatView {
     self.scroll = scroll;
     for m in msgs {
       self.seq_back += 1;
-      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None, look: 0 });
+      let miss = self.missed(&m);
+      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None, look: 0, miss });
     }
     while self.rows.len() > self.cap {
       self.rows.pop_back();
@@ -652,13 +760,13 @@ impl ChatView {
   }
 
   fn height_at(&mut self, i: usize, res: &mut Res) -> i32 {
-    let (w, ts, tags) = (self.width, self.timestamps, self.tags);
+    let (w, o) = (self.width, opts!(self));
     let r = &mut self.rows[i];
     if r.hidden() {
       return 0;
     }
     if r.height == 0 {
-      r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags).layout.height().ceil() as i32;
+      r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, o).layout.height().ceil() as i32;
     }
     r.height
   }
@@ -782,7 +890,7 @@ impl ChatView {
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
         let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-        let laid = layout_row(res, &self.channel, m, muted, self.width, self.timestamps, self.tags);
+        let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let eb = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
           PositionedLayoutItem::InlineBox(b)
@@ -815,7 +923,7 @@ impl ChatView {
         if m.kind == Kind::System {
           return None;
         }
-        let laid = layout_row(res, &self.channel, m, muted, self.width, self.timestamps, self.tags);
+        let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let over = laid.layout.lines().any(|line| {
           let lm = line.metrics();
@@ -870,11 +978,11 @@ impl ChatView {
   }
 
   fn content_height(&mut self, res: &mut Res) -> i32 {
-    let (w, ts, tags) = (self.width, self.timestamps, self.tags);
+    let (w, o) = (self.width, opts!(self));
     let mut total = 0;
     for r in self.rows.iter_mut().filter(|r| !r.hidden()) {
       if r.height == 0 {
-        r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags).layout.height().ceil() as i32;
+        r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, o).layout.height().ceil() as i32;
       }
       total += r.height;
     }
@@ -886,10 +994,10 @@ impl ChatView {
     self.view_h = view_h;
     let n = std::mem::take(&mut self.pending);
     let mut shift = 0;
-    let (w, ts, tags) = (self.width, self.timestamps, self.tags);
+    let (w, o) = (self.width, opts!(self));
     let mut shown = 0;
     for r in self.rows.iter_mut().rev().take(n).filter(|r| !r.hidden()) {
-      let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags);
+      let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, o);
       r.height = laid.layout.height().ceil() as i32;
       shift += r.height;
       shown += 1;
@@ -934,8 +1042,9 @@ impl ChatView {
       res.text.draw(&l, c, (area.x + MARK_W) as f32 + theme::PAD_X, area.y as f32, clip, |_, _| {});
       return;
     }
-    let (w, ts, tags, zebra) = (self.width, self.timestamps, self.tags, self.zebra);
+    let (w, zebra) = (self.width, self.zebra);
     let mut bottom = self.edge(area, res);
+    let o = opts!(self);
     let mut drawn_lo = self.rows.len();
     for (i, r) in self.rows.iter_mut().enumerate().rev() {
       if bottom <= area.y {
@@ -945,7 +1054,7 @@ impl ChatView {
         continue;
       }
       if r.height == 0 || (r.laid.is_none() && bottom - r.height < clip.bottom()) {
-        let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags);
+        let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, o);
         r.height = laid.layout.height().ceil() as i32;
         r.laid = Some(Box::new(laid));
       }
@@ -1087,7 +1196,7 @@ mod tests {
     m.kind = Kind::Chat;
     m.nick = "bob".into();
     m.body = "look https://i.imgur.com/a.png".into();
-    let boxes = |res: &mut Res| layout_row(res, "c", &m, false, 400, false, false);
+    let boxes = |res: &mut Res| layout_row(res, "c", &m, false, 400, NO_OPTS);
     // not loaded: no box, link stays as text, and nothing was requested by measuring
     let l = boxes(&mut res);
     assert!((l.boxes.len(), l.embed.is_some()) == (0, true));
@@ -1118,7 +1227,7 @@ mod tests {
     m.user_id = "42".into();
     m.nick = "bob".into();
     m.body = "hi".into();
-    let n = |res: &mut Res| layout_row(res, "c", &m, false, 400, false, false).boxes.len();
+    let n = |res: &mut Res| layout_row(res, "c", &m, false, 400, NO_OPTS).boxes.len();
     // unknown chatter: no badge yet, but the ask is queued
     assert_eq!(n(&mut res), 0);
     assert_eq!(res.cosmetics.take_wanted(), vec![42]);
@@ -1177,6 +1286,8 @@ mod tests {
     assert_eq!(tint(&c).2, g0);
   }
 
+  const NO_OPTS: Opts = Opts { ts: false, tags: false, find: None };
+
   fn said(login: &str, body: &str) -> Message {
     let mut m = Message::system(1, Platform::Twitch, "x");
     m.kind = Kind::Chat;
@@ -1213,6 +1324,55 @@ mod tests {
     list.resize(400);
     list.push(said("nightbot", "!x"));
     assert_eq!(list.content_height(&mut res), one);
+  }
+
+  #[test]
+  fn search_keeps_matching_lines_walks_them_and_clears() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(50, "c".into());
+    v.resize(400);
+    for (who, what) in [("bob", "hello world"), ("alice", "bye"), ("bobby", "HELLO again")] {
+      v.push(said(who, what));
+    }
+    let h = v.height_at(0, &mut res);
+    assert_eq!(v.content_height(&mut res), 3 * h);
+    assert_eq!(v.set_search("hello", &mut res, 200), 2);
+    assert_eq!(v.content_height(&mut res), 2 * h);
+    // lines that arrive later are judged too
+    v.push(said("carl", "hello!"));
+    v.push(said("dan", "nope"));
+    assert_eq!(v.found(), 3);
+    assert_eq!(v.set_search("@bob", &mut res, 200), 2);
+    assert_eq!(v.set_search("hello", &mut res, 200), 3);
+    // n / N wrap round the three
+    assert_eq!(v.search_step(1, &mut res, 200), Some((1, 3)));
+    assert_eq!(&*v.selected().unwrap().login, "bob");
+    assert_eq!(v.search_step(1, &mut res, 200), Some((2, 3)));
+    assert_eq!(v.search_step(1, &mut res, 200), Some((3, 3)));
+    assert_eq!(v.search_step(1, &mut res, 200), Some((1, 3)));
+    assert_eq!(v.search_step(-1, &mut res, 200), Some((3, 3)));
+    assert_eq!(v.set_search("zzz", &mut res, 200), 0);
+    assert!(v.selected().is_none() && v.search_step(1, &mut res, 200).is_none());
+    // clearing brings every line back
+    assert_eq!(v.set_search("", &mut res, 200), 5);
+    assert!(!v.searching());
+    assert_eq!(v.content_height(&mut res), 5 * h);
+  }
+
+  #[test]
+  fn a_hit_is_drawn_in_reverse_video() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(50, "c".into());
+    v.resize(400);
+    v.push(said("bob", "hello world"));
+    let (mut c, area) = (Canvas::new(400, 60), Rect::new(0, 0, 400, 60));
+    let white = |c: &Canvas| c.px.iter().filter(|&&p| p == theme::WHITE).count();
+    v.draw(&mut c, &mut res, area, area);
+    let plain = white(&c);
+    v.set_search("hello", &mut res, 60);
+    v.draw(&mut c, &mut res, area, area);
+    // a solid bar behind five letters is far more white than the glyphs ever were
+    assert!(white(&c) > plain + 300, "{} vs {plain}", white(&c));
   }
 
   #[test]
@@ -1340,10 +1500,10 @@ mod tests {
       tail: Box::new([Seg { text: " 5".into(), ink: theme::WHITE, bold: false }]),
       edge: 0,
     }));
-    let l = layout_row(&mut res, "tab", &x, false, 400, false, false);
+    let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
     let n = l.layout.lines().count();
     assert_eq!(n, 1);
-    assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), false, 400, false, false).layout.width());
+    assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), false, 400, NO_OPTS).layout.width());
   }
 
   #[test]

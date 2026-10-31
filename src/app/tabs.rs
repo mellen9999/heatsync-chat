@@ -112,6 +112,7 @@ impl App {
   }
 
   fn activate(&mut self, i: usize) {
+    self.find_clear();
     self.active = i;
     if let Some(t) = self.tabs.get_mut(i) {
       t.unread = false;

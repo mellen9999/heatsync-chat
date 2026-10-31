@@ -17,6 +17,7 @@ mod clip;
 mod emote;
 mod feed;
 mod filters;
+mod find;
 mod mentions;
 mod mods;
 mod picker;
@@ -158,6 +159,9 @@ pub struct App {
   up_hover: bool,
   // the built-in path prompt (no file dialog installed), and an upload or dialog in flight
   prompt: Option<Line>,
+  // that prompt is a chat search, not a path; and the search as last kept with enter
+  finding: bool,
+  find_q: String,
   uploading: bool,
   // the system clipboard, made on first use
   clip: Option<arboard::Clipboard>,
@@ -272,6 +276,8 @@ impl App {
       btn_hover: false,
       up_hover: false,
       prompt: None,
+      finding: false,
+      find_q: String::new(),
       clip: None,
       uploading: false,
       pins: Pins::default(),
@@ -348,6 +354,9 @@ impl App {
             self.picker_reveal();
           } else if let Some(p) = &mut self.prompt {
             p.insert(&text);
+            if self.finding {
+              self.find_live();
+            }
           } else {
             self.complete = None;
             self.line.insert(&text);
@@ -537,6 +546,7 @@ impl App {
 
   fn select(&mut self, i: usize) {
     if i < self.tabs.len() && i != self.active {
+      self.find_clear();
       self.active = i;
       // a card or menu belongs to the tab it was opened in
       self.card = None;
@@ -694,12 +704,14 @@ impl App {
     if std::mem::take(&mut self.input_dirty) {
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
       let hint = match &self.prompt {
+        Some(_) if self.finding => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
         Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
         None if show_hint => self.hint(),
         None => String::new(),
       };
       let hidden = self.hidden();
       let tag = match &self.prompt {
+        Some(_) if self.finding => Some(("find: ", crate::ui::theme::YELLOW)),
         Some(_) => Some(("path: ", crate::ui::theme::YELLOW)),
         None => self.target().and_then(|t| t.2),
       };
@@ -713,7 +725,7 @@ impl App {
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
         picker_on: self.picker.is_some() || self.btn_hover,
-        upload_on: self.uploading || self.prompt.is_some() || self.up_hover,
+        upload_on: self.uploading || (self.prompt.is_some() && !self.finding) || self.up_hover,
         logo: &self.res.logo,
       };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
@@ -958,7 +970,10 @@ impl App {
         self.vi.end_insert(l);
         return self.set_mode(if empty { Mode::Chat } else { Mode::Normal });
       }
-      Key::Named(NamedKey::Escape) => self.reply = None,
+      Key::Named(NamedKey::Escape) => {
+        self.reply = None;
+        self.find_clear();
+      }
       Key::Named(NamedKey::Enter) => self.send(),
       Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),
       Key::Named(NamedKey::Backspace) => l.backspace(),
@@ -999,6 +1014,9 @@ impl App {
     let half = self.chat_area().h / 2;
     match key {
       Key::Character("o") if ctrl => self.pick_file(),
+      Key::Character("f") if ctrl => self.find_open(),
+      Key::Character("g") if ctrl && self.find_on() => self.find_step(1),
+      Key::Character("G") if ctrl && self.find_on() => self.find_step(-1),
       Key::Character("t") if ctrl => self.open_form(None),
       Key::Character("l") if ctrl => self.login(),
       Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
@@ -1253,6 +1271,10 @@ impl App {
     match key {
       Key::Named(NamedKey::Escape) | Key::Character("h") if !ctrl && self.feed_back() => {}
       Key::Character("?") => self.open_screen(screen::Page::Keys),
+      Key::Character("/") if !ctrl => self.find_open(),
+      Key::Character("n") if !ctrl && self.find_on() => self.find_step(1),
+      Key::Character("N") if !ctrl && self.find_on() => self.find_step(-1),
+      Key::Named(NamedKey::Escape) if self.find_on() => _ = self.find_clear(),
       Key::Character("v") if !ctrl => self.select_start(),
       Key::Character("x") if !ctrl && !alt => self.pin_hide(),
       Key::Character("t") if chord == Some('g') => self.select(self.step_tab(self.active, false)),
