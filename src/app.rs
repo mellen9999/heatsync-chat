@@ -18,6 +18,7 @@ mod feed;
 mod mentions;
 mod picker;
 mod pin;
+mod pop;
 mod stream;
 mod tabs;
 mod upload;
@@ -127,6 +128,8 @@ pub struct App {
   form: Option<Form>,
   form_hover: Option<Hit>,
   tab_menu: Option<tabs::TabMenu>,
+  // the floating menu for login and line actions
+  pop: Option<pop::Pop>,
   // last drawn tab rects, then the + button
   bar_hits: Vec<Rect>,
   // the tab index behind each drawn rect (hidden tabs have none)
@@ -234,6 +237,7 @@ impl App {
       form: None,
       form_hover: None,
       tab_menu: None,
+      pop: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
       plus_hover: false,
@@ -517,16 +521,6 @@ impl App {
     }
   }
 
-  fn login(&mut self) {
-    if let Some(me) = &self.me {
-      self.status = format!("logged in as {} (ctrl-shift-l logs out)", me.username);
-      self.bar_dirty = true;
-      self.wake();
-    } else {
-      self.net.send(Cmd::Login);
-    }
-  }
-
   fn wake(&self) {
     if let Some(g) = &self.gfx {
       g.window.request_redraw();
@@ -744,7 +738,7 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let area = self.chat_area();
-    if (self.menu.is_some() || self.tab_menu.is_some())
+    if (self.menu.is_some() || self.tab_menu.is_some() || self.pop.is_some())
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts
@@ -814,6 +808,9 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     if let Some(r) = self.draw_tab_menu() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
+    if let Some(r) = self.draw_pop() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     for (id, url, h) in self.res.images.take_wanted() {
@@ -1102,6 +1099,9 @@ impl App {
     if self.form.is_some() {
       return self.form_click();
     }
+    if self.pop.is_some() {
+      return self.pop_click();
+    }
     if self.tab_menu.is_some() {
       return self.tab_menu_click();
     }
@@ -1150,6 +1150,10 @@ impl App {
   fn right_click(&mut self) {
     if self.picker.is_some() || self.form.is_some() {
       return;
+    }
+    if self.pop.is_some() {
+      self.pop = None;
+      return self.pop_changed();
     }
     if self.tab_menu.is_some() {
       self.tab_menu = None;
@@ -1462,6 +1466,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.pointer = (position.x as i32, position.y as i32);
         self.menu_hover();
         self.tab_menu_hover();
+        self.pop_hover();
         self.form_hover_move();
         self.bar_hover();
         self.picker_hover();
@@ -1517,6 +1522,9 @@ impl ApplicationHandler<NetEvent> for App {
         }
         if self.picker.is_some() {
           return self.picker_key(k, t);
+        }
+        if self.pop.is_some() {
+          return self.pop_key(k);
         }
         if self.tab_menu.is_some() {
           return self.tab_menu_key(k);

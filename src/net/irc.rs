@@ -452,7 +452,7 @@ async fn session(
           }
           Some(Cmd::Send { chan, text, reply }) => {
             if creds.is_none() {
-              unsent(out, chan, "log in to send (ctrl-l)");
+              unsent(out, chan, "log in with twitch to send here (ctrl-l)");
               continue;
             }
             let Some(l) = privmsg(&chan, &text, reply.as_ref().map(|r| &*r.id)) else { continue };

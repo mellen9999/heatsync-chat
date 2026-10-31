@@ -71,12 +71,49 @@ fn page(body: &str) -> String {
   )
 }
 
+// which platform's sign-in the browser opens. every one ends in the same heatsync session
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Provider {
+  Twitch,
+  Kick,
+  Youtube,
+}
+
+impl Provider {
+  pub fn name(self) -> &'static str {
+    match self {
+      Provider::Twitch => "twitch",
+      Provider::Kick => "kick",
+      Provider::Youtube => "youtube",
+    }
+  }
+
+  // the server's login route. only twitch has permission packs (`scopes`); the others take none
+  fn path(self) -> &'static str {
+    match self {
+      Provider::Twitch => "/api/auth/login",
+      Provider::Kick => "/api/auth/kick/login",
+      Provider::Youtube => "/api/auth/youtube/login",
+    }
+  }
+}
+
+// the browser address for one login. `pack` only rides on twitch (a fixed word, never user text)
+fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str) -> String {
+  let mut url = format!("{ORIGIN}{}?native={port}&cc={}&ns={}", provider.path(), p.challenge, p.state);
+  if provider == Provider::Twitch {
+    url.push_str("&scopes=");
+    url.push_str(pack);
+  }
+  url
+}
+
 // opens the browser and waits (≤5 min) for the loopback; returns the heatsync session token
-pub async fn login(http: &reqwest::Client, scopes: &str) -> Result<String, String> {
+pub async fn login(http: &reqwest::Client, provider: Provider, pack: &str) -> Result<String, String> {
   let p = pkce()?;
   let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("loopback: {e}"))?;
   let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-  let url = format!("{ORIGIN}/api/auth/login?native={port}&cc={}&ns={}&scopes={scopes}", p.challenge, p.state);
+  let url = login_url(provider, port, &p, pack);
   open_browser(&url)?;
   let code = timeout(WAIT, async {
     loop {
@@ -145,6 +182,23 @@ pub struct Me {
   pub twitch_id: Option<u64>,
   // every name linked to the account (heatsync, twitch, kick, youtube): all of them ping you
   pub names: Vec<Box<str>>,
+  // linked kick / youtube names: a kick-only or youtube-only login has no twitch at all
+  pub kick: Option<Box<str>>,
+  pub youtube: Option<Box<str>>,
+  // twitch permission packs already granted (empty when unknown)
+  pub packs: Vec<Box<str>>,
+}
+
+impl Me {
+  // "twitch, kick": the platforms this login can act on
+  pub fn linked(&self) -> String {
+    let on = [("twitch", self.twitch.is_some()), ("kick", self.kick.is_some()), ("youtube", self.youtube.is_some())];
+    on.iter().filter(|(_, x)| *x).map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+  }
+
+  pub fn has_pack(&self, pack: &str) -> bool {
+    self.packs.iter().any(|p| &**p == pack)
+  }
 }
 
 pub enum Check {
@@ -170,8 +224,23 @@ pub async fn check(http: &reqwest::Client, token: &str) -> Result<Check, String>
     Some(Value::String(x)) => x.parse().ok(),
     _ => None,
   };
-  let names = ["username", "twitch_username", "kick_username", "youtube_username"].into_iter().filter_map(s).collect();
-  let me = Me { username: s("username").unwrap_or_else(|| "?".into()), twitch: s("twitch_username"), twitch_id, names };
+  let names: Vec<Box<str>> =
+    ["username", "twitch_username", "kick_username", "youtube_username"].into_iter().filter_map(s).collect();
+  // a kick-only or youtube-only account has no twitch fields (null / missing): every one is optional
+  let packs = u
+    .get("twitch_scope_packs")
+    .and_then(Value::as_array)
+    .map(|a| a.iter().filter_map(Value::as_str).take(32).map(|p| p.chars().take(32).collect()).collect())
+    .unwrap_or_default();
+  let me = Me {
+    username: s("username").or_else(|| names.first().cloned()).unwrap_or_else(|| "?".into()),
+    twitch: s("twitch_username"),
+    twitch_id,
+    names,
+    kick: s("kick_username"),
+    youtube: s("youtube_username"),
+    packs,
+  };
   Ok(Check::Ok(me, v.get("token").and_then(Value::as_str).filter(|t| valid_token(t)).map(Into::into)))
 }
 
@@ -229,6 +298,20 @@ mod tests {
     assert_eq!(callback("GET /favicon.ico HTTP/1.1\r\n"), None);
     assert_eq!(callback("POST /cb?code=a&state=b HTTP/1.1\r\n"), None);
     assert_eq!(callback("GET /cb?code=a HTTP/1.1\r\n"), None);
+  }
+
+  #[test]
+  fn login_urls() {
+    let p = Pkce { verifier: "v".into(), challenge: "c".into(), state: "s".into() };
+    assert_eq!(
+      login_url(Provider::Twitch, 5, &p, "whispers"),
+      "https://heatsync.org/api/auth/login?native=5&cc=c&ns=s&scopes=whispers"
+    );
+    assert_eq!(login_url(Provider::Kick, 5, &p, "base"), "https://heatsync.org/api/auth/kick/login?native=5&cc=c&ns=s");
+    assert_eq!(
+      login_url(Provider::Youtube, 5, &p, "whispers"),
+      "https://heatsync.org/api/auth/youtube/login?native=5&cc=c&ns=s"
+    );
   }
 
   #[test]

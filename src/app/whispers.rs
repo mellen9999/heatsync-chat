@@ -17,7 +17,7 @@ impl App {
   pub(super) fn whisper_empty(&mut self) {
     let text = match &self.me {
       None => "log in to read and send twitch whispers (ctrl-l)",
-      Some(m) if m.twitch_id.is_none() => "link twitch on heatsync.org to use whispers",
+      Some(m) if m.twitch_id.is_none() => "whispers are twitch-only. send one (/w user msg) to log in with twitch",
       Some(_) => "no whispers yet. /w user msg to start one, /r msg to answer the last",
     };
     if let Some(i) = self.tab_of(Kind::Whispers) {
@@ -155,8 +155,20 @@ impl App {
   }
 
   fn start_whisper(&mut self, who: Who, text: String) {
-    if self.me.as_ref().is_none_or(|m| m.twitch_id.is_none()) {
-      return self.say(NEED_LOGIN);
+    match &self.me {
+      None => return self.say(NEED_LOGIN),
+      // a kick-only or youtube-only login: the twitch sign-in (with the whispers permission) is one step away
+      Some(m) if m.twitch_id.is_none() => {
+        self.net.send(Cmd::Relink("whispers"));
+        return self.say("whispers need twitch. finish logging in with twitch in your browser…");
+      }
+      // twitch told us which permission packs this login holds, and whispers is not one: ask now
+      // instead of failing the send first
+      Some(m) if !m.packs.is_empty() && !m.has_pack("whispers") => {
+        self.net.send(Cmd::Relink("whispers"));
+        return self.say("whispers need a twitch permission. finish allowing it in your browser…");
+      }
+      Some(_) => {}
     }
     let w = self.whispers.push_out(who, &text).clone();
     self.put_row(&w);

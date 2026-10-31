@@ -126,7 +126,8 @@ pub enum Cmd {
   Backfill(Platform, Box<str>, Box<str>),
   // twitch user id → their heatsync inventory (version set after a ws invalidation)
   Sender(u64, Option<Box<str>>),
-  Login,
+  // sign in with this platform
+  Login(auth::Provider),
   Logout,
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
@@ -395,11 +396,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Backfill(p, key, archive) => {
         tokio::spawn(links::backfill(http.clone(), p, key, archive, out.clone()));
       }
-      Cmd::Login => {
-        let _ = sess_tx.send(session::Cmd::Login("base"));
+      Cmd::Login(p) => {
+        let _ = sess_tx.send(session::Cmd::Login(p, "base"));
       }
       Cmd::Relink(pack) => {
-        let _ = sess_tx.send(session::Cmd::Login(pack));
+        let _ = sess_tx.send(session::Cmd::Login(auth::Provider::Twitch, pack));
       }
       Cmd::Social(c) => {
         let _ = sess_tx.send(session::Cmd::Social(c));

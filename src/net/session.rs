@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::time::{Instant, sleep_until};
 
-use super::auth::{self, Check};
+use super::auth::{self, Check, Provider};
 use super::emote_ops::{self, EmoteCmd};
 use super::hs_ws;
 use super::irc::{self, Creds};
@@ -22,8 +22,9 @@ const RENEW: Duration = Duration::from_secs(6 * 3600);
 const RETRY: Duration = Duration::from_secs(60);
 
 pub enum Cmd {
-  // the permission pack to ask for ("base", or "whispers" to add twitch whispers)
-  Login(&'static str),
+  // which platform to sign in with, and the twitch permission pack to ask for ("base", or
+  // "whispers" to add twitch whispers; the other platforms ignore it)
+  Login(Provider, &'static str),
   Logout,
   Emote(EmoteCmd),
   Upload(std::path::PathBuf),
@@ -59,10 +60,10 @@ pub async fn run(
     tokio::select! {
       c = rx.recv() => match c {
         None => return,
-        Some(Cmd::Login(pack)) => {
-          st.out.status("finish logging in in your browser…");
+        Some(Cmd::Login(provider, pack)) => {
+          st.out.status(format!("finish logging in with {} in your browser…", provider.name()));
           eprintln!("login: opening the browser");
-          match auth::login(&st.http, pack).await {
+          match auth::login(&st.http, provider, pack).await {
             Ok(t) => {
               st.token = Some(t);
               next = Instant::now();
@@ -186,6 +187,10 @@ impl State {
       tokio::spawn(emote_ops::load_blocked(self.http.clone(), t.clone(), self.out.clone()));
     }
     if !twitch {
+      // a kick-only or youtube-only login has no twitch chat: drop a twitch login left from before
+      if self.irc_as.take().is_some() {
+        let _ = self.irc.send(irc::Cmd::Login(None));
+      }
       return true;
     }
     let Some(t) = self.token.as_deref() else { return true };
