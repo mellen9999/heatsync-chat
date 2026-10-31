@@ -159,13 +159,15 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
 }
 
 fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
-  let found: Vec<(Box<str>, Option<u32>)> =
+  let mut found: Vec<(Box<str>, Option<u32>)> =
     res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
-  // seeing a chatter is what asks heatsync for their 7tv cosmetics (batched, cached)
+  // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
+  // asks heatsync for their cosmetics: batched, cached, answered into the same slot
   if m.platform == Platform::Twitch
     && let Ok(uid) = m.user_id.parse::<u64>()
+    && let Some(b) = res.cosmetics.get(uid).and_then(|c| c.badge.as_ref())
   {
-    res.cosmetics.get(uid);
+    found.push((b.url.clone(), b.bg));
   }
   let h = res.images.px(BADGE_PX);
   for (url, bg) in found {
@@ -675,6 +677,27 @@ impl ChatView {
 mod tests {
   use super::*;
   use crate::fake::Fake;
+
+  #[test]
+  fn seventv_badge_follows_the_cosmetics_answer() {
+    use crate::badges::Badge;
+    use crate::cosmetics::Cosmetic;
+    let mut res = Res::new(1.0);
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.user_id = "42".into();
+    m.nick = "bob".into();
+    m.body = "hi".into();
+    let n = |res: &mut Res| layout_row(res, "c", &m, 400, false, false).boxes.len();
+    // unknown chatter: no badge yet, but the ask is queued
+    assert_eq!(n(&mut res), 0);
+    assert_eq!(res.cosmetics.take_wanted(), vec![42]);
+    let badge = Badge { url: "https://cdn.7tv.app/badge/B/2x.webp".into(), title: "t".into(), bg: None };
+    res.cosmetics.put(42, Some(Cosmetic { paint: None, badge: Some(badge) }));
+    assert_eq!(n(&mut res), 1);
+    res.cosmetics.on = false;
+    assert_eq!(n(&mut res), 0);
+  }
 
   #[test]
   fn first_line_per_person_glows_once() {

@@ -160,10 +160,12 @@ impl App {
     for t in &mut tabs {
       t.view.glow = set.first_glow;
     }
+    let mut res = Res::new(1.0);
+    res.cosmetics.on = set.paints;
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
-      res: Res::new(1.0),
+      res,
       tabs,
       active: 0,
       net,
@@ -367,6 +369,12 @@ impl App {
         }
         self.wake();
         format!("first-chatter glow {}", on(self.set.first_glow))
+      }
+      Local::Paints => {
+        self.set.paints = !self.set.paints;
+        self.res.cosmetics.on = self.set.paints;
+        self.relayout_where(None);
+        format!("7tv paints and badges {}", on(self.set.paints))
       }
       Local::Zoom(Some(pct)) => return self.zoom_to(pct),
       Local::Zoom(None) => "usage: /zoom 1.5 (anything from 0.5 to 3)".into(),

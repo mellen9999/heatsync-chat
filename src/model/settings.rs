@@ -20,11 +20,13 @@ pub struct Settings {
   pub auto_hide: bool,
   // orange edge on someone's first line of the session. default on, like the ext
   pub first_glow: bool,
+  // 7tv paints on names and 7tv badges. default on, like the ext (sevenTvPaints)
+  pub paints: bool,
 }
 
 impl Default for Settings {
   fn default() -> Self {
-    Settings { zoom: 100, vi: false, auto_hide: false, first_glow: true }
+    Settings { zoom: 100, vi: false, auto_hide: false, first_glow: true, paints: true }
   }
 }
 
@@ -43,6 +45,7 @@ impl Settings {
         "vi" => out.vi = on,
         "auto_hide" => out.auto_hide = on,
         "first_glow" => out.first_glow = on,
+        "paints" => out.paints = on,
         "zoom" => {
           if let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite()) {
             out.zoom = clamp_zoom((z * 100.0).round() as i32);
@@ -55,7 +58,14 @@ impl Settings {
   }
 
   pub fn render(&self) -> String {
-    format!("vi={}\nauto_hide={}\nfirst_glow={}\nzoom={}\n", self.vi, self.auto_hide, self.first_glow, self.scale())
+    format!(
+      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nzoom={}\n",
+      self.vi,
+      self.auto_hide,
+      self.first_glow,
+      self.paints,
+      self.scale()
+    )
   }
 
   pub fn load() -> Self {
@@ -75,11 +85,12 @@ pub enum Local {
   Vi,
   AutoHide,
   Glow,
+  Paints,
   // `/zoom 1.5`; None = no usable number
   Zoom(Option<u16>),
 }
 
-pub const LOCAL: [&str; 4] = ["/vi", "/autohide", "/glow", "/zoom"];
+pub const LOCAL: [&str; 5] = ["/vi", "/autohide", "/glow", "/paints", "/zoom"];
 
 pub fn local_cmd(text: &str) -> Option<Local> {
   let low = text.trim().to_ascii_lowercase();
@@ -94,6 +105,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/vi" => Some(Local::Vi),
     "/autohide" => Some(Local::AutoHide),
     "/glow" => Some(Local::Glow),
+    "/paints" => Some(Local::Paints),
     _ => None,
   }
 }
@@ -104,17 +116,23 @@ mod tests {
 
   #[test]
   fn defaults() {
-    assert_eq!(Settings::default(), Settings { zoom: 100, vi: false, auto_hide: false, first_glow: true });
+    assert_eq!(
+      Settings::default(),
+      Settings { zoom: 100, vi: false, auto_hide: false, first_glow: true, paints: true }
+    );
     assert_eq!(Settings::parse(""), Settings::default());
-    assert_eq!(Settings::parse("garbage\nvi\n=true\nvi=maybe"), Settings { first_glow: true, ..Settings::default() });
+    assert_eq!(Settings::parse("garbage\nvi\n=true\nvi=maybe"), Settings::default());
   }
 
   #[test]
   fn roundtrip() {
-    for (vi, auto_hide, first_glow, zoom) in
-      [(false, false, true, 100), (true, false, false, 130), (false, true, true, 50), (true, true, false, 300)]
-    {
-      let s = Settings { zoom, vi, auto_hide, first_glow };
+    for (vi, auto_hide, first_glow, paints, zoom) in [
+      (false, false, true, true, 100),
+      (true, false, false, false, 130),
+      (false, true, true, false, 50),
+      (true, true, false, true, 300),
+    ] {
+      let s = Settings { zoom, vi, auto_hide, first_glow, paints };
       assert_eq!(Settings::parse(&s.render()), s);
     }
     // unknown keys and spacing are tolerated
