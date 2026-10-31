@@ -1,6 +1,7 @@
 // all network io lives on one background thread running a current-thread tokio runtime.
 // the ui talks to it through `Net` and hears back through winit user events
 pub mod auth;
+pub mod emote_ops;
 pub mod hs_ws;
 pub mod irc;
 mod links;
@@ -46,6 +47,10 @@ pub enum NetEvent {
   SendersStale { ids: Vec<u64>, ver: Option<Box<str>>, removed: Option<Box<str>> },
   // logged in as / logged out
   Me(Option<auth::Me>),
+  // the server's blocked-emote hashes for this login
+  BlockedHashes(Vec<Box<str>>),
+  // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
+  Inventory { removed: Option<Box<str>> },
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -93,6 +98,7 @@ pub enum Cmd {
   Sender(u64, Option<Box<str>>),
   Login,
   Logout,
+  Emote(emote_ops::EmoteCmd),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
 }
 
@@ -300,6 +306,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);
+      }
+      Cmd::Emote(c) => {
+        let _ = sess_tx.send(session::Cmd::Emote(c));
       }
       Cmd::Send { platform: Platform::Twitch, chan, text, reply } => {
         let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });

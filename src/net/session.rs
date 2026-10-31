@@ -7,6 +7,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::time::{Instant, sleep_until};
 
 use super::auth::{self, Check};
+use super::emote_ops::{self, EmoteCmd};
 use super::irc::{self, Creds};
 use super::{NetEvent, ORIGIN, Out};
 use crate::model::message::{Message, Platform};
@@ -21,6 +22,7 @@ const RETRY: Duration = Duration::from_secs(60);
 pub enum Cmd {
   Login,
   Logout,
+  Emote(EmoteCmd),
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
 }
 
@@ -61,6 +63,10 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: Unb
           }
           st.forget("logged out");
         }
+        Some(Cmd::Emote(c)) => match &st.token {
+          Some(t) => emote_ops::run(&st.http, t, c, &st.out).await,
+          None => st.out.status("log in first (ctrl-l)"),
+        },
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
       },
       _ = sleep_until(next), if st.token.is_some() => {
@@ -104,6 +110,9 @@ impl State {
     };
     let twitch = me.twitch.is_some();
     self.out.send(NetEvent::Me(Some(me)));
+    if let Some(t) = &self.token {
+      tokio::spawn(emote_ops::load_blocked(self.http.clone(), t.clone(), self.out.clone()));
+    }
     if !twitch {
       return true;
     }

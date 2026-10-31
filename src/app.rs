@@ -11,6 +11,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
+mod emote;
+
 use crate::fake::Fake;
 use crate::model::complete::{Complete, rank};
 use crate::model::ime::Ime;
@@ -114,6 +116,8 @@ pub struct App {
   ime_on: bool,
   ime_area: Option<Rect>,
   ime_sent: Option<Rect>,
+  // shift+right-click menu on an emote
+  menu: Option<emote::Open>,
 }
 
 impl App {
@@ -181,6 +185,7 @@ impl App {
       ime_on: false,
       ime_area: None,
       ime_sent: None,
+      menu: None,
     }
   }
 
@@ -559,6 +564,12 @@ impl App {
       }
     }
     let area = self.chat_area();
+    if self.menu.is_some()
+      && let Some(t) = self.tabs.get_mut(self.active)
+    {
+      // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts
+      t.view.invalidate();
+    }
     if std::mem::take(&mut self.bar_dirty) {
       let labels: Vec<TabLabel> = self
         .tabs
@@ -597,6 +608,9 @@ impl App {
     } else if dirty.is_some() {
       canvas.fill(area, crate::ui::theme::BLACK);
       dirty = add(dirty, area);
+    }
+    if let Some(r) = self.draw_menu() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     for (id, url, h) in self.res.images.take_wanted() {
       self.net.send(Cmd::Image(id, url, h));
@@ -863,6 +877,9 @@ impl App {
 
   // click a line to select it; click the input to type
   fn click(&mut self) {
+    if self.menu.is_some() {
+      return self.menu_click();
+    }
     let (x, y) = self.pointer;
     let (chat, input) = (self.chat_area(), self.input_area());
     if input.contains(x, y) {
@@ -871,11 +888,22 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
+    if self.emote_press(false) {
+      return;
+    }
     let res = &mut self.res;
     if let Some(t) = self.tabs.get_mut(self.active) {
       t.view.select_at(chat, y, res);
     }
     self.wake();
+  }
+
+  fn right_click(&mut self) {
+    if self.menu.is_some() {
+      self.menu = None;
+      return self.menu_changed();
+    }
+    self.emote_press(true);
   }
 
   fn selecting(&self) -> bool {
@@ -1048,6 +1076,21 @@ impl ApplicationHandler<NetEvent> for App {
           }
         }
       }
+      NetEvent::BlockedHashes(h) => {
+        self.res.blocked.set_server(h);
+        self.relayout_where(None);
+      }
+      NetEvent::Inventory { removed } => {
+        if let Some(id) = self.me.as_ref().and_then(|m| m.twitch_id) {
+          let scrubbed = self.res.senders.stale(id, removed.as_deref());
+          self.net.send(Cmd::Sender(id, Some(now_ms().to_string().into())));
+          if scrubbed == Some(true) {
+            self.touch_sender(id);
+          }
+        }
+        self.bar_dirty = true;
+        self.wake();
+      }
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::RelayClear { platform, key, login } => {
         for i in self.tabs_with(platform, &key) {
@@ -1103,8 +1146,12 @@ impl ApplicationHandler<NetEvent> for App {
           self.wake();
         }
       }
-      WindowEvent::CursorMoved { position, .. } => self.pointer = (position.x as i32, position.y as i32),
+      WindowEvent::CursorMoved { position, .. } => {
+        self.pointer = (position.x as i32, position.y as i32);
+        self.menu_hover();
+      }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
+      WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
       WindowEvent::Ime(ev) => self.on_ime(ev),
       WindowEvent::MouseWheel { delta, .. } => {
         let px = match delta {
@@ -1115,6 +1162,9 @@ impl ApplicationHandler<NetEvent> for App {
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
+        if self.menu.is_some() {
+          return self.menu_key(k);
+        }
         match self.mode {
           Mode::Insert => self.key_insert(k, t),
           Mode::Normal => self.key_normal(k, t),

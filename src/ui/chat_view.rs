@@ -1,7 +1,7 @@
 // virtualized chat rows: heights for every row, layouts only for rows on screen
 use std::collections::{HashSet, VecDeque};
 
-use parley::{InlineBox, InlineBoxKind, VerticalAlign};
+use parley::{InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
 use super::res::{BADGE_PX, EMOTE_PX, Res};
@@ -17,6 +17,17 @@ struct EmoteBox {
   zw: Vec<ImgId>,
   // tile color behind the image (ffz badges)
   bg: Option<u32>,
+  // byte range of the word in the message body; 0..0 for badges
+  word: (u32, u32),
+  // blocked: the image is never drawn or fetched, a dashed outline holds the slot
+  blocked: bool,
+}
+
+// an emote under the pointer
+pub struct EmoteHit {
+  pub name: Box<str>,
+  pub url: Box<str>,
+  pub zero_width: bool,
 }
 
 struct Laid {
@@ -149,7 +160,7 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<I
     let img = res.images.id(&url, BADGE_PX);
     let w = res.images.width(img, (18, 18));
     ib.push(inline(boxes.len(), s.len(), w, h));
-    boxes.push(EmoteBox { img, zw: Vec::new(), bg });
+    boxes.push(EmoteBox { img, zw: Vec::new(), bg, word: (0, 0), blocked: false });
     // a thin space keeps badges from touching
     s.push('\u{2009}');
   }
@@ -161,17 +172,14 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
   let mut prev_emote = false;
   let mut first = true;
   let mut at = 0usize;
-  let sender = (m.platform == Platform::Twitch).then(|| m.user_id.parse::<u64>().ok()).flatten();
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
-    let native = m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b);
-    let found = match native {
-      Some((_, url)) => Some((url.clone(), (0, 0), false)),
-      None if word.is_empty() => None,
-      None => resolve(res, chan, m, sender, word),
-    };
+    let found = find_word(res, chan, m, a, b, word);
+    let blocked = found.as_ref().is_some_and(|f| res.blocked.contains(word, &f.0));
     match found {
+      // a blocked overlay just vanishes; a blocked base keeps its slot
+      Some((_, _, true)) if prev_emote && blocked => continue,
       Some((url, _, true)) if prev_emote => {
         let img = res.images.id(&url, EMOTE_PX);
         if let Some(last) = boxes.last_mut() {
@@ -186,7 +194,7 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
         let img = res.images.id(&url, EMOTE_PX);
         let w = res.images.width(img, dims);
         ib.push(inline(boxes.len(), s.len(), w, h));
-        boxes.push(EmoteBox { img, zw: Vec::new(), bg: None });
+        boxes.push(EmoteBox { img, zw: Vec::new(), bg: None, word: (a as u32, b as u32), blocked });
         prev_emote = true;
       }
       None => {
@@ -198,6 +206,16 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
       }
     }
     first = false;
+  }
+}
+
+// the word at body bytes a..b as an emote: twitch's own by position, else by name
+fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &str) -> Option<Found> {
+  let sender = (m.platform == Platform::Twitch).then(|| m.user_id.parse::<u64>().ok()).flatten();
+  match m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b) {
+    Some((_, url)) => Some((url.clone(), (0, 0), false)),
+    None if word.is_empty() => None,
+    None => resolve(res, chan, m, sender, word),
   }
 }
 
@@ -220,6 +238,26 @@ fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &s
     return Some(e(x));
   }
   res.emotes.global(word).map(e)
+}
+
+// 2px dashed white outline (4 on, 4 off) in the emote's own slot
+fn dashed(c: &mut Canvas, r: Rect, clip: Rect) {
+  const T: i32 = 2;
+  const D: i32 = 4;
+  let mut x = r.x;
+  while x < r.right() {
+    let w = D.min(r.right() - x);
+    c.fill(Rect::new(x, r.y, w, T).intersect(clip), theme::WHITE);
+    c.fill(Rect::new(x, r.bottom() - T, w, T).intersect(clip), theme::WHITE);
+    x += 2 * D;
+  }
+  let mut y = r.y;
+  while y < r.bottom() {
+    let h = D.min(r.bottom() - y);
+    c.fill(Rect::new(r.x, y, T, h).intersect(clip), theme::WHITE);
+    c.fill(Rect::new(r.right() - T, y, T, h).intersect(clip), theme::WHITE);
+    y += 2 * D;
+  }
 }
 
 type Found = (Box<str>, (u16, u16), bool);
@@ -426,6 +464,36 @@ impl ChatView {
     false
   }
 
+  // the emote under (x, y), as drawn last. badges and plain text are not emotes
+  pub fn emote_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<EmoteHit> {
+    let mut bottom = area.bottom() + self.scroll;
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        return None;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        let m = &self.rows[i].msg;
+        let laid = layout_row(res, &self.channel, m, self.width, self.timestamps, self.tags);
+        let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
+        let eb = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
+          PositionedLayoutItem::InlineBox(b)
+            if (b.x..b.x + b.width).contains(&lx) && (b.y..b.y + b.height).contains(&ly) =>
+          {
+            laid.boxes.get(b.id as usize)
+          }
+          _ => None,
+        })?;
+        let (a, b) = (eb.word.0 as usize, eb.word.1 as usize);
+        let word = m.body.get(a..b).filter(|w| !w.is_empty())?;
+        let (url, _, zero_width) = find_word(res, &self.channel, m, a, b, word)?;
+        return Some(EmoteHit { name: word.into(), url, zero_width });
+      }
+      bottom = top;
+    }
+    None
+  }
+
   pub fn scroll_by(&mut self, px: i32, res: &mut Res) {
     let max = self.content_height(res);
     self.scroll = (self.scroll + px).clamp(0, max);
@@ -542,6 +610,10 @@ impl ChatView {
             };
             let rect =
               Rect::new(b.x.round() as i32, b.y.round() as i32, b.width.round() as i32, b.height.round() as i32);
+            if eb.blocked {
+              dashed(c, rect, clip);
+              return;
+            }
             let mut imgs = Vec::with_capacity(1 + eb.zw.len());
             imgs.push(eb.img);
             imgs.extend_from_slice(&eb.zw);
@@ -624,5 +696,33 @@ mod tests {
     assert_eq!(&*v.selected().unwrap().id, "m4");
     v.deselect();
     assert!(v.selected().is_none());
+  }
+
+  #[test]
+  fn emote_hit_testing_and_blocked_slot() {
+    use crate::emotes::{Emote, Provider};
+    let mut res = Res::new(1.0);
+    let url = "https://cdn.7tv.app/emote/01ABC/1x.webp";
+    let emote = Emote { url: url.into(), w: 28, h: 28, zero_width: false };
+    res.emotes.set(None, Provider::SevenTv, [("Kappa".into(), emote)].into());
+    let mut v = ChatView::new(10, "c".into());
+    v.resize(400);
+    let mut m = Fake::new(1).message(1);
+    m.kind = Kind::Chat;
+    m.emotes = Box::new([]);
+    m.body = "hi Kappa yo".into();
+    v.push(m);
+    let area = Rect::new(0, 0, 400, 200);
+    let scan = |v: &mut ChatView, res: &mut Res| {
+      (0..400).step_by(2).find_map(|x| (150..200).find_map(|y| v.emote_at(area, x, y, res)))
+    };
+    let hit = scan(&mut v, &mut res).expect("emote under the pointer");
+    assert_eq!((&*hit.name, &*hit.url), ("Kappa", url));
+    // plain words are not emotes
+    assert!(v.emote_at(area, 10, 199, &mut res).is_none());
+    // blocked: still hit-testable (so a click can unblock) and still holds its slot
+    res.blocked.block("Kappa", url);
+    v.relayout();
+    assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
   }
 }

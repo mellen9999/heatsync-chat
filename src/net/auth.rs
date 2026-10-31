@@ -15,7 +15,7 @@ use super::ORIGIN;
 const WAIT: Duration = Duration::from_secs(300);
 const MAX_REQUEST: usize = 8 << 10;
 
-fn b64url(b: &[u8]) -> String {
+pub fn b64url(b: &[u8]) -> String {
   const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   let mut s = String::with_capacity(b.len().div_ceil(3) * 4);
   for c in b.chunks(3) {

@@ -25,6 +25,16 @@ impl Line {
     self.browsing = None;
   }
 
+  // an emote name at the cursor, spaced the way the ext pastes it: a space before unless the
+  // text so far is empty or ends in one, and a trailing space to keep typing
+  pub fn insert_word(&mut self, w: &str) {
+    if !self.text[..self.cursor].is_empty() && !self.text[..self.cursor].ends_with(' ') {
+      self.insert(" ");
+    }
+    self.insert(w);
+    self.insert(" ");
+  }
+
   // swap the whole text (vi edits); drops out of history browsing
   pub fn set_text(&mut self, text: String) {
     self.text = text;
@@ -189,6 +199,21 @@ mod tests {
     assert_eq!(l.text, "a b ");
     l.insert(&"x".repeat(1000));
     assert_eq!(l.text.chars().count(), MAX_CHARS);
+  }
+
+  #[test]
+  fn emote_names_are_spaced() {
+    let mut l = Line::default();
+    l.insert_word("Kappa");
+    assert_eq!(l.text, "Kappa ");
+    l.insert_word("LUL");
+    assert_eq!(l.text, "Kappa LUL ");
+    l.insert("hi");
+    l.insert_word("PogU");
+    assert_eq!(l.text, "Kappa LUL hi PogU ");
+    l.home();
+    l.insert_word("A");
+    assert_eq!(l.text, "A Kappa LUL hi PogU ");
   }
 
   #[test]
