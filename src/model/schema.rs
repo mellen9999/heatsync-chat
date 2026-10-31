@@ -36,6 +36,8 @@ pub enum Fx {
   Vi,
   Glow,
   Paints,
+  // paint motion flipped: every animated name is built again
+  PaintMotion,
   Media,
   // the partial-link rule flipped: lay every line out again
   Links,
@@ -76,7 +78,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 21] = [
+pub static DEFS: [Def; 22] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -109,6 +111,17 @@ pub static DEFS: [Def; 21] = [
     alias: "sevenTvPaints seventv cosmetics",
     ctl: pill!(paints),
     fx: Fx::Paints,
+  },
+  Def {
+    id: "paint_motion",
+    cmd: Some("/paintmotion"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "animate paints",
+    tip: "name paints move. off freezes each to its first frame",
+    alias: "animatePaints motion scenes effects reduced",
+    ctl: pill!(paint_motion),
+    fx: Fx::PaintMotion,
   },
   Def {
     id: "zoom",

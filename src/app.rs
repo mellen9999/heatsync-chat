@@ -235,6 +235,10 @@ impl App {
     tabs.splice(0..0, builtin::make_all());
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
+    res.arts.set_motion(set.paint_motion);
+    if flood {
+      crate::fake::seed_paints(&mut res.cosmetics);
+    }
     res.media = set.media;
     res.partial_links = set.partial_links;
     Self {

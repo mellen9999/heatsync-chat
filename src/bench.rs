@@ -19,9 +19,13 @@ pub fn rss_kb() -> (u64, u64, u64, u64) {
 }
 
 pub fn run(total: usize) {
-  let (w, h) = (480, 1000);
+  // HSC_BENCH_H: a shorter pane shows fewer rows (and so fewer painted names)
+  let h = std::env::var("HSC_BENCH_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
+  let w = 480;
   let mut c = Canvas::new(w, h);
   let mut res = Res::new(1.0);
+  crate::fake::seed_paints(&mut res.cosmetics);
+  res.arts.set_motion(std::env::var("HSC_MOTION").as_deref() != Ok("0"));
   let mut chat = ChatView::new(1000, "bench".into());
   let mut fake = Fake::new(0x5eed);
   let area = Rect::new(0, 0, w, h);
@@ -57,6 +61,18 @@ pub fn run(total: usize) {
     chat.draw(&mut c, &mut res, area, area);
   }
   let full_avg = f.elapsed().as_secs_f64() * 1e3 / 100.0;
+
+  // painted names: what one animation tick costs, and the cpu that is at the 30fps cap
+  if crate::fake::painted_count() > 0 {
+    chat.draw(&mut c, &mut res, area, area);
+    let names = chat.animated_names();
+    let f = Instant::now();
+    for _ in 0..300 {
+      chat.animate(&mut c, &mut res, area);
+    }
+    let tick = f.elapsed().as_secs_f64() * 1e3 / 300.0;
+    println!("animated names on screen {names}  tick {tick:.3}ms  => ~{:.2}% cpu at 30fps", tick * 30.0 / 10.0);
+  }
 
   let (rss, hwm, anon, file) = rss_kb();
   println!(

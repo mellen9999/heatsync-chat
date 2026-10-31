@@ -136,6 +136,10 @@ impl App {
         self.res.cosmetics.on = self.set.paints;
         self.relayout_where(None);
       }
+      Fx::PaintMotion => {
+        self.res.arts.set_motion(self.set.paint_motion);
+        self.relayout_where(None);
+      }
       Fx::Links => {
         self.res.partial_links = self.set.partial_links;
         self.relayout_where(None);

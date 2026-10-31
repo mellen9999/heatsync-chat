@@ -24,6 +24,8 @@ pub struct Settings {
   pub first_glow: bool,
   // 7tv paints on names and 7tv badges. default on, like the ext (sevenTvPaints)
   pub paints: bool,
+  // name paints move (scenes + effects). off freezes each to its first frame, like the ext's animatePaints
+  pub paint_motion: bool,
   // stream lines: went live (on), went offline (off), game switch (on), chat-spike line (on)
   pub ev_online: bool,
   pub ev_offline: bool,
@@ -56,6 +58,7 @@ impl Default for Settings {
       auto_hide: false,
       first_glow: true,
       paints: true,
+      paint_motion: true,
       ev_online: true,
       ev_offline: false,
       ev_game: true,
@@ -202,6 +205,7 @@ mod tests {
         auto_hide: false,
         first_glow: true,
         paints: true,
+        paint_motion: true,
         ev_online: true,
         ev_offline: false,
         ev_game: true,

@@ -22,6 +22,7 @@ the heatsync browser extension's multichat overlay, as a standalone pure-rust wi
 - anon rss ~12MB at start, ~21-28MB steady on a busy merged twitch+kick tab (chatterino: ~135MB anon). file-backed rss = mmapped fonts + binary, shared/evictable
 - glibc parks freed heap after big json parses: `util::mem` caps arenas at 2, pins the mmap threshold at 128KB (else a +16MB fragmentation jump), and trims 2s after bursts. keep it
 - append frame ~0.25ms, full redraw ~0.45ms; busy channel w/ animated emotes ~3% cpu (animations capped 30fps); idle cpu 0
+- animated heatsync paints (scenes + effects, `src/ui/name_art/`): ~0.05ms per visible painted name per tick, 17 on screen ~2.3% cpu (`HSC_PAINTS=20 HSC_BENCH_H=520 --bench`), +4MB anon; ticks only for names on screen, 24-30fps, off with `animate paints`
 - images: decoded at display height (28px × scale), frames idle 60s drop back to disk, 24MB hard cap with lru eviction, raw bytes in `~/.cache/heatsync-chat/img` (pruned to 256MB)
 
 ## conventions

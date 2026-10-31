@@ -34,7 +34,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 | live / moments | `GET /api/live/top?limit=50`, `GET /api/moments?limit=&hours=` | |
 | catalog | `GET /api/emote-search?q=` (2-50, `[a-z0-9_\-:.]`) → `merged[{name,url,provider,animated,zeroWidth}]` | completion only — NEVER render |
 | badges | `GET /api/chatterino-badges` | |
-| heatsync paints | `GET /api/paints?ids=<twitch ids>` → `paints{id:spec v2}` | fetched with each cosmetics batch (either failing retries it); outranks the 7tv paint. rendered at rest: base + glow; effects + scene skipped, conic as linear |
+| heatsync paints | `GET /api/paints?ids=<twitch ids>` → `paints{id:spec v2}` | fetched with each cosmetics batch (either failing retries it); outranks the 7tv paint. rendered like the ext: base + glow, every scene backdrop/weather and effect (cpu, 24-30fps, only while on screen; `animate paints` off = first frame). `fill`/`outline`/`shadows` blocks not rendered |
 | 7tv cosmetics | `GET /api/cosmetics/batch?ids=<twitch ids, sorted>` → `cosmetics{id:{paint,badge}\|null}` | ≤25/req, 300ms gather, one in flight, 5s cooldown after a failure. ttl +30min / none 5min. lru 500. paint image only `https://cdn.7tv.app/paint/…` |
 | gifs | `GET /api/gifs/search?q=&limit=`, `/api/gifs/top` | no offset; page n = `limit n*12` |
 | images | `GET /api/img?url=` → 302 webp | 403 moderation, 413 size, 429. 20 new urls/min |
