@@ -1500,6 +1500,10 @@ impl ApplicationHandler<NetEvent> for App {
         }
         self.trim_soon();
       }
+      NetEvent::CosmeticsChanged(ids) => {
+        ids.into_iter().for_each(|id| self.res.cosmetics.stale(id));
+        self.wake();
+      }
       NetEvent::CosmeticsStale(id) => {
         self.res.cosmetics.stale(id);
         self.wake();
@@ -1712,4 +1716,88 @@ impl ApplicationHandler<NetEvent> for App {
 
 pub fn persist(channels: &[Box<str>]) {
   store::save_tabs(channels);
+}
+
+// the whole app, no window: real network in, real redraw out. needs a wayland/x11 session for the event
+// loop (not a window). run with XDG_CONFIG_HOME + XDG_CACHE_HOME pointed at an empty dir
+#[cfg(test)]
+mod live {
+  use super::*;
+  use winit::event_loop::EventLoop;
+  use winit::platform::wayland::EventLoopBuilderExtWayland;
+
+  struct Headless {
+    app: App,
+    deadline: Instant,
+    amber: usize,
+    asked: bool,
+  }
+
+  impl Headless {
+    fn look(&mut self) {
+      self.app.redraw();
+      self.amber = self
+        .app
+        .canvas
+        .px
+        .iter()
+        .filter(|p| (*p >> 16 & 255) > 200 && (*p >> 8 & 255) > 120 && (*p & 255) < 60 && (*p >> 8 & 255) < 200)
+        .count();
+    }
+  }
+
+  impl ApplicationHandler<NetEvent> for Headless {
+    fn resumed(&mut self, el: &ActiveEventLoop) {
+      el.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250)));
+    }
+    fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+    fn user_event(&mut self, el: &ActiveEventLoop, ev: NetEvent) {
+      if let NetEvent::Cosmetics(g) = &ev {
+        eprintln!(
+          "cosmetics event: {:?}",
+          g.iter().map(|(i, c)| (*i, c.as_ref().map(|c| (c.paint.is_some(), c.badge.is_some())))).collect::<Vec<_>>()
+        );
+      }
+      self.app.user_event(el, ev);
+      self.look();
+    }
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+      self.look();
+      if Instant::now() > self.deadline {
+        return el.exit();
+      }
+      el.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250)));
+      self.asked = true;
+    }
+  }
+
+  #[test]
+  #[ignore]
+  fn live_app_paints_ennortix() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let el = EventLoop::<NetEvent>::with_user_event().with_any_thread(true).build().expect("event loop");
+    let net = Net::spawn(el.create_proxy());
+    let mut app = App::new(net, vec!["nl_kripp".into()], false);
+    app.dpi = 1.5;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(420, 800);
+    for t in &mut app.tabs {
+      t.view.resize(420);
+    }
+    let mut h = Headless { app, deadline: Instant::now() + Duration::from_secs(12), amber: 0, asked: false };
+    let _ = el.run_app(&mut h);
+    let n = h.app.tabs[h.app.active].view.len();
+    eprintln!(
+      "rows {n} amber px {} ennortix has paint: {:?}",
+      h.amber,
+      h.app.res.cosmetics.get(37005319).map(|c| c.paint.is_some())
+    );
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &h.app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+    assert!(h.amber > 30, "no amber name on screen");
+  }
 }

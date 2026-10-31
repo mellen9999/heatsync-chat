@@ -81,3 +81,23 @@ async fn batch(
       .collect(),
   )
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // real network: ennortix (twitch 37005319) wears a heatsync-native paint and no 7tv one
+  #[tokio::test]
+  #[ignore]
+  async fn live_batch_returns_ennortix_paint() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let http = reqwest::Client::new();
+    let mut cache = HashMap::new();
+    let got = batch(&http, &[37005319], &mut cache).await.expect("batch failed");
+    eprintln!(
+      "{:?}",
+      got.iter().map(|(i, c)| (i, c.as_ref().map(|c| c.paint.as_ref().map(|p| p.id.clone())))).collect::<Vec<_>>()
+    );
+    assert!(got[0].1.as_ref().and_then(|c| c.paint.as_ref()).is_some());
+  }
+}

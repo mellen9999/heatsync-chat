@@ -1347,6 +1347,37 @@ mod tests {
     assert_eq!(tint(&c).2, g0);
   }
 
+  #[test]
+  fn heatsync_native_solid_paint_colors_the_name() {
+    use crate::cosmetics::{Cosmetic, paint::Paint as P};
+    for zoom in [1.0, 1.3, 2.0] {
+      let mut res = Res::new(zoom);
+      let spec = serde_json::json!({"v": 2, "base": {"type": "solid", "angle": 0, "stops": [{"pos": 0, "color": "#ffb000"}]},
+      "glow": null, "effects": [{"id": "twirl", "speed": 1}]});
+      let paint = P::from_hs(&spec).unwrap();
+      // a real nl_kripp history line, through the real irc parser
+      let raw = "@flags;subscriber=1;first-msg=0;rm-received-ts=1793376500527;display-name=ennortix;emotes;color=#FF0000;turbo=0;tmi-sent-ts=1793376500347;user-type;mod=0;badge-info=subscriber/55;user-id=37005319;badges=subscriber/2048,ewc-2026-diamond/1;id=2f3d789f;room-id=29795919;historical=1 :ennortix!ennortix@ennortix.tmi.twitch.tv PRIVMSG #nl_kripp :watching the mentalist while gaming Ratting";
+      let (_, crate::net::irc::Chat::Msg(m)) = crate::net::irc::to_chat(&crate::net::irc::parse(raw).unwrap()).unwrap()
+      else {
+        panic!()
+      };
+      let mut v = ChatView::new(10, "c".into());
+      v.zebra = false;
+      v.resize(400);
+      v.push(m);
+      let area = Rect::new(0, 0, 400, 40);
+      let mut c = Canvas::new(400, 40);
+      v.draw(&mut c, &mut res, area, area);
+      assert_eq!(res.cosmetics.take_wanted(), vec![37005319]);
+      res.cosmetics.put(37005319, Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+      v.touch_sender("37005319");
+      v.draw(&mut c, &mut res, area, area);
+      let amber = c.px.iter().filter(|p| (*p >> 16 & 255) > 200 && (*p >> 8 & 255) > 120 && (*p & 255) < 60).count();
+      let red = c.px.iter().filter(|p| (*p >> 16 & 255) > 200 && (*p >> 8 & 255) < 60 && (*p & 255) < 60).count();
+      assert!(amber > 20 && red == 0, "zoom {zoom} amber {amber} red {red}");
+    }
+  }
+
   const NO_OPTS: Opts = Opts { ts: false, tags: false, find: None };
 
   fn said(login: &str, body: &str) -> Message {

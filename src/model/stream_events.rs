@@ -92,6 +92,12 @@ impl Gate {
     Some(Line { platform: e.platform, channel: e.channel.clone(), text: text.into(), tone })
   }
 
+  // the grace clock runs from launch, like the ext's content-script load. left to the first event it
+  // would start late: the first go-live of a long session would count as "just connected" and vanish
+  pub fn start(&mut self, now: i64) {
+    self.start.get_or_insert(now);
+  }
+
   pub fn event(&mut self, now: i64, e: Ev) -> Option<Line> {
     let start = *self.start.get_or_insert(now);
     let k = key(&e);
@@ -208,6 +214,19 @@ mod tests {
     // an update echoing the go-live right after is dropped
     assert!(g.event(LATE + 20, ev(Kind::Update, "Chess", "")).is_none());
     assert!(g.next_due().is_none());
+  }
+
+  #[test]
+  fn first_go_live_of_a_long_session_shows() {
+    let mut g = Gate::default();
+    g.start(T0);
+    // nothing for ten minutes, then riotgames goes live: that is the first event, and it must show
+    let l = g.event(T0 + 600_000, ev(Kind::Online, "Valorant", "")).unwrap();
+    assert_eq!(&*l.text, "[cyr] ◆ went live — Valorant");
+    // inside the first 90s it is still the connect snapshot
+    let mut early = Gate::default();
+    early.start(T0);
+    assert!(early.event(T0 + 30_000, ev(Kind::Online, "Valorant", "")).is_none());
   }
 
   #[test]

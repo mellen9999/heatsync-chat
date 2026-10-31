@@ -63,6 +63,8 @@ pub enum NetEvent {
   Cosmetics(Vec<(u64, Option<crate::cosmetics::Cosmetic>)>),
   // 7tv says this twitch user's cosmetics changed: ask again
   CosmeticsStale(u64),
+  // heatsync says these twitch ids changed their paint: ask again
+  CosmeticsChanged(Vec<u64>),
   // a live edit of a channel's 7tv emote set
   EmoteDelta(Box<str>, crate::emotes::live::Delta),
   // a channel's pinned line was set or cleared (None)
@@ -467,5 +469,77 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod live {
+  use super::*;
+  use winit::application::ApplicationHandler;
+  use winit::event::WindowEvent;
+  use winit::event_loop::{ActiveEventLoop, EventLoop};
+  use winit::window::WindowId;
+
+  // real network, no window: join nl_kripp, wait for ennortix's backfilled line, ask for their
+  // cosmetics the way the ui does, expect the heatsync paint back. needs a wayland/x11 session
+  // (an event loop, not a window): WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000
+  struct Probe {
+    net: Option<Net>,
+    asked: bool,
+    painted: Option<bool>,
+    log: Vec<String>,
+    deadline: std::time::Instant,
+  }
+
+  impl ApplicationHandler<NetEvent> for Probe {
+    fn resumed(&mut self, el: &ActiveEventLoop) {
+      self.net.as_ref().unwrap().send(Cmd::Join("nl_kripp".into()));
+      el.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+        std::time::Instant::now() + Duration::from_secs(40),
+      ));
+    }
+    fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+      if std::time::Instant::now() > self.deadline {
+        el.exit();
+      }
+    }
+    fn user_event(&mut self, el: &ActiveEventLoop, ev: NetEvent) {
+      match ev {
+        NetEvent::Backfill(_, evs) if !self.asked => {
+          let hit = evs.iter().any(|e| matches!(e, Chat::Msg(m) if &*m.user_id == "37005319"));
+          self.log.push(format!("backfill {} lines, ennortix among them: {hit}", evs.len()));
+          if hit {
+            self.asked = true;
+            self.net.as_ref().unwrap().send(Cmd::Cosmetics(37005319));
+          }
+        }
+        NetEvent::Cosmetics(got) => {
+          self.log.push(format!("cosmetics {:?}", got.iter().map(|(i, c)| (*i, c.is_some())).collect::<Vec<_>>()));
+          self.painted = Some(got.iter().any(|(i, c)| *i == 37005319 && c.as_ref().is_some_and(|c| c.paint.is_some())));
+          el.exit();
+        }
+        NetEvent::Status(s) => self.log.push(format!("status {s}")),
+        _ => {}
+      }
+    }
+  }
+
+  #[test]
+  #[ignore]
+  fn live_ennortix_paint_arrives_through_net() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let el = EventLoop::<NetEvent>::with_user_event().with_any_thread(true).build().expect("event loop");
+    let mut p = Probe {
+      net: Some(Net::spawn(el.create_proxy())),
+      asked: false,
+      painted: None,
+      log: Vec::new(),
+      deadline: std::time::Instant::now() + Duration::from_secs(40),
+    };
+    let _ = el.run_app(&mut p);
+    eprintln!("{}", p.log.join("\n"));
+    assert_eq!(p.painted, Some(true));
   }
 }

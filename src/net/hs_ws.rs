@@ -67,6 +67,7 @@ enum End {
 
 pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSender<pin::Ask>, out: Out) {
   let mut st = State::default();
+  st.gate.start(crate::util::time::now_ms());
   let mut attempts = 0u32;
   loop {
     let mut wait = None;
@@ -266,6 +267,12 @@ fn kick_room(v: &Value) -> Option<Box<str>> {
   v.get("_ch").and_then(Value::as_str)?.strip_prefix("kick/").filter(|c| valid_key(c)).map(Into::into)
 }
 
+// twitch ids out of a `cosmetic:changed` frame; kick_/yt_ ids belong to other platforms and are skipped
+fn cosmetic_ids(v: &Value) -> Vec<u64> {
+  let list = v.get("ids").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+  list.iter().take(MAX_BATCH).filter_map(|i| i.as_str()?.parse().ok()).collect()
+}
+
 // Some(Quit|Shutdown) ends the session; everything else keeps reading
 fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
   let ty = v.get("type").and_then(Value::as_str)?;
@@ -329,6 +336,11 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         .flatten();
       send(NetEvent::SendersStale { ids, ver, removed })
     }
+    // a chatter's heatsync paint changed (ids only; the spec stays behind the entitlement gate): ask again
+    "cosmetic:changed" => {
+      let ids = cosmetic_ids(v);
+      (!ids.is_empty()).then(|| send(NetEvent::CosmeticsChanged(ids))).flatten()
+    }
     "stream:online" | "stream:offline" | "stream:update" => {
       let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
       let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
@@ -383,6 +395,13 @@ mod tests {
     assert!(apply(&mut st, Cmd::YtSub("@handle".into())).is_some());
     let f = apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into())).unwrap();
     assert_eq!(f["type"], "channel:leave");
+  }
+
+  #[test]
+  fn cosmetic_changed_keeps_only_twitch_ids() {
+    let v = json!({"type": "cosmetic:changed", "ids": ["37005319", "kick_5", "yt_UC1", 7, "x"]});
+    assert_eq!(cosmetic_ids(&v), vec![37005319]);
+    assert!(cosmetic_ids(&json!({"type": "cosmetic:changed"})).is_empty());
   }
 
   #[test]

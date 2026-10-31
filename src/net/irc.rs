@@ -514,6 +514,15 @@ mod tests {
     }
   }
 
+  // a real nl_kripp history line: valueless tags (`flags`, `emotes`) sit around the ones we read
+  #[test]
+  fn valueless_tags_do_not_hide_the_user_id() {
+    let raw = "@flags;subscriber=1;first-msg=0;rm-received-ts=1793376500527;display-name=ennortix;emotes;color=#FF0000;turbo=0;tmi-sent-ts=1793376500347;user-type;mod=0;badge-info=subscriber/55;user-id=37005319;badges=subscriber/2048,ewc-2026-diamond/1;id=2f3d789f;room-id=29795919;historical=1 :ennortix!ennortix@ennortix.tmi.twitch.tv PRIVMSG #nl_kripp :watching the mentalist";
+    let l = parse(raw).unwrap();
+    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
+    assert_eq!(&*m.user_id, "37005319");
+  }
+
   #[test]
   fn parses_privmsg() {
     let l = parse(PRIV).unwrap();
