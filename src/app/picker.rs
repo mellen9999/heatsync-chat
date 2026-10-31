@@ -1,4 +1,4 @@
-// the emote picker: ctrl-; or the ☺ button. filter box, then a grid of local emotes
+// the emote picker: ctrl-; or the logo button. filter box, then a grid of local emotes
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;

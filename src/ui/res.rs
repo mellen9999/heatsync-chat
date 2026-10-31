@@ -5,6 +5,7 @@ use crate::emotes::block::Blocked;
 use crate::heatsync::senders::Senders;
 use crate::images::Images;
 
+use super::logo::Logo;
 use super::text::Text;
 
 pub const EMOTE_PX: u16 = 28;
@@ -17,12 +18,15 @@ pub struct Res {
   pub badges: Badges,
   pub senders: Senders,
   pub blocked: Blocked,
+  pub logo: Logo,
 }
 
 impl Res {
   pub fn new(scale: f32) -> Self {
+    let text = Text::new(scale);
     Self {
-      text: Text::new(scale),
+      logo: Logo::new(text.line_px as u32),
+      text,
       images: Images::new(scale),
       emotes: Emotes::default(),
       badges: Badges::default(),
@@ -33,6 +37,7 @@ impl Res {
 
   pub fn set_scale(&mut self, scale: f32) {
     self.text.set_scale(scale);
+    self.logo = Logo::new(self.text.line_px as u32);
     self.images.set_scale(scale);
   }
 }

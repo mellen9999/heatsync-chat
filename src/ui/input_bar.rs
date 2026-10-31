@@ -4,6 +4,7 @@ use parley::Affinity;
 use parley::editing::{Cursor, Selection};
 
 use super::canvas::{Canvas, Rect};
+use super::logo::Logo;
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
 use crate::model::line::Line;
@@ -25,9 +26,10 @@ pub struct Bar<'a> {
   pub preedit_caret: usize,
   // the picker is open or the pointer is on the button: drawn reversed
   pub picker_on: bool,
+  pub logo: &'a Logo,
 }
 
-// the ☺ button at the right end of the first row
+// the heatsync logo button at the right end of the first row
 pub fn button(area: Rect, line: i32) -> Rect {
   let w = line * 3 / 2;
   Rect::new(area.right() - w, area.y, w, line.min(area.h))
@@ -144,11 +146,11 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
     Mode::Chat => {}
   }
   let btn = button(area, text.line_px as i32);
-  let (bg, ink) = if b.picker_on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
+  let (bg, art) = if b.picker_on { (theme::WHITE, &b.logo.black) } else { (theme::BLACK, &b.logo.color) };
   c.fill(btn, bg);
-  let span = Span { range: 0..'☺'.len_utf8(), ink: Ink(ink), bold: false };
-  let g = text.layout("☺", &[span], &[], 1000.0);
-  let gx = btn.x as f32 + (btn.w as f32 - g.full_width()) / 2.0;
-  text.draw(&g, c, gx, btn.y as f32, btn, |_, _| {});
+  if let Some((d, f)) = art.as_ref().and_then(|d| Some((d, d.frames.first()?))) {
+    let (w, h) = (d.w as i32, d.h as i32);
+    c.rgba(btn.x + (btn.w - w) / 2, btn.y + (btn.h - h) / 2, w, h, &f.rgba, btn);
+  }
   Rect::new(x, y, CURSOR_W, h)
 }

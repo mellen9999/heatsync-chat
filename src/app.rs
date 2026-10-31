@@ -122,7 +122,7 @@ pub struct App {
   menu: Option<emote::Open>,
   picker: Option<Picker>,
   recents: Recents,
-  // pointer is over the ☺ button
+  // pointer is over the logo button
   btn_hover: bool,
 }
 
@@ -566,6 +566,7 @@ impl App {
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
         picker_on: self.picker.is_some() || self.btn_hover,
+        logo: &self.res.logo,
       };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
       if h != self.input_h {
@@ -1013,8 +1014,12 @@ impl ApplicationHandler<NetEvent> for App {
     if self.gfx.is_some() {
       return;
     }
-    let attrs =
-      Window::default_attributes().with_title("heatsync").with_inner_size(winit::dpi::LogicalSize::new(420, 800));
+    // x11 shows it; wayland compositors take their icon from the .desktop file instead
+    let icon = crate::ui::logo::window_rgba().and_then(|(px, w)| winit::window::Icon::from_rgba(px, w, w).ok());
+    let attrs = Window::default_attributes()
+      .with_title("heatsync")
+      .with_window_icon(icon)
+      .with_inner_size(winit::dpi::LogicalSize::new(420, 800));
     let window = match el.create_window(attrs) {
       Ok(w) => Rc::new(w),
       Err(e) => {
