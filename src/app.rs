@@ -5,13 +5,15 @@ use std::time::{Duration, Instant};
 
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::event::{ElementState, Ime as WinIme, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::fake::Fake;
 use crate::model::complete::{Complete, rank};
+use crate::model::ime::Ime;
 use crate::model::line::Line;
 use crate::model::message::{Message, Platform};
 use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
@@ -107,6 +109,11 @@ pub struct App {
   input_h: i32,
   input_dirty: bool,
   me: Option<Me>,
+  // input-method composition, whether the window currently lets one run, and the caret rect
+  ime: Ime,
+  ime_on: bool,
+  ime_area: Option<Rect>,
+  ime_sent: Option<Rect>,
 }
 
 impl App {
@@ -170,6 +177,68 @@ impl App {
       input_h: 0,
       input_dirty: true,
       me: None,
+      ime: Ime::default(),
+      ime_on: false,
+      ime_area: None,
+      ime_sent: None,
+    }
+  }
+
+  // does the focused thing take typed text (so an input method may run)?
+  fn wants_text(&self) -> bool {
+    self.mode == Mode::Insert
+  }
+
+  // keep the window's input-method state in step: allowed only while text is accepted,
+  // candidate window parked at the caret
+  fn sync_ime(&mut self) {
+    let want = self.wants_text();
+    if !want && self.ime.composing() {
+      self.ime.clear();
+      self.input_dirty = true;
+      self.wake();
+    }
+    let Some(g) = &self.gfx else { return };
+    if want != self.ime_on {
+      self.ime_on = want;
+      g.window.set_ime_allowed(want);
+      self.ime_sent = None;
+    }
+    if want && self.ime_area != self.ime_sent {
+      self.ime_sent = self.ime_area;
+      if let Some(r) = self.ime_area {
+        g.window.set_ime_cursor_area(
+          PhysicalPosition::new(r.x, r.y),
+          PhysicalSize::new(r.w.max(1) as u32, r.h.max(1) as u32),
+        );
+      }
+    }
+  }
+
+  fn on_ime(&mut self, ev: WinIme) {
+    match ev {
+      WinIme::Enabled => self.ime_sent = None,
+      WinIme::Preedit(text, cursor) => {
+        if self.wants_text() {
+          self.ime.set(&text, cursor);
+          self.input_dirty = true;
+          self.wake();
+        }
+      }
+      WinIme::Commit(text) => {
+        let text = self.ime.commit(&text);
+        if self.wants_text() && !text.is_empty() {
+          self.complete = None;
+          self.line.insert(&text);
+        }
+        self.input_dirty = true;
+        self.wake();
+      }
+      WinIme::Disabled => {
+        self.ime.clear();
+        self.input_dirty = true;
+        self.wake();
+      }
     }
   }
 
@@ -196,7 +265,7 @@ impl App {
 
   // auto-hide: an empty bar takes no room (mode and reply stay as they are)
   fn hidden(&self) -> bool {
-    self.set.auto_hide && self.line.text.is_empty()
+    self.set.auto_hide && self.line.text.is_empty() && !self.ime.composing()
   }
 
   // where the input sends: the tab's target source, tagged when the tab merges platforms
@@ -466,7 +535,15 @@ impl App {
       let hidden = self.hidden();
       let tag = self.target().and_then(|t| t.2);
       let reply = self.reply.as_ref().map(|r| &*r.1);
-      let bar = input_bar::Bar { line: &self.line, mode: self.mode, target: tag, hint: &hint, reply };
+      let bar = input_bar::Bar {
+        line: &self.line,
+        mode: self.mode,
+        target: tag,
+        hint: &hint,
+        reply,
+        preedit: self.ime.preedit(),
+        preedit_caret: self.ime.caret(),
+      };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
       if h != self.input_h {
         // the chat area changed size: repaint it whole
@@ -477,7 +554,7 @@ impl App {
       }
       if h > 0 {
         let r = self.input_area();
-        input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar);
+        self.ime_area = Some(input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar));
         dirty = Some(r);
       }
     }
@@ -666,7 +743,8 @@ impl App {
         }
       }
       Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !self.mods.alt_key() => {
-        if let Some(t) = text {
+        // mid-composition the input method owns the text; its commit arrives as an ime event
+        if let Some(t) = text.filter(|_| self.ime.accepts_key_text()) {
           l.insert(t);
         }
       }
@@ -1027,6 +1105,7 @@ impl ApplicationHandler<NetEvent> for App {
       }
       WindowEvent::CursorMoved { position, .. } => self.pointer = (position.x as i32, position.y as i32),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
+      WindowEvent::Ime(ev) => self.on_ime(ev),
       WindowEvent::MouseWheel { delta, .. } => {
         let px = match delta {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
@@ -1047,6 +1126,7 @@ impl ApplicationHandler<NetEvent> for App {
   }
 
   fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+    self.sync_ime();
     let now = Instant::now();
     if let Some(next) = self.flood
       && now >= next
