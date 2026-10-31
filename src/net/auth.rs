@@ -99,8 +99,14 @@ impl Provider {
 }
 
 // the browser address for one login. `pack` only rides on twitch (a fixed word, never user text)
-fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str) -> String {
+// `link` is a one-shot ticket (see `link_ticket`): with it the browser attaches this platform to the
+// account we're signed in as, instead of signing in as the platform's own account
+fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str, link: Option<&str>) -> String {
   let mut url = format!("{ORIGIN}{}?native={port}&cc={}&ns={}", provider.path(), p.challenge, p.state);
+  if let Some(t) = link {
+    url.push_str("&nl=");
+    url.push_str(t);
+  }
   if provider == Provider::Twitch {
     url.push_str("&scopes=");
     url.push_str(pack);
@@ -108,12 +114,42 @@ fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str) -> String {
   url
 }
 
-// opens the browser and waits (≤5 min) for the loopback; returns the heatsync session token
-pub async fn login(http: &reqwest::Client, provider: Provider, pack: &str) -> Result<String, String> {
+// trades the signed-in session for a one-time ticket that lets a browser flow link onto this account
+async fn link_ticket(http: &reqwest::Client, token: &str) -> Result<String, String> {
+  let r =
+    http.post(format!("{ORIGIN}/api/auth/native-link")).bearer_auth(token).send().await.map_err(|e| e.to_string())?;
+  let ok = r.status().is_success();
+  let expired = r.status().as_u16() == 401;
+  let v = body(r).await.unwrap_or(Value::Null);
+  match v.get("ticket").and_then(Value::as_str) {
+    Some(t) if ok && t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => Ok(t.to_string()),
+    _ if expired => Err("session expired, log in again (ctrl-l)".to_string()),
+    _ => Err(v.get("error").and_then(Value::as_str).unwrap_or("couldn't start linking").chars().take(100).collect()),
+  }
+}
+
+// opens the browser and waits (≤5 min) for the loopback; returns the heatsync session token.
+// `link_as` = the current session token: the platform is then linked onto that account and the
+// returned token is the same account's, refreshed
+pub async fn login(
+  http: &reqwest::Client,
+  provider: Provider,
+  pack: &str,
+  link_as: Option<&str>,
+) -> Result<String, String> {
+  let ticket = match link_as {
+    Some(t) => Some(link_ticket(http, t).await?),
+    None => None,
+  };
   let p = pkce()?;
   let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("loopback: {e}"))?;
   let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-  let url = login_url(provider, port, &p, pack);
+  let done = if ticket.is_some() {
+    "linked. you can close this tab"
+  } else {
+    "logged in to heatsync chat. you can close this tab"
+  };
+  let url = login_url(provider, port, &p, pack, ticket.as_deref());
   open_browser(&url)?;
   let code = timeout(WAIT, async {
     loop {
@@ -130,7 +166,7 @@ pub async fn login(http: &reqwest::Client, provider: Provider, pack: &str) -> Re
         let _ = sock.write_all(page("login didn't match this app — try again from the app").as_bytes()).await;
         return Err("login state mismatch".to_string());
       }
-      let _ = sock.write_all(page("logged in to heatsync chat. you can close this tab").as_bytes()).await;
+      let _ = sock.write_all(page(done).as_bytes()).await;
       return Ok(code);
     }
   })
@@ -177,6 +213,8 @@ fn open_browser(url: &str) -> Result<(), String> {
 
 pub struct Me {
   pub username: Box<str>,
+  // the platform this heatsync account was founded on ("twitch", "kick", "youtube"; "" when unknown)
+  pub platform: Box<str>,
   pub twitch: Option<Box<str>>,
   // twitch user id: our own heatsync inventory is the sender set under this id
   pub twitch_id: Option<u64>,
@@ -190,12 +228,6 @@ pub struct Me {
 }
 
 impl Me {
-  // "twitch, kick": the platforms this login can act on
-  pub fn linked(&self) -> String {
-    let on = [("twitch", self.twitch.is_some()), ("kick", self.kick.is_some()), ("youtube", self.youtube.is_some())];
-    on.iter().filter(|(_, x)| *x).map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
-  }
-
   pub fn has_pack(&self, pack: &str) -> bool {
     self.packs.iter().any(|p| &**p == pack)
   }
@@ -233,6 +265,7 @@ pub async fn check(http: &reqwest::Client, token: &str) -> Result<Check, String>
     .map(|a| a.iter().filter_map(Value::as_str).take(32).map(|p| p.chars().take(32).collect()).collect())
     .unwrap_or_default();
   let me = Me {
+    platform: s("platform").unwrap_or_default(),
     username: s("username").or_else(|| names.first().cloned()).unwrap_or_else(|| "?".into()),
     twitch: s("twitch_username"),
     twitch_id,
@@ -323,14 +356,27 @@ mod tests {
   fn login_urls() {
     let p = Pkce { verifier: "v".into(), challenge: "c".into(), state: "s".into() };
     assert_eq!(
-      login_url(Provider::Twitch, 5, &p, "whispers"),
+      login_url(Provider::Twitch, 5, &p, "whispers", None),
       "https://heatsync.org/api/auth/login?native=5&cc=c&ns=s&scopes=whispers"
     );
-    assert_eq!(login_url(Provider::Kick, 5, &p, "base"), "https://heatsync.org/api/auth/kick/login?native=5&cc=c&ns=s");
     assert_eq!(
-      login_url(Provider::Youtube, 5, &p, "whispers"),
+      login_url(Provider::Kick, 5, &p, "base", None),
+      "https://heatsync.org/api/auth/kick/login?native=5&cc=c&ns=s"
+    );
+    assert_eq!(
+      login_url(Provider::Youtube, 5, &p, "whispers", None),
       "https://heatsync.org/api/auth/youtube/login?native=5&cc=c&ns=s"
     );
+  }
+
+  #[test]
+  fn link_url_carries_the_ticket() {
+    let p = Pkce { verifier: "v".into(), challenge: "c".into(), state: "s".into() };
+    assert_eq!(
+      login_url(Provider::Kick, 5, &p, "base", Some("ab12")),
+      "https://heatsync.org/api/auth/kick/login?native=5&cc=c&ns=s&nl=ab12"
+    );
+    assert!(login_url(Provider::Twitch, 5, &p, "base", Some("ab12")).ends_with("&nl=ab12&scopes=base"));
   }
 
   #[test]

@@ -13,7 +13,7 @@ pub static KEYS: [Group; 9] = [
       ("?  f1", "this screen"),
       ("ctrl-,", "settings"),
       ("ctrl-t", "add a channel"),
-      ("ctrl-l", "log in (twitch, kick, youtube)"),
+      ("ctrl-l", "log in · account menu (link, log out)"),
       ("ctrl-shift-l", "log out"),
       ("ctrl-o", "upload a picture or video"),
       ("ctrl-;", "emote picker"),

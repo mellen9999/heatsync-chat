@@ -8,7 +8,7 @@ use crate::model::message::{Kind as MsgKind, Platform};
 use crate::model::modcmd::{DURATIONS, Verb};
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
-use crate::net::auth::Provider;
+use crate::net::auth::{Me, Provider};
 use crate::ui::canvas::Rect;
 use crate::ui::menu::Menu;
 use crate::util::time::now_ms;
@@ -16,6 +16,9 @@ use crate::util::time::now_ms;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
   Login(Provider),
+  // attach another platform to the account we're signed in as
+  Link(Provider),
+  Logout,
   // a mod action on the person the menu was opened for
   Do(Verb),
   // the answers to "ban bob?"
@@ -76,18 +79,37 @@ fn login_rows() -> Vec<(Act, String)> {
     .collect()
 }
 
+// "logged in as mellen (kick)"
+fn account_head(me: &Me) -> String {
+  if me.platform.is_empty() {
+    format!("logged in as {}", me.username)
+  } else {
+    format!("logged in as {} ({})", me.username, me.platform)
+  }
+}
+
+// the signed-in menu: a link row for each platform not linked yet, then log out
+fn account_rows(me: &Me) -> Vec<(Act, String)> {
+  let linked = [
+    (Provider::Twitch, me.twitch.is_some()),
+    (Provider::Kick, me.kick.is_some()),
+    (Provider::Youtube, me.youtube.is_some()),
+  ];
+  let mut rows: Vec<(Act, String)> =
+    linked.into_iter().filter(|(_, on)| !on).map(|(p, _)| (Act::Link(p), format!("link {}", p.name()))).collect();
+  rows.push((Act::Logout, "log out".to_owned()));
+  rows
+}
+
 impl App {
-  // ctrl-l: logged in just says who; logged out asks which platform
+  // ctrl-l: logged in opens the account menu (who, link more, log out); logged out asks which platform
   pub(super) fn login(&mut self) {
-    if let Some(me) = &self.me {
-      let on = me.linked();
-      let on = if on.is_empty() { String::new() } else { format!(" · {on}") };
-      self.status = format!("logged in as {}{on} (ctrl-shift-l logs out)", me.username);
-      self.bar_dirty = true;
-      return self.wake();
-    }
     let at = (self.canvas.w / 2 - 80, self.bar().bottom());
-    self.pop = Some(Pop { menu: Menu::new(login_rows(), at).titled("log in with"), subject: None, todo: None });
+    let menu = match &self.me {
+      Some(me) => Menu::new(account_rows(me), at).titled(account_head(me)),
+      None => Menu::new(login_rows(), at).titled("log in with"),
+    };
+    self.pop = Some(Pop { menu, subject: None, todo: None });
     self.pop_changed();
   }
 
@@ -114,6 +136,11 @@ impl App {
         self.status = format!("finish logging in with {} in your browser…", provider.name());
         self.net.send(Cmd::Login(provider));
       }
+      (Act::Link(provider), ..) => {
+        self.status = format!("finish linking {} in your browser…", provider.name());
+        self.net.send(Cmd::Link(provider));
+      }
+      (Act::Logout, ..) => self.net.send(Cmd::Logout),
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
       (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
       (Act::No, ..) => self.say("cancelled"),
@@ -251,5 +278,47 @@ impl App {
     let bounds = Rect::new(0, 0, self.canvas.w, (self.canvas.h - self.input_h).max(0));
     let p = self.pop.as_mut()?;
     Some(p.menu.draw(&mut self.canvas, &mut self.res.text, bounds))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn me(platform: &str, twitch: bool, kick: bool, youtube: bool) -> Me {
+    let n = |on: bool| on.then(|| "mellen".into());
+    Me {
+      platform: platform.into(),
+      username: "mellen".into(),
+      twitch: n(twitch),
+      twitch_id: None,
+      names: vec![],
+      kick: n(kick),
+      youtube: n(youtube),
+      packs: vec![],
+    }
+  }
+
+  fn labels(m: &Me) -> Vec<String> {
+    account_rows(m).into_iter().map(|r| r.1).collect()
+  }
+
+  #[test]
+  fn kick_only_account_offers_twitch_and_youtube() {
+    let m = me("kick", false, true, false);
+    assert_eq!(account_head(&m), "logged in as mellen (kick)");
+    assert_eq!(labels(&m), ["link twitch", "link youtube", "log out"]);
+    assert_eq!(account_rows(&m)[0].0, Act::Link(Provider::Twitch));
+  }
+
+  #[test]
+  fn fully_linked_account_only_logs_out() {
+    assert_eq!(labels(&me("twitch", true, true, true)), ["log out"]);
+    assert_eq!(labels(&me("twitch", true, false, true)), ["link kick", "log out"]);
+  }
+
+  #[test]
+  fn head_without_a_known_platform() {
+    assert_eq!(account_head(&me("", true, false, false)), "logged in as mellen");
   }
 }

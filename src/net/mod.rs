@@ -150,6 +150,7 @@ pub enum Cmd {
   Sender(u64, Option<Box<str>>),
   // sign in with this platform
   Login(auth::Provider),
+  Link(auth::Provider),
   Logout,
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
@@ -427,6 +428,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Login(p) => {
         let _ = sess_tx.send(session::Cmd::Login(p, "base"));
+      }
+      Cmd::Link(p) => {
+        let _ = sess_tx.send(session::Cmd::Link(p));
       }
       Cmd::Mute(op) => {
         let _ = sess_tx.send(session::Cmd::Mute(op));

@@ -25,6 +25,8 @@ pub enum Cmd {
   // which platform to sign in with, and the twitch permission pack to ask for ("base", or
   // "whispers" to add twitch whispers; the other platforms ignore it)
   Login(Provider, &'static str),
+  // attach another platform to the signed-in account
+  Link(Provider),
   Logout,
   Emote(EmoteCmd),
   Upload(std::path::PathBuf),
@@ -65,7 +67,7 @@ pub async fn run(
         Some(Cmd::Login(provider, pack)) => {
           st.out.status(format!("finish logging in with {} in your browser…", provider.name()));
           eprintln!("login: opening the browser");
-          match auth::login(&st.http, provider, pack).await {
+          match auth::login(&st.http, provider, pack, None).await {
             Ok(t) => {
               st.token = Some(t);
               next = Instant::now();
@@ -76,6 +78,24 @@ pub async fn run(
             }
           }
         }
+        Some(Cmd::Link(provider)) => match st.token.clone() {
+          None => st.out.status("log in first (ctrl-l)"),
+          Some(cur) => {
+            st.out.status(format!("finish linking {} in your browser…", provider.name()));
+            match auth::login(&st.http, provider, "base", Some(&cur)).await {
+              Ok(t) => {
+                // same account, refreshed: the re-check picks up the new link (twitch chat logs in by itself)
+                st.token = Some(t);
+                st.out.status(format!("linked {}", provider.name()));
+                next = Instant::now();
+              }
+              Err(e) => {
+                eprintln!("link failed: {e}");
+                st.out.status(format!("linking failed: {e}"));
+              }
+            }
+          }
+        },
         Some(Cmd::Logout) => {
           if let Some(t) = st.token.take() {
             auth::logout(&st.http, &t).await;
