@@ -83,6 +83,26 @@ impl Canvas {
     }
   }
 
+  // 2px dashed outline (4 on, 4 off) just inside `r`
+  pub fn dashed(&mut self, r: Rect, clip: Rect, rgb: u32) {
+    const T: i32 = 2;
+    const D: i32 = 4;
+    let mut x = r.x;
+    while x < r.right() {
+      let w = D.min(r.right() - x);
+      self.fill(Rect::new(x, r.y, w, T).intersect(clip), rgb);
+      self.fill(Rect::new(x, r.bottom() - T, w, T).intersect(clip), rgb);
+      x += 2 * D;
+    }
+    let mut y = r.y;
+    while y < r.bottom() {
+      let h = D.min(r.bottom() - y);
+      self.fill(Rect::new(r.x, y, T, h).intersect(clip), rgb);
+      self.fill(Rect::new(r.right() - T, y, T, h).intersect(clip), rgb);
+      y += 2 * D;
+    }
+  }
+
   // 8-bit coverage mask tinted with rgb
   #[allow(clippy::too_many_arguments)]
   pub fn mask(&mut self, x: i32, y: i32, w: i32, h: i32, data: &[u8], rgb: u32, clip: Rect) {

@@ -39,6 +39,17 @@ impl Scope {
   fn names(&self) -> Vec<&str> {
     self.sets.values().flat_map(|s| s.keys().map(|k| &**k)).collect()
   }
+
+  // every emote once, the provider that wins a shared name first
+  fn entries(&self) -> Vec<(&str, &Emote)> {
+    let mut seen = std::collections::HashSet::new();
+    let order = ORDER.iter().chain(std::iter::once(&Provider::Twitch));
+    order
+      .filter_map(|p| self.sets.get(p))
+      .flat_map(|s| s.iter().map(|(k, v)| (&**k, v)))
+      .filter(|(k, _)| seen.insert(*k))
+      .collect()
+  }
 }
 
 // which provider wins a name both define (ext setting emoteProviderPriority, default ffz)
@@ -78,6 +89,14 @@ impl Emotes {
 
   pub fn channel_names(&self, channel: &str) -> Vec<&str> {
     self.channels.get(channel).map_or_else(Vec::new, Scope::names)
+  }
+
+  pub fn channel_entries(&self, channel: &str) -> Vec<(&str, &Emote)> {
+    self.channels.get(channel).map_or_else(Vec::new, Scope::entries)
+  }
+
+  pub fn global_entries(&self) -> Vec<(&str, &Emote)> {
+    self.global.entries()
   }
 
   pub fn global_names(&self) -> Vec<&str> {

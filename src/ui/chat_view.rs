@@ -240,26 +240,6 @@ fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &s
   res.emotes.global(word).map(e)
 }
 
-// 2px dashed white outline (4 on, 4 off) in the emote's own slot
-fn dashed(c: &mut Canvas, r: Rect, clip: Rect) {
-  const T: i32 = 2;
-  const D: i32 = 4;
-  let mut x = r.x;
-  while x < r.right() {
-    let w = D.min(r.right() - x);
-    c.fill(Rect::new(x, r.y, w, T).intersect(clip), theme::WHITE);
-    c.fill(Rect::new(x, r.bottom() - T, w, T).intersect(clip), theme::WHITE);
-    x += 2 * D;
-  }
-  let mut y = r.y;
-  while y < r.bottom() {
-    let h = D.min(r.bottom() - y);
-    c.fill(Rect::new(r.x, y, T, h).intersect(clip), theme::WHITE);
-    c.fill(Rect::new(r.right() - T, y, T, h).intersect(clip), theme::WHITE);
-    y += 2 * D;
-  }
-}
-
 type Found = (Box<str>, (u16, u16), bool);
 
 fn blit_emote(c: &mut Canvas, images: &mut Images, imgs: &[ImgId], rect: Rect, clip: Rect, next: &mut Option<u32>) {
@@ -611,7 +591,7 @@ impl ChatView {
             let rect =
               Rect::new(b.x.round() as i32, b.y.round() as i32, b.width.round() as i32, b.height.round() as i32);
             if eb.blocked {
-              dashed(c, rect, clip);
+              c.dashed(rect, clip, theme::WHITE);
               return;
             }
             let mut imgs = Vec::with_capacity(1 + eb.zw.len());

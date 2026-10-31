@@ -23,6 +23,14 @@ pub struct Bar<'a> {
   // uncommitted input-method text, drawn underlined at the cursor, and its caret (byte offset)
   pub preedit: &'a str,
   pub preedit_caret: usize,
+  // the picker is open or the pointer is on the button: drawn reversed
+  pub picker_on: bool,
+}
+
+// the ☺ button at the right end of the first row
+pub fn button(area: Rect, line: i32) -> Rect {
+  let w = line * 3 / 2;
+  Rect::new(area.right() - w, area.y, w, line.min(area.h))
 }
 
 struct Laid {
@@ -61,7 +69,8 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
     s.push_str(b.preedit);
     s.push_str(tail);
   }
-  Laid { l: text.layout(&s, &spans, &[], width as f32 - 2.0 * theme::PAD_X), at, pre }
+  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 1.5;
+  Laid { l: text.layout(&s, &spans, &[], room), at, pre }
 }
 
 // where the caret sits in the layout string: after the composition's caret, else at the cursor
@@ -76,6 +85,21 @@ pub fn height(text: &mut Text, b: &Bar, width: i32) -> i32 {
   (l.height().max(line).min(line * MAX_LINES)).ceil() as i32
 }
 
+// composition underline (vt320 underline attr): one row under every line the range spans
+pub fn underline(c: &mut Canvas, l: &TextLayout, range: std::ops::Range<usize>, ox: f32, oy: f32, clip: Rect) {
+  if range.is_empty() {
+    return;
+  }
+  let sel = Selection::new(
+    Cursor::from_byte_index(l, range.start, Affinity::Downstream),
+    Cursor::from_byte_index(l, range.end, Affinity::Upstream),
+  );
+  for (r, _) in sel.geometry(l) {
+    let u = Rect::new((ox as f64 + r.x0) as i32, (oy as f64 + r.y1) as i32 - 1, (r.x1 - r.x0).ceil() as i32, 1);
+    c.fill(u.intersect(clip), theme::WHITE);
+  }
+}
+
 // returns the caret rect (window px) so the input method can park its candidate window there
 pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
   c.fill(area, theme::BLACK);
@@ -88,17 +112,7 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
   let shift = (cur.y1 as f32 - area.h as f32).clamp(0.0, overflow);
   let (ox, oy) = (area.x as f32 + theme::PAD_X, area.y as f32 - shift);
   text.draw(l, c, ox, oy, area, |_, _| {});
-  if !g.pre.is_empty() {
-    // composition underline (vt320 underline attr): one row under every line it spans
-    let sel = Selection::new(
-      Cursor::from_byte_index(l, g.pre.start, Affinity::Downstream),
-      Cursor::from_byte_index(l, g.pre.end, Affinity::Upstream),
-    );
-    for (r, _) in sel.geometry(l) {
-      let u = Rect::new((ox as f64 + r.x0) as i32, (oy as f64 + r.y1) as i32 - 1, (r.x1 - r.x0).ceil() as i32, 1);
-      c.fill(u.intersect(area), theme::WHITE);
-    }
-  }
+  underline(c, l, g.pre.clone(), ox, oy, area);
   let (x, y, h) = ((ox + cur.x0 as f32) as i32, (oy + cur.y0 as f32) as i32, (cur.y1 - cur.y0) as i32);
   match b.mode {
     Mode::Insert => {
@@ -129,5 +143,12 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
     }
     Mode::Chat => {}
   }
+  let btn = button(area, text.line_px as i32);
+  let (bg, ink) = if b.picker_on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
+  c.fill(btn, bg);
+  let span = Span { range: 0..'☺'.len_utf8(), ink: Ink(ink), bold: false };
+  let g = text.layout("☺", &[span], &[], 1000.0);
+  let gx = btn.x as f32 + (btn.w as f32 - g.full_width()) / 2.0;
+  text.draw(&g, c, gx, btn.y as f32, btn, |_, _| {});
   Rect::new(x, y, CURSOR_W, h)
 }

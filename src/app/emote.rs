@@ -60,6 +60,7 @@ impl App {
         self.run_act(Act::Unblock, &hit);
       } else {
         self.line.insert_word(&hit.name);
+        self.recents.record(&hit.name);
         self.complete = None;
         self.enter_insert();
         self.input_dirty = true;

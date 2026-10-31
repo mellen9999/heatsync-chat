@@ -68,6 +68,17 @@ impl Senders {
     })
   }
 
+  // what `id` owns right now, with images (the picker's "my emotes")
+  pub fn entries(&self, id: u64, now: i64) -> Vec<(&str, &HsEmote)> {
+    self.map.get(&id).map_or_else(Vec::new, |e| {
+      e.set
+        .iter()
+        .filter(|(_, x)| now >= x.from.saturating_sub(SLACK_MS) && now < x.until)
+        .map(|(k, v)| (&**k, v))
+        .collect()
+    })
+  }
+
   pub fn take_wanted(&mut self) -> Vec<u64> {
     std::mem::take(&mut self.wanted)
   }

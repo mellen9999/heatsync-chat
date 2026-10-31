@@ -12,12 +12,14 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 mod emote;
+mod picker;
 
 use crate::fake::Fake;
 use crate::model::complete::{Complete, rank};
 use crate::model::ime::Ime;
 use crate::model::line::Line;
 use crate::model::message::{Message, Platform};
+use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
 use crate::model::vi::{Action, Mode, Vi};
 use crate::net::auth::Me;
@@ -118,6 +120,10 @@ pub struct App {
   ime_sent: Option<Rect>,
   // shift+right-click menu on an emote
   menu: Option<emote::Open>,
+  picker: Option<Picker>,
+  recents: Recents,
+  // pointer is over the ☺ button
+  btn_hover: bool,
 }
 
 impl App {
@@ -186,12 +192,18 @@ impl App {
       ime_area: None,
       ime_sent: None,
       menu: None,
+      picker: None,
+      recents: Recents::load(),
+      btn_hover: false,
     }
   }
 
   // does the focused thing take typed text (so an input method may run)?
   fn wants_text(&self) -> bool {
-    self.mode == Mode::Insert
+    match &self.picker {
+      Some(p) => p.focus == Focus::Search,
+      None => self.mode == Mode::Insert,
+    }
   }
 
   // keep the window's input-method state in step: allowed only while text is accepted,
@@ -233,8 +245,13 @@ impl App {
       WinIme::Commit(text) => {
         let text = self.ime.commit(&text);
         if self.wants_text() && !text.is_empty() {
-          self.complete = None;
-          self.line.insert(&text);
+          if let Some(p) = &mut self.picker {
+            p.type_str(&text);
+            self.picker_reveal();
+          } else {
+            self.complete = None;
+            self.line.insert(&text);
+          }
         }
         self.input_dirty = true;
         self.wake();
@@ -548,6 +565,7 @@ impl App {
         reply,
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
+        picker_on: self.picker.is_some() || self.btn_hover,
       };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
       if h != self.input_h {
@@ -584,30 +602,38 @@ impl App {
     if self.res.images.next_tick() {
       self.trim_soon();
     }
-    let (canvas, res) = (&mut self.canvas, &mut self.res);
-    let add = |d: Option<Rect>, r: Rect| Some(d.map_or(r, |d| union(d, r)));
-    if let Some(t) = self.tabs.get_mut(self.active) {
-      match t.view.take_paint(res, area.h) {
-        Paint::Nothing => {}
-        Paint::Full => {
-          t.view.draw(canvas, res, area, area);
-          dirty = add(dirty, area);
-        }
-        Paint::Append { shift } => {
-          canvas.scroll_up(area, shift);
-          t.view.scrolled(area, shift);
-          t.view.draw(canvas, res, area, Rect::new(area.x, area.bottom() - shift, area.w, shift));
-          dirty = add(dirty, area);
-        }
+    if self.picker.is_some() {
+      // the picker covers the chat: paint only it
+      self.next_anim = None;
+      if let Some(r) = self.draw_picker() {
+        dirty = Some(dirty.map_or(r, |d| union(d, r)));
       }
-      let due = self.next_anim.is_some_and(|t| t <= Instant::now());
-      if due && let Some(r) = t.view.animate(canvas, res, area) {
-        dirty = add(dirty, r);
+    } else {
+      let (canvas, res) = (&mut self.canvas, &mut self.res);
+      let add = |d: Option<Rect>, r: Rect| Some(d.map_or(r, |d| union(d, r)));
+      if let Some(t) = self.tabs.get_mut(self.active) {
+        match t.view.take_paint(res, area.h) {
+          Paint::Nothing => {}
+          Paint::Full => {
+            t.view.draw(canvas, res, area, area);
+            dirty = add(dirty, area);
+          }
+          Paint::Append { shift } => {
+            canvas.scroll_up(area, shift);
+            t.view.scrolled(area, shift);
+            t.view.draw(canvas, res, area, Rect::new(area.x, area.bottom() - shift, area.w, shift));
+            dirty = add(dirty, area);
+          }
+        }
+        let due = self.next_anim.is_some_and(|t| t <= Instant::now());
+        if due && let Some(r) = t.view.animate(canvas, res, area) {
+          dirty = add(dirty, r);
+        }
+        self.next_anim = t.view.next_anim.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
+      } else if dirty.is_some() {
+        canvas.fill(area, crate::ui::theme::BLACK);
+        dirty = add(dirty, area);
       }
-      self.next_anim = t.view.next_anim.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
-    } else if dirty.is_some() {
-      canvas.fill(area, crate::ui::theme::BLACK);
-      dirty = add(dirty, area);
     }
     if let Some(r) = self.draw_menu() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
@@ -882,6 +908,12 @@ impl App {
     }
     let (x, y) = self.pointer;
     let (chat, input) = (self.chat_area(), self.input_area());
+    if self.over_button() {
+      return self.toggle_picker();
+    }
+    if self.picker.is_some() {
+      return self.picker_click();
+    }
     if input.contains(x, y) {
       return self.enter_insert();
     }
@@ -898,7 +930,15 @@ impl App {
     self.wake();
   }
 
+  fn over_button(&self) -> bool {
+    let (x, y) = self.pointer;
+    self.input_h > 0 && input_bar::button(self.input_area(), self.res.text.line_px as i32).contains(x, y)
+  }
+
   fn right_click(&mut self) {
+    if self.picker.is_some() {
+      return;
+    }
     if self.menu.is_some() {
       self.menu = None;
       return self.menu_changed();
@@ -1149,6 +1189,13 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::CursorMoved { position, .. } => {
         self.pointer = (position.x as i32, position.y as i32);
         self.menu_hover();
+        self.picker_hover();
+        let over = self.over_button();
+        if over != self.btn_hover {
+          self.btn_hover = over;
+          self.input_dirty = true;
+          self.wake();
+        }
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
@@ -1158,10 +1205,20 @@ impl ApplicationHandler<NetEvent> for App {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
           MouseScrollDelta::PixelDelta(p) => p.y as i32,
         };
-        self.scroll(px);
+        if self.picker.is_some() {
+          self.picker_wheel(px);
+        } else {
+          self.scroll(px);
+        }
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
+        if self.mods.control_key() && k == Key::Character(";") {
+          return self.toggle_picker();
+        }
+        if self.picker.is_some() {
+          return self.picker_key(k, t);
+        }
         if self.menu.is_some() {
           return self.menu_key(k);
         }
