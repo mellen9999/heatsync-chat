@@ -4,6 +4,13 @@
 // 7tv image paints use the first frame (their `1x_static.webp`): nothing here ever animates
 use std::collections::HashMap;
 
+pub mod anim;
+mod motion;
+pub mod raster;
+pub mod scene;
+mod scene_cat;
+
+use self::anim::{AnimArt, Scratch};
 use super::canvas::{Canvas, Rect};
 use super::text::{Ink, Span, Text};
 use super::theme;
@@ -40,10 +47,37 @@ struct Entry {
   used: u64,
 }
 
-#[derive(Default)]
+// animated names alive at once (their scene tiles are the heavy part)
+const MAX_ANIMS: usize = 64;
+
+struct AnimEntry {
+  nick: Box<str>,
+  art: AnimArt,
+  // the frame when nothing moves (paint motion off, or a scene that holds still)
+  still: Option<Art>,
+  used: u64,
+}
+
+// seconds on the wall clock every copy of a name shares: all frames of one paint line up
+pub fn clock() -> f32 {
+  use std::sync::OnceLock;
+  static T0: OnceLock<std::time::Instant> = OnceLock::new();
+  T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f32()
+}
+
 pub struct NameArts {
   map: HashMap<ArtKey, Entry>,
+  anims: HashMap<ArtKey, AnimEntry>,
+  scratch: Scratch,
   tick: u64,
+  // paint motion (the ext's animatePaints): off draws every paint's first frame
+  motion: bool,
+}
+
+impl Default for NameArts {
+  fn default() -> Self {
+    NameArts { map: HashMap::new(), anims: HashMap::new(), scratch: Scratch::new(), tick: 0, motion: true }
+  }
 }
 
 impl NameArts {
@@ -71,6 +105,61 @@ impl NameArts {
   pub fn len(&self) -> usize {
     self.map.len()
   }
+
+  // flipping paint motion rebuilds every animated name
+  pub fn set_motion(&mut self, on: bool) {
+    if self.motion != on {
+      self.motion = on;
+      self.anims.clear();
+    }
+  }
+
+  // an animated name's art, built once per (chatter, name, paint); a changed display name rebuilds it
+  pub fn anim(&mut self, key: ArtKey, nick: &str, build: impl FnOnce(bool) -> AnimArt) -> &AnimArt {
+    self.tick += 1;
+    let hit = self.anims.get(&key).is_some_and(|e| *e.nick == *nick);
+    if !hit {
+      if self.anims.len() >= MAX_ANIMS && !self.anims.contains_key(&key) {
+        let oldest = self.anims.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| *k);
+        if let Some(k) = oldest {
+          self.anims.remove(&k);
+        }
+      }
+      let art = build(self.motion);
+      let still = (!art.animated()).then(|| {
+        let px = art.render(None, &mut self.scratch);
+        Art { w: art.w, h: art.h, base: art.base, rgba: unpremultiply(px) }
+      });
+      self.anims.insert(key, AnimEntry { nick: nick.into(), art, still, used: self.tick });
+    }
+    let e = self.anims.get_mut(&key).expect("present");
+    e.used = self.tick;
+    &e.art
+  }
+
+  // the still frame of a name that does not move
+  pub fn still(&self, key: &ArtKey) -> Option<&Art> {
+    self.anims.get(key)?.still.as_ref()
+  }
+
+  // frame of an animated name at wall time `t`, premultiplied
+  pub fn frame(&mut self, key: &ArtKey, t: f32) -> Option<(&AnimArt, &[[u8; 4]])> {
+    let e = self.anims.get(key)?;
+    let px = e.art.render(Some(t), &mut self.scratch);
+    Some((&e.art, px))
+  }
+}
+
+fn unpremultiply(px: &[[u8; 4]]) -> Box<[u8]> {
+  let mut out = Vec::with_capacity(px.len() * 4);
+  for p in px {
+    let a = p[3] as u32;
+    for &c in &p[..3] {
+      out.push((c as u32 * 255).checked_div(a).map_or(0, |v| v.min(255) as u8));
+    }
+    out.push(p[3]);
+  }
+  out.into_boxed_slice()
 }
 
 // the picture an image paint is stretched from: rgba8, width, height
@@ -126,16 +215,28 @@ fn shadow_layer(alpha: &[f32], w: usize, h: usize, s: &Shadow) -> Vec<f32> {
   a
 }
 
-// `w` is the name's width in the row, `base` its color (the paint's underlay)
-pub fn build(text: &mut Text, nick: &str, w: i32, base: u32, paint: &Paint, pic: Option<Picture>) -> Art {
+// the name's glyph coverage (0..1) in a w×h box, and the baseline inside it
+pub struct Cov {
+  pub w: i32,
+  pub h: i32,
+  pub base: f32,
+  pub alpha: Vec<f32>,
+}
+
+pub fn coverage(text: &mut Text, nick: &str, w: i32) -> Cov {
   let layout = text.layout(nick, &[Span { range: 0..nick.len(), ink: Ink(theme::WHITE), bold: true }], &[], 1e5);
   let (w, h) = (w.max(1), (text.line_px as i32).max(1));
   let mut cov = Canvas::new(w, h);
   let area = Rect::new(0, 0, w, h);
   text.draw(&layout, &mut cov, 0.0, 0.0, area, |_, _| {});
-  let baseline = layout.lines().next().map_or(0.0, |l| l.metrics().baseline);
+  let base = layout.lines().next().map_or(0.0, |l| l.metrics().baseline);
+  Cov { w, h, base, alpha: cov.px.iter().map(|p| ((p >> 16) & 255) as f32 / 255.0).collect() }
+}
+
+// `w` is the name's width in the row, `base` its color (the paint's underlay)
+pub fn build(text: &mut Text, nick: &str, w: i32, base: u32, paint: &Paint, pic: Option<Picture>) -> Art {
+  let Cov { w, h, base: baseline, alpha } = coverage(text, nick, w);
   let (wu, hu) = (w as usize, h as usize);
-  let alpha: Vec<f32> = cov.px.iter().map(|p| ((p >> 16) & 255) as f32 / 255.0).collect();
 
   // the painted glyphs, premultiplied: [r, g, b, a] in 0..1
   let mut layers: Vec<Vec<[f32; 4]>> = Vec::with_capacity(1 + paint.shadows.len());

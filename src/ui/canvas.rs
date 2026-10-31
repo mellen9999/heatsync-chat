@@ -144,6 +144,26 @@ impl Canvas {
     }
   }
 
+  // premultiplied rgba8 (the animated name frames): src + dst * (1 - a)
+  pub fn rgba_pm(&mut self, x: i32, y: i32, w: i32, h: i32, data: &[[u8; 4]], clip: Rect) {
+    let c = Rect::new(x, y, w, h).intersect(clip).intersect(self.bounds());
+    if c.is_empty() {
+      return;
+    }
+    for py in c.y..c.bottom() {
+      let src = ((py - y) * w + (c.x - x)) as usize;
+      let dst = (py * self.w + c.x) as usize;
+      for (d, s) in self.px[dst..dst + c.w as usize].iter_mut().zip(&data[src..src + c.w as usize]) {
+        if s[3] == 0 {
+          continue;
+        }
+        let k = 255 - s[3] as u32;
+        let ch = |sh: u32, v: u8| (v as u32 + (((*d >> sh) & 255) * k + 127) / 255).min(255) << sh;
+        *d = ch(16, s[0]) | ch(8, s[1]) | ch(0, s[2]);
+      }
+    }
+  }
+
   // move r's pixels up by dy (terminal-style scroll); the freed strip is left for the caller
   pub fn scroll_up(&mut self, r: Rect, dy: i32) {
     let r = r.intersect(self.bounds());

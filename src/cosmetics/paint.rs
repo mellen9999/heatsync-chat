@@ -3,6 +3,7 @@
 // (the css it emits): repeat, stop positions, 100% 100% image stretch, name color underneath
 use serde_json::Value;
 
+use super::fx::{Base, BaseKind, Fx};
 use crate::images::url::allowed;
 
 const MAX_STOPS: usize = 64;
@@ -43,6 +44,8 @@ pub struct Paint {
   // heatsync banded paints: one tile's width in px along the gradient (0 = the name box)
   tile: f32,
   pub shadows: Vec<Shadow>,
+  // heatsync-native scene + effects (None for 7tv paints and plain heatsync ones)
+  pub fx: Option<Box<Fx>>,
 }
 
 // 7tv packs rgba into one (signed) int: r<<24 | g<<16 | b<<8 | a
@@ -153,6 +156,7 @@ impl Paint {
             d1,
             tile: 0.0,
             shadows: Vec::new(),
+            fx: None,
           });
         }
         None => (Fill::None, Box::default()),
@@ -174,12 +178,12 @@ impl Paint {
     if fill == Fill::None && shadows.is_empty() {
       return None;
     }
-    Some(Paint { id: id.into(), fill, lut, repeat, d0, d1, tile: 0.0, shadows })
+    Some(Paint { id: id.into(), fill, lut, repeat, d0, d1, tile: 0.0, shadows, fx: None })
   }
 
-  // a heatsync-native paint (`/api/paints` spec v2) at rest, like the ext's `static` mode: the base
-  // fill plus the glow. effects + scenes animate and are left out; `conic` has no cpu shader and
-  // runs as a linear ramp. None = nothing to draw. the id names the spec, so an edit re-renders
+  // a heatsync-native paint (`/api/paints` spec v2): the base fill plus the glow at rest (the ext's
+  // `static` mode), and in `fx` the scene + effects that animate it. None = nothing to draw. the id
+  // names the spec, so an edit re-renders
   pub fn from_hs(v: &Value) -> Option<Paint> {
     let base = v.get("base")?;
     let mut stops: Vec<(f32, Argb)> = base
@@ -222,7 +226,18 @@ impl Paint {
     // fnv-1a over the canonical json (serde sorts keys): same spec, same id
     let h =
       v.to_string().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3));
-    Some(Paint { id: format!("hs{h:016x}").into(), fill, lut, repeat, d0, d1, tile, shadows })
+    let base_kind = match kind {
+      "solid" => BaseKind::Solid,
+      "conic" => BaseKind::Conic,
+      "repeating-linear" => BaseKind::Repeating,
+      _ => BaseKind::Linear,
+    };
+    let fx = Fx::parse(
+      v,
+      Base { kind: base_kind, angle, tile, stops: stops.iter().map(|&(p, c)| (p, c & 0xff_ffff)).collect() },
+    )
+    .map(Box::new);
+    Some(Paint { id: format!("hs{h:016x}").into(), fill, lut, repeat, d0, d1, tile, shadows, fx })
   }
 
   fn at(&self, t: f32) -> Argb {

@@ -6,6 +6,7 @@ use parley::{Cluster, InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAl
 
 use super::canvas::{Canvas, Rect};
 use super::embed;
+use super::name_art::anim::AnimArt;
 use super::name_art::{self, ArtKey, PAINT_IMG_PX};
 use super::res::{BADGE_PX, EMBED_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
@@ -93,6 +94,18 @@ struct Anim {
   imgs: Vec<ImgId>,
 }
 
+// an animated painted name on screen: redrawn alone on its tick, only while it is in view
+struct NameAnim {
+  rect: Rect,
+  bg: u32,
+  key: ArtKey,
+  // motion effects tick at the display cap, a scene alone at the ext's 24 steps a second
+  smooth: bool,
+}
+
+const TICK_SMOOTH_MS: u32 = 33;
+const TICK_SCENE_MS: u32 = 42;
+
 pub struct ChatView {
   pub channel: Box<str>,
   rows: VecDeque<Row>,
@@ -107,6 +120,7 @@ pub struct ChatView {
   // something above the newest rows changed: next frame repaints everything
   stale: bool,
   anims: Vec<Anim>,
+  name_anims: Vec<NameAnim>,
   // ms until the soonest on-screen animation flips
   pub next_anim: Option<u32>,
   pub zebra: bool,
@@ -499,6 +513,7 @@ impl ChatView {
       pending: 0,
       stale: true,
       anims: Vec::new(),
+      name_anims: Vec::new(),
       next_anim: None,
       zebra: true,
       timestamps: true,
@@ -705,6 +720,7 @@ impl ChatView {
   pub fn clear(&mut self) {
     self.rows.clear();
     self.anims.clear();
+    self.name_anims.clear();
     self.selected = None;
     self.scroll = 0;
     self.pending = 0;
@@ -1090,6 +1106,10 @@ impl ChatView {
       a.rect.y -= dy;
       a.rect.bottom() > area.y
     });
+    self.name_anims.retain_mut(|a| {
+      a.rect.y -= dy;
+      a.rect.bottom() > area.y
+    });
   }
 
   // draw rows bottom-up into `area`, touching only pixels inside `clip`
@@ -1097,6 +1117,7 @@ impl ChatView {
     let clip = clip.intersect(area);
     c.fill(clip, theme::BLACK);
     self.anims.retain(|a| a.rect.intersect(clip).is_empty());
+    self.name_anims.retain(|a| a.rect.intersect(clip).is_empty());
     if self.rows.is_empty() && !self.empty.is_empty() {
       let spans = [Span { range: 0..self.empty.len(), ink: Ink(theme::DIM), bold: false }];
       let l = res.text.layout(&self.empty, &spans, &[], (self.width - MARK_W) as f32 - 2.0 * theme::PAD_X);
@@ -1159,6 +1180,7 @@ impl ChatView {
             images.want(id);
           }
           let anims = &mut self.anims;
+          let name_anims = &mut self.name_anims;
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
             let Some(eb) = laid.boxes.get(b.id as usize) else {
@@ -1189,18 +1211,35 @@ impl ChatView {
               font_px: text.font_px.to_bits(),
               paint: Arc::as_ptr(&n.paint) as usize,
             };
-            // image paints wait for their (still) picture; the first bitmap is redone when it lands
-            let pic_id = match &n.paint.fill {
-              Fill::Image { still } => Some(images.id(still, PAINT_IMG_PX)),
-              _ => None,
-            };
-            let pic = pic_id.and_then(|id| images.frame(id)).map(|(f, w, h, _)| (&f.rgba[..], w, h));
             let w = n.w.ceil() as i32;
-            let art = arts.get(key, &n.nick, pic.is_some() || pic_id.is_none(), || {
-              name_art::build(text, &n.nick, w, n.color, &n.paint, pic)
-            });
-            let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - art.base).round() as i32);
-            c.rgba(ax, ay, art.w, art.h, &art.rgba, clip);
+            if let Some(fx) = &n.paint.fx {
+              // scene + effects: built once, then a premultiplied frame per tick
+              let (aw, ah, base, animated, smooth) = {
+                let a = arts.anim(key, &n.nick, |motion| AnimArt::build(text, &n.nick, w, fx, motion));
+                (a.w, a.h, a.base, a.animated(), a.smooth())
+              };
+              let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - base).round() as i32);
+              if animated {
+                if let Some((_, px)) = arts.frame(&key, name_art::clock()) {
+                  c.rgba_pm(ax, ay, aw, ah, px, clip);
+                }
+                name_anims.push(NameAnim { rect: Rect::new(ax, ay, aw, ah), bg, key, smooth });
+              } else if let Some(art) = arts.still(&key) {
+                c.rgba(ax, ay, art.w, art.h, &art.rgba, clip);
+              }
+            } else {
+              // image paints wait for their (still) picture; the first bitmap is redone when it lands
+              let pic_id = match &n.paint.fill {
+                Fill::Image { still } => Some(images.id(still, PAINT_IMG_PX)),
+                _ => None,
+              };
+              let pic = pic_id.and_then(|id| images.frame(id)).map(|(f, w, h, _)| (&f.rgba[..], w, h));
+              let art = arts.get(key, &n.nick, pic.is_some() || pic_id.is_none(), || {
+                name_art::build(text, &n.nick, w, n.color, &n.paint, pic)
+              });
+              let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - art.base).round() as i32);
+              c.rgba(ax, ay, art.w, art.h, &art.rgba, clip);
+            }
           }
         }
       }
@@ -1215,7 +1254,7 @@ impl ChatView {
   }
 
   fn soonest(&self, res: &mut Res) -> Option<u32> {
-    let mut next = None;
+    let mut next = self.name_tick();
     for a in &self.anims {
       for &id in &a.imgs {
         if let Some((_, _, _, Some(ms))) = res.images.frame(id) {
@@ -1226,7 +1265,17 @@ impl ChatView {
     next
   }
 
-  // repaint only on-screen animated emotes; returns the damaged region
+  // animated painted names currently on screen
+  pub fn animated_names(&self) -> usize {
+    self.name_anims.len()
+  }
+
+  // when the animated names on screen tick next (none on screen: nothing wakes)
+  fn name_tick(&self) -> Option<u32> {
+    self.name_anims.iter().map(|a| if a.smooth { TICK_SMOOTH_MS } else { TICK_SCENE_MS }).min()
+  }
+
+  // repaint only on-screen animated emotes and painted names; returns the damaged region
   pub fn animate(&mut self, c: &mut Canvas, res: &mut Res, area: Rect) -> Option<Rect> {
     let mut dirty: Option<Rect> = None;
     let mut next = None;
@@ -1237,6 +1286,19 @@ impl ChatView {
       }
       c.fill(r, a.bg);
       blit_emote(c, &mut res.images, &a.imgs, a.rect, r, &mut next);
+      dirty = Some(dirty.map_or(r, |d| super::union(d, r)));
+    }
+    let t = name_art::clock();
+    for a in &self.name_anims {
+      let r = a.rect.intersect(area);
+      if r.is_empty() {
+        continue;
+      }
+      let Some((art, px)) = res.arts.frame(&a.key, t) else { continue };
+      c.fill(r, a.bg);
+      c.rgba_pm(a.rect.x, a.rect.y, art.w, art.h, px, r);
+      let ms = if a.smooth { TICK_SMOOTH_MS } else { TICK_SCENE_MS };
+      next = Some(next.map_or(ms, |n: u32| n.min(ms)));
       dirty = Some(dirty.map_or(r, |d| super::union(d, r)));
     }
     self.next_anim = next;
@@ -1376,6 +1438,47 @@ mod tests {
       let red = c.px.iter().filter(|p| (*p >> 16 & 255) > 200 && (*p >> 8 & 255) < 60 && (*p & 255) < 60).count();
       assert!(amber > 20 && red == 0, "zoom {zoom} amber {amber} red {red}");
     }
+  }
+
+  // ennortix's real paint: an animated name ticks only while it is on screen, and never with motion off
+  #[test]
+  fn animated_names_tick_only_while_visible() {
+    use crate::cosmetics::{Cosmetic, paint::Paint as P};
+    let spec = serde_json::json!({"v": 2, "base": {"type": "solid", "angle": 0, "stops": [{"pos": 0, "color": "#ffb000"}]},
+      "glow": null, "scene": {"weather": {"id": "petals", "tint": "#d7408c", "speed": 1, "density": 1},
+      "backdrop": {"id": "synth", "tint": "#0ca43d", "speed": 1}}, "effects": [{"id": "twirl", "speed": 1}, {"id": "coin", "speed": 1}]});
+    let paint = Arc::new(P::from_hs(&spec).unwrap());
+    let mut m = said("ennortix", "gg");
+    m.user_id = "37005319".into();
+    let setup = |motion: bool| {
+      let mut res = Res::new(1.0);
+      res.arts.set_motion(motion);
+      let mut v = ChatView::new(10, "c".into());
+      v.zebra = false;
+      v.resize(400);
+      v.push(m.clone());
+      let area = Rect::new(0, 0, 400, 40);
+      let mut c = Canvas::new(400, 40);
+      v.draw(&mut c, &mut res, area, area);
+      res.cosmetics.put(37005319, Some(Cosmetic { paint: Some(paint.clone()), badge: None }));
+      v.touch_sender("37005319");
+      v.draw(&mut c, &mut res, area, area);
+      (res, v, c, area)
+    };
+    let (mut res, mut v, mut c, area) = setup(true);
+    assert_eq!(v.next_anim, Some(TICK_SMOOTH_MS), "a visible animated name asks for ticks");
+    // a viewport that does not contain the name: no repaint, no further ticks
+    let out = v.animate(&mut c, &mut res, Rect::new(300, 0, 100, 40));
+    assert!(out.is_none() && v.next_anim.is_none(), "off-screen: idle");
+    // on screen: only the name's own rect is damaged
+    let (mut res, mut v, mut c, area2) = setup(true);
+    let r = v.animate(&mut c, &mut res, area2).expect("damage");
+    assert!(r.w < area.w && r.h <= 40);
+    assert_eq!(v.next_anim, Some(TICK_SMOOTH_MS));
+    // motion off: a still frame, nothing ever ticks
+    let (mut res, mut v, mut c, area) = setup(false);
+    assert_eq!(v.next_anim, None);
+    assert!(v.animate(&mut c, &mut res, area).is_none());
   }
 
   const NO_OPTS: Opts = Opts { ts: false, tags: false, find: None };

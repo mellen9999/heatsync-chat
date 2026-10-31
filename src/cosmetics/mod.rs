@@ -1,5 +1,7 @@
 // 7tv cosmetics of chatters: the paint on their name and the badge before it. heatsync's
 // `/api/cosmetics/batch` hands them over per twitch id (the ext's route); everything is hostile
+pub mod fx;
+mod fx_tints;
 pub mod paint;
 
 use std::collections::HashMap;
@@ -99,6 +101,11 @@ impl Cosmetics {
       self.wanted.push(uid);
     }
     self.map.get(&uid)?.c.as_ref()
+  }
+
+  // a chatter whose cosmetics are already known (the synthetic flood): never fetched
+  pub fn seed(&mut self, uid: u64, c: Cosmetic) {
+    self.map.insert(uid, Entry { c: Some(c), fetched: Some(Instant::now()), asked: None });
   }
 
   pub fn take_wanted(&mut self) -> Vec<u64> {
