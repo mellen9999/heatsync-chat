@@ -289,6 +289,7 @@ pub fn message(w: &Whisper) -> Message {
       Seg { text: to_name.to_string().into(), ink: to_ink, bold: true },
     ]),
     edge: 0,
+    paint: None,
   }));
   m
 }

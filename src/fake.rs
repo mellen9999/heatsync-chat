@@ -98,7 +98,10 @@ impl Fake {
 pub fn seed_paints(cosmetics: &mut crate::cosmetics::Cosmetics) {
   for u in 0..painted_count() {
     if let Some(p) = crate::cosmetics::paint::Paint::from_hs(&paint_spec(u)) {
-      cosmetics.seed(u + 1, crate::cosmetics::Cosmetic { paint: Some(std::sync::Arc::new(p)), badge: None });
+      cosmetics.seed(
+        crate::cosmetics::id::PaintId::Twitch(u + 1),
+        crate::cosmetics::Cosmetic { paint: Some(std::sync::Arc::new(p)), badge: None },
+      );
     }
   }
 }

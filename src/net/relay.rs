@@ -112,6 +112,9 @@ pub fn kick(v: &Value) -> Option<Message> {
   let (body, emotes) = kick_text(raw);
   let mut m = base(Platform::Kick, str_of(v, "id").unwrap_or(""), login, nick, str_of(v, "color"), body, ts(v));
   m.emotes = emotes.into();
+  // the sender's kick id (frames from before it was sent carry none: plain name)
+  m.user_id =
+    v.get("senderId").and_then(Value::as_u64).filter(|n| *n > 0).map(|n| n.to_string().into()).unwrap_or_default();
   m.hs = hs_emotes(v.get("hsEmotes"));
   m.reply_to = v.get("replyTo").and_then(|r| str_of(r, "username")).map(|u| clamp(u, MAX_NAME).into());
   Some(m)
@@ -193,6 +196,12 @@ mod tests {
     assert_eq!(&*m.hs[0].0, "catJAM");
     assert_eq!(m.reply_to.as_deref(), Some("bob"));
     assert_eq!((&*m.login, m.ts), ("sov", 5));
+    assert!(m.user_id.is_empty(), "no sender id on the frame: plain name");
+    let with = kick(&json!({"username": "sov", "senderId": 4242, "content": "x"})).unwrap();
+    assert_eq!(&*with.user_id, "4242");
+    for bad in [json!(0), json!(-3), json!("7"), json!(1.5)] {
+      assert!(kick(&json!({"username": "sov", "senderId": bad, "content": "x"})).unwrap().user_id.is_empty());
+    }
   }
 
   #[test]

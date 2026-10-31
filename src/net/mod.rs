@@ -60,11 +60,11 @@ pub enum NetEvent {
   Inventory { removed: Option<Box<str>> },
   Upload(upload::Upload),
   // 7tv paints + badges for twitch ids (None = wears nothing)
-  Cosmetics(Vec<(u64, Option<crate::cosmetics::Cosmetic>)>),
+  Cosmetics(Vec<(crate::cosmetics::id::PaintId, Option<crate::cosmetics::Cosmetic>)>),
   // 7tv says this twitch user's cosmetics changed: ask again
-  CosmeticsStale(u64),
+  CosmeticsStale(crate::cosmetics::id::PaintId),
   // heatsync says these twitch ids changed their paint: ask again
-  CosmeticsChanged(Vec<u64>),
+  CosmeticsChanged(Vec<crate::cosmetics::id::PaintId>),
   // a live edit of a channel's 7tv emote set
   EmoteDelta(Box<str>, crate::emotes::live::Delta),
   // a channel's pinned line was set or cleared (None)
@@ -149,7 +149,7 @@ pub enum Cmd {
   Pixels(u32, u32, Vec<u8>),
   Pick,
   // chatters' 7tv paints + badges
-  Cosmetics(u64),
+  Cosmetics(crate::cosmetics::id::PaintId),
   // our own twitch id, for watching our own 7tv cosmetics
   SevenTvMe(Option<u64>),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
@@ -511,12 +511,16 @@ mod live {
           self.log.push(format!("backfill {} lines, ennortix among them: {hit}", evs.len()));
           if hit {
             self.asked = true;
-            self.net.as_ref().unwrap().send(Cmd::Cosmetics(37005319));
+            self.net.as_ref().unwrap().send(Cmd::Cosmetics(crate::cosmetics::id::PaintId::Twitch(37005319)));
           }
         }
         NetEvent::Cosmetics(got) => {
-          self.log.push(format!("cosmetics {:?}", got.iter().map(|(i, c)| (*i, c.is_some())).collect::<Vec<_>>()));
-          self.painted = Some(got.iter().any(|(i, c)| *i == 37005319 && c.as_ref().is_some_and(|c| c.paint.is_some())));
+          self
+            .log
+            .push(format!("cosmetics {:?}", got.iter().map(|(i, c)| (i.clone(), c.is_some())).collect::<Vec<_>>()));
+          self.painted = Some(got.iter().any(|(i, c)| {
+            *i == crate::cosmetics::id::PaintId::Twitch(37005319) && c.as_ref().is_some_and(|c| c.paint.is_some())
+          }));
           el.exit();
         }
         NetEvent::Status(s) => self.log.push(format!("status {s}")),

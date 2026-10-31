@@ -50,6 +50,8 @@ pub struct Extra {
   pub tail: Box<[Seg]>,
   // left edge color when no flag asks for one (feed posts: the heat tier); 0 = none
   pub edge: u32,
+  // whose paint the name wears when the line's own platform/user_id can't say (a feed post by a kick author)
+  pub paint: Option<crate::cosmetics::id::PaintId>,
 }
 
 // image url for a byte range of the body

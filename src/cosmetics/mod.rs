@@ -3,6 +3,7 @@
 pub mod fill;
 pub mod fx;
 mod fx_tints;
+pub mod id;
 pub mod paint;
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use serde_json::Value;
 
 use crate::badges::Badge;
 use crate::images::url::allowed;
+use id::PaintId;
 use paint::Paint;
 
 // ext: 30min for a hit, 5min for "has none" so a fresh grant shows soon; 500 chatters
@@ -73,8 +75,8 @@ struct Entry {
 }
 
 pub struct Cosmetics {
-  map: HashMap<u64, Entry>,
-  wanted: Vec<u64>,
+  map: HashMap<PaintId, Entry>,
+  wanted: Vec<PaintId>,
   // the ext setting sevenTvPaints (default on) gates paints and badges alike
   pub on: bool,
 }
@@ -87,35 +89,38 @@ impl Default for Cosmetics {
 
 impl Cosmetics {
   // what `uid` wears. queues a fetch when unknown or stale; stale data keeps serving meanwhile
-  pub fn get(&mut self, uid: u64) -> Option<&Cosmetic> {
+  pub fn get(&mut self, uid: &PaintId) -> Option<&Cosmetic> {
     if !self.on {
       return None;
     }
     let now = Instant::now();
-    if !self.map.contains_key(&uid) && self.map.len() >= MAX_USERS {
-      self.evict();
+    if !self.map.contains_key(uid) {
+      if self.map.len() >= MAX_USERS {
+        self.evict();
+      }
+      self.map.insert(uid.clone(), Entry { c: None, fetched: None, asked: None });
     }
-    let e = self.map.entry(uid).or_insert(Entry { c: None, fetched: None, asked: None });
+    let e = self.map.get_mut(uid)?;
     let ttl = if e.c.is_some() { TTL_HIT } else { TTL_MISS };
     if e.fetched.is_none_or(|f| now - f > ttl) && e.asked.is_none_or(|a| now - a > INFLIGHT) {
       e.asked = Some(now);
-      self.wanted.push(uid);
+      self.wanted.push(uid.clone());
     }
-    self.map.get(&uid)?.c.as_ref()
+    e.c.as_ref()
   }
 
   // a chatter whose cosmetics are already known (the synthetic flood): never fetched
-  pub fn seed(&mut self, uid: u64, c: Cosmetic) {
+  pub fn seed(&mut self, uid: PaintId, c: Cosmetic) {
     self.map.insert(uid, Entry { c: Some(c), fetched: Some(Instant::now()), asked: None });
   }
 
-  pub fn take_wanted(&mut self) -> Vec<u64> {
+  pub fn take_wanted(&mut self) -> Vec<PaintId> {
     std::mem::take(&mut self.wanted)
   }
 
   // an answer for `uid`. true when what their lines show may have changed
-  pub fn put(&mut self, uid: u64, c: Option<Cosmetic>) -> bool {
-    let Some(e) = self.map.get_mut(&uid) else { return false };
+  pub fn put(&mut self, uid: &PaintId, c: Option<Cosmetic>) -> bool {
+    let Some(e) = self.map.get_mut(uid) else { return false };
     let same = |a: &Option<Cosmetic>, b: &Option<Cosmetic>| match (a, b) {
       (None, None) => true,
       (Some(a), Some(b)) => {
@@ -132,16 +137,16 @@ impl Cosmetics {
   }
 
   // 7tv says their cosmetics changed: ask again now (the old look serves until the answer)
-  pub fn stale(&mut self, uid: u64) {
-    if let Some(e) = self.map.get_mut(&uid) {
+  pub fn stale(&mut self, uid: &PaintId) {
+    if let Some(e) = self.map.get_mut(uid) {
       e.fetched = None;
       e.asked = Some(Instant::now());
-      self.wanted.push(uid);
+      self.wanted.push(uid.clone());
     }
   }
 
   fn evict(&mut self) {
-    let oldest = self.map.iter().min_by_key(|(_, e)| e.fetched.or(e.asked)).map(|(&k, _)| k);
+    let oldest = self.map.iter().min_by_key(|(_, e)| e.fetched.or(e.asked)).map(|(k, _)| k.clone());
     if let Some(k) = oldest {
       self.map.remove(&k);
     }
@@ -152,6 +157,11 @@ impl Cosmetics {
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[allow(non_snake_case)]
+  fn T(n: u64) -> PaintId {
+    PaintId::Twitch(n)
+  }
 
   fn paints() -> HashMap<Box<str>, Arc<Paint>> {
     HashMap::new()
@@ -200,33 +210,52 @@ mod tests {
   #[test]
   fn store_asks_once_then_serves_and_refreshes_on_stale() {
     let mut s = Cosmetics::default();
-    assert!(s.get(7).is_none());
-    assert!(s.get(7).is_none());
-    assert_eq!(s.take_wanted(), vec![7]);
+    assert!(s.get(&T(7)).is_none());
+    assert!(s.get(&T(7)).is_none());
+    assert_eq!(s.take_wanted(), vec![T(7)]);
     let c = Cosmetic {
       paint: None,
       badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), title: "t".into(), bg: None }),
     };
-    assert!(s.put(7, Some(c.clone())));
-    assert!(!s.put(7, Some(c)));
-    assert!(s.get(7).is_some());
+    assert!(s.put(&T(7), Some(c.clone())));
+    assert!(!s.put(&T(7), Some(c)));
+    assert!(s.get(&T(7)).is_some());
     assert!(s.take_wanted().is_empty());
-    s.stale(7);
-    assert_eq!(s.take_wanted(), vec![7]);
+    s.stale(&T(7));
+    assert_eq!(s.take_wanted(), vec![T(7)]);
     // the old badge serves while the refresh is out
-    assert!(s.get(7).is_some());
+    assert!(s.get(&T(7)).is_some());
     // an answer for someone never asked about is ignored
-    assert!(!s.put(99, None));
+    assert!(!s.put(&T(99), None));
     s.on = false;
-    assert!(s.get(7).is_none());
+    assert!(s.get(&T(7)).is_none());
+  }
+
+  // the same number on another platform is another person: it neither reads nor refreshes their entry
+  #[test]
+  fn a_number_on_two_platforms_is_two_entries() {
+    let mut s = Cosmetics::default();
+    let (tw, nat) = (T(5), PaintId::Native("5".into()));
+    let c = Cosmetic {
+      paint: None,
+      badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), title: "t".into(), bg: None }),
+    };
+    s.get(&tw);
+    s.get(&nat);
+    s.get(&PaintId::Kick(5));
+    assert_eq!(s.take_wanted().len(), 3, "three people, three lookups");
+    assert!(s.put(&tw, Some(c)));
+    assert!(s.get(&tw).is_some());
+    assert!(s.get(&nat).is_none() && s.get(&PaintId::Kick(5)).is_none(), "twitch 5's look never lands on them");
+    assert!(!s.put(&PaintId::Youtube("UC0123456789abcdefghij_-".into()), None));
   }
 
   #[test]
   fn store_is_bounded() {
     let mut s = Cosmetics::default();
     for id in 0..(MAX_USERS as u64 * 2) {
-      s.get(id);
-      s.put(id, None);
+      s.get(&T(id));
+      s.put(&T(id), None);
     }
     assert!(s.map.len() <= MAX_USERS);
   }

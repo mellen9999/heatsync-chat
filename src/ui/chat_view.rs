@@ -11,6 +11,7 @@ use super::name_art::{self, ArtKey, PAINT_IMG_PX};
 use super::res::{BADGE_PX, EMBED_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
+use crate::cosmetics::id::PaintId;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
@@ -43,7 +44,7 @@ pub struct EmoteHit {
 
 // a username wearing a 7tv paint: where the shaded bitmap goes (layout coords)
 struct PaintedName {
-  uid: u64,
+  uid: PaintId,
   nick: Box<str>,
   color: u32,
   paint: Arc<NamePaint>,
@@ -251,7 +252,10 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     s.push_str(&m.nick);
     nick = n0..s.len();
     // a painted name's glyphs are drawn from the shaded bitmap instead (paints: names only)
-    painted = twitch_uid(m).and_then(|uid| Some((uid, res.cosmetics.get(uid)?.paint.clone()?)));
+    painted = PaintId::of_message(m).and_then(|uid| {
+      let paint = res.cosmetics.get(&uid)?.paint.clone()?;
+      Some((uid, paint))
+    });
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
     spans.push(Span { range: n0..s.len(), ink: Ink(m.color | tag), bold: true });
     for g in x.map_or(&[][..], |x| &x.tail) {
@@ -305,10 +309,6 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
   });
   Laid { layout, nick, vote, boxes, name, embed, links, link_runs }
-}
-
-fn twitch_uid(m: &Message) -> Option<u64> {
-  (m.platform == Platform::Twitch).then(|| m.user_id.parse().ok()).flatten()
 }
 
 // (x, width, baseline) of the painted name: its glyph runs, which share a line
@@ -382,8 +382,8 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<I
     res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
   // asks heatsync for their cosmetics: batched, cached, answered into the same slot
-  if let Some(uid) = twitch_uid(m)
-    && let Some(b) = res.cosmetics.get(uid).and_then(|c| c.badge.as_ref())
+  if let Some(uid) = PaintId::of_message(m)
+    && let Some(b) = res.cosmetics.get(&uid).and_then(|c| c.badge.as_ref())
   {
     found.push((b.url.clone(), b.bg));
   }
@@ -776,6 +776,14 @@ impl ChatView {
   // a twitch sender's heatsync inventory arrived or changed: re-resolve only their lines
   pub fn touch_sender(&mut self, uid: &str) {
     for r in self.rows.iter_mut().filter(|r| r.msg.platform == Platform::Twitch && &*r.msg.user_id == uid) {
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
+  // their paint or badge arrived or changed: re-lay out only the lines that name them
+  pub fn touch_paint(&mut self, id: &PaintId) {
+    for r in self.rows.iter_mut().filter(|r| PaintId::of_message(&r.msg).as_ref() == Some(id)) {
       Self::touch(r);
       self.stale = true;
     }
@@ -1238,7 +1246,7 @@ impl ChatView {
           });
           if let Some(n) = &laid.name {
             let key = ArtKey {
-              uid: n.uid,
+              uid: n.uid.clone(),
               color: n.color,
               font_px: text.font_px.to_bits(),
               paint: Arc::as_ptr(&n.paint) as usize,
@@ -1247,7 +1255,7 @@ impl ChatView {
             if let Some(fx) = &n.paint.fx {
               // scene + effects: built once, then a premultiplied frame per tick
               let (aw, ah, base, animated, smooth) = {
-                let a = arts.anim(key, &n.nick, |motion| AnimArt::build(text, &n.nick, w, fx, motion, n.color));
+                let a = arts.anim(&key, &n.nick, |motion| AnimArt::build(text, &n.nick, w, fx, motion, n.color));
                 (a.w, a.h, a.base, a.animated(), a.smooth())
               };
               let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - base).round() as i32);
@@ -1266,7 +1274,7 @@ impl ChatView {
                 _ => None,
               };
               let pic = pic_id.and_then(|id| images.frame(id)).map(|(f, w, h, _)| (&f.rgba[..], w, h));
-              let art = arts.get(key, &n.nick, pic.is_some() || pic_id.is_none(), || {
+              let art = arts.get(&key, &n.nick, pic.is_some() || pic_id.is_none(), || {
                 name_art::build(text, &n.nick, w, n.color, &n.paint, pic)
               });
               let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - art.base).round() as i32);
@@ -1385,9 +1393,9 @@ mod tests {
     let n = |res: &mut Res| layout_row(res, "c", &m, false, 400, NO_OPTS).boxes.len();
     // unknown chatter: no badge yet, but the ask is queued
     assert_eq!(n(&mut res), 0);
-    assert_eq!(res.cosmetics.take_wanted(), vec![42]);
+    assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(42)]);
     let badge = Badge { url: "https://cdn.7tv.app/badge/B/2x.webp".into(), title: "t".into(), bg: None };
-    res.cosmetics.put(42, Some(Cosmetic { paint: None, badge: Some(badge) }));
+    res.cosmetics.put(&crate::cosmetics::id::PaintId::Twitch(42), Some(Cosmetic { paint: None, badge: Some(badge) }));
     assert_eq!(n(&mut res), 1);
     res.cosmetics.on = false;
     assert_eq!(n(&mut res), 0);
@@ -1414,7 +1422,7 @@ mod tests {
     let mut c = Canvas::new(400, 40);
     // unknown chatter: plain green name, ask queued
     v.draw(&mut c, &mut res, area, area);
-    assert_eq!(res.cosmetics.take_wanted(), vec![42]);
+    assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(42)]);
     let tint = |c: &Canvas| {
       let (mut red, mut blue, mut green) = (0, 0, 0);
       for p in &c.px {
@@ -1427,7 +1435,9 @@ mod tests {
     };
     let (r0, b0, g0) = tint(&c);
     assert!(g0 > 20 && r0 == 0 && b0 == 0);
-    res.cosmetics.put(42, Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+    res
+      .cosmetics
+      .put(&crate::cosmetics::id::PaintId::Twitch(42), Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
     v.touch_sender("42");
     v.draw(&mut c, &mut res, area, area);
     let (r1, b1, g1) = tint(&c);
@@ -1462,8 +1472,11 @@ mod tests {
       let area = Rect::new(0, 0, 400, 40);
       let mut c = Canvas::new(400, 40);
       v.draw(&mut c, &mut res, area, area);
-      assert_eq!(res.cosmetics.take_wanted(), vec![37005319]);
-      res.cosmetics.put(37005319, Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+      assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(37005319)]);
+      res.cosmetics.put(
+        &crate::cosmetics::id::PaintId::Twitch(37005319),
+        Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }),
+      );
       v.touch_sender("37005319");
       v.draw(&mut c, &mut res, area, area);
       let amber = c.px.iter().filter(|p| (*p >> 16 & 255) > 200 && (*p >> 8 & 255) > 120 && (*p & 255) < 60).count();
@@ -1492,7 +1505,10 @@ mod tests {
       let area = Rect::new(0, 0, 400, 40);
       let mut c = Canvas::new(400, 40);
       v.draw(&mut c, &mut res, area, area);
-      res.cosmetics.put(37005319, Some(Cosmetic { paint: Some(paint.clone()), badge: None }));
+      res.cosmetics.put(
+        &crate::cosmetics::id::PaintId::Twitch(37005319),
+        Some(Cosmetic { paint: Some(paint.clone()), badge: None }),
+      );
       v.touch_sender("37005319");
       v.draw(&mut c, &mut res, area, area);
       (res, v, c, area)
@@ -1535,8 +1551,10 @@ mod tests {
     let area = Rect::new(0, 0, 500, 40);
     let mut c = Canvas::new(500, 40);
     v.draw(&mut c, &mut res, area, area);
-    assert_eq!(res.cosmetics.take_wanted(), vec![37005319]);
-    res.cosmetics.put(37005319, Some(Cosmetic { paint: Some(paint), badge: None }));
+    assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(37005319)]);
+    res
+      .cosmetics
+      .put(&crate::cosmetics::id::PaintId::Twitch(37005319), Some(Cosmetic { paint: Some(paint), badge: None }));
     v.touch_sender("37005319");
     v.draw(&mut c, &mut res, area, area);
     v.draw(&mut c, &mut res, area, area);
@@ -1552,6 +1570,41 @@ mod tests {
     v.resize(500);
     v.push(crate::model::post::message(&post, Some("me"), false));
     assert!((0..500).all(|x| v.vote_at(area, x, 8, &mut res).is_none()));
+  }
+
+  // the same number from twitch, kick and youtube asks for three different people's paints,
+  // and a paint arriving for one dresses only that one's lines
+  #[test]
+  fn chat_lines_ask_for_paints_in_their_own_namespace() {
+    use crate::cosmetics::{Cosmetic, id::PaintId, paint::Paint as P};
+    let spec = serde_json::json!({"v": 2, "base": {"type": "solid", "angle": 0, "stops": [{"pos": 0, "color": "#ffb000"}]}, "glow": null, "scene": null, "effects": []});
+    let paint = Arc::new(P::from_hs(&spec).unwrap());
+    let yt = "UC0123456789abcdefghij_-";
+    let line = |p: Platform, id: &str| {
+      let mut m = said("bob", "hi");
+      m.platform = p;
+      m.user_id = id.into();
+      m
+    };
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(500);
+    for m in
+      [line(Platform::Twitch, "5"), line(Platform::Kick, "5"), line(Platform::Youtube, yt), line(Platform::Kick, "")]
+    {
+      v.push(m);
+    }
+    let area = Rect::new(0, 0, 500, 120);
+    let mut c = Canvas::new(500, 120);
+    v.draw(&mut c, &mut res, area, area);
+    let mut asked = res.cosmetics.take_wanted();
+    asked.sort_by_key(PaintId::wire);
+    assert_eq!(asked, vec![PaintId::Twitch(5), PaintId::Kick(5), PaintId::Youtube(yt.into())]);
+    // kick 5 wears a paint: twitch 5's line stays plain
+    res.cosmetics.put(&PaintId::Kick(5), Some(Cosmetic { paint: Some(paint), badge: None }));
+    assert!(res.cosmetics.get(&PaintId::Twitch(5)).is_none());
+    assert!(res.cosmetics.get(&PaintId::Kick(5)).is_some());
   }
 
   fn said(login: &str, body: &str) -> Message {
@@ -1788,6 +1841,7 @@ mod tests {
       head: Box::new([Seg { text: ">>1 ".into(), ink: theme::YELLOW, bold: true }]),
       tail: Box::new([Seg { text: " 5".into(), ink: theme::WHITE, bold: false }]),
       edge: 0,
+      paint: None,
     }));
     let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
     let n = l.layout.lines().count();

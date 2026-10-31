@@ -34,6 +34,7 @@ mod upload;
 mod whispers;
 mod zoom;
 
+use crate::cosmetics::id::PaintId;
 use crate::fake::Fake;
 use crate::model::chan::{self, Form};
 use crate::model::complete::{Complete, rank};
@@ -606,6 +607,14 @@ impl App {
     let uid = id.to_string();
     for t in &mut self.tabs {
       t.view.touch_sender(&uid);
+    }
+    self.wake();
+  }
+
+  // a paint or badge landed: redo only the lines whose name it dresses
+  fn touch_paint(&mut self, id: &PaintId) {
+    for t in &mut self.tabs {
+      t.view.touch_paint(id);
     }
     self.wake();
   }
@@ -1498,18 +1507,18 @@ impl ApplicationHandler<NetEvent> for App {
       }
       NetEvent::Cosmetics(got) => {
         for (id, c) in got {
-          if self.res.cosmetics.put(id, c) {
-            self.touch_sender(id);
+          if self.res.cosmetics.put(&id, c) {
+            self.touch_paint(&id);
           }
         }
         self.trim_soon();
       }
       NetEvent::CosmeticsChanged(ids) => {
-        ids.into_iter().for_each(|id| self.res.cosmetics.stale(id));
+        ids.iter().for_each(|id| self.res.cosmetics.stale(id));
         self.wake();
       }
       NetEvent::CosmeticsStale(id) => {
-        self.res.cosmetics.stale(id);
+        self.res.cosmetics.stale(&id);
         self.wake();
       }
       NetEvent::EmoteDelta(ch, d) => {
@@ -1759,7 +1768,9 @@ mod live {
       if let NetEvent::Cosmetics(g) = &ev {
         eprintln!(
           "cosmetics event: {:?}",
-          g.iter().map(|(i, c)| (*i, c.as_ref().map(|c| (c.paint.is_some(), c.badge.is_some())))).collect::<Vec<_>>()
+          g.iter()
+            .map(|(i, c)| (i.clone(), c.as_ref().map(|c| (c.paint.is_some(), c.badge.is_some()))))
+            .collect::<Vec<_>>()
         );
       }
       self.app.user_event(el, ev);
@@ -1794,7 +1805,7 @@ mod live {
     eprintln!(
       "rows {n} amber px {} ennortix has paint: {:?}",
       h.amber,
-      h.app.res.cosmetics.get(37005319).map(|c| c.paint.is_some())
+      h.app.res.cosmetics.get(&crate::cosmetics::id::PaintId::Twitch(37005319)).map(|c| c.paint.is_some())
     );
     if let Some(path) = std::env::var_os("HSC_DUMP") {
       let c = &h.app.canvas;

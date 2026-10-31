@@ -32,9 +32,9 @@ pub struct Art {
   pub rgba: Box<[u8]>,
 }
 
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub struct ArtKey {
-  pub uid: u64,
+  pub uid: crate::cosmetics::id::PaintId,
   pub color: u32,
   pub font_px: u32,
   // the paint is shared by everyone wearing it: its address names it
@@ -85,20 +85,20 @@ impl Default for NameArts {
 impl NameArts {
   // `ready`: the picture an image paint needs is decoded. a bitmap built without it is redone once it is.
   // the nick is checked on every hit, so a changed display name can never wear a stale bitmap
-  pub fn get(&mut self, key: ArtKey, nick: &str, ready: bool, build: impl FnOnce() -> Art) -> &Art {
+  pub fn get(&mut self, key: &ArtKey, nick: &str, ready: bool, build: impl FnOnce() -> Art) -> &Art {
     self.tick += 1;
     let tick = self.tick;
-    let hit = self.map.get(&key).is_some_and(|e| *e.nick == *nick && (e.complete || !ready));
+    let hit = self.map.get(key).is_some_and(|e| *e.nick == *nick && (e.complete || !ready));
     if !hit {
-      if self.map.len() >= MAX_ARTS && !self.map.contains_key(&key) {
-        let oldest = self.map.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| *k);
+      if self.map.len() >= MAX_ARTS && !self.map.contains_key(key) {
+        let oldest = self.map.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| k.clone());
         if let Some(k) = oldest {
           self.map.remove(&k);
         }
       }
-      self.map.insert(key, Entry { nick: nick.into(), art: build(), complete: ready, used: tick });
+      self.map.insert(key.clone(), Entry { nick: nick.into(), art: build(), complete: ready, used: tick });
     }
-    let e = self.map.get_mut(&key).expect("present");
+    let e = self.map.get_mut(key).expect("present");
     e.used = tick;
     &e.art
   }
@@ -117,12 +117,12 @@ impl NameArts {
   }
 
   // an animated name's art, built once per (chatter, name, paint); a changed display name rebuilds it
-  pub fn anim(&mut self, key: ArtKey, nick: &str, build: impl FnOnce(bool) -> AnimArt) -> &AnimArt {
+  pub fn anim(&mut self, key: &ArtKey, nick: &str, build: impl FnOnce(bool) -> AnimArt) -> &AnimArt {
     self.tick += 1;
-    let hit = self.anims.get(&key).is_some_and(|e| *e.nick == *nick);
+    let hit = self.anims.get(key).is_some_and(|e| *e.nick == *nick);
     if !hit {
-      if self.anims.len() >= MAX_ANIMS && !self.anims.contains_key(&key) {
-        let oldest = self.anims.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| *k);
+      if self.anims.len() >= MAX_ANIMS && !self.anims.contains_key(key) {
+        let oldest = self.anims.iter().min_by_key(|(_, e)| e.used).map(|(k, _)| k.clone());
         if let Some(k) = oldest {
           self.anims.remove(&k);
         }
@@ -132,9 +132,9 @@ impl NameArts {
         let px = art.render(None, &mut self.scratch);
         Art { w: art.w, h: art.h, base: art.base, rgba: unpremultiply(px) }
       });
-      self.anims.insert(key, AnimEntry { nick: nick.into(), art, still, used: self.tick });
+      self.anims.insert(key.clone(), AnimEntry { nick: nick.into(), art, still, used: self.tick });
     }
-    let e = self.anims.get_mut(&key).expect("present");
+    let e = self.anims.get_mut(key).expect("present");
     e.used = self.tick;
     &e.art
   }
@@ -385,31 +385,31 @@ mod tests {
   #[test]
   fn cache_is_bounded_lru_and_rebuilds_incomplete_art() {
     let mut arts = NameArts::default();
-    let key = |uid: u64| ArtKey { uid, color: 0, font_px: 15, paint: 1 };
+    let key = |uid: u64| ArtKey { uid: crate::cosmetics::id::PaintId::Twitch(uid), color: 0, font_px: 15, paint: 1 };
     let art = || Art { w: 1, h: 1, base: 0.0, rgba: Box::new([0; 4]) };
     let mut built = 0;
     for uid in 0..(MAX_ARTS as u64 * 2) {
-      arts.get(key(uid), "n", true, || {
+      arts.get(&key(uid), "n", true, || {
         built += 1;
         art()
       });
     }
     assert_eq!((arts.len(), built), (MAX_ARTS, MAX_ARTS * 2));
     // a hit does not rebuild
-    arts.get(key(MAX_ARTS as u64 * 2 - 1), "n", true, || panic!("rebuilt"));
+    arts.get(&key(MAX_ARTS as u64 * 2 - 1), "n", true, || panic!("rebuilt"));
     // built before the picture arrived: redone exactly once when it is ready
-    arts.get(key(9999), "n", false, art);
-    arts.get(key(9999), "n", false, || panic!("rebuilt while still waiting"));
+    arts.get(&key(9999), "n", false, art);
+    arts.get(&key(9999), "n", false, || panic!("rebuilt while still waiting"));
     let mut redone = 0;
-    arts.get(key(9999), "n", true, || {
+    arts.get(&key(9999), "n", true, || {
       redone += 1;
       art()
     });
-    arts.get(key(9999), "n", true, || panic!("rebuilt twice"));
+    arts.get(&key(9999), "n", true, || panic!("rebuilt twice"));
     assert_eq!(redone, 1);
     // a renamed chatter gets a fresh bitmap under the same key
     let mut renamed = 0;
-    arts.get(key(9999), "other", true, || {
+    arts.get(&key(9999), "other", true, || {
       renamed += 1;
       art()
     });

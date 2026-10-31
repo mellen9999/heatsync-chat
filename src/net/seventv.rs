@@ -291,7 +291,10 @@ fn dispatch(v: &Value, st: &State) -> Vec<NetEvent> {
     }
     Some(t) if t.starts_with("user.") => {
       let id = body.get("id").and_then(Value::as_str).or_else(|| body.get("object")?.get("id")?.as_str());
-      id.and_then(|i| st.users().get(i).copied()).map(NetEvent::CosmeticsStale).into_iter().collect()
+      id.and_then(|i| st.users().get(i).copied())
+        .map(|u| NetEvent::CosmeticsStale(crate::cosmetics::id::PaintId::Twitch(u)))
+        .into_iter()
+        .collect()
     }
     _ => Vec::new(),
   }
@@ -300,6 +303,7 @@ fn dispatch(v: &Value, st: &State) -> Vec<NetEvent> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::cosmetics::id::PaintId;
 
   fn watch(ch: &str, set: &str, user: Option<(&str, u64)>) -> Cmd {
     Cmd::Watch { ch: ch.into(), set: set.into(), user: user.map(|(u, t)| (u.into(), t)) }
@@ -393,7 +397,7 @@ mod tests {
     assert!(dispatch(&json!({"op": 0, "d": {"type": "emote_set.update"}}), &st).is_empty());
     assert!(dispatch(&json!({"d": 5}), &st).is_empty());
     let user = json!({"op": 0, "d": {"type": "user.update", "body": {"id": "U1"}}});
-    assert!(matches!(dispatch(&user, &st)[..], [NetEvent::CosmeticsStale(10)]));
+    assert!(matches!(dispatch(&user, &st)[..], [NetEvent::CosmeticsStale(PaintId::Twitch(10))]));
     let stranger = json!({"op": 0, "d": {"type": "user.update", "body": {"id": "U2"}}});
     assert!(dispatch(&stranger, &st).is_empty());
   }

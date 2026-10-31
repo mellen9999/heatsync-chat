@@ -13,6 +13,7 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::{NetEvent, Out, backoff};
 use super::{pin, relay, senders};
+use crate::cosmetics::id::PaintId;
 use crate::heatsync::valid_name;
 use crate::model::message::Platform;
 use crate::model::stream_events::{self, Ev, Gate, Kind};
@@ -267,10 +268,19 @@ fn kick_room(v: &Value) -> Option<Box<str>> {
   v.get("_ch").and_then(Value::as_str)?.strip_prefix("kick/").filter(|c| valid_key(c)).map(Into::into)
 }
 
-// twitch ids out of a `cosmetic:changed` frame; kick_/yt_ ids belong to other platforms and are skipped
-fn cosmetic_ids(v: &Value) -> Vec<u64> {
+// whose cosmetics changed, from a `cosmetic:changed` frame. a bare id is a users.id: a twitch chatter,
+// or a heatsync-native account with the same digits, so it refreshes both (never kick/yt, which are prefixed)
+fn cosmetic_ids(v: &Value) -> Vec<PaintId> {
   let list = v.get("ids").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-  list.iter().take(MAX_BATCH).filter_map(|i| i.as_str()?.parse().ok()).collect()
+  let mut out = Vec::new();
+  for s in list.iter().take(MAX_BATCH).filter_map(Value::as_str) {
+    let Some(id) = PaintId::from_wire(s) else { continue };
+    if matches!(id, PaintId::Twitch(_)) {
+      out.push(PaintId::Native(s.into()));
+    }
+    out.push(id);
+  }
+  out
 }
 
 // Some(Quit|Shutdown) ends the session; everything else keeps reading
@@ -398,9 +408,10 @@ mod tests {
   }
 
   #[test]
-  fn cosmetic_changed_keeps_only_twitch_ids() {
+  fn cosmetic_changed_keeps_each_id_in_its_own_namespace() {
     let v = json!({"type": "cosmetic:changed", "ids": ["37005319", "kick_5", "yt_UC1", 7, "x"]});
-    assert_eq!(cosmetic_ids(&v), vec![37005319]);
+    // a bare id refreshes the twitch chatter and a native account of that id; kick_5 only kick 5
+    assert_eq!(cosmetic_ids(&v), vec![PaintId::Native("37005319".into()), PaintId::Twitch(37005319), PaintId::Kick(5)]);
     assert!(cosmetic_ids(&json!({"type": "cosmetic:changed"})).is_empty());
   }
 

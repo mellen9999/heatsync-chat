@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::color;
 use super::message::{Extra, HsEmote, Kind, Message, Platform, Seg};
+use crate::cosmetics::id::PaintId;
 use crate::heatsync::{cw_blocked, valid_name};
 use crate::images::url::allowed;
 use crate::ui::theme;
@@ -22,8 +23,8 @@ pub struct Post {
   pub color: u32,
   pub anon: bool,
   pub platform: Option<Platform>,
-  // the author's twitch id (digits) when the post names one: what keys their paint. empty = none
-  pub uid: Box<str>,
+  // whose paint the author's name wears (their id in their own platform's namespace), if the post names one
+  pub paint: Option<PaintId>,
   pub text: Box<str>,
   pub ts: i64,
   pub heat: u32,
@@ -67,10 +68,6 @@ pub fn unescape(s: &str) -> String {
   out
 }
 
-fn is_twitch_id(s: &str) -> bool {
-  (1..=20).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()) && s.parse::<u64>().is_ok_and(|n| n > 0)
-}
-
 fn id_ok(s: &str) -> bool {
   (1..=8).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric())
 }
@@ -107,21 +104,21 @@ pub fn parse(v: &Value) -> Option<Post> {
   };
   let num =
     |k: &str| v.get(k).and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map_or(0, |n| n.min(1e9) as u32);
-  // ext isPaintLookupSafeId: a twitch author's id is their paint id; kick/yt/native ids live in other
-  // id spaces (never fed to the twitch-keyed cosmetics), anyone else stays plain
+  // ext isPaintLookupSafeId: the author's id in their own platform's namespace; the server already
+  // writes kick/youtube accounts as `kick_<n>` / `yt_UC…`. anything unsure stays plain
   let uid = match v.get("user_id") {
     Some(Value::String(s)) => s.clone(),
     Some(Value::Number(n)) => n.to_string(),
     _ => String::new(),
   };
-  let uid = if platform == Some(Platform::Twitch) && is_twitch_id(&uid) { uid.into() } else { "".into() };
+  let paint = PaintId::of(name("platform").unwrap_or(""), &uid);
   Some(Post {
     id: id.into(),
     user: clamp(user, MAX_NAME).into(),
     color: name("user_color").and_then(color::parse_hex).map_or(theme::WHITE, color::readable),
     anon,
     platform,
-    uid,
+    paint,
     text: clamp(&text, MAX_TEXT).trim().into(),
     ts: name("created_at").and_then(parse_iso).unwrap_or_else(now_ms),
     heat: num("heat"),
@@ -209,7 +206,10 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
   m.kind = Kind::Chat;
   m.id = row_id(&p.id);
   m.login = p.user.to_lowercase().into();
-  m.user_id = p.uid.clone();
+  // a twitch author keeps their id on the line (cards, sender refresh); every other namespace rides in `paint`
+  if let Some(PaintId::Twitch(n)) = &p.paint {
+    m.user_id = n.to_string().into();
+  }
   m.nick = if p.anon { "Anonymous".into() } else { p.user.clone() };
   m.color = if p.anon { theme::WHITE } else { p.color };
   m.body = if p.edited { format!("{} (edited)", p.text).into() } else { p.text.clone() };
@@ -219,6 +219,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     head: head.into(),
     tail: tail.into(),
     edge: if p.heat > 0 { tier(p.heat).0 } else { 0 },
+    paint: p.paint.clone(),
   }));
   m
 }
@@ -239,21 +240,36 @@ mod tests {
   }
 
   #[test]
-  fn only_twitch_authors_carry_a_paint_id() {
+  fn authors_carry_a_paint_id_in_their_own_namespace() {
     let mut v = sample();
-    assert!(parse(&v).unwrap().uid.is_empty(), "no platform = plain");
+    assert!(parse(&v).unwrap().paint.is_none(), "no platform = plain");
     v["platform"] = json!("twitch");
-    assert_eq!(&*parse(&v).unwrap().uid, "7");
+    assert_eq!(parse(&v).unwrap().paint, Some(PaintId::Twitch(7)));
     assert_eq!(&*message(&parse(&v).unwrap(), None, false).user_id, "7");
     v["user_id"] = json!(37005319);
-    assert_eq!(&*parse(&v).unwrap().uid, "37005319");
-    for bad in [json!("kick_5"), json!("0"), json!("12x"), json!("99999999999999999999999")] {
-      v["user_id"] = bad;
-      assert!(parse(&v).unwrap().uid.is_empty());
-    }
+    assert_eq!(parse(&v).unwrap().paint, Some(PaintId::Twitch(37005319)));
+    // the same number on kick or as a native account is not the twitch chatter
     v["user_id"] = json!("7");
     v["platform"] = json!("kick");
-    assert!(parse(&v).unwrap().uid.is_empty());
+    let k = parse(&v).unwrap();
+    assert_eq!(k.paint, Some(PaintId::Kick(7)));
+    let m = message(&k, None, false);
+    assert!(m.user_id.is_empty(), "never read as a twitch id");
+    assert_eq!(PaintId::of_message(&m), Some(PaintId::Kick(7)));
+    v["platform"] = json!("heatsync");
+    assert_eq!(parse(&v).unwrap().paint, Some(PaintId::Native("7".into())));
+    assert_ne!(PaintId::of_message(&message(&parse(&v).unwrap(), None, false)), Some(PaintId::Twitch(7)));
+    // a server-namespaced id keeps its namespace whatever platform label rides with it
+    v["user_id"] = json!("kick_9");
+    v["platform"] = json!("twitch");
+    assert_eq!(parse(&v).unwrap().paint, Some(PaintId::Kick(9)));
+    for bad in [json!("0"), json!("12x"), json!("99999999999999999999999")] {
+      v["user_id"] = bad;
+      v["platform"] = json!("twitch");
+      assert!(parse(&v).unwrap().paint.is_none());
+    }
+    v["user_id"] = json!("yt_short");
+    assert!(parse(&v).unwrap().paint.is_none());
   }
 
   #[test]
