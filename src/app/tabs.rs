@@ -128,6 +128,7 @@ impl App {
     if self.tabs.iter().any(|o| o.sources.iter().any(|s| s.0 == p && s.1 == key)) {
       return;
     }
+    self.pins.forget(p, &key);
     match p {
       Platform::Twitch => {
         self.res.emotes.drop_channel(&key);

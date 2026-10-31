@@ -17,6 +17,10 @@ impl App {
   }
 
   pub(super) fn on_pin(&mut self, p: Platform, key: &str, pin: Option<Pin>) {
+    // pin frames are broadcast for every room: only rooms we are in may take a slot
+    if !self.tabs.iter().any(|t| t.sources.iter().any(|s| s.0 == p && *s.1 == *key)) {
+      return;
+    }
     self.pins.set(p, key, pin);
     if self.tabs.get(self.active).is_some_and(|t| t.sources.iter().any(|s| s.0 == p && *s.1 == *key)) {
       self.wake();

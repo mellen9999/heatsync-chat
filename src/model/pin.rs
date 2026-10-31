@@ -74,6 +74,11 @@ impl Pins {
     }
   }
 
+  // a room we left: its pin must not hold a slot
+  pub fn forget(&mut self, p: Platform, key: &str) {
+    self.rooms.remove(&(p as u8, Box::<str>::from(key)));
+  }
+
   pub fn hide(&mut self, id: &str) {
     if self.hidden.len() >= MAX_HIDDEN {
       self.hidden.clear();
@@ -133,5 +138,15 @@ mod tests {
     s.set(Platform::Kick, "b", None);
     s.set(Platform::Twitch, "a", None);
     assert!(s.current(&src).is_none());
+  }
+
+  #[test]
+  fn a_left_room_frees_its_slot() {
+    let mut s = Pins::default();
+    let src = vec![(Platform::Twitch, "a".into())];
+    s.set(Platform::Twitch, "a", Some(pin("1", 10)));
+    s.forget(Platform::Twitch, "a");
+    assert!(s.current(&src).is_none());
+    assert!(s.rooms.is_empty());
   }
 }

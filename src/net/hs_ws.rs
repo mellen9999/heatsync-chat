@@ -113,10 +113,14 @@ fn apply(st: &mut State, c: Cmd) -> Option<Value> {
       .rooms
       .insert((plat(p), ch.clone()))
       .then(|| json!({"type": "channel:join", "platform": plat(p), "channel": &*ch})),
-    Cmd::Leave(p, ch) => st
-      .rooms
-      .remove(&(plat(p), ch.clone()))
-      .then(|| json!({"type": "channel:leave", "platform": plat(p), "channel": &*ch})),
+    Cmd::Leave(p, ch) => {
+      if p == Platform::Kick {
+        st.kick_seq.remove(&ch);
+      }
+      st.rooms
+        .remove(&(plat(p), ch.clone()))
+        .then(|| json!({"type": "channel:leave", "platform": plat(p), "channel": &*ch}))
+    }
     Cmd::Auth(t) => {
       st.token = t;
       None
@@ -275,7 +279,8 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let data = v.get("data")?;
       let key = kick_room(v)
         .or_else(|| data.get("channel").and_then(Value::as_str).filter(|c| valid_key(c)).map(Into::into))?;
-      if let (Some(seq), true) = (v.get("_seq").and_then(Value::as_u64), st.kick_seq.len() < 200) {
+      // only rooms we are in: a stray frame must not pin a slot in the (capped) resume map
+      if let (Some(seq), true) = (v.get("_seq").and_then(Value::as_u64), st.rooms.contains(&("kick", key.clone()))) {
         st.kick_seq.insert(key.clone(), seq);
       }
       let m = relay::kick(data)?;
@@ -304,6 +309,9 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| valid_key(c))?.into();
       let status: Box<str> = v.get("status").and_then(Value::as_str)?.chars().take(32).collect::<String>().into();
       if st.yt_status.get(&key) == Some(&status) {
+        return None;
+      }
+      if st.yt_status.len() >= MAX_ROOMS && !st.yt_status.contains_key(&key) {
         return None;
       }
       st.yt_status.insert(key.clone(), status.clone());
@@ -375,5 +383,14 @@ mod tests {
     assert!(apply(&mut st, Cmd::YtSub("@handle".into())).is_some());
     let f = apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into())).unwrap();
     assert_eq!(f["type"], "channel:leave");
+  }
+
+  #[test]
+  fn leaving_a_kick_room_forgets_its_resume_seq() {
+    let mut st = State::default();
+    apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into()));
+    st.kick_seq.insert("xqc".into(), 7);
+    apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into()));
+    assert!(st.kick_seq.is_empty());
   }
 }
