@@ -20,6 +20,7 @@ mod pin;
 mod stream;
 mod tabs;
 mod upload;
+mod whispers;
 mod zoom;
 
 use crate::fake::Fake;
@@ -35,6 +36,7 @@ use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
 use crate::model::stream_events::Moments;
 use crate::model::tabs::Kind;
 use crate::model::vi::{Action, Mode, Vi};
+use crate::model::whisper::{self, Timeline};
 use crate::net::auth::Me;
 use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::irc::Chat;
@@ -150,6 +152,9 @@ pub struct App {
   // names that ping you, and whether the window has focus (notifications only fire when it does not)
   mentions: Mentions,
   focused: bool,
+  // the whispers timeline, and whether this login's history was asked for
+  whispers: Timeline,
+  whispers_loaded: bool,
 }
 
 impl App {
@@ -243,6 +248,8 @@ impl App {
       moments: Moments::default(),
       mentions: Mentions::default(),
       focused: true,
+      whispers: Timeline::default(),
+      whispers_loaded: false,
     }
   }
 
@@ -337,6 +344,12 @@ impl App {
   fn hint(&self) -> String {
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
+    }
+    if self.kind() == Kind::Whispers {
+      return match self.whisper_label() {
+        Some(to) => format!("type to whisper {to}· /w user msg"),
+        None => "/w user msg to whisper someone".into(),
+      };
     }
     let lead = if self.set.vi { "i type" } else { "type to chat" };
     match &self.me {
@@ -462,6 +475,17 @@ impl App {
       self.chan_cmd(cmd);
       return self.after_send();
     }
+    if let Some(cmd) = whisper::command(&self.line.text) {
+      self.line.take();
+      self.whisper_slash(cmd);
+      return self.after_send();
+    }
+    if self.kind() == Kind::Whispers {
+      if let Some(text) = self.line.take() {
+        self.reply_whisper(text);
+      }
+      return self.after_send();
+    }
     if self.kind() == Kind::Mentions {
       return self.say("mentions is read-only. open a line to answer it");
     }
@@ -518,6 +542,7 @@ impl App {
       self.tabs[i].view.invalidate();
       self.bar_dirty = true;
       self.input_dirty = true;
+      self.entered();
       self.wake();
     }
   }
@@ -1145,6 +1170,8 @@ impl App {
         Key::Character("j") | Key::Named(NamedKey::ArrowDown) => return self.select_move(1),
         Key::Character("k") | Key::Named(NamedKey::ArrowUp) => return self.select_move(-1),
         Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => return self.jump_to_mention(),
+        Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => return self.whisper_activate(),
+        Key::Character("r") if self.kind() == Kind::Whispers => return self.whisper_reply_selected(),
         Key::Character("r") => return self.reply_selected(),
         Key::Character("c") if ctrl => return self.copy_selected(),
         Key::Named(NamedKey::Escape) | Key::Character("v") => {
@@ -1243,6 +1270,8 @@ impl ApplicationHandler<NetEvent> for App {
           self.wake();
         }
       }
+      NetEvent::Whispers { items, live } => self.on_whispers(items, live),
+      NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
@@ -1292,8 +1321,14 @@ impl ApplicationHandler<NetEvent> for App {
           Some(m) => format!("logged in as {}", m.username),
           None => String::new(),
         };
+        // a different login starts with a clean whispers tab
+        if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
+          self.whispers_reset();
+        }
         self.me = me;
+        self.whisper_empty();
         self.set_mention_names();
+        self.entered();
         self.bar_dirty = true;
         self.input_dirty = true;
         self.wake();

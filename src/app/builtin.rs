@@ -59,6 +59,13 @@ impl App {
     (0..self.tabs.len()).filter(|&i| self.visible(i)).nth(n)
   }
 
+  // a tab came into view: load what it shows the first time (or when stale)
+  pub(super) fn entered(&mut self) {
+    if self.kind() == Kind::Whispers {
+      self.whispers_load();
+    }
+  }
+
   // after tabs come and go: never rest on a hidden one
   pub(super) fn fix_active(&mut self) {
     if !self.visible(self.active) {

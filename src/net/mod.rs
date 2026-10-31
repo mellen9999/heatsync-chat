@@ -12,6 +12,7 @@ pub mod relay;
 mod senders;
 mod session;
 pub mod seventv;
+pub mod social;
 pub mod upload;
 
 use std::sync::Arc;
@@ -68,6 +69,10 @@ pub enum NetEvent {
   Stream(crate::model::stream_events::Line),
   // a chat-rate spike in a channel (text ready to show)
   Moment { platform: Platform, key: Box<str>, text: Box<str> },
+  // twitch whispers: one pushed live, or the history read when the tab first opened
+  Whispers { items: Vec<crate::model::whisper::Whisper>, live: bool },
+  // a send settled: who it went to (resolved), or why not
+  WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -126,6 +131,10 @@ pub enum Cmd {
   // our own twitch id, for watching our own 7tv cosmetics
   SevenTvMe(u64),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
+  // whispers and feed calls bound to the login
+  Social(social::Cmd),
+  // log in again asking for one more permission pack (twitch whispers)
+  Relink(&'static str),
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -340,10 +349,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let (pin_tx, pin_rx) = mpsc::unbounded_channel();
   tokio::spawn(pin::run(http.clone(), pin_rx, out.clone()));
   tokio::spawn(hs_ws::run(hs_rx, pin_tx, out.clone()));
+  let hs_auth = hs_tx.clone();
   let (snd_tx, snd_rx) = mpsc::unbounded_channel();
   tokio::spawn(senders::run(http.clone(), snd_rx, out.clone()));
   let (sess_tx, sess_rx) = mpsc::unbounded_channel();
-  tokio::spawn(session::run(http.clone(), sess_rx, irc_tx.clone(), out.clone()));
+  tokio::spawn(session::run(http.clone(), sess_rx, irc_tx.clone(), hs_auth, out.clone()));
   let (cos_tx, cos_rx) = mpsc::unbounded_channel();
   tokio::spawn(cosmetics::run(http.clone(), cos_rx, out.clone()));
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
@@ -378,7 +388,13 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(links::backfill(http.clone(), p, key, archive, out.clone()));
       }
       Cmd::Login => {
-        let _ = sess_tx.send(session::Cmd::Login);
+        let _ = sess_tx.send(session::Cmd::Login("base"));
+      }
+      Cmd::Relink(pack) => {
+        let _ = sess_tx.send(session::Cmd::Login(pack));
+      }
+      Cmd::Social(c) => {
+        let _ = sess_tx.send(session::Cmd::Social(c));
       }
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);

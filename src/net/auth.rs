@@ -72,11 +72,11 @@ fn page(body: &str) -> String {
 }
 
 // opens the browser and waits (≤5 min) for the loopback; returns the heatsync session token
-pub async fn login(http: &reqwest::Client) -> Result<String, String> {
+pub async fn login(http: &reqwest::Client, scopes: &str) -> Result<String, String> {
   let p = pkce()?;
   let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("loopback: {e}"))?;
   let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-  let url = format!("{ORIGIN}/api/auth/login?native={port}&cc={}&ns={}&scopes=base", p.challenge, p.state);
+  let url = format!("{ORIGIN}/api/auth/login?native={port}&cc={}&ns={}&scopes={scopes}", p.challenge, p.state);
   open_browser(&url)?;
   let code = timeout(WAIT, async {
     loop {

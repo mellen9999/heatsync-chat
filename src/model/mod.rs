@@ -13,3 +13,4 @@ pub mod settings;
 pub mod stream_events;
 pub mod tabs;
 pub mod vi;
+pub mod whisper;

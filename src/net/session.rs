@@ -8,6 +8,7 @@ use tokio::time::{Instant, sleep_until};
 
 use super::auth::{self, Check};
 use super::emote_ops::{self, EmoteCmd};
+use super::hs_ws;
 use super::irc::{self, Creds};
 use super::upload;
 use super::{NetEvent, ORIGIN, Out};
@@ -21,36 +22,47 @@ const RENEW: Duration = Duration::from_secs(6 * 3600);
 const RETRY: Duration = Duration::from_secs(60);
 
 pub enum Cmd {
-  Login,
+  // the permission pack to ask for ("base", or "whispers" to add twitch whispers)
+  Login(&'static str),
   Logout,
   Emote(EmoteCmd),
   Upload(std::path::PathBuf),
   Pixels(u32, u32, Vec<u8>),
   Pick,
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
+  Social(super::social::Cmd),
 }
 
 struct State {
   http: reqwest::Client,
   irc: UnboundedSender<irc::Cmd>,
+  // the heatsync socket signs in with the same token (whispers are pushed to signed-in sockets)
+  hs: UnboundedSender<hs_ws::Cmd>,
+  hs_as: Option<String>,
   out: Out,
   token: Option<String>,
   // what irc is logged in as, so a renewal that changes nothing doesn't reconnect chat
   irc_as: Option<(String, String)>,
 }
 
-pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: UnboundedSender<irc::Cmd>, out: Out) {
+pub async fn run(
+  http: reqwest::Client,
+  mut rx: UnboundedReceiver<Cmd>,
+  irc: UnboundedSender<irc::Cmd>,
+  hs: UnboundedSender<hs_ws::Cmd>,
+  out: Out,
+) {
   let token = store::read(TOKEN).map(|s| s.trim().to_owned()).filter(|t| auth::valid_token(t));
-  let mut st = State { http, irc, out, token, irc_as: None };
+  let mut st = State { http, irc, hs, hs_as: None, out, token, irc_as: None };
   let mut next = Instant::now();
   loop {
     tokio::select! {
       c = rx.recv() => match c {
         None => return,
-        Some(Cmd::Login) => {
+        Some(Cmd::Login(pack)) => {
           st.out.status("finish logging in in your browser…");
           eprintln!("login: opening the browser");
-          match auth::login(&st.http).await {
+          match auth::login(&st.http, pack).await {
             Ok(t) => {
               st.token = Some(t);
               next = Instant::now();
@@ -75,6 +87,9 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Cmd>, irc: Unb
         Some(Cmd::Pixels(w, h, px)) => st.pixels(w, h, px),
         Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
+        Some(Cmd::Social(c)) => {
+          tokio::spawn(super::social::run(st.http.clone(), st.token.clone(), c, st.out.clone()));
+        }
       },
       _ = sleep_until(next), if st.token.is_some() => {
         next = Instant::now() + if st.check().await { RENEW } else { RETRY };
@@ -133,6 +148,9 @@ impl State {
     if self.irc_as.take().is_some() {
       let _ = self.irc.send(irc::Cmd::Login(None));
     }
+    if self.hs_as.take().is_some() {
+      let _ = self.hs.send(hs_ws::Cmd::Auth(None));
+    }
     self.out.send(NetEvent::Me(None));
     self.out.status(why);
   }
@@ -159,6 +177,10 @@ impl State {
       }
     };
     let twitch = me.twitch.is_some();
+    if self.hs_as != self.token {
+      self.hs_as = self.token.clone();
+      let _ = self.hs.send(hs_ws::Cmd::Auth(self.token.clone()));
+    }
     self.out.send(NetEvent::Me(Some(me)));
     if let Some(t) = &self.token {
       tokio::spawn(emote_ops::load_blocked(self.http.clone(), t.clone(), self.out.clone()));

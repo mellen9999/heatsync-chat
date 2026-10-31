@@ -30,6 +30,8 @@ pub enum Cmd {
   Leave(Platform, Box<str>),
   YtSub(Box<str>),
   YtUnsub(Box<str>),
+  // sign the socket in with the heatsync session (None = signed out)
+  Auth(Option<String>),
 }
 
 fn plat(p: Platform) -> &'static str {
@@ -52,6 +54,7 @@ struct State {
   kick_seq: HashMap<Box<str>, u64>,
   yt_status: HashMap<Box<str>, Box<str>>,
   gate: Gate,
+  token: Option<String>,
 }
 
 enum End {
@@ -114,6 +117,10 @@ fn apply(st: &mut State, c: Cmd) -> Option<Value> {
       .rooms
       .remove(&(plat(p), ch.clone()))
       .then(|| json!({"type": "channel:leave", "platform": plat(p), "channel": &*ch})),
+    Cmd::Auth(t) => {
+      st.token = t;
+      None
+    }
     Cmd::YtSub(h) if valid_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
@@ -123,6 +130,10 @@ fn apply(st: &mut State, c: Cmd) -> Option<Value> {
     }
     _ => None,
   }
+}
+
+fn authenticate(token: &String) -> Value {
+  json!({"type": "authenticate", "token": token})
 }
 
 fn yt_sub(handle: &str) -> Value {
@@ -139,8 +150,8 @@ async fn session(
   out: &Out,
 ) -> End {
   let (mut tx, mut read) = ws.split();
-  let mut hello: Vec<Value> =
-    st.rooms.iter().map(|(p, c)| json!({"type": "channel:join", "platform": p, "channel": &**c})).collect();
+  let mut hello: Vec<Value> = st.token.iter().map(authenticate).collect();
+  hello.extend(st.rooms.iter().map(|(p, c)| json!({"type": "channel:join", "platform": p, "channel": &**c})));
   let acks: Vec<Value> =
     st.kick_seq.iter().take(200).map(|(c, s)| json!({"channel": format!("kick/{c}"), "lastSeq": s})).collect();
   if !acks.is_empty() {
@@ -186,6 +197,21 @@ async fn session(
       }
       c = rx.recv() => {
         let Some(c) = c else { return End::Quit };
+        if let Cmd::Auth(t) = c {
+          let (changed, was) = (st.token != t, st.token.is_some());
+          st.token = t;
+          match &st.token {
+            Some(t) if changed => {
+              if tx.send(Ws::text(authenticate(t).to_string())).await.is_err() {
+                return End::Reconnect;
+              }
+            }
+            // a signed-out socket must not keep receiving someone's whispers: start a fresh one
+            None if was => return End::Reconnect,
+            _ => {}
+          }
+          continue;
+        }
         let joined = if let Cmd::Join(p, ch) = &c { Some((*p, ch.clone())) } else { None };
         if let Some(f) = apply(st, c) {
           if let Some(a) = joined {
@@ -321,6 +347,10 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Moment { platform, key, text })
     }
     "pin:set" | "pin:clear" => pin::frame(v, ty == "pin:set").and_then(send),
+    "whisper:new" => {
+      let w = crate::model::whisper::parse(v, 0, None)?;
+      send(NetEvent::Whispers { items: vec![w], live: true })
+    }
     _ => None,
   }
 }

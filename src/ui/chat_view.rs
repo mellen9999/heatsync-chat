@@ -466,6 +466,27 @@ impl ChatView {
     r.height = 0;
   }
 
+  // swap a line for a new version of itself (a vote landed, a send settled); the selection stays
+  pub fn replace(&mut self, id: &str, m: Message) -> bool {
+    let Some(r) = self.rows.iter_mut().find(|r| &*r.msg.id == id) else { return false };
+    r.msg = m;
+    Self::touch(r);
+    self.stale = true;
+    true
+  }
+
+  // forget every line (a list reloading)
+  pub fn clear(&mut self) {
+    self.rows.clear();
+    self.anims.clear();
+    self.selected = None;
+    self.scroll = 0;
+    self.pending = 0;
+    self.seq_back = 0;
+    self.seq_front = 0;
+    self.stale = true;
+  }
+
   pub fn clear_msg(&mut self, id: &str) {
     if let Some(r) = self.rows.iter_mut().rev().find(|r| &*r.msg.id == id) {
       r.msg.flags |= flag::CLEARED;
@@ -1149,5 +1170,18 @@ mod tests {
     v.draw(&mut c, &mut res, area, area);
     assert!(v.select_at(area, 5, &mut res));
     assert_eq!(&*v.selected().unwrap().id, "p0");
+  }
+  #[test]
+  fn replace_and_clear() {
+    let mut v = ChatView::new(10, "c".into());
+    v.push(plain("a", "one"));
+    v.push(plain("b", "two"));
+    assert!(v.replace("b", plain("b", "TWO")));
+    assert!(!v.replace("zz", plain("zz", "x")));
+    v.clear();
+    assert_eq!(v.len(), 0);
+    v.push(plain("c", "three"));
+    assert_eq!(v.len(), 1);
+    assert!(v.selected().is_none());
   }
 }
