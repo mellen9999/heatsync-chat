@@ -12,6 +12,7 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 mod builtin;
+mod card;
 mod clip;
 mod emote;
 mod feed;
@@ -136,6 +137,8 @@ pub struct App {
   tab_menu: Option<tabs::TabMenu>,
   // the floating menu for login and line actions
   pop: Option<pop::Pop>,
+  // the user card over the chat
+  card: Option<card::Card>,
   // last drawn tab rects, then the + button
   bar_hits: Vec<Rect>,
   // the tab index behind each drawn rect (hidden tabs have none)
@@ -252,6 +255,7 @@ impl App {
       form_hover: None,
       tab_menu: None,
       pop: None,
+      card: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
       plus_hover: false,
@@ -574,6 +578,9 @@ impl App {
   fn select(&mut self, i: usize) {
     if i < self.tabs.len() && i != self.active {
       self.active = i;
+      // a card or menu belongs to the tab it was opened in
+      self.card = None;
+      self.pop = None;
       self.tabs[i].unread = false;
       self.tabs[i].view.invalidate();
       self.bar_dirty = true;
@@ -767,7 +774,7 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let area = self.chat_area();
-    if (self.menu.is_some() || self.tab_menu.is_some() || self.pop.is_some())
+    if (self.menu.is_some() || self.tab_menu.is_some() || self.pop.is_some() || self.card.is_some())
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts
@@ -832,6 +839,9 @@ impl App {
         canvas.fill(area, crate::ui::theme::BLACK);
         dirty = add(dirty, area);
       }
+    }
+    if let Some(r) = self.draw_card() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     if let Some(r) = self.draw_menu() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
@@ -1139,6 +1149,9 @@ impl App {
     if self.pop.is_some() {
       return self.pop_click();
     }
+    if self.card.is_some() {
+      return self.card_click();
+    }
     if self.tab_menu.is_some() {
       return self.tab_menu_click();
     }
@@ -1168,7 +1181,7 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
-    if self.emote_press(false) {
+    if self.emote_press(false) || self.name_press() {
       return;
     }
     let res = &mut self.res;
@@ -1190,6 +1203,10 @@ impl App {
     }
     if self.pop.is_some() {
       self.pop = None;
+      return self.pop_changed();
+    }
+    if self.card.is_some() {
+      self.card = None;
       return self.pop_changed();
     }
     if self.tab_menu.is_some() {
@@ -1237,6 +1254,7 @@ impl App {
         Key::Character("r") if self.kind() == Kind::Whispers => return self.whisper_reply_selected(),
         Key::Character("r") => return self.reply_selected(),
         Key::Character("m") if !ctrl => return self.line_menu_key(),
+        Key::Character("c") if !ctrl => return self.card_selected(),
         Key::Character("c") if ctrl => return self.copy_selected(),
         Key::Named(NamedKey::Escape) | Key::Character("v") => {
           if let Some(v) = self.view() {
@@ -1336,6 +1354,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       NetEvent::ModDone(d) => self.on_mod_done(*d),
+      NetEvent::Card { platform, login, res } => self.on_card(platform, &login, res),
       NetEvent::Lists(l) => self.on_lists(l),
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
       NetEvent::Whispers { items, live } => self.on_whispers(items, live),
@@ -1511,6 +1530,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.menu_hover();
         self.tab_menu_hover();
         self.pop_hover();
+        self.card_hover();
         self.form_hover_move();
         self.bar_hover();
         self.picker_hover();
@@ -1569,6 +1589,9 @@ impl ApplicationHandler<NetEvent> for App {
         }
         if self.pop.is_some() {
           return self.pop_key(k);
+        }
+        if self.card.is_some() {
+          return self.card_key(k);
         }
         if self.tab_menu.is_some() {
           return self.tab_menu_key(k);

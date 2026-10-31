@@ -51,6 +51,8 @@ struct PaintedName {
 
 struct Laid {
   layout: TextLayout,
+  // where the name sits in the laid-out text (empty for notices)
+  nick: std::ops::Range<usize>,
   boxes: Vec<EmoteBox>,
   name: Option<PaintedName>,
   // the line's inline picture, asked for at draw time (never for rows only measured)
@@ -182,6 +184,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, t
   let mut boxes = Vec::new();
   let mut painted = None;
   let mut embed = None;
+  let mut nick = 0..0;
   if m.kind == Kind::System {
     // stream lines carry their color (green live, magenta game switch); notices stay dim
     if m.color == 0 {
@@ -198,6 +201,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, t
     badges(res, chan, m, &mut s, &mut ib, &mut boxes);
     let n0 = s.len();
     s.push_str(&m.nick);
+    nick = n0..s.len();
     // a painted name's glyphs are drawn from the shaded bitmap instead (paints: names only)
     painted = twitch_uid(m).and_then(|uid| Some((uid, res.cosmetics.get(uid)?.paint.clone()?)));
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
@@ -238,7 +242,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, t
     let (x, w, baseline) = painted_run(&layout)?;
     Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
   });
-  Laid { layout, boxes, name, embed }
+  Laid { layout, nick, boxes, name, embed }
 }
 
 fn twitch_uid(m: &Message) -> Option<u64> {
@@ -796,6 +800,55 @@ impl ChatView {
       bottom = top;
     }
     None
+  }
+
+  // the line whose name is under (x, y), as drawn last
+  pub fn name_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Message> {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        return None;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+        if m.kind == Kind::System {
+          return None;
+        }
+        let laid = layout_row(res, &self.channel, m, muted, self.width, self.timestamps, self.tags);
+        let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
+        let over = laid.layout.lines().any(|line| {
+          let lm = line.metrics();
+          (lm.block_min_coord..lm.block_max_coord).contains(&ly)
+            && line.items().any(|it| match it {
+              PositionedLayoutItem::GlyphRun(gr) => {
+                let r = gr.run().text_range();
+                r.start < laid.nick.end
+                  && laid.nick.start < r.end
+                  && (gr.offset()..gr.offset() + gr.advance()).contains(&lx)
+              }
+              _ => false,
+            })
+        });
+        return over.then(|| m.clone());
+      }
+      bottom = top;
+    }
+    None
+  }
+
+  // what this person said here lately (oldest first), for their card
+  pub fn recent_by(&self, login: &str, n: usize) -> Vec<(i64, Box<str>)> {
+    let mut v: Vec<_> = self
+      .rows
+      .iter()
+      .rev()
+      .filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System && !r.msg.body.is_empty())
+      .take(n)
+      .map(|r| (r.msg.ts, r.msg.body.clone()))
+      .collect();
+    v.reverse();
+    v
   }
 
   // px > 0 moves toward older lines (up the screen)

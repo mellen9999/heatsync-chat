@@ -1,3 +1,4 @@
+pub mod card;
 pub mod chan;
 pub mod color;
 pub mod complete;

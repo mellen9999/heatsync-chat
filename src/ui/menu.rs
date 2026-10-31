@@ -22,6 +22,10 @@ impl<T: Copy> Menu<T> {
     Self { items, at: 0, head: None, anchor, rect: Rect::new(0, 0, 0, 0) }
   }
 
+  pub fn anchor_to(&mut self, at: (i32, i32)) {
+    self.anchor = at;
+  }
+
   pub fn titled(mut self, head: impl Into<String>) -> Self {
     self.head = Some(head.into());
     self

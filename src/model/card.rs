@@ -1,0 +1,196 @@
+// what the user card shows from POST /api/card (ext card-model.js, trimmed to what a text card can say):
+// account age, type, heat, posts, followers, who follows whom, how long they've followed this channel,
+// and how much the archive has seen of them. every part may be missing; a missing part shows nothing
+// (never a guess: "not following" only when the server said so)
+use serde_json::Value;
+
+use crate::util::time::parse_iso;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Info {
+  // false = no heatsync account behind this name (a plain chatter)
+  pub registered: bool,
+  // (label, value), in the ext's order
+  pub rows: Vec<(&'static str, String)>,
+}
+
+// "4y 3mo", "2mo 5d", "3d", "5h", "just now"
+pub fn ago(now: i64, then: i64) -> String {
+  let days = (now - then).max(0) / 86_400_000;
+  let (y, rest) = (days / 365, days % 365);
+  let (mo, d) = (rest / 30, rest % 30);
+  match (y, mo, d) {
+    (0, 0, 0) => {
+      let h = (now - then).max(0) / 3_600_000;
+      if h > 0 { format!("{h}h") } else { "just now".into() }
+    }
+    (0, 0, d) => format!("{d}d"),
+    (0, mo, d) if mo < 6 && d > 0 => format!("{mo}mo {d}d"),
+    (0, mo, _) => format!("{mo}mo"),
+    (y, 0, _) => format!("{y}y"),
+    (y, mo, _) => format!("{y}y {mo}mo"),
+  }
+}
+
+fn count(n: u64) -> String {
+  match n {
+    n if n >= 1_000_000 => format!("{:.1}m", n as f64 / 1e6),
+    n if n >= 10_000 => format!("{}k", n / 1000),
+    n if n >= 1000 => format!("{:.1}k", n as f64 / 1e3),
+    n => n.to_string(),
+  }
+}
+
+fn num(v: &Value, path: &str) -> u64 {
+  v.pointer(path).and_then(|x| x.as_u64().or_else(|| x.as_f64().map(|f| f.max(0.0) as u64))).unwrap_or(0)
+}
+
+fn text<'a>(v: &'a Value, path: &str) -> Option<&'a str> {
+  v.pointer(path).and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+// the earliest of several iso dates (a platform's own date beats the day heatsync recorded it)
+fn earliest(v: &Value, paths: &[&str]) -> Option<i64> {
+  paths.iter().filter_map(|p| text(v, p)).filter_map(parse_iso).min()
+}
+
+pub fn parse(v: &Value, now: i64) -> Info {
+  let mut rows: Vec<(&'static str, String)> = Vec::new();
+  let profile = v.get("profile").filter(|p| p.is_object());
+  let anonymous = profile.is_some_and(|p| p.get("is_anonymous").and_then(Value::as_bool) == Some(true));
+  if let Some(p) = profile.filter(|_| !anonymous) {
+    // the oldest account across platforms
+    let born = [p.get("twitch_created_at"), p.get("kick_created_at")]
+      .into_iter()
+      .flatten()
+      .filter_map(Value::as_str)
+      .filter_map(parse_iso)
+      .min();
+    if let Some(b) = born {
+      rows.push(("age", ago(now, b)));
+    }
+    match text(p, "/twitch_broadcaster_type") {
+      Some(t @ ("partner" | "affiliate")) => rows.push(("type", t.into())),
+      _ => {
+        if let Some(t @ ("admin" | "staff")) = text(p, "/role") {
+          rows.push(("type", t.into()));
+        }
+      }
+    }
+    let heat = num(p, "/stats/user_heat");
+    if heat > 0 {
+      rows.push(("heat", count(heat)));
+    }
+    let posts = num(p, "/stats/op_count") + num(p, "/stats/mop_count") + num(p, "/stats/re_count");
+    if posts > 0 {
+      rows.push(("posts", count(posts)));
+    }
+    let followers = [num(p, "/stats/followers"), num(p, "/twitch_followers"), num(p, "/kick_followers")]
+      .into_iter()
+      .max()
+      .unwrap_or(0);
+    if followers > 0 {
+      rows.push(("followers", count(followers)));
+    }
+    let following = [num(p, "/stats/following"), num(p, "/twitch_following_count"), num(p, "/kick_following_count")]
+      .into_iter()
+      .max()
+      .unwrap_or(0);
+    if following > 0 {
+      rows.push(("following", count(following)));
+    }
+    if let Some(r) = p.get("relationship").filter(|r| r.is_object()) {
+      let flag = |k: &str| r.get(k).and_then(Value::as_bool) == Some(true);
+      let follows_you = flag("followsYou") || flag("profileFollowsViewerOnTwitch");
+      let you_follow = flag("isFollowing") || flag("followsOnTwitch") || flag("followsOnKick");
+      let since = |a: &[&str]| earliest(r, a).map(|t| format!(" {}", ago(now, t))).unwrap_or_default();
+      if follows_you && you_follow {
+        rows.push(("rel", format!("mutual{}", since(&["/followsYouSince", "/followedAt"]))));
+      } else if you_follow {
+        rows
+          .push(("you", format!("follow{}", since(&["/followedAt", "/followsOnTwitchSince", "/followsOnKickSince"]))));
+      } else if follows_you {
+        rows
+          .push(("they", format!("follow you{}", since(&["/followsYouSince", "/profileFollowsViewerOnTwitchSince"]))));
+      }
+      if flag("subscribesToYou") || flag("profileSubbedToViewerOnTwitch") {
+        rows.push(("they", format!("sub to you{}", since(&["/subscribesToYouSince", "/profileTwitchSubSince"]))));
+      }
+    }
+  }
+  // this channel's followage: only a real answer counts
+  if let Some(f) =
+    v.get("followage").filter(|f| f.is_object() && f.get("degraded").and_then(Value::as_bool) != Some(true))
+  {
+    match text(f, "/followedAt").and_then(parse_iso) {
+      Some(t) => rows.push(("ch follow", ago(now, t))),
+      None => rows.push(("ch follow", "no".into())),
+    }
+  }
+  let seen = num(v, "/corpus/messages");
+  if seen > 0 {
+    let since = text(v, "/corpus/firstDay").and_then(|d| parse_iso(&format!("{d}T00:00:00Z")));
+    rows.push((
+      "seen",
+      format!("{} msgs{}", count(seen), since.map(|t| format!(" over {}", ago(now, t))).unwrap_or_default()),
+    ));
+  }
+  Info { registered: profile.is_some() && !anonymous, rows }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use serde_json::json;
+
+  const NOW: i64 = 1793399211099; // 2026-10-30
+
+  #[test]
+  fn spans_read_short() {
+    let day = 86_400_000;
+    assert_eq!(ago(NOW, NOW - 3 * day), "3d");
+    assert_eq!(ago(NOW, NOW - 100 * day), "3mo 10d");
+    assert_eq!(ago(NOW, NOW - 400 * day), "1y 1mo");
+    assert_eq!(ago(NOW, NOW - 730 * day), "2y");
+    assert_eq!(ago(NOW, NOW - 5 * 3_600_000), "5h");
+    assert_eq!(ago(NOW, NOW + 5), "just now");
+  }
+
+  #[test]
+  fn a_full_card() {
+    let v = json!({
+      "profile": {
+        "twitch_created_at": "2016-10-30T00:00:00.000Z", "kick_created_at": "2023-01-01T00:00:00.000Z",
+        "twitch_broadcaster_type": "affiliate",
+        "stats": { "user_heat": 1234, "op_count": 3, "re_count": 9, "followers": 12 },
+        "twitch_followers": 15000,
+        "relationship": { "followsYou": true, "isFollowing": true, "followsYouSince": "2025-10-30T00:00:00.000Z" }
+      },
+      "followage": { "followedAt": "2024-10-30T00:00:00.000Z" },
+      "corpus": { "messages": 420, "firstDay": "2025-01-01" }
+    });
+    let i = parse(&v, NOW);
+    assert!(i.registered);
+    let get = |k: &str| i.rows.iter().find(|r| r.0 == k).map(|r| r.1.clone());
+    assert_eq!(get("age").as_deref(), Some("10y"));
+    assert_eq!(get("type").as_deref(), Some("affiliate"));
+    assert_eq!(get("heat").as_deref(), Some("1.2k"));
+    assert_eq!(get("posts").as_deref(), Some("12"));
+    assert_eq!(get("followers").as_deref(), Some("15k"));
+    assert_eq!(get("rel").as_deref(), Some("mutual 1y"));
+    assert_eq!(get("ch follow").as_deref(), Some("2y"));
+    assert_eq!(get("seen").as_deref(), Some("420 msgs over 1y 10mo"));
+  }
+
+  #[test]
+  fn a_chatter_with_no_account_and_degraded_data() {
+    let i = parse(&json!({ "profile": null, "followage": { "degraded": true }, "corpus": { "messages": 0 } }), NOW);
+    assert!(!i.registered);
+    assert!(i.rows.is_empty());
+    // "not following" only when the server really answered
+    let n = parse(&json!({ "followage": { "followedAt": null } }), NOW);
+    assert_eq!(n.rows, vec![("ch follow", "no".to_owned())]);
+    assert!(!parse(&json!({ "profile": { "is_anonymous": true } }), NOW).registered);
+    assert!(parse(&json!("junk"), NOW).rows.is_empty());
+  }
+}

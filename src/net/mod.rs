@@ -86,6 +86,8 @@ pub enum NetEvent {
   Lists(mutes::Lists),
   // a mute changed on another device
   MuteSync(mutes::Sync),
+  // a user card's facts (or why not: http status, 0 = no answer)
+  Card { platform: Platform, login: Box<str>, res: Result<crate::model::card::Info, u16> },
   // a mod action settled
   ModDone(Box<modact::Done>),
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },

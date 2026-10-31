@@ -1,4 +1,5 @@
 pub mod canvas;
+pub mod card;
 pub mod chat_view;
 pub mod embed;
 pub mod form;

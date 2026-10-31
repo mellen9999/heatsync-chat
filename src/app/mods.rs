@@ -48,6 +48,7 @@ impl App {
       nick: m.nick.clone(),
       user_id: m.user_id.clone(),
       msg_id: m.id.clone(),
+      color: m.color,
       own,
     })
   }
@@ -114,7 +115,7 @@ impl App {
         let id = (platform == Platform::Twitch).then(|| t.view.user_id_of(&name)).flatten().unwrap_or_default();
         let (login, msg_id) =
           if verb == Verb::Delete { ("".into(), name.as_str().into()) } else { (name.as_str().into(), "".into()) };
-        Subject { platform, chan, login, nick: name.as_str().into(), user_id: id, msg_id, own: false }
+        Subject { platform, chan, login, nick: name.as_str().into(), user_id: id, msg_id, color: 0, own: false }
       })
       .collect();
     if verb == Verb::Delete {

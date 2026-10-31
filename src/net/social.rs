@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
+use crate::model::message::Platform;
 use crate::model::post::{self, Post};
 use crate::model::whisper::{self, Fail, Who};
 use crate::ui::theme;
@@ -32,6 +33,8 @@ pub enum Cmd {
   WhisperHistory { me: u64 },
   // `id` is the twitch user id when we already know it, else it is looked up from the login
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
+  // the user card's facts: who, on which platform, and the channel it was opened from
+  Card { platform: Platform, login: Box<str>, channel: Option<Box<str>> },
 }
 
 pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Out) {
@@ -45,6 +48,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         history(&http, &t, me, &out).await;
       }
     }
+    Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
     Cmd::WhisperSend { key, login, id, text } => {
       let res = match token {
         Some(t) => send(&http, &t, &login, id, &text).await,
@@ -119,6 +123,34 @@ async fn feed(http: &reqwest::Client, token: Option<&str>, page: u32, out: &Out)
 }
 
 fn void(_: bool) {}
+
+// POST /api/card: profile, followage, archive counts in one trip (works logged out; a login adds how you relate)
+async fn card(
+  http: &reqwest::Client,
+  token: Option<&str>,
+  platform: Platform,
+  login: Box<str>,
+  channel: Option<Box<str>>,
+  out: &Out,
+) {
+  let who = match platform {
+    Platform::Twitch => "twitch",
+    Platform::Kick => "kick",
+    Platform::Youtube => "youtube",
+  };
+  let mut body = json!({ "platform": who, "login": &*login });
+  if let Some(c) = channel.filter(|_| platform == Platform::Twitch) {
+    body["channel"] = json!(&*c);
+  }
+  let mut req =
+    http.post(format!("{ORIGIN}/api/card")).header("content-type", "application/json").body(body.to_string());
+  if let Some(t) = token {
+    req = req.bearer_auth(t);
+  }
+  let (status, v) = call(req).await;
+  let res = if status == 200 { Ok(crate::model::card::parse(&v, crate::util::time::now_ms())) } else { Err(status) };
+  void(out.send(NetEvent::Card { platform, login, res }))
+}
 
 // the OP and its replies, replies oldest first (the server pages newest first)
 async fn thread(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {

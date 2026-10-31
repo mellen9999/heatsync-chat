@@ -3,6 +3,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use crate::model::filter::{self, DEFAULT_MUTE_MS};
 use crate::model::message::{Kind as MsgKind, Platform};
 use crate::model::modcmd::{DURATIONS, Verb};
 use crate::model::tabs::Kind;
@@ -10,6 +11,7 @@ use crate::net::Cmd;
 use crate::net::auth::Provider;
 use crate::ui::canvas::Rect;
 use crate::ui::menu::Menu;
+use crate::util::time::now_ms;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
@@ -21,6 +23,14 @@ pub enum Act {
   No,
   Reply,
   CopyLine,
+  // the person's card, and the things a card (or a line menu) does to them
+  Card,
+  Mention,
+  Whisper,
+  Mute,
+  Unmute,
+  Block,
+  Unblock,
 }
 
 // the person a line menu acts on, from the line it was opened on
@@ -33,6 +43,7 @@ pub struct Subject {
   pub nick: Box<str>,
   pub user_id: Box<str>,
   pub msg_id: Box<str>,
+  pub color: u32,
   // one of our own accounts: no mod rows
   pub own: bool,
 }
@@ -91,31 +102,58 @@ impl App {
   fn pop_pick(&mut self) {
     let Some(p) = self.pop.take() else { return };
     self.pop_changed();
-    match (p.menu.chosen(), p.subject, p.todo) {
-      (Some(Act::Login(provider)), ..) => {
+    if let Some(act) = p.menu.chosen() {
+      self.act(act, p.subject, p.todo);
+    }
+  }
+
+  // what a chosen menu row does; shared by the line menu, the card and the login chooser
+  pub(super) fn act(&mut self, act: Act, who: Option<Subject>, todo: Option<Todo>) {
+    match (act, who, todo) {
+      (Act::Login(provider), ..) => {
         self.status = format!("finish logging in with {} in your browser…", provider.name());
         self.net.send(Cmd::Login(provider));
       }
-      (Some(Act::Do(verb)), Some(who), _) => self.mod_run(verb, vec![who], None),
-      (Some(Act::Yes), _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
-      (Some(Act::No), ..) => self.say("cancelled"),
-      (Some(Act::Reply), ..) => self.reply_selected(),
-      (Some(Act::CopyLine), ..) => self.copy_selected(),
+      (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
+      (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
+      (Act::No, ..) => self.say("cancelled"),
+      (Act::Reply, ..) => self.reply_selected(),
+      (Act::CopyLine, ..) => self.copy_selected(),
+      (Act::Card, Some(who), _) => self.open_card(who),
+      (Act::Mention, Some(who), _) => self.type_into_line(&format!("@{} ", who.nick)),
+      (Act::Whisper, Some(who), _) => self.type_into_line(&format!("/w {} ", who.login)),
+      (Act::Mute, Some(who), _) => self.mute(&who.login, Some(now_ms() + DEFAULT_MUTE_MS)),
+      (Act::Unmute, Some(who), _) => self.unmute(&who.login),
+      (Act::Block, Some(who), _) => self.block(&who.login),
+      (Act::Unblock, Some(who), _) => self.unblock(&who.login),
       _ => {}
     }
   }
 
-  // the menu for the selected line: its own actions, then mod actions when we moderate the room
-  pub(super) fn open_line_menu(&mut self, at: (i32, i32)) {
-    let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions)) else { return };
-    let Some(m) = t.view.selected().filter(|m| m.kind != MsgKind::System) else { return };
-    let who = self.subject_of(m);
+  // start (or add to) the message with some text and put the cursor in the box
+  fn type_into_line(&mut self, text: &str) {
+    self.line.insert(text);
+    self.complete = None;
+    self.enter_insert();
+    self.input_dirty = true;
+    self.wake();
+  }
+
+  // the rows for a person: the filters first, then what a moderator can do. shared by the line menu and the card
+  pub(super) fn person_rows(&self, w: &Subject) -> Vec<(Act, String)> {
     let mut rows: Vec<(Act, String)> = Vec::new();
-    if !m.id.is_empty() && t.kind == Kind::Chat {
-      rows.push((Act::Reply, "reply".into()));
+    if w.own {
+      return rows;
     }
-    rows.push((Act::CopyLine, "copy line".into()));
-    if let Some(w) = who.as_ref().filter(|w| !w.own && self.can_mod(w.platform, &w.chan)) {
+    rows.push((Act::Mention, "mention".into()));
+    if w.platform == Platform::Twitch && self.me.is_some() {
+      rows.push((Act::Whisper, "whisper".into()));
+    }
+    let key = filter::key(&w.login);
+    let (muted, blocked) = filter::with(|f| (f.muted(&key, now_ms()), f.blocked(&key)));
+    rows.push(if muted { (Act::Unmute, "unmute".into()) } else { (Act::Mute, "mute".into()) });
+    rows.push(if blocked { (Act::Unblock, "unblock".into()) } else { (Act::Block, "block".into()) });
+    if self.can_mod(w.platform, &w.chan) {
       if !w.msg_id.is_empty() {
         rows.push((Act::Do(Verb::Delete), "delete message".into()));
       }
@@ -125,6 +163,25 @@ impl App {
       rows.push((Act::Do(Verb::Purge), "purge".into()));
       rows.push((Act::Do(Verb::Ban), "ban".into()));
       rows.push((Act::Do(Verb::Unban), "unban".into()));
+    }
+    rows
+  }
+
+  // the menu for the selected line: its own actions, then mod actions when we moderate the room
+  pub(super) fn open_line_menu(&mut self, at: (i32, i32)) {
+    let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions)) else { return };
+    let Some(m) = t.view.selected().filter(|m| m.kind != MsgKind::System) else { return };
+    let who = self.subject_of(m);
+    let mut rows: Vec<(Act, String)> = Vec::new();
+    if who.is_some() {
+      rows.push((Act::Card, "user card".into()));
+    }
+    if !m.id.is_empty() && t.kind == Kind::Chat {
+      rows.push((Act::Reply, "reply".into()));
+    }
+    rows.push((Act::CopyLine, "copy line".into()));
+    if let Some(w) = &who {
+      rows.extend(self.person_rows(w));
     }
     let head = m.nick.to_string();
     self.pop = Some(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None });
