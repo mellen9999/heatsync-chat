@@ -3,7 +3,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
-use crate::emotes::block::{Click, emote_hash, right_click};
+use crate::emotes::block::{Click, Scope, emote_hash, right_click};
 use crate::net::Cmd;
 use crate::net::emote_ops::EmoteCmd;
 use crate::ui::canvas::Rect;
@@ -22,6 +22,7 @@ pub enum Act {
 pub struct Open {
   menu: Menu<Act>,
   hit: EmoteHit,
+  owned: bool,
 }
 
 // the menu rows for an emote, given what it is to you
@@ -54,10 +55,11 @@ impl App {
   pub fn emote_press(&mut self, right: bool) -> bool {
     let Some(hit) = self.emote_under_pointer() else { return false };
     let blocked = self.res.blocked.contains(&hit.name, &hit.url);
+    let owned = self.owned(&hit);
     if !right {
       // a blocked emote unblocks on click (as in the ext); anything else goes into the box
       if blocked {
-        self.run_act(Act::Unblock, &hit);
+        self.run_act(Act::Unblock, &hit, owned);
       } else {
         self.line.insert_word(&hit.name);
         self.recents.record(&hit.name);
@@ -66,37 +68,40 @@ impl App {
         self.input_dirty = true;
       }
     } else if self.mods.shift_key() {
-      let rows = rows(self.owned(&hit), blocked, self.me.is_some());
-      self.menu = Some(Open { menu: Menu::new(rows, self.pointer), hit });
+      let rows = rows(owned, blocked, self.me.is_some());
+      self.menu = Some(Open { menu: Menu::new(rows, self.pointer), hit, owned });
     } else {
-      let act = match right_click(self.owned(&hit), blocked) {
+      let act = match right_click(owned, blocked) {
         Click::Remove => Act::Remove,
         Click::Block => Act::Block,
         Click::Unblock => Act::Unblock,
       };
-      self.run_act(act, &hit);
+      self.run_act(act, &hit, owned);
     }
     self.wake();
     true
   }
 
-  fn run_act(&mut self, act: Act, hit: &EmoteHit) {
-    let hash = emote_hash(&hit.url);
+  fn run_act(&mut self, act: Act, hit: &EmoteHit, owned: bool) {
+    // an emote in your inventory is filed the way the ext files inventory rows
+    let scope = if owned { Scope::Hs } else { hit.scope };
+    let hash = emote_hash(&hit.url, scope);
     let name = &hit.name;
     match act {
       Act::Block | Act::Unblock => {
         let block = act == Act::Block;
-        if block {
-          self.res.blocked.block(name, &hit.url);
+        let hashes = if block {
+          self.res.blocked.block(name, &hit.url, scope);
+          vec![hash]
         } else {
-          self.res.blocked.unblock(name, &hit.url);
-        }
+          self.res.blocked.unblock(name, &hit.url, scope)
+        };
         self.res.blocked.save();
         self.status = format!("{} {name}", if block { "blocked" } else { "unblocked" });
-        if self.me.is_some()
-          && let Some(hash) = hash
-        {
-          self.net.send(Cmd::Emote(if block { EmoteCmd::Block { hash } } else { EmoteCmd::Unblock { hash } }));
+        if self.me.is_some() {
+          for hash in hashes {
+            self.net.send(Cmd::Emote(if block { EmoteCmd::Block { hash } } else { EmoteCmd::Unblock { hash } }));
+          }
         }
         self.relayout_where(None);
       }
@@ -106,7 +111,7 @@ impl App {
         self.net.send(Cmd::Emote(EmoteCmd::Add {
           name: name.clone(),
           url: hit.url.clone(),
-          hash,
+          hash: Some(hash),
           zero_width: hit.zero_width,
         }));
       }
@@ -134,7 +139,7 @@ impl App {
     if let Some(o) = self.menu.take()
       && let Some(act) = o.menu.chosen()
     {
-      self.run_act(act, &o.hit);
+      self.run_act(act, &o.hit, o.owned);
     }
     self.menu_changed();
   }

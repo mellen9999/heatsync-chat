@@ -7,6 +7,7 @@ use super::canvas::{Canvas, Rect};
 use super::res::{BADGE_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
+use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
 use crate::model::message::{Kind, Message, Platform, flag};
 use crate::util::time::hhmm;
@@ -28,6 +29,7 @@ pub struct EmoteHit {
   pub name: Box<str>,
   pub url: Box<str>,
   pub zero_width: bool,
+  pub scope: Scope,
 }
 
 struct Laid {
@@ -179,15 +181,15 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
     let blocked = found.as_ref().is_some_and(|f| res.blocked.contains(word, &f.0));
     match found {
       // a blocked overlay just vanishes; a blocked base keeps its slot
-      Some((_, _, true)) if prev_emote && blocked => continue,
-      Some((url, _, true)) if prev_emote => {
+      Some((_, _, true, _)) if prev_emote && blocked => continue,
+      Some((url, _, true, _)) if prev_emote => {
         let img = res.images.id(&url, EMOTE_PX);
         if let Some(last) = boxes.last_mut() {
           last.zw.push(img);
         }
         continue;
       }
-      Some((url, dims, _)) => {
+      Some((url, dims, _, _)) => {
         if !first {
           s.push(' ');
         }
@@ -213,7 +215,7 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
 fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &str) -> Option<Found> {
   let sender = (m.platform == Platform::Twitch).then(|| m.user_id.parse::<u64>().ok()).flatten();
   match m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b) {
-    Some((_, url)) => Some((url.clone(), (0, 0), false)),
+    Some((_, url)) => Some((url.clone(), (0, 0), false, Scope::Native)),
     None if word.is_empty() => None,
     None => resolve(res, chan, m, sender, word),
   }
@@ -222,25 +224,25 @@ fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &
 // ext order: the line's own server-verified refs, the channel catalog, the sender's heatsync
 // inventory, then globals. the sender's set is the only heatsync source (privacy invariant)
 fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
-  let e = |e: &crate::emotes::Emote| (e.url.clone(), (e.w, e.h), e.zero_width);
+  let e = |e: &crate::emotes::Emote, sc| (e.url.clone(), (e.w, e.h), e.zero_width, sc);
   if let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
-    return Some((u.clone(), (0, 0), *zw));
+    return Some((u.clone(), (0, 0), *zw, Scope::Hs));
   }
   if let Some(x) = res.emotes.channel(chan, word) {
-    return Some(e(x));
+    return Some(e(x, Scope::Channel));
   }
   if let Some(x) = sender.and_then(|id| res.senders.lookup(id, word, m.ts)) {
-    return Some((x.url.clone(), (x.w, x.h), x.zero_width));
+    return Some((x.url.clone(), (x.w, x.h), x.zero_width, Scope::Hs));
   }
   if m.has(flag::OWN)
     && let Some(x) = res.emotes.twitch_global(word)
   {
-    return Some(e(x));
+    return Some(e(x, Scope::Global));
   }
-  res.emotes.global(word).map(e)
+  res.emotes.global(word).map(|x| e(x, Scope::Global))
 }
 
-type Found = (Box<str>, (u16, u16), bool);
+type Found = (Box<str>, (u16, u16), bool, Scope);
 
 fn blit_emote(c: &mut Canvas, images: &mut Images, imgs: &[ImgId], rect: Rect, clip: Rect, next: &mut Option<u32>) {
   for &id in imgs {
@@ -466,8 +468,8 @@ impl ChatView {
         })?;
         let (a, b) = (eb.word.0 as usize, eb.word.1 as usize);
         let word = m.body.get(a..b).filter(|w| !w.is_empty())?;
-        let (url, _, zero_width) = find_word(res, &self.channel, m, a, b, word)?;
-        return Some(EmoteHit { name: word.into(), url, zero_width });
+        let (url, _, zero_width, scope) = find_word(res, &self.channel, m, a, b, word)?;
+        return Some(EmoteHit { name: word.into(), url, zero_width, scope });
       }
       bottom = top;
     }
@@ -701,7 +703,7 @@ mod tests {
     // plain words are not emotes
     assert!(v.emote_at(area, 10, 199, &mut res).is_none());
     // blocked: still hit-testable (so a click can unblock) and still holds its slot
-    res.blocked.block("Kappa", url);
+    res.blocked.block("Kappa", url, Scope::Channel);
     v.relayout();
     assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
   }
