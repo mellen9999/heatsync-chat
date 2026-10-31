@@ -59,6 +59,8 @@ pub struct ChatView {
   pub timestamps: bool,
   // [T]/[K]/[Y] before each line once a tab merges platforms
   pub tags: bool,
+  // the line picked with `v` / a click (by seq), outlined; replies and actions act on it
+  selected: Option<i64>,
 }
 
 pub enum Paint {
@@ -254,6 +256,7 @@ impl ChatView {
       zebra: true,
       timestamps: true,
       tags: false,
+      selected: None,
     }
   }
 
@@ -344,6 +347,83 @@ impl ChatView {
 
   pub fn pinned(&self) -> bool {
     self.scroll == 0
+  }
+
+  fn height_at(&mut self, i: usize, res: &mut Res) -> i32 {
+    let (w, ts, tags) = (self.width, self.timestamps, self.tags);
+    let r = &mut self.rows[i];
+    if r.height == 0 {
+      r.height = layout_row(res, &self.channel, &r.msg, w, ts, tags).layout.height().ceil() as i32;
+    }
+    r.height
+  }
+
+  fn index_of(&self, seq: i64) -> Option<usize> {
+    let i = seq.checked_sub(self.rows.front()?.seq)?;
+    usize::try_from(i).ok().filter(|&i| self.rows.get(i).is_some_and(|r| r.seq == seq))
+  }
+
+  pub fn selected(&self) -> Option<&Message> {
+    Some(&self.rows[self.index_of(self.selected?)?].msg)
+  }
+
+  pub fn deselect(&mut self) {
+    if self.selected.take().is_some() {
+      self.stale = true;
+    }
+  }
+
+  // move the selection `by` lines (negative = older), skipping system lines; starts at the newest.
+  // scrolls just enough to keep it on screen
+  pub fn select_move(&mut self, by: i32, res: &mut Res, view_h: i32) {
+    let Some(last) = self.rows.len().checked_sub(1) else { return };
+    let mut i = match self.selected.and_then(|s| self.index_of(s)) {
+      Some(i) => i,
+      None => last + 1,
+    } as i64;
+    let mut left = by.unsigned_abs().max(1);
+    let step = if by < 0 { -1 } else { 1 };
+    let mut found = None;
+    while left > 0 {
+      i += step;
+      let Some(r) = usize::try_from(i).ok().and_then(|j| self.rows.get(j)) else { break };
+      if r.msg.kind != Kind::System {
+        found = Some(i as usize);
+        left -= 1;
+      }
+    }
+    let Some(i) = found.or_else(|| self.selected.and_then(|s| self.index_of(s))) else { return };
+    self.selected = Some(self.rows[i].seq);
+    // distance from the bottom of the content to the bottom of this row
+    let below: i32 = (i + 1..self.rows.len()).map(|j| self.height_at(j, res)).sum();
+    let h = self.height_at(i, res);
+    if below < self.scroll {
+      self.scroll = below;
+    } else if below + h > self.scroll + view_h {
+      self.scroll = below + h - view_h;
+    }
+    self.stale = true;
+  }
+
+  // the line under y (in `area`'s coordinates), as drawn last
+  pub fn select_at(&mut self, area: Rect, y: i32, res: &mut Res) -> bool {
+    let mut bottom = area.bottom() + self.scroll;
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        break;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        if self.rows[i].msg.kind == Kind::System {
+          return false;
+        }
+        self.selected = Some(self.rows[i].seq);
+        self.stale = true;
+        return true;
+      }
+      bottom = top;
+    }
+    false
   }
 
   pub fn scroll_by(&mut self, px: i32, res: &mut Res) {
@@ -441,6 +521,17 @@ impl ChatView {
         if let Some(m) = mark {
           c.fill(Rect::new(area.x, top, MARK_W, r.height).intersect(clip), m);
         }
+        if self.selected == Some(r.seq) {
+          // 1px white outline: emphasis by border, never a fill behind text
+          for e in [
+            Rect::new(area.x, top, area.w, 1),
+            Rect::new(area.x, top + r.height - 1, area.w, 1),
+            Rect::new(area.x, top, 1, r.height),
+            Rect::new(area.right() - 1, top, 1, r.height),
+          ] {
+            c.fill(e.intersect(clip), theme::WHITE);
+          }
+        }
         if let Some(laid) = &r.laid {
           let Res { text, images, .. } = res;
           let anims = &mut self.anims;
@@ -502,5 +593,36 @@ impl ChatView {
     }
     self.next_anim = next;
     dirty
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::fake::Fake;
+
+  #[test]
+  fn selection_walks_lines_and_skips_system() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(100, "c".into());
+    v.resize(400);
+    let mut f = Fake::new(1);
+    for i in 0..5 {
+      let mut m = f.message(i);
+      m.kind = Kind::Chat;
+      m.id = format!("m{i}").into();
+      v.push(m);
+    }
+    v.push(Message::system(9, Platform::Twitch, "joined"));
+    assert!(v.selected().is_none());
+    v.select_move(-1, &mut res, 1000);
+    assert_eq!(&*v.selected().unwrap().id, "m4");
+    v.select_move(-2, &mut res, 1000);
+    assert_eq!(&*v.selected().unwrap().id, "m2");
+    // past the newest line it stays put rather than landing on the system line
+    v.select_move(5, &mut res, 1000);
+    assert_eq!(&*v.selected().unwrap().id, "m4");
+    v.deselect();
+    assert!(v.selected().is_none());
   }
 }

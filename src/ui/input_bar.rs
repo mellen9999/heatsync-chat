@@ -17,6 +17,8 @@ pub struct Bar<'a> {
   // e.g. ("[K] ", GREEN) when the tab merges platforms
   pub target: Option<(&'a str, u32)>,
   pub hint: &'a str,
+  // replying to @nick: shown dim before the text
+  pub reply: Option<&'a str>,
 }
 
 fn layout(text: &mut Text, b: &Bar, width: i32) -> (TextLayout, usize) {
@@ -26,8 +28,15 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> (TextLayout, usize) {
     s.push_str(tag);
     spans.push(Span { range: 0..tag.len().saturating_sub(1), ink: Ink(ink), bold: true });
   }
+  if let Some(nick) = b.reply {
+    let a = s.len();
+    s.push_str("↳ @");
+    s.push_str(nick);
+    s.push(' ');
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
+  }
   let at = s.len();
-  if b.line.text.is_empty() && !b.insert {
+  if b.line.text.is_empty() && !b.insert && b.reply.is_none() {
     s.push_str(b.hint);
     spans.push(Span { range: at..s.len(), ink: Ink(theme::DIM), bold: false });
   } else {

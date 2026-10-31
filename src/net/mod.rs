@@ -73,6 +73,12 @@ pub fn backoff(attempt: u32) -> Duration {
   Duration::from_secs_f64(base * jitter)
 }
 
+// the line being answered: its platform message id, and @nick for our own echo
+pub struct Reply {
+  pub id: Box<str>,
+  pub nick: Box<str>,
+}
+
 pub enum Cmd {
   Join(Box<str>),
   Part(Box<str>),
@@ -87,8 +93,7 @@ pub enum Cmd {
   Sender(u64, Option<Box<str>>),
   Login,
   Logout,
-  // reply = the platform message id being answered
-  Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Box<str>> },
+  Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -300,7 +305,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
       }
       Cmd::Send { platform: Platform::Kick, chan, text, reply } => {
-        let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply });
+        let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id) });
       }
       Cmd::Send { platform: Platform::Youtube, chan, .. } => {
         let m =

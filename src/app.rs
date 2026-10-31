@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
@@ -17,7 +17,7 @@ use crate::model::message::{Message, Platform};
 use crate::net::auth::Me;
 use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::irc::Chat;
-use crate::net::{Cmd, Net, NetEvent};
+use crate::net::{Cmd, Net, NetEvent, Reply};
 use crate::store;
 use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::chat_view::{ChatView, Paint};
@@ -95,6 +95,10 @@ pub struct App {
   line: Line,
   insert: bool,
   complete: Option<Complete>,
+  // replying to: (platform message id, @nick), sent with the next line
+  reply: Option<(Box<str>, Box<str>)>,
+  // last pointer position (window px), for clicks
+  pointer: (i32, i32),
   input_h: i32,
   input_dirty: bool,
   me: Option<Me>,
@@ -153,6 +157,8 @@ impl App {
       line: Line::default(),
       insert: false,
       complete: None,
+      reply: None,
+      pointer: (0, 0),
       input_h: 0,
       input_dirty: true,
       me: None,
@@ -200,7 +206,11 @@ impl App {
   fn send(&mut self) {
     let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
     if let Some(text) = self.line.take() {
-      self.net.send(Cmd::Send { platform, chan, text, reply: None });
+      let reply = self.reply.take().map(|(id, nick)| Reply { id, nick });
+      if let Some(v) = self.view() {
+        v.deselect();
+      }
+      self.net.send(Cmd::Send { platform, chan, text, reply });
       if let Some(v) = self.view() {
         v.scroll_to_bottom();
       }
@@ -398,7 +408,8 @@ impl App {
     if std::mem::take(&mut self.input_dirty) {
       let hint = self.hint();
       let tag = self.target().and_then(|t| t.2);
-      let bar = input_bar::Bar { line: &self.line, insert: self.insert, target: tag, hint: &hint };
+      let reply = self.reply.as_ref().map(|r| &*r.1);
+      let bar = input_bar::Bar { line: &self.line, insert: self.insert, target: tag, hint: &hint, reply };
       let h = input_bar::height(&mut self.res.text, &bar, self.canvas.w);
       if h != self.input_h {
         // the chat area changed size: repaint it whole
@@ -564,7 +575,10 @@ impl App {
     self.complete = None;
     let l = &mut self.line;
     match key {
-      Key::Named(NamedKey::Escape) => return self.set_insert(false),
+      Key::Named(NamedKey::Escape) => {
+        self.reply = None;
+        return self.set_insert(false);
+      }
       Key::Named(NamedKey::Enter) => self.send(),
       Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),
       Key::Named(NamedKey::Backspace) => l.backspace(),
@@ -598,13 +612,74 @@ impl App {
     self.wake();
   }
 
+  // `r` on the selected line: reply to it on its own platform
+  fn reply_selected(&mut self) {
+    let Some(t) = self.tabs.get_mut(self.active) else { return };
+    let Some(m) = t.view.selected() else { return };
+    if m.id.is_empty() {
+      return;
+    }
+    let (id, nick, p) = (m.id.clone(), m.nick.clone(), m.platform);
+    if let Some(i) = t.sources.iter().position(|s| s.0 == p) {
+      t.target = i;
+    }
+    self.reply = Some((id, nick));
+    self.set_insert(true);
+  }
+
+  fn select_move(&mut self, by: i32) {
+    let h = self.chat_area().h;
+    let res = &mut self.res;
+    if let Some(t) = self.tabs.get_mut(self.active) {
+      t.view.select_move(by, res, h);
+    }
+    self.wake();
+  }
+
+  // click a line to select it; click the input to type
+  fn click(&mut self) {
+    let (x, y) = self.pointer;
+    let (chat, input) = (self.chat_area(), self.input_area());
+    if input.contains(x, y) {
+      return self.set_insert(true);
+    }
+    if !chat.contains(x, y) {
+      return;
+    }
+    let res = &mut self.res;
+    if let Some(t) = self.tabs.get_mut(self.active) {
+      t.view.select_at(chat, y, res);
+    }
+    self.wake();
+  }
+
+  fn selecting(&self) -> bool {
+    self.tabs.get(self.active).is_some_and(|t| t.view.selected().is_some())
+  }
+
   fn key(&mut self, key: Key<&str>) {
     let line = self.res.text.line_px as i32;
     let half = self.chat_area().h / 2;
     let ctrl = self.mods.control_key();
     let alt = self.mods.alt_key();
     let chord = self.chord.take();
+    // a selected line: j/k move it, r replies, esc lets go
+    if self.selecting() {
+      match key {
+        Key::Character("j") | Key::Named(NamedKey::ArrowDown) => return self.select_move(1),
+        Key::Character("k") | Key::Named(NamedKey::ArrowUp) => return self.select_move(-1),
+        Key::Character("r") => return self.reply_selected(),
+        Key::Named(NamedKey::Escape) | Key::Character("v") => {
+          if let Some(v) = self.view() {
+            v.deselect();
+          }
+          return self.wake();
+        }
+        _ => {}
+      }
+    }
     match key {
+      Key::Character("v") if !ctrl => self.select_move(-1),
       Key::Character(d) if alt && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
         let n = (d.as_bytes()[0] - b'0') as usize;
         self.select(if n == 0 { 9 } else { n - 1 });
@@ -808,6 +883,8 @@ impl ApplicationHandler<NetEvent> for App {
           self.wake();
         }
       }
+      WindowEvent::CursorMoved { position, .. } => self.pointer = (position.x as i32, position.y as i32),
+      WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseWheel { delta, .. } => {
         let px = match delta {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,

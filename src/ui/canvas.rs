@@ -25,6 +25,14 @@ impl Rect {
     self.w <= 0 || self.h <= 0
   }
 
+  pub fn contains(self, x: i32, y: i32) -> bool {
+    x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+  }
+
+  pub fn right(self) -> i32 {
+    self.x + self.w
+  }
+
   pub fn bottom(self) -> i32 {
     self.y + self.h
   }

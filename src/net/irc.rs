@@ -8,7 +8,7 @@ use tokio::time::{Instant, interval, sleep};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
-use super::{Out, backoff};
+use super::{Out, Reply, backoff};
 use crate::model::color;
 use crate::model::message::{Kind, Message, Platform, flag};
 use crate::util::time::now_ms;
@@ -256,7 +256,7 @@ pub enum Cmd {
   Part(Box<str>),
   // None = back to anonymous. either way the connection restarts under the new identity
   Login(Option<Creds>),
-  Send { chan: Box<str>, text: String, reply: Option<Box<str>> },
+  Send { chan: Box<str>, text: String, reply: Option<Reply> },
 }
 
 pub struct Creds {
@@ -268,6 +268,7 @@ pub struct Creds {
 struct Sent {
   chan: Box<str>,
   text: String,
+  reply_to: Option<Box<str>>,
 }
 
 const MAX_PENDING: usize = 20;
@@ -420,7 +421,8 @@ async fn session(
               let ch = line.channel().unwrap_or("");
               if let Some(i) = pending.iter().position(|p| &*p.chan == ch) {
                 let Some(p) = pending.remove(i) else { continue };
-                let m = own_message(&line, &nick, &me_id, &p.text);
+                let mut m = own_message(&line, &nick, &me_id, &p.text);
+                m.reply_to = p.reply_to;
                 if !out.chat(p.chan, Chat::Msg(m)) {
                   return End::Quit;
                 }
@@ -452,11 +454,11 @@ async fn session(
               unsent(out, chan, "log in to send (ctrl-l)");
               continue;
             }
-            let Some(l) = privmsg(&chan, &text, reply.as_deref()) else { continue };
+            let Some(l) = privmsg(&chan, &text, reply.as_ref().map(|r| &*r.id)) else { continue };
             if pending.len() == MAX_PENDING {
               pending.pop_front();
             }
-            pending.push_back(Sent { chan, text });
+            pending.push_back(Sent { chan, text, reply_to: reply.map(|r| r.nick) });
             l
           }
           Some(c) => match apply(chans, c) {
