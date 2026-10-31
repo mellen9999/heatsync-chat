@@ -19,5 +19,6 @@ pkgbase = heatsync-chat
 	optdepends = zenity: file dialog for uploads
 	optdepends = libx11: x11 sessions
 	options = !lto
+	options = !debug
 
 pkgname = heatsync-chat

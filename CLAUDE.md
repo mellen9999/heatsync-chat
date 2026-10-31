@@ -25,4 +25,6 @@ the heatsync browser extension's multichat overlay, as a standalone pure-rust wi
 - images: decoded at display height (28px × scale), frames idle 60s drop back to disk, 24MB hard cap with lru eviction, raw bytes in `~/.cache/heatsync-chat/img` (pruned to 256MB)
 
 ## conventions
+- **settings**: one table, `src/model/schema.rs` (label, tip, category, section, slash command, side effect). the settings screen, the slash switches, the settings file and the presets all read it. a new switch = one `Settings` field + one row. keys: `src/model/keys.rs` feeds the `?` screen; keep it in step with the handlers in `app.rs`
+- packaging: `packaging/arch` (own folder: makepkg's `src/` would hit ours). `cd packaging/arch && paru -Bi .`
 - rustfmt 2-space, lowercase ui copy, conventional commits, no ai fingerprints
