@@ -5,10 +5,12 @@
 use std::collections::HashMap;
 
 pub mod anim;
+mod fill;
 mod motion;
 pub mod raster;
 pub mod scene;
 mod scene_cat;
+mod stroke;
 
 use self::anim::{AnimArt, Scratch};
 use super::canvas::{Canvas, Rect};
@@ -198,14 +200,25 @@ fn box_blur(buf: &mut [f32], w: usize, h: usize, r: usize) {
 
 // one drop shadow: the glyph alpha shifted, blurred, tinted. css blur radius = 2σ
 fn shadow_layer(alpha: &[f32], w: usize, h: usize, s: &Shadow) -> Vec<f32> {
-  let (dx, dy) = (s.dx.round() as i32, s.dy.round() as i32);
+  // the glyph alpha shifted by (dx, dy), fractional offsets split over the four neighbours
+  let (fx, fy) = (s.dx.floor(), s.dy.floor());
+  let (kx, ky) = (s.dx - fx, s.dy - fy);
+  let (ix, iy) = (fx as i32, fy as i32);
+  let at = |x: i32, y: i32| -> f32 {
+    if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h { alpha[y as usize * w + x as usize] } else { 0.0 }
+  };
   let mut a = vec![0f32; w * h];
   for y in 0..h as i32 {
     for x in 0..w as i32 {
-      let (sx, sy) = (x - dx, y - dy);
-      if sx >= 0 && sy >= 0 && (sx as usize) < w && (sy as usize) < h {
-        a[y as usize * w + x as usize] = alpha[sy as usize * w + sx as usize];
-      }
+      let (sx, sy) = (x - ix, y - iy);
+      let v = if kx == 0.0 && ky == 0.0 {
+        at(sx, sy)
+      } else {
+        let top = at(sx, sy) * (1.0 - kx) + at(sx - 1, sy) * kx;
+        let bot = at(sx, sy - 1) * (1.0 - kx) + at(sx - 1, sy - 1) * kx;
+        top * (1.0 - ky) + bot * ky
+      };
+      a[y as usize * w + x as usize] = v;
     }
   }
   let sigma = s.blur / 2.0;

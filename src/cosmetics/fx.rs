@@ -1,6 +1,7 @@
 // the animated half of a heatsync-native paint (`/api/paints` spec v2): the scene (backdrop +
 // weather) and the effects. parsed to closed enums, so a hostile row can only pick from the
 // catalog, never smuggle a value. mirrors the ext's paint-spec.js / scene-spec.js tables
+use super::fill::{Drop, Fill, Outline, drops};
 use serde_json::Value;
 
 pub const MIN_SPEED: f32 = 0.25;
@@ -172,6 +173,11 @@ pub struct Fx {
   pub glow: Option<(u32, u8)>,
   // a motion effect that is split per glyph is present (read from the raw list, like the ext)
   pub split: bool,
+  // the `fill` block: replaces the base and any paint-slot effect
+  pub fill: Option<Fill>,
+  pub outline: Option<Outline>,
+  // only ever worn over a fill
+  pub shadows: Vec<Drop>,
 }
 
 pub fn hex6(s: &str) -> Option<u32> {
@@ -205,7 +211,7 @@ fn scene(v: &Value) -> Option<Scene> {
   (backdrop.is_some() || weather.is_some()).then_some(Scene { backdrop, weather })
 }
 
-fn effects(v: &Value) -> (Vec<Effect>, bool) {
+fn effects(v: &Value, has_fill: bool) -> (Vec<Effect>, bool) {
   let mut out: Vec<Effect> = Vec::new();
   let mut split = false;
   let mut budget = MAX_LAYERS;
@@ -230,7 +236,7 @@ fn effects(v: &Value) -> (Vec<Effect>, bool) {
     .collect();
   // the ext spends its animation slots on the paint effect first, then the motions, in order
   for e in &parsed {
-    if e.kind.paints() && !has_paint && budget > 0 && !out.iter().any(|o| o.kind == e.kind) {
+    if !has_fill && e.kind.paints() && !has_paint && budget > 0 && !out.iter().any(|o| o.kind == e.kind) {
       has_paint = true;
       budget -= 1;
       out.push(*e);
@@ -260,15 +266,22 @@ impl Fx {
   // None = nothing animated (a plain static paint)
   pub fn parse(v: &Value, base: Base) -> Option<Fx> {
     let scene = if v.get("v").and_then(Value::as_i64) == Some(2) { v.get("scene").and_then(scene) } else { None };
-    let (effects, split) = v.get("effects").map_or((Vec::new(), false), effects);
-    if scene.is_none() && effects.is_empty() {
+    // a fill is additive to v1/v2, read whatever the version says
+    let fill = v
+      .get("fill")
+      .filter(|f| f.is_object())
+      .map(|f| Fill::parse(f, v.get("underlay").and_then(Value::as_str) == Some("name")));
+    let (effects, split) = v.get("effects").map_or((Vec::new(), false), |e| effects(e, fill.is_some()));
+    let outline = v.get("outline").and_then(Outline::parse);
+    let shadows = if fill.is_some() { v.get("shadows").map(drops).unwrap_or_default() } else { Vec::new() };
+    if scene.is_none() && effects.is_empty() && fill.is_none() && outline.is_none() {
       return None;
     }
     let glow = v.get("glow").filter(|g| g.is_object()).and_then(|g| {
       let c = hex6(g.get("color")?.as_str()?)?;
       Some((c, if g.get("strength").and_then(Value::as_i64) == Some(2) { 2 } else { 1 }))
     });
-    Some(Fx { scene, effects, base, glow, split })
+    Some(Fx { scene, effects, base, glow, split, fill, outline, shadows })
   }
 }
 
@@ -355,5 +368,40 @@ mod tests {
       json!({"v": 2, "effects": [{"id": "pan"}, {"id": "glint"}, {"id": "coin"}, {"id": "heli"}, {"id": "neon"}]});
     let kinds: Vec<Kind> = Fx::parse(&v, base()).unwrap().effects.iter().map(|e| e.kind).collect();
     assert_eq!(kinds, [Kind::Pan, Kind::Coin, Kind::Neon]);
+  }
+
+  // paint-spec.js:238-262 EFFECTS { slot, luminance, basePeriod, letterSplit, sig }, copied verbatim
+  #[test]
+  fn effect_table_matches_the_exts() {
+    let ext: [(&str, bool, bool, f32, bool); 24] = [
+      ("pan", true, false, 5.0, false),
+      ("conic", true, false, 6.0, false),
+      ("hue", true, true, 8.0, false),
+      ("glint", true, false, 3.4, false),
+      ("reveal", true, false, 3.0, false),
+      ("stripes", true, false, 2.4, false),
+      ("stardust", true, false, 3.0, false),
+      ("pulse", true, true, 2.4, false),
+      ("wave", false, false, 1.6, true),
+      ("ripple", false, true, 2.4, true),
+      ("coin", false, false, 5.0, false),
+      ("heli", false, false, 2.2, false),
+      ("float", false, false, 5.5, false),
+      ("heart", false, false, 1.3, false),
+      ("wobble", false, false, 2.8, false),
+      ("swing", false, false, 2.6, false),
+      ("tumble", false, false, 3.4, true),
+      ("neon", false, true, 2.6, false),
+      ("glitch", false, false, 2.8, false),
+      ("jitter", false, false, 3.0, false),
+      ("hop", false, false, 2.2, true),
+      ("twirl", false, false, 3.6, true),
+      ("type", false, true, 4.0, true),
+      ("flicker", false, true, 3.0, false),
+    ];
+    for (id, paint, lum, period, split) in ext {
+      let k = Kind::parse(id).unwrap();
+      assert_eq!((k.paints(), k.luminance(), k.period(), k.per_letter()), (paint, lum, period, split), "{id}");
+    }
   }
 }

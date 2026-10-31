@@ -1215,7 +1215,7 @@ impl ChatView {
             if let Some(fx) = &n.paint.fx {
               // scene + effects: built once, then a premultiplied frame per tick
               let (aw, ah, base, animated, smooth) = {
-                let a = arts.anim(key, &n.nick, |motion| AnimArt::build(text, &n.nick, w, fx, motion));
+                let a = arts.anim(key, &n.nick, |motion| AnimArt::build(text, &n.nick, w, fx, motion, n.color));
                 (a.w, a.h, a.base, a.animated(), a.smooth())
               };
               let (ax, ay) = ((x + n.x).round() as i32, (top as f32 + n.baseline - base).round() as i32);

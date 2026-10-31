@@ -2,9 +2,11 @@
 // scene's tiles, shadow stacks); a frame is then a few cheap passes over small premultiplied
 // buffers with no allocation: plate -> glyph fill -> shadows -> per-glyph motion -> whole-name
 // motion -> near weather. mirrors the ext's compilePaintCss (paint-spec.js)
+use super::fill::FillArt;
 use super::motion::{self, Aff};
 use super::raster::{Px, over};
 use super::scene::SceneArt;
+use super::stroke::{self, Stroke};
 use super::{Cov, coverage, shadow_layer};
 use crate::cosmetics::fx::{Base, BaseKind, Effect, Fx, Kind};
 use crate::cosmetics::paint::Shadow;
@@ -256,6 +258,12 @@ pub struct AnimArt {
   neon: Option<(Vec<Px>, Vec<Px>)>,
   ghosts: Option<[Vec<Px>; 3]>,
   scene: Option<SceneArt>,
+  fill: Option<FillArt>,
+  // the fill moves: one gradient across the name, not one per glyph
+  fill_whole: bool,
+  // the fill's layers below every mover, flattened once
+  fill_base: Vec<Px>,
+  stroke: Option<Stroke>,
   // css px -> device px
   s: f32,
   motion: bool,
@@ -273,7 +281,7 @@ fn glyph_boxes(text: &mut Text, nick: &str, w: usize) -> Vec<(usize, usize)> {
 }
 
 impl AnimArt {
-  pub fn build(text: &mut Text, nick: &str, w: i32, fx: &Fx, motion: bool) -> AnimArt {
+  pub fn build(text: &mut Text, nick: &str, w: i32, fx: &Fx, motion: bool, ink_color: u32) -> AnimArt {
     let Cov { w, h, base, alpha } = coverage(text, nick, w);
     let (wu, hu) = (w as usize, h as usize);
     let cov: Vec<u8> = alpha.iter().map(|&a| (a * 255.0 + 0.5) as u8).collect();
@@ -282,37 +290,62 @@ impl AnimArt {
     let effects: &[Effect] = if motion { &fx.effects } else { &[] };
     let filler = Filler::new(&fx.base);
     let has = |k: Kind| effects.iter().any(|e| e.kind == k);
+    let s = (h as f32 / 20.0).clamp(0.5, 6.0);
+    let fill = fx.fill.as_ref().map(|f| FillArt::new(f, s, motion, ink_color));
+    let fill_moves = fill.as_ref().is_some_and(FillArt::moves);
+    // shadows are a filter on the name: ripple and tumble cannot live under one, so they win
+    let drops_on = !fx.shadows.is_empty() && !has(Kind::Ripple) && !has(Kind::Tumble);
 
     // the shadows the name wears at rest: its glow, else the plate's dark rim
     let backdrop = fx.scene.as_ref().is_some_and(|s| s.backdrop.is_some());
-    let clip_text = fx.base.kind != BaseKind::Solid || effects.iter().any(|e| e.kind.paints());
+    let clip_text = fx.base.kind != BaseKind::Solid || fx.fill.is_some() || effects.iter().any(|e| e.kind.paints());
     let rim_hostile = has(Kind::Ripple) || has(Kind::Tumble);
-    let animated_fill = effects.iter().any(|e| e.kind.paints());
-    let rim = backdrop && fx.glow.is_none() && !has(Kind::Neon) && (!clip_text || (!rim_hostile && !animated_fill));
-    let rest_shadows = match (fx.glow, rim) {
+    let animated_fill = fill_moves || effects.iter().any(|e| e.kind.paints());
+    let rim = backdrop
+      && fx.glow.is_none()
+      && !has(Kind::Neon)
+      && !drops_on
+      && (!clip_text || (!rim_hostile && !animated_fill));
+    let stroke = fx.outline.map(|o| stroke::stroke(&alpha, wu, hu, o.width * s / 2.0, o.color, clip_text));
+    // the shadows are cast from the glyph and its stroke, and replace the glow and the rim
+    let drop_px =
+      drops_on.then(|| stroke::chain(stroke.as_ref().map_or(&alpha, |st| &st.outer), wu, hu, s, &fx.shadows));
+    let glow_on = fx.glow.filter(|_| !drops_on);
+    let rest_shadows = match (glow_on, rim) {
       (Some((c, st)), _) => glow(c, st),
       (None, true) => vec![sh(0.0, 1.0, 1.0, 0xdd << 24), sh(0.0, 0.0, 2.0, 0xaa << 24)],
       (None, false) => Vec::new(),
     };
-    let shadow_rest = stack(&alpha, wu, hu, &if has(Kind::Neon) { Vec::new() } else { rest_shadows });
+    let beneath = |top: Vec<Px>| match &drop_px {
+      Some(d) => top
+        .into_iter()
+        .zip(d)
+        .map(|(t, &b)| {
+          let mut p = b;
+          over(&mut p, t);
+          p
+        })
+        .collect(),
+      None => top,
+    };
+    let shadow_rest = beneath(stack(&alpha, wu, hu, &if has(Kind::Neon) { Vec::new() } else { rest_shadows }));
     let neon = has(Kind::Neon).then(|| {
       let (c, st) = fx.glow.unwrap_or((0xff40af, 1));
-      (stack(&alpha, wu, hu, &neon_set(c, st, false)), stack(&alpha, wu, hu, &neon_set(c, st, true)))
+      (beneath(stack(&alpha, wu, hu, &neon_set(c, st, false))), beneath(stack(&alpha, wu, hu, &neon_set(c, st, true))))
     });
     let ghosts = has(Kind::Glitch).then(|| {
       let g = |a: f32, b: f32| {
         stack(&alpha, wu, hu, &[sh(a, 0.0, 0.0, 0xff << 24 | 0x00ffff), sh(b, 0.0, 0.0, 0xff << 24 | 0xff00ff)])
       };
-      [g(-2.0, 2.0), g(2.0, -2.0), g(-1.0, 1.0)]
+      [g(-2.0, 2.0), g(2.0, -2.0), g(-1.0, 1.0)].map(beneath)
     });
     // a glitch's resting frame is the user's own glow (or nothing), never the rim
     let shadow_rest = if has(Kind::Glitch) {
-      stack(&alpha, wu, hu, &fx.glow.map(|(c, st)| glow(c, st)).unwrap_or_default())
+      beneath(stack(&alpha, wu, hu, &glow_on.map(|(c, st)| glow(c, st)).unwrap_or_default()))
     } else {
       shadow_rest
     };
 
-    let s = (h as f32 / 20.0).clamp(0.5, 6.0);
     let mut art = AnimArt {
       w,
       h,
@@ -328,27 +361,70 @@ impl AnimArt {
       neon,
       ghosts,
       scene: fx.scene.as_ref().map(|sc| SceneArt::new(sc, wu, hu)),
+      fill,
+      fill_whole: fill_moves,
+      fill_base: Vec::new(),
+      stroke,
       s,
       motion,
     };
+    art.bake_fill();
     let mut rest = vec![[0u8; 4]; wu * hu];
-    art.shade(None, 0.0, &mut rest);
+    art.shade(None, -1.0, &mut rest);
     art.glyph_rest = rest;
     art
   }
 
   // every frame of this name is the same: nothing to tick
   pub fn animated(&self) -> bool {
-    self.motion && (!self.fx.effects.is_empty() || self.scene.as_ref().is_some_and(SceneArt::animated))
+    self.motion
+      && (!self.fx.effects.is_empty() || self.fill_whole || self.scene.as_ref().is_some_and(SceneArt::animated))
   }
 
   // a tick needs the display's rate: motion effects run smooth, a scene alone at the ext's 24 steps/s
   pub fn smooth(&self) -> bool {
-    self.motion && !self.fx.effects.is_empty()
+    self.motion && (!self.fx.effects.is_empty() || self.fill_whole)
   }
 
   // fills the glyph pixels at phase p of the paint effect (or at rest)
+  // the fill's box around column x: the whole name when it moves, else the glyph's own
+  fn fill_box(&self, x: usize) -> (usize, usize) {
+    if self.fill_whole { (0, self.w as usize) } else { self.boxes[self.box_of[x] as usize] }
+  }
+
+  fn bake_fill(&mut self) {
+    let Some(f) = &self.fill else { return };
+    let w = self.w as usize;
+    let mut base = vec![[0u8; 4]; w * self.h as usize];
+    for &i in &self.ink {
+      let i = i as usize;
+      let (x, y) = (i % w, i / w);
+      let (x0, x1) = self.fill_box(x);
+      base[i] = f.base_px((x - x0) as f32 + 0.5, y as f32 + 0.5, (x1 - x0) as f32, self.h as f32);
+    }
+    self.fill_base = base;
+  }
+
   fn shade(&self, e: Option<&Effect>, p: f32, out: &mut [Px]) {
+    if let Some(f) = &self.fill {
+      // the fill replaces the paint-slot effect; `p` is wall time here, -1 = the resting frame
+      let frame = if p < 0.0 { FillArt::rest_frame() } else { f.frame(p) };
+      let w = self.w as usize;
+      for &i in &self.ink {
+        let i = i as usize;
+        let (x, y) = (i % w, i / w);
+        let (x0, x1) = self.fill_box(x);
+        let c = f.px(self.fill_base[i], (x - x0) as f32 + 0.5, y as f32 + 0.5, (x1 - x0) as f32, self.h as f32, &frame);
+        let a = self.cov[i] as u32;
+        out[i] = [
+          (c[0] as u32 * a / 255) as u8,
+          (c[1] as u32 * a / 255) as u8,
+          (c[2] as u32 * a / 255) as u8,
+          (c[3] as u32 * a / 255) as u8,
+        ];
+      }
+      return;
+    }
     let w = self.w as usize;
     for &i in &self.ink {
       let i = i as usize;
@@ -388,6 +464,10 @@ impl AnimArt {
 
     // glyph fill
     match effects.iter().find(|e| e.kind.paints()) {
+      None if self.fill_whole && live.is_some() => {
+        sc.glyph.iter_mut().for_each(|p| *p = [0; 4]);
+        self.shade(None, t, &mut sc.glyph);
+      }
       Some(e) => {
         sc.glyph.iter_mut().for_each(|p| *p = [0; 4]);
         self.shade(Some(e), self.phase_of(e, t), &mut sc.glyph);
@@ -411,9 +491,20 @@ impl AnimArt {
         (Some((a, _)), _, None) => a,
         _ => &self.shadow_rest,
       };
-    for ((d, g), s) in sc.sprite.iter_mut().zip(&sc.glyph).zip(shadow) {
+    for (i, ((d, g), s)) in sc.sprite.iter_mut().zip(&sc.glyph).zip(shadow).enumerate() {
       *d = *s;
-      over(d, *g);
+      match &self.stroke {
+        // an opaque fill hides the stroke's inner half; a see-through one shows it
+        Some(st) if st.top => {
+          over(d, *g);
+          over(d, st.px[i]);
+        }
+        Some(st) => {
+          over(d, st.px[i]);
+          over(d, *g);
+        }
+        None => over(d, *g),
+      }
     }
 
     // per-glyph motion
@@ -600,7 +691,7 @@ mod tests {
     let w =
       text.layout("mellen", &[Span { range: 0..6, ink: Ink(theme::WHITE), bold: true }], &[], 1e5).full_width().ceil()
         as i32;
-    (AnimArt::build(&mut text, "mellen", w, f, motion), Scratch::new())
+    (AnimArt::build(&mut text, "mellen", w, f, motion, 0xffffff), Scratch::new())
   }
 
   // every effect, alone: a deterministic frame at a fixed t, and it moves over the loop
@@ -704,5 +795,75 @@ mod tests {
     let px = art.render(Some(1.0), &mut sc);
     let inked = px.iter().filter(|p| p[3] > 0).count();
     assert!(inked > 20 && inked < px.len() / 2, "{inked}");
+  }
+
+  fn spec(extra: serde_json::Value) -> Fx {
+    let mut v = json!({"v": 2, "scene": null, "effects": [], "glow": null});
+    for (k, x) in extra.as_object().unwrap() {
+      v[k] = x.clone();
+    }
+    let base = Base { kind: BaseKind::Solid, angle: 0.0, tile: 0.0, stops: vec![(0.0, 0xffffff)] };
+    Fx::parse(&v, base).unwrap()
+  }
+
+  fn red_blue() -> serde_json::Value {
+    json!({"angle": 90, "layers": [{"stops": [{"color": "#ff0000", "pos": 0}, {"color": "#0000ff", "pos": 100}]}]})
+  }
+
+  fn ink_count(px: &[Px]) -> usize {
+    px.iter().filter(|p| p[3] > 0).count()
+  }
+
+  #[test]
+  fn a_static_fill_paints_the_glyphs_and_is_a_still() {
+    let (art, mut sc) = build(&spec(json!({"fill": red_blue()})), true);
+    assert!(!art.animated());
+    let px = art.render(None, &mut sc).to_vec();
+    let w = art.w as usize;
+    let (l, r) = (
+      px.iter().enumerate().filter(|(i, p)| p[3] > 0 && i % w < w / 3),
+      px.iter().enumerate().filter(|(i, p)| p[3] > 0 && i % w > 2 * w / 3),
+    );
+    assert!(l.map(|(_, p)| p[0] as u32).sum::<u32>() > 0 && r.map(|(_, p)| p[2] as u32).sum::<u32>() > 0);
+  }
+
+  #[test]
+  fn a_fill_replaces_the_paint_slot_effect() {
+    let f = spec(json!({"fill": red_blue(), "effects": [{"id": "pan"}, {"id": "coin"}]}));
+    assert_eq!(f.effects.iter().map(|e| e.kind).collect::<Vec<_>>(), [Kind::Coin]);
+  }
+
+  #[test]
+  fn a_moving_fill_ticks_and_motion_off_holds_the_first_frame() {
+    let mv = json!({"angle": 90, "layers": [{"stops": [{"color": "#ff0000", "pos": 0}, {"color": "#0000ff", "pos": 100}],
+      "repeat": true, "tile": {"unit": "name", "size": 1}, "motion": {"type": "flow"}}]});
+    let f = spec(json!({"fill": mv}));
+    let (art, mut sc) = build(&f, true);
+    assert!(art.animated());
+    let a = hash(art.render(Some(0.5), &mut sc));
+    assert_ne!(a, hash(art.render(Some(1.3), &mut sc)));
+    assert_eq!(a, hash(art.render(Some(0.5), &mut sc)));
+    let (off, mut sc2) = build(&f, false);
+    assert!(!off.animated());
+    assert_eq!(hash(off.render(Some(0.5), &mut sc2)), hash(off.render(Some(1.3), &mut sc2)));
+  }
+
+  #[test]
+  fn outline_and_shadows_draw_outside_the_glyphs() {
+    let (plain, mut sc) = build(&spec(json!({"fill": red_blue()})), true);
+    let base = ink_count(plain.render(None, &mut sc));
+    let (o, mut sc) = build(&spec(json!({"fill": red_blue(), "outline": {"width": 2, "color": "#00ff00"}})), true);
+    assert!(ink_count(o.render(None, &mut sc)) > base + 20);
+    let sh = json!([{"x": 2, "y": 2, "blur": 0, "color": "#000000"}]);
+    let (d, mut sc) = build(&spec(json!({"fill": red_blue(), "shadows": sh})), true);
+    assert!(ink_count(d.render(None, &mut sc)) > base + 20);
+    // shadows need a fill, and ripple wins over them
+    let (nf, mut sc) = build(&spec(json!({"outline": {"width": 1, "color": "#ffffff"}, "shadows": sh})), true);
+    assert!(nf.fill.is_none() && nf.stroke.is_some());
+    let _ = nf.render(None, &mut sc);
+    let (rp, mut sc) = build(&spec(json!({"fill": red_blue(), "shadows": sh, "effects": [{"id": "ripple"}]})), true);
+    assert_eq!(ink_count(rp.render(None, &mut sc)), base);
+    let (st, mut sc) = build(&spec(json!({"fill": red_blue(), "shadows": sh, "effects": [{"id": "ripple"}]})), false);
+    assert!(ink_count(st.render(None, &mut sc)) > base, "static mode keeps the shadows");
   }
 }

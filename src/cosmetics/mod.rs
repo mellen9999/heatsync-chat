@@ -1,5 +1,6 @@
 // 7tv cosmetics of chatters: the paint on their name and the badge before it. heatsync's
 // `/api/cosmetics/batch` hands them over per twitch id (the ext's route); everything is hostile
+pub mod fill;
 pub mod fx;
 mod fx_tints;
 pub mod paint;
