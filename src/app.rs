@@ -172,6 +172,7 @@ impl App {
     }
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
+    res.media = set.media;
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
@@ -407,6 +408,12 @@ impl App {
       Local::Moments => {
         self.set.moments = !self.set.moments;
         format!("chat-spike lines {}", on(self.set.moments))
+      }
+      Local::Media => {
+        self.set.media = !self.set.media;
+        self.res.media = self.set.media;
+        self.relayout_where(None);
+        format!("inline pictures {}", on(self.set.media))
       }
       Local::Zoom(Some(pct)) => return self.zoom_to(pct),
       Local::Zoom(None) => "usage: /zoom 1.5 (anything from 0.5 to 3)".into(),

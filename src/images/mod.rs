@@ -27,6 +27,10 @@ struct Slot {
   seen_ms: u64,
   // width the layout assumed before the image arrived; a mismatch forces a relayout
   guessed_w: u32,
+  // chat pictures only: fit inside this many px of width and never enlarge (0 = emote sizing)
+  max_w: u32,
+  // size once decoded, kept after the frames are dropped so rows hold their height
+  dims: (u32, u32),
 }
 
 pub struct Images {
@@ -85,9 +89,64 @@ impl Images {
       return id;
     }
     let id = self.slots.len() as ImgId;
-    self.slots.push(Slot { url: key.0.clone(), lh, state: State::Idle, last_used: 0, seen_ms: 0, guessed_w: 0 });
+    self.slots.push(Slot {
+      url: key.0.clone(),
+      lh,
+      state: State::Idle,
+      last_used: 0,
+      seen_ms: 0,
+      guessed_w: 0,
+      max_w: 0,
+      dims: (0, 0),
+    });
     self.by_url.insert(key, id);
     id
+  }
+
+  // a chat picture: at most `lh` high and `max_w` px wide, kept at its own size when smaller
+  pub fn id_fit(&mut self, url: &str, lh: u16, max_w: u32) -> ImgId {
+    let id = self.id(url, lh);
+    let s = &mut self.slots[id as usize];
+    let max_w = max_w.clamp(1, 0xffff);
+    if s.max_w != max_w {
+      s.max_w = max_w;
+      // the window got narrower: the picture decoded for the old width no longer fits
+      if let State::Ready(d) = &s.state
+        && d.w > max_w
+      {
+        self.bytes -= d.bytes();
+        s.state = State::Idle;
+      }
+    }
+    id
+  }
+
+  // ask for the picture now (draw time), without drawing it
+  pub fn want(&mut self, id: ImgId) {
+    let Some(want) = self.slots.get(id as usize).map(|s| self.target(s)) else { return };
+    let s = &mut self.slots[id as usize];
+    if matches!(s.state, State::Idle) {
+      s.state = State::Loading;
+      self.wanted.push((id, s.url.clone(), want));
+    }
+  }
+
+  // decoded size, if it ever decoded; layout reserves exactly this
+  pub fn dims(&mut self, id: ImgId) -> Option<(u32, u32)> {
+    let s = self.slots.get_mut(id as usize)?;
+    (s.dims.0 > 0).then(|| {
+      s.guessed_w = s.dims.0;
+      s.dims
+    })
+  }
+
+  pub fn failed(&self, id: ImgId) -> bool {
+    self.slots.get(id as usize).is_some_and(|s| matches!(s.state, State::Failed))
+  }
+
+  // what the decoder is asked for: physical height, and (chat pictures) max width in the high half
+  fn target(&self, s: &Slot) -> u32 {
+    self.px(s.lh) | (s.max_w << 16)
   }
 
   // width at target height: real if decoded, else from provider dims, else square
@@ -106,7 +165,7 @@ impl Images {
   // frame to draw now, plus ms until it changes (None = static). queues a load if needed
   pub fn frame(&mut self, id: ImgId) -> Option<(&decode::Frame, u32, u32, Option<u32>)> {
     let now = self.epoch.elapsed().as_millis() as u64;
-    let h = self.px(self.slots.get(id as usize)?.lh);
+    let h = self.target(self.slots.get(id as usize)?);
     let s = &mut self.slots[id as usize];
     s.last_used = self.tick;
     s.seen_ms = now;
@@ -135,7 +194,7 @@ impl Images {
 
   // returns true when the real width differs from what layout guessed (rows must relayout)
   pub fn loaded(&mut self, id: ImgId, h: u32, res: Result<Decoded, String>) -> bool {
-    let Some(want) = self.slots.get(id as usize).map(|s| self.px(s.lh)) else { return false };
+    let Some(want) = self.slots.get(id as usize).map(|s| self.target(s)) else { return false };
     let s = &mut self.slots[id as usize];
     if h != want {
       // decoded for a stale scale; ask again
@@ -145,6 +204,7 @@ impl Images {
     match res {
       Ok(d) => {
         let relayout = d.w != s.guessed_w;
+        s.dims = (d.w, d.h);
         self.bytes += d.bytes();
         s.state = State::Ready(d);
         self.evict();

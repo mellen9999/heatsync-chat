@@ -5,8 +5,9 @@ use std::sync::Arc;
 use parley::{InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
+use super::embed;
 use super::name_art::{self, ArtKey, PAINT_IMG_PX};
-use super::res::{BADGE_PX, EMOTE_PX, Res};
+use super::res::{BADGE_PX, EMBED_PX, EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
@@ -51,6 +52,8 @@ struct Laid {
   layout: TextLayout,
   boxes: Vec<EmoteBox>,
   name: Option<PaintedName>,
+  // the line's inline picture, asked for at draw time (never for rows only measured)
+  embed: Option<ImgId>,
 }
 
 struct Row {
@@ -136,6 +139,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
   let mut ib = Vec::new();
   let mut boxes = Vec::new();
   let mut painted = None;
+  let mut embed = None;
   if m.kind == Kind::System {
     // stream lines carry their color (green live, magenta game switch); notices stay dim
     if m.color == 0 {
@@ -157,8 +161,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
       s.push(':');
     }
     s.push(' ');
+    let (pic, fold) = picture(res, m, width);
     let b0 = s.len();
-    body(res, chan, m, &mut s, &mut ib, &mut boxes);
+    body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
     let ink = match (m.has(flag::CLEARED), m.kind) {
       (true, _) => Some(theme::DIM),
       (_, Kind::Action) => Some(m.color),
@@ -167,13 +172,22 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
     if let Some(c) = ink {
       spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
+    // the picture sits on its own line under the text once its size is known
+    if let Some(id) = pic {
+      embed = Some(id);
+      if let Some((w, h)) = res.images.dims(id) {
+        s.push('\n');
+        ib.push(inline(boxes.len(), s.len(), w, h));
+        boxes.push(EmoteBox { img: id, zw: Vec::new(), bg: None, word: (0, 0), blocked: false });
+      }
+    }
   }
   let layout = res.text.layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
   let name = painted.and_then(|(uid, paint)| {
     let (x, w, baseline) = painted_run(&layout)?;
     Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
   });
-  Laid { layout, boxes, name }
+  Laid { layout, boxes, name, embed }
 }
 
 fn twitch_uid(m: &Message) -> Option<u64> {
@@ -200,6 +214,21 @@ fn painted_run(layout: &TextLayout) -> Option<(f32, f32, f32)> {
     }
   }
   found.map(|(x0, x1, base)| (x0, x1 - x0, base))
+}
+
+// the line's inline picture: its slot, and the link word to fold away once the picture is on screen
+fn picture(res: &mut Res, m: &Message, width: i32) -> (Option<ImgId>, Option<std::ops::Range<usize>>) {
+  if !res.media || m.has(flag::CLEARED) {
+    return (None, None);
+  }
+  let Some(e) = embed::find(&m.body) else { return (None, None) };
+  let avail = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
+  let id = res.images.id_fit(&e.display, EMBED_PX, avail.max(1.0) as u32);
+  if res.images.failed(id) {
+    return (None, None);
+  }
+  let loaded = res.images.dims(id).is_some();
+  (Some(id), e.word.filter(|_| loaded))
 }
 
 fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
@@ -236,7 +265,15 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<I
 }
 
 // words become text or emote boxes. twitch's own emotes come by position, the rest by name
-fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+fn body(
+  res: &mut Res,
+  chan: &str,
+  m: &Message,
+  fold: Option<&std::ops::Range<usize>>,
+  s: &mut String,
+  ib: &mut Vec<InlineBox>,
+  boxes: &mut Vec<EmoteBox>,
+) {
   let h = res.images.px(EMOTE_PX);
   let mut prev_emote = false;
   let mut first = true;
@@ -244,6 +281,9 @@ fn body(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<Inl
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
+    if fold.is_some_and(|f| f.start == a && f.end == b) {
+      continue;
+    }
     let found = find_word(res, chan, m, a, b, word);
     let blocked = found.as_ref().is_some_and(|f| res.blocked.contains(word, &f.0));
     match found {
@@ -662,6 +702,9 @@ impl ChatView {
         }
         if let Some(laid) = &r.laid {
           let Res { text, images, arts, .. } = res;
+          if let Some(id) = laid.embed {
+            images.want(id);
+          }
           let anims = &mut self.anims;
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
@@ -752,6 +795,35 @@ impl ChatView {
 mod tests {
   use super::*;
   use crate::fake::Fake;
+
+  #[test]
+  fn picture_waits_for_its_size_then_folds_the_link() {
+    use crate::images::decode::{Decoded, Frame};
+    let mut res = Res::new(1.0);
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.nick = "bob".into();
+    m.body = "look https://i.imgur.com/a.png".into();
+    let boxes = |res: &mut Res| layout_row(res, "c", &m, 400, false, false);
+    // not loaded: no box, link stays as text, and nothing was requested by measuring
+    let l = boxes(&mut res);
+    assert!((l.boxes.len(), l.embed.is_some()) == (0, true));
+    assert!(res.images.take_wanted().is_empty());
+    // drawing asks for it, fit to the row width
+    res.images.want(l.embed.unwrap());
+    let (id, url, target) = res.images.take_wanted().remove(0);
+    assert!(url.starts_with("https://heatsync.org/api/img?url="));
+    assert_eq!((target & 0xffff, target >> 16), (EMBED_PX as u32, 400 - MARK_W as u32 - 8));
+    let d = Decoded { w: 120, h: 80, frames: vec![Frame { rgba: vec![0; 120 * 80 * 4].into(), delay_ms: 0 }] };
+    assert!(res.images.loaded(id, target, Ok(d)));
+    let l = boxes(&mut res);
+    assert_eq!(l.boxes.len(), 1);
+    // the same size again needs no relayout; a failure removes the slot
+    assert!(!res.images.loaded(id, target, Err("x".into())));
+    assert_eq!(boxes(&mut res).boxes.len(), 0);
+    res.media = false;
+    assert!(boxes(&mut res).embed.is_none());
+  }
 
   #[test]
   fn seventv_badge_follows_the_cosmetics_answer() {

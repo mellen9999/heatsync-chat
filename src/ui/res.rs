@@ -12,6 +12,8 @@ use super::text::Text;
 
 pub const EMOTE_PX: u16 = 28;
 pub const BADGE_PX: u16 = 18;
+// tallest inline picture in a chat line (the ext's max-height)
+pub const EMBED_PX: u16 = 220;
 
 pub struct Res {
   pub text: Text,
@@ -23,6 +25,8 @@ pub struct Res {
   pub arts: NameArts,
   pub blocked: Blocked,
   pub logo: Logo,
+  // inline pictures under chat lines (ext mediaEmbedsEnabled)
+  pub media: bool,
 }
 
 impl Res {
@@ -38,6 +42,7 @@ impl Res {
       cosmetics: Cosmetics::default(),
       arts: NameArts::default(),
       blocked: Blocked::load(),
+      media: true,
     }
   }
 

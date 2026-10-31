@@ -179,18 +179,45 @@ async fn image(
     return;
   }
   let Ok(_permit) = gate.acquire().await else { return };
-  let res = match http.get(&*url).send().await {
-    Ok(r) if r.status().is_success() => r.bytes().await.map_err(|e| e.to_string()),
-    Ok(r) => Err(format!("http {}", r.status().as_u16())),
-    Err(e) => Err(e.to_string()),
-  };
-  match res {
-    Ok(b) if b.len() <= MAX_IMAGE_BYTES => {
-      let _ = dec.send(DecodeJob { id, url, h, bytes: b.to_vec(), store: true });
+  match capped(http.get(&*url).send().await).await {
+    Ok(bytes) => {
+      let _ = dec.send(DecodeJob { id, url, h, bytes, store: true });
     }
-    Ok(_) => fail("too large".into()),
     Err(e) => fail(e),
   }
+}
+
+// the body, abandoned as soon as it passes the cap (a hostile host can't make us buffer it all)
+async fn capped(res: Result<reqwest::Response, reqwest::Error>) -> Result<Vec<u8>, String> {
+  let mut r = res.map_err(|e| e.to_string())?;
+  if !r.status().is_success() {
+    return Err(format!("http {}", r.status().as_u16()));
+  }
+  if r.content_length().is_some_and(|n| n > MAX_IMAGE_BYTES as u64) {
+    return Err("too large".into());
+  }
+  let mut out = Vec::new();
+  while let Some(c) = r.chunk().await.map_err(|e| e.to_string())? {
+    if out.len() + c.len() > MAX_IMAGE_BYTES {
+      return Err("too large".into());
+    }
+    out.extend_from_slice(&c);
+  }
+  Ok(out)
+}
+
+// image fetches follow redirects only between allowlisted hosts (`/api/img` answers with a 302)
+fn image_client() -> Option<reqwest::Client> {
+  use reqwest::redirect::Policy;
+  reqwest::Client::builder()
+    .user_agent(USER_AGENT)
+    .connect_timeout(Duration::from_secs(8))
+    .timeout(Duration::from_secs(12))
+    .redirect(Policy::custom(|a| {
+      if a.previous().len() >= 3 || !url::allowed(a.url().as_str()) { a.stop() } else { a.follow() }
+    }))
+    .build()
+    .ok()
 }
 
 async fn channel_emotes(
@@ -324,6 +351,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
+  let Some(img_http) = image_client() else {
+    return out.status("image client failed to start");
+  };
   let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
   while let Some(cmd) = rx.recv().await {
     match cmd {
@@ -388,7 +418,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(channel_emotes(http.clone(), ch, room, stv_tx.clone(), out.clone()));
       }
       Cmd::Image(id, u, h) => {
-        tokio::spawn(image(http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
+        tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
   }

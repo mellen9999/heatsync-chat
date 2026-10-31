@@ -27,6 +27,8 @@ pub struct Settings {
   pub ev_offline: bool,
   pub ev_game: bool,
   pub moments: bool,
+  // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
+  pub media: bool,
 }
 
 impl Default for Settings {
@@ -41,6 +43,7 @@ impl Default for Settings {
       ev_offline: false,
       ev_game: true,
       moments: true,
+      media: true,
     }
   }
 }
@@ -65,6 +68,7 @@ impl Settings {
         "ev_offline" => out.ev_offline = on,
         "ev_game" => out.ev_game = on,
         "moments" => out.moments = on,
+        "media" => out.media = on,
         "zoom" => {
           if let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite()) {
             out.zoom = clamp_zoom((z * 100.0).round() as i32);
@@ -78,7 +82,7 @@ impl Settings {
 
   pub fn render(&self) -> String {
     format!(
-      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nzoom={}\n",
+      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\nzoom={}\n",
       self.vi,
       self.auto_hide,
       self.first_glow,
@@ -87,6 +91,7 @@ impl Settings {
       self.ev_offline,
       self.ev_game,
       self.moments,
+      self.media,
       self.scale()
     )
   }
@@ -114,12 +119,14 @@ pub enum Local {
   Offline,
   Game,
   Moments,
+  // inline pictures
+  Media,
   // `/zoom 1.5`; None = no usable number
   Zoom(Option<u16>),
 }
 
-pub const LOCAL: [&str; 9] =
-  ["/vi", "/autohide", "/glow", "/paints", "/online", "/offline", "/game", "/moments", "/zoom"];
+pub const LOCAL: [&str; 10] =
+  ["/vi", "/autohide", "/glow", "/paints", "/online", "/offline", "/game", "/moments", "/media", "/zoom"];
 
 pub fn local_cmd(text: &str) -> Option<Local> {
   let low = text.trim().to_ascii_lowercase();
@@ -139,6 +146,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/offline" => Some(Local::Offline),
     "/game" => Some(Local::Game),
     "/moments" => Some(Local::Moments),
+    "/media" => Some(Local::Media),
     _ => None,
   }
 }
@@ -160,7 +168,8 @@ mod tests {
         ev_online: true,
         ev_offline: false,
         ev_game: true,
-        moments: true
+        moments: true,
+        media: true
       }
     );
     assert_eq!(Settings::parse(""), Settings::default());

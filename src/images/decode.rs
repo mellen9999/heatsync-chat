@@ -23,14 +23,20 @@ impl Decoded {
 const MAX_SIDE: u32 = 4096;
 const MAX_FRAMES: usize = 512;
 const MAX_CANVAS_PX: u64 = 1024 * 1024;
+// source frames held at once while decoding (full size, before scaling down)
+const MAX_SRC_BYTES: usize = 48 << 20;
+// decoded frames of one chat picture
+const EMBED_BYTES: usize = 6 << 20;
 
 // browsers treat ≤10ms as "unset" and play it at 100ms; match them
 fn delay(ms: u32) -> u32 {
   if ms <= 10 { 100 } else { ms }
 }
 
-pub fn decode(bytes: &[u8], target_h: u32) -> Result<Decoded, String> {
-  let target_h = target_h.clamp(1, 512);
+// `target` = height in the low 16 bits. a nonzero high half is a chat picture: fit inside that width
+// and the height, never enlarge, and keep its frames under EMBED_BYTES
+pub fn decode(bytes: &[u8], target: u32) -> Result<Decoded, String> {
+  let (target_h, max_w) = ((target & 0xffff).clamp(1, 512), target >> 16);
   let (w, h, frames) = if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
     webp(bytes)?
   } else if bytes.starts_with(b"GIF8") {
@@ -43,15 +49,26 @@ pub fn decode(bytes: &[u8], target_h: u32) -> Result<Decoded, String> {
   if frames.is_empty() {
     return Err("no frames".into());
   }
-  let tw = ((w as u64 * target_h as u64).div_ceil(h as u64) as u32).clamp(1, MAX_SIDE);
+  let (tw, th) = if max_w == 0 {
+    (((w as u64 * target_h as u64).div_ceil(h as u64) as u32).clamp(1, MAX_SIDE), target_h)
+  } else {
+    let k = 1f64.min(max_w as f64 / w as f64).min(target_h as f64 / h as f64);
+    (((w as f64 * k).round() as u32).clamp(1, MAX_SIDE), ((h as f64 * k).round() as u32).max(1))
+  };
+  let keep = if max_w == 0 { usize::MAX } else { (EMBED_BYTES / (tw as usize * th as usize * 4)).max(1) };
   let frames = frames
     .into_iter()
+    .take(keep)
     .map(|f| Frame {
-      rgba: if (tw, target_h) == (w, h) { f.rgba } else { resize(&f.rgba, w, h, tw, target_h) },
+      rgba: if (tw, th) == (w, h) { f.rgba } else { resize(&f.rgba, w, h, tw, th) },
       delay_ms: f.delay_ms,
     })
     .collect();
-  Ok(Decoded { w: tw, h: target_h, frames })
+  Ok(Decoded { w: tw, h: th, frames })
+}
+
+fn max_frames(w: u32, h: u32) -> usize {
+  (MAX_SRC_BYTES / (w as usize * h as usize * 4).max(1)).clamp(1, MAX_FRAMES)
 }
 
 fn check_dims(w: u32, h: u32) -> Result<(), String> {
@@ -73,7 +90,7 @@ fn webp(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   };
   let mut frames = Vec::new();
   if d.is_animated() {
-    while frames.len() < MAX_FRAMES {
+    while frames.len() < max_frames(w, h) {
       match d.read_frame(&mut buf) {
         Ok(ms) => frames.push(Frame { rgba: to_rgba(&buf), delay_ms: delay(ms) }),
         Err(image_webp::DecodingError::NoMoreFrames) => break,
@@ -96,7 +113,7 @@ fn gif(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   check_dims(w, h)?;
   let mut canvas = vec![0u8; (w * h * 4) as usize];
   let mut frames = Vec::new();
-  while frames.len() < MAX_FRAMES {
+  while frames.len() < max_frames(w, h) {
     let f = match d.read_next_frame() {
       Ok(Some(f)) => f,
       Ok(None) => break,
