@@ -30,7 +30,7 @@ pub enum Cmd {
   Vote { id: Box<str> },
   // reply_to None = a top-level post
   Post { text: String, reply_to: Option<Box<str>> },
-  WhisperHistory { me: u64 },
+  WhisperHistory { me: u64, epoch: u32 },
   // `id` is the twitch user id when we already know it, else it is looked up from the login
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
   // the user card's facts: who, on which platform, and the channel it was opened from
@@ -43,9 +43,9 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::Thread { id } => thread(&http, token.as_deref(), id, &out).await,
     Cmd::Vote { id } => vote(&http, token.as_deref(), id, &out).await,
     Cmd::Post { text, reply_to } => publish(&http, token.as_deref(), text, reply_to, &out).await,
-    Cmd::WhisperHistory { me } => {
+    Cmd::WhisperHistory { me, epoch } => {
       if let Some(t) = token {
-        history(&http, &t, me, &out).await;
+        history(&http, &t, me, epoch, &out).await;
       }
     }
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
@@ -196,7 +196,7 @@ async fn publish(http: &reqwest::Client, token: Option<&str>, text: String, repl
   void(out.send(NetEvent::Posted { res }))
 }
 
-async fn history(http: &reqwest::Client, token: &str, me: u64, out: &Out) {
+async fn history(http: &reqwest::Client, token: &str, me: u64, epoch: u32, out: &Out) {
   let (status, list) = call(get(http, token, "/api/whispers")).await;
   if status != 200 {
     return out.status(format!("whispers: {}", fail_text(&classify(status, &list))));
@@ -244,7 +244,7 @@ async fn history(http: &reqwest::Client, token: &str, me: u64, out: &Out) {
     all.extend(rows.iter().take(PER_CONVERSATION).filter_map(|m| whisper::parse(m, me, Some(&who))));
   }
   all.sort_by_key(|w| w.ts);
-  out.send(NetEvent::Whispers { items: all, live: false });
+  out.send(NetEvent::Whispers { items: all, live: false, epoch: Some(epoch) });
 }
 
 async fn send(http: &reqwest::Client, token: &str, login: &str, id: Option<Box<str>>, text: &str) -> Result<Who, Fail> {

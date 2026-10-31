@@ -31,8 +31,8 @@ pub enum Cmd {
   // a channel's 7tv emote set (+ the broadcaster's 7tv user id and twitch id, for cosmetics)
   Watch { ch: Box<str>, set: Box<str>, user: Option<(Box<str>, u64)> },
   Unwatch(Box<str>),
-  // our own twitch id: we watch our own cosmetics too
-  Me(u64),
+  // our own twitch id: we watch our own cosmetics too (None = logged out: stop)
+  Me(Option<u64>),
   // our own 7tv user id, found from the above
   MyUser(Box<str>, u64),
 }
@@ -154,7 +154,12 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Ws> {
     Cmd::Unwatch(ch) => {
       st.chans.remove(&ch);
     }
-    Cmd::Me(id) => st.me = Some(id),
+    Cmd::Me(id) => {
+      if st.me != id {
+        st.my_user = None;
+      }
+      st.me = id;
+    }
     Cmd::MyUser(stv, tw) if valid_id(&stv) && st.me == Some(tw) => st.my_user = Some((stv, tw)),
     Cmd::MyUser(..) => {}
   }
@@ -166,7 +171,7 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Ws> {
 
 // `Me` also kicks off the lookup of our own 7tv user id
 fn handle(st: &mut State, c: Cmd, http: &reqwest::Client, me_tx: &mpsc::UnboundedSender<Cmd>) -> Vec<Ws> {
-  if let Cmd::Me(id) = &c
+  if let Cmd::Me(Some(id)) = &c
     && st.me != Some(*id)
   {
     tokio::spawn(own_user(http.clone(), *id, me_tx.clone()));
@@ -353,10 +358,22 @@ mod tests {
   #[test]
   fn my_user_only_for_the_twitch_id_we_asked_about() {
     let mut st = State::default();
-    apply(&mut st, Cmd::Me(5));
+    apply(&mut st, Cmd::Me(Some(5)));
     assert!(apply(&mut st, Cmd::MyUser("U9".into(), 6)).is_empty());
     assert_eq!(kinds(&apply(&mut st, Cmd::MyUser("U9".into(), 5))), vec![(35, "user.*".into(), "U9".into())]);
     assert_eq!(st.users().get("U9"), Some(&5));
+  }
+
+  #[test]
+  fn logout_or_a_new_account_drops_our_own_user_subscription() {
+    let mut st = State::default();
+    apply(&mut st, Cmd::Me(Some(5)));
+    apply(&mut st, Cmd::MyUser("U9".into(), 5));
+    assert_eq!(kinds(&apply(&mut st, Cmd::Me(None))), vec![(36, "user.*".into(), "U9".into())]);
+    apply(&mut st, Cmd::Me(Some(5)));
+    apply(&mut st, Cmd::MyUser("U9".into(), 5));
+    // another account: the old subscription goes before the new id is known
+    assert_eq!(kinds(&apply(&mut st, Cmd::Me(Some(6)))), vec![(36, "user.*".into(), "U9".into())]);
   }
 
   #[test]

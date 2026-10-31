@@ -84,7 +84,11 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       if !valid_hash(&hash) {
         return;
       }
-      let r = http.delete(format!("{ORIGIN}/api/user/emotes/blocked/{hash}")).bearer_auth(token).send().await;
+      let r = http
+        .delete(format!("{ORIGIN}/api/user/emotes/blocked/{}", crate::util::path_seg(&hash)))
+        .bearer_auth(token)
+        .send()
+        .await;
       // 404 = it was never blocked on the server: nothing to undo
       if let Err(e) = result(r).await
         && e != "Block not found"

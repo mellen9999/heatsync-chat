@@ -30,7 +30,7 @@ impl App {
     let Some(id) = self.me.as_ref().and_then(|m| m.twitch_id) else { return };
     if !self.whispers_loaded {
       self.whispers_loaded = true;
-      self.net.send(Cmd::Social(social::Cmd::WhisperHistory { me: id }));
+      self.net.send(Cmd::Social(social::Cmd::WhisperHistory { me: id, epoch: self.whisper_epoch }));
     }
   }
 
@@ -38,6 +38,7 @@ impl App {
   pub(super) fn whispers_reset(&mut self) {
     self.whispers = Default::default();
     self.whispers_loaded = false;
+    self.whisper_epoch = self.whisper_epoch.wrapping_add(1);
     if let Some(i) = self.tab_of(Kind::Whispers) {
       self.tabs[i].view.clear();
       self.tabs[i].unread = false;

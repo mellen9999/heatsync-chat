@@ -238,6 +238,11 @@ pub fn key_of(row: &str) -> Option<u64> {
 }
 
 // ext failure text (locale mc_whisper_*)
+// a history read is only for the login that asked for it; a live push (no epoch) is always current
+pub fn current(tag: Option<u32>, now: u32) -> bool {
+  tag.is_none_or(|t| t == now)
+}
+
 pub fn fail_text(f: &Fail) -> String {
   match f {
     Fail::Relink => "twitch whispers not enabled. re-link on heatsync.org".into(),
@@ -433,5 +438,12 @@ mod tests {
     assert_eq!(command("/r"), Some(Cmd::Usage));
     assert_eq!(command("/wow"), None);
     assert_eq!(command("hello"), None);
+  }
+
+  #[test]
+  fn a_history_from_an_older_login_is_dropped() {
+    assert!(current(None, 3));
+    assert!(current(Some(3), 3));
+    assert!(!current(Some(2), 3));
   }
 }

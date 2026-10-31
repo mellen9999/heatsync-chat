@@ -47,6 +47,9 @@ pub struct Filters {
   // lowercase login → when the mute ends (None = until you lift it)
   mutes: HashMap<Box<str>, Option<i64>>,
   blocks: HashSet<Box<str>>,
+  // entries that came from the account's server lists (not typed here): they leave with the login
+  synced_mutes: HashSet<Box<str>>,
+  synced_blocks: HashSet<Box<str>>,
   // your own names (lowercase): never hidden by these filters
   me: Vec<Box<str>>,
 }
@@ -140,16 +143,69 @@ impl Filters {
     if k.is_empty() || (self.mutes.len() >= MAX_NAMES && !self.mutes.contains_key(&k)) {
       return false;
     }
+    self.synced_mutes.remove(&k);
     self.mutes.insert(k, until);
     true
   }
 
+  // a mute the account's server list holds. one already set by hand stays yours. true = new here
+  pub fn mute_synced(&mut self, who: &str, until: Option<i64>) -> bool {
+    let k = key(who);
+    if self.mutes.contains_key(&k) && !self.synced_mutes.contains(&k) {
+      // yours stays yours, but another device may have changed how long it runs
+      self.mutes.insert(k, until);
+      return false;
+    }
+    let new = !self.mutes.contains_key(&k);
+    if !self.mute_raw(&k, until) {
+      return false;
+    }
+    self.synced_mutes.insert(k);
+    new
+  }
+
+  fn mute_raw(&mut self, k: &str, until: Option<i64>) -> bool {
+    if k.is_empty() || (self.mutes.len() >= MAX_NAMES && !self.mutes.contains_key(k)) {
+      return false;
+    }
+    self.mutes.insert(k.into(), until);
+    true
+  }
+
+  pub fn block_synced(&mut self, who: &str) -> bool {
+    let k = key(who);
+    if self.blocks.contains(&k) && !self.synced_blocks.contains(&k) {
+      return false;
+    }
+    let new = self.block_raw(&k);
+    if self.blocks.contains(&k) {
+      self.synced_blocks.insert(k);
+    }
+    new
+  }
+
+  fn block_raw(&mut self, k: &str) -> bool {
+    !k.is_empty() && (self.blocks.len() < MAX_NAMES || self.blocks.contains(k)) && self.blocks.insert(k.into())
+  }
+
+  // logged out or another account: its server-origin mutes and blocks go, yours stay. true = changed
+  pub fn drop_synced(&mut self) -> bool {
+    let n = self.mutes.len() + self.blocks.len();
+    let (m, b) = (std::mem::take(&mut self.synced_mutes), std::mem::take(&mut self.synced_blocks));
+    self.mutes.retain(|k, _| !m.contains(k));
+    self.blocks.retain(|k| !b.contains(k));
+    self.mutes.len() + self.blocks.len() != n
+  }
+
   pub fn unmute(&mut self, who: &str) -> bool {
-    self.mutes.remove(&key(who)).is_some()
+    let k = key(who);
+    self.synced_mutes.remove(&k);
+    self.mutes.remove(&k).is_some()
   }
 
   pub fn clear_mutes(&mut self) {
     self.mutes.clear();
+    self.synced_mutes.clear();
   }
 
   // drop mutes that ran out. true = something changed
@@ -161,11 +217,14 @@ impl Filters {
 
   pub fn block(&mut self, who: &str) -> bool {
     let k = key(who);
-    !k.is_empty() && (self.blocks.len() < MAX_NAMES || self.blocks.contains(&k)) && self.blocks.insert(k)
+    self.synced_blocks.remove(&k);
+    self.block_raw(&k)
   }
 
   pub fn unblock(&mut self, who: &str) -> bool {
-    self.blocks.remove(&key(who))
+    let k = key(who);
+    self.synced_blocks.remove(&k);
+    self.blocks.remove(&k)
   }
 
   pub fn blocks_sorted(&self) -> Vec<String> {
@@ -209,9 +268,14 @@ impl Filters {
         "hide" => _ = f.word(false, true, rest),
         "mark" => _ = f.word(true, true, rest),
         "block" => _ = f.block(rest),
-        "mute" => {
+        "sblock" => _ = f.block_synced(rest),
+        "mute" | "smute" => {
           let (name, until) = rest.rsplit_once(' ').unwrap_or((rest, "-"));
-          f.mute(name, until.parse().ok());
+          if kind == "mute" {
+            f.mute(name, until.parse().ok());
+          } else {
+            f.mute_synced(name, until.parse().ok());
+          }
         }
         _ => {}
       }
@@ -230,12 +294,14 @@ impl Filters {
     let mut blocks: Vec<_> = self.blocks.iter().collect();
     blocks.sort_unstable();
     for b in blocks {
-      s.push_str(&format!("block {b}\n"));
+      let tag = if self.synced_blocks.contains(b) { "sblock" } else { "block" };
+      s.push_str(&format!("{tag} {b}\n"));
     }
     for (name, until) in self.mutes() {
+      let tag = if self.synced_mutes.contains(name) { "smute" } else { "mute" };
       match until {
-        Some(e) => s.push_str(&format!("mute {name} {e}\n")),
-        None => s.push_str(&format!("mute {name} -\n")),
+        Some(e) => s.push_str(&format!("{tag} {name} {e}\n")),
+        None => s.push_str(&format!("{tag} {name} -\n")),
       }
     }
     s
@@ -371,5 +437,27 @@ mod tests {
     assert_eq!(g.mutes(), vec![("perm", None), ("quiet", Some(5))]);
     assert_eq!(Filters::parse("garbage\nmute\nhide \n").mutes().len(), 0);
     assert!(!Filters::default().clone().word(false, true, &"x".repeat(MAX_TERM + 1)));
+  }
+
+  #[test]
+  fn logout_drops_server_origin_entries_and_keeps_yours() {
+    let mut f = Filters::default();
+    f.mute("mine", None);
+    f.block("troll");
+    assert!(f.mute_synced("theirs", Some(99)));
+    assert!(f.block_synced("spam"));
+    // a name you already hold by hand stays yours even when the server lists it too
+    assert!(!f.mute_synced("mine", None));
+    assert!(!f.block_synced("troll"));
+    // survives a save + load
+    let mut g = Filters::parse(&f.render());
+    assert!(g.drop_synced());
+    assert!(g.muted("mine", 0) && g.blocked("troll"));
+    assert!(!g.muted("theirs", 0) && !g.blocked("spam"));
+    assert!(!g.drop_synced());
+    // taking one over by hand makes it yours
+    f.mute("theirs", None);
+    f.drop_synced();
+    assert!(f.muted("theirs", 0) && f.muted("mine", 0) && !f.blocked("spam"));
   }
 }

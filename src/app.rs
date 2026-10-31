@@ -181,6 +181,8 @@ pub struct App {
   // the whispers timeline, and whether this login's history was asked for
   whispers: Timeline,
   whispers_loaded: bool,
+  // bumped on every login change: a history read from an earlier one is dropped
+  whisper_epoch: u32,
   // the feed tab's posts and open thread; the text of a post in flight (put back if it fails)
   feed: Feed,
   pending_post: Option<String>,
@@ -293,6 +295,7 @@ impl App {
       focused: true,
       whispers: Timeline::default(),
       whispers_loaded: false,
+      whisper_epoch: 0,
       feed: Feed::default(),
       pending_post: None,
     }
@@ -1374,7 +1377,11 @@ impl ApplicationHandler<NetEvent> for App {
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
       NetEvent::Lists(l) => self.on_lists(l),
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
-      NetEvent::Whispers { items, live } => self.on_whispers(items, live),
+      NetEvent::Whispers { items, live, epoch } => {
+        if whisper::current(epoch, self.whisper_epoch) {
+          self.on_whispers(items, live)
+        }
+      }
       NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
       NetEvent::Feed(p) => self.on_feed(p),
       NetEvent::FeedFailed { status } => self.on_feed_failed(status),
@@ -1422,8 +1429,8 @@ impl ApplicationHandler<NetEvent> for App {
       }
       NetEvent::Me(me) => {
         // our own inventory feeds tab-complete: fetch it now, not on first sight of our own line
+        self.net.send(Cmd::SevenTvMe(me.as_ref().and_then(|m| m.twitch_id)));
         if let Some(id) = me.as_ref().and_then(|m| m.twitch_id) {
-          self.net.send(Cmd::SevenTvMe(id));
           self.res.senders.lookup(id, "", now_ms());
           self.wake();
         }
@@ -1434,6 +1441,7 @@ impl ApplicationHandler<NetEvent> for App {
         // a different login starts with a clean whispers tab
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
+          self.filters_login_changed();
           self.feed_reset();
           self.res.blocked.clear_server();
           self.mod_in.clear();

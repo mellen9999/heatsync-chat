@@ -364,7 +364,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "whisper:new" => {
       let w = crate::model::whisper::parse(v, 0, None)?;
-      send(NetEvent::Whispers { items: vec![w], live: true })
+      send(NetEvent::Whispers { items: vec![w], live: true, epoch: None })
     }
     _ => None,
   }

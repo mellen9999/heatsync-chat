@@ -45,6 +45,13 @@ impl App {
       .map(|at| Instant::now() + Duration::from_millis((at - now).max(0) as u64 + 50));
   }
 
+  // another login (or none): the old account's server-synced mutes and blocks leave, yours stay
+  pub(super) fn filters_login_changed(&mut self) {
+    if filter::edit(|f| f.drop_synced()) {
+      self.saved();
+    }
+  }
+
   pub(super) fn mute_tick(&mut self) {
     self.mute_due = None;
     if filter::edit(|f| f.prune(now_ms())) {
@@ -169,12 +176,12 @@ impl App {
     let added = filter::edit(|f| {
       let mut n = 0;
       for (name, until) in &l.mutes {
-        if !f.muted(name, now_ms()) && f.mute(name, *until) {
+        if !f.muted(name, now_ms()) && f.mute_synced(name, *until) {
           n += 1;
         }
       }
       for b in &l.blocks {
-        n += usize::from(f.block(b));
+        n += usize::from(f.block_synced(b));
       }
       n
     });
@@ -186,7 +193,7 @@ impl App {
   // a mute changed on another device
   pub(super) fn on_mute_sync(&mut self, s: Sync) {
     filter::edit(|f| match s {
-      Sync::Added(n, until) => _ = f.mute(&n, until),
+      Sync::Added(n, until) => _ = f.mute_synced(&n, until),
       Sync::Removed(n) => _ = f.unmute(&n),
       Sync::Cleared => f.clear_mutes(),
     });

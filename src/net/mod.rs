@@ -72,7 +72,8 @@ pub enum NetEvent {
   // a chat-rate spike in a channel (text ready to show)
   Moment { platform: Platform, key: Box<str>, text: Box<str> },
   // twitch whispers: one pushed live, or the history read when the tab first opened
-  Whispers { items: Vec<crate::model::whisper::Whisper>, live: bool },
+  // `epoch` tags a history read with the login it was asked under (live pushes carry none)
+  Whispers { items: Vec<crate::model::whisper::Whisper>, live: bool, epoch: Option<u32> },
   // a send settled: who it went to (resolved), or why not
   // the feed: a page, why it failed (http status, 0 = no answer), a thread, a vote or a post settling,
   // and a post pushed live
@@ -148,7 +149,7 @@ pub enum Cmd {
   // chatters' 7tv paints + badges
   Cosmetics(u64),
   // our own twitch id, for watching our own 7tv cosmetics
-  SevenTvMe(u64),
+  SevenTvMe(Option<u64>),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
   // whispers and feed calls bound to the login
   Social(social::Cmd),
