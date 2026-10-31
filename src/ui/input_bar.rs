@@ -37,7 +37,7 @@ pub fn button(area: Rect, line: i32) -> Rect {
   Rect::new(area.right() - w, area.y, w, line.min(area.h))
 }
 
-// the upload arrow, just left of the logo
+// the upload plus, just left of the logo
 pub fn upload_button(area: Rect, line: i32) -> Rect {
   let b = button(area, line);
   Rect::new(b.x - b.w, b.y, b.w, b.h)
@@ -163,10 +163,11 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
   let up = upload_button(area, text.line_px as i32);
   let (bg, fg) = if b.upload_on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
   c.fill(up, bg);
-  let arrow = "↑";
-  let span = Span { range: 0..arrow.len(), ink: Ink(fg), bold: true };
-  let gl = text.layout(arrow, &[span], &[], 1000.0);
-  let (gw, gh) = (gl.full_width(), gl.height());
-  text.draw(&gl, c, up.x as f32 + (up.w as f32 - gw) / 2.0, up.y as f32 + (up.h as f32 - gh) / 2.0, up, |_, _| {});
+  // a big bold plus (the ext's image icon is an svg; glyphs only here), drawn square from two bars
+  let arm = (up.h * 3 / 5).max(5) | 1;
+  let bar = (up.h / 7).max(2) | 1;
+  let (cx, cy) = (up.x + up.w / 2, up.y + up.h / 2);
+  c.fill(Rect::new(cx - arm / 2, cy - bar / 2, arm, bar), fg);
+  c.fill(Rect::new(cx - bar / 2, cy - arm / 2, bar, arm), fg);
   Rect::new(x, y, CURSOR_W, h)
 }
