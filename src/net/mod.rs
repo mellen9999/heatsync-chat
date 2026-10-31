@@ -6,6 +6,7 @@ pub mod emote_ops;
 pub mod hs_ws;
 pub mod irc;
 mod links;
+pub mod pin;
 mod recent;
 pub mod relay;
 mod senders;
@@ -61,6 +62,8 @@ pub enum NetEvent {
   CosmeticsStale(u64),
   // a live edit of a channel's 7tv emote set
   EmoteDelta(Box<str>, crate::emotes::live::Delta),
+  // a channel's pinned line was set or cleared (None)
+  Pin { platform: Platform, key: Box<str>, pin: Option<crate::model::pin::Pin> },
 }
 
 // event sink back to the ui. false = the ui is gone
@@ -303,7 +306,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   tokio::spawn(global_emotes(http.clone(), out.clone()));
   tokio::spawn(global_badges(http.clone(), out.clone()));
   let (hs_tx, hs_rx) = mpsc::unbounded_channel();
-  tokio::spawn(hs_ws::run(hs_rx, out.clone()));
+  let (pin_tx, pin_rx) = mpsc::unbounded_channel();
+  tokio::spawn(pin::run(http.clone(), pin_rx, out.clone()));
+  tokio::spawn(hs_ws::run(hs_rx, pin_tx, out.clone()));
   let (snd_tx, snd_rx) = mpsc::unbounded_channel();
   tokio::spawn(senders::run(http.clone(), snd_rx, out.clone()));
   let (sess_tx, sess_rx) = mpsc::unbounded_channel();

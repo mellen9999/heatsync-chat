@@ -14,6 +14,7 @@ use winit::window::{Window, WindowId};
 mod clip;
 mod emote;
 mod picker;
+mod pin;
 mod tabs;
 mod upload;
 mod zoom;
@@ -25,6 +26,7 @@ use crate::model::ime::Ime;
 use crate::model::line::Line;
 use crate::model::message::{Message, Platform};
 use crate::model::picker::{Focus, Picker, Recents};
+use crate::model::pin::Pins;
 use crate::model::settings::{LOCAL, Local, Settings, local_cmd};
 use crate::model::vi::{Action, Mode, Vi};
 use crate::net::auth::Me;
@@ -130,6 +132,11 @@ pub struct App {
   uploading: bool,
   // the system clipboard, made on first use
   clip: Option<arboard::Clipboard>,
+  // pinned lines per room, the bar's height (0 = none), whether it is open, and what it last drew
+  pins: Pins,
+  pin_h: i32,
+  pin_open: bool,
+  pin_sig: (Option<Box<str>>, bool, i32, i32),
 }
 
 impl App {
@@ -210,6 +217,10 @@ impl App {
       prompt: None,
       clip: None,
       uploading: false,
+      pins: Pins::default(),
+      pin_h: 0,
+      pin_open: false,
+      pin_sig: (None, false, 0, 0),
     }
   }
 
@@ -293,7 +304,8 @@ impl App {
 
   fn chat_area(&self) -> Rect {
     let b = self.bar().h;
-    Rect::new(0, b, self.canvas.w, (self.canvas.h - b - self.input_h).max(0))
+    let top = b + self.pin_h;
+    Rect::new(0, top, self.canvas.w, (self.canvas.h - top - self.input_h).max(0))
   }
 
   fn input_area(&self) -> Rect {
@@ -607,6 +619,9 @@ impl App {
         self.ime_area = Some(input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar));
         dirty = Some(r);
       }
+    }
+    if let Some(r) = self.sync_pin() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let area = self.chat_area();
     if (self.menu.is_some() || self.tab_menu.is_some())
@@ -962,6 +977,9 @@ impl App {
     if self.bar().contains(x, y) {
       return self.bar_click();
     }
+    if self.pin_click() {
+      return;
+    }
     let (chat, input) = (self.chat_area(), self.input_area());
     if self.over_button() {
       return self.toggle_picker();
@@ -1042,6 +1060,7 @@ impl App {
     }
     match key {
       Key::Character("v") if !ctrl => self.select_move(-1),
+      Key::Character("x") if !ctrl && !alt => self.pin_hide(),
       Key::Character("t") if chord == Some('g') => self.select((self.active + 1) % self.tabs.len().max(1)),
       Key::Character("T") if chord == Some('g') => {
         let n = self.tabs.len().max(1);
@@ -1125,6 +1144,7 @@ impl ApplicationHandler<NetEvent> for App {
           self.wake();
         }
       }
+      NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Emotes(ch, p, set) => {
         self.res.emotes.set(ch.as_deref(), p, set);
         self.trim_soon();

@@ -12,7 +12,7 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::{NetEvent, Out, backoff};
-use super::{relay, senders};
+use super::{pin, relay, senders};
 use crate::heatsync::valid_name;
 use crate::model::message::Platform;
 
@@ -60,7 +60,7 @@ enum End {
   Shutdown(u64),
 }
 
-pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
+pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSender<pin::Ask>, out: Out) {
   let mut st = State::default();
   let mut attempts = 0u32;
   loop {
@@ -68,7 +68,7 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     match timeout(HANDSHAKE_LIMIT, connect_async(URL)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
-        match session(ws, &mut rx, &mut st, &out).await {
+        match session(ws, &mut rx, &mut st, &pins, &out).await {
           End::Quit => return,
           End::Shutdown(spread) => {
             let ms = crate::util::time::now_ms().unsigned_abs() % spread.clamp(1000, 60_000);
@@ -129,7 +129,13 @@ fn yt_sub(handle: &str) -> Value {
 
 type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-async fn session(ws: Socket, rx: &mut mpsc::UnboundedReceiver<Cmd>, st: &mut State, out: &Out) -> End {
+async fn session(
+  ws: Socket,
+  rx: &mut mpsc::UnboundedReceiver<Cmd>,
+  st: &mut State,
+  pins: &mpsc::UnboundedSender<pin::Ask>,
+  out: &Out,
+) -> End {
   let (mut tx, mut read) = ws.split();
   let mut hello: Vec<Value> =
     st.rooms.iter().map(|(p, c)| json!({"type": "channel:join", "platform": p, "channel": &**c})).collect();
@@ -142,6 +148,12 @@ async fn session(ws: Socket, rx: &mut mpsc::UnboundedReceiver<Cmd>, st: &mut Sta
   for f in hello {
     if tx.send(Ws::text(f.to_string())).await.is_err() {
       return End::Reconnect;
+    }
+  }
+  // a pin may have changed while we were away (or before the first connect)
+  for (p, c) in &st.rooms {
+    if let Some(plat) = room_platform(p) {
+      let _ = pins.send((plat, c.clone()));
     }
   }
   let mut last_rx = Instant::now();
@@ -172,8 +184,14 @@ async fn session(ws: Socket, rx: &mut mpsc::UnboundedReceiver<Cmd>, st: &mut Sta
       }
       c = rx.recv() => {
         let Some(c) = c else { return End::Quit };
-        if let Some(f) = apply(st, c) && tx.send(Ws::text(f.to_string())).await.is_err() {
-          return End::Reconnect;
+        let joined = if let Cmd::Join(p, ch) = &c { Some((*p, ch.clone())) } else { None };
+        if let Some(f) = apply(st, c) {
+          if let Some(a) = joined {
+            let _ = pins.send(a);
+          }
+          if tx.send(Ws::text(f.to_string())).await.is_err() {
+            return End::Reconnect;
+          }
         }
       }
       _ = beat.tick() => {
@@ -186,6 +204,14 @@ async fn session(ws: Socket, rx: &mut mpsc::UnboundedReceiver<Cmd>, st: &mut Sta
         }
       }
     }
+  }
+}
+
+fn room_platform(p: &str) -> Option<Platform> {
+  match p {
+    "twitch" => Some(Platform::Twitch),
+    "kick" => Some(Platform::Kick),
+    _ => None,
   }
 }
 
@@ -252,6 +278,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         .flatten();
       send(NetEvent::SendersStale { ids, ver, removed })
     }
+    "pin:set" | "pin:clear" => pin::frame(v, ty == "pin:set").and_then(send),
     _ => None,
   }
 }

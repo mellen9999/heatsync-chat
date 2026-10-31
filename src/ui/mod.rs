@@ -6,6 +6,7 @@ pub mod logo;
 pub mod menu;
 pub mod name_art;
 pub mod picker;
+pub mod pin_bar;
 pub mod res;
 pub mod tab_bar;
 pub mod text;
