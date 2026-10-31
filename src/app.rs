@@ -1370,6 +1370,8 @@ impl ApplicationHandler<NetEvent> for App {
       }
       NetEvent::ModDone(d) => self.on_mod_done(*d),
       NetEvent::Card { platform, login, res } => self.on_card(platform, &login, res),
+      // an answer that outlived its login (logout raced the fetch) must not seed the next state
+      NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
       NetEvent::Lists(l) => self.on_lists(l),
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
       NetEvent::Whispers { items, live } => self.on_whispers(items, live),
