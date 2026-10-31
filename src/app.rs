@@ -15,6 +15,7 @@ mod builtin;
 mod clip;
 mod emote;
 mod feed;
+mod filters;
 mod mentions;
 mod mods;
 mod picker;
@@ -100,6 +101,8 @@ pub struct App {
   rooms: Vec<(Box<str>, Box<str>)>,
   // twitch channels where our badges say we moderate (or own) the room
   mod_in: std::collections::HashSet<Box<str>>,
+  // when the soonest timed mute ends
+  mute_due: Option<Instant>,
   next_anim: Option<Instant>,
   occluded: bool,
   // damage of recent presents, for buffers handed back with age > 1
@@ -194,6 +197,12 @@ impl App {
     let status =
       if tabs.is_empty() { "no channels — click + or press ctrl-t to add one".into() } else { String::new() };
     let set = Settings::load();
+    crate::model::filter::edit(|f| {
+      *f = crate::model::filter::Filters::load();
+      (f.bots, f.cmds, f.dupes) = (set.hide_bots, set.hide_cmds, set.hide_dupes);
+    });
+    let mute_due = crate::model::filter::with(|f| f.next_expiry(now_ms()))
+      .map(|at| Instant::now() + Duration::from_millis((at - now_ms()).max(0) as u64 + 50));
     for t in &mut tabs {
       t.view.glow = set.first_glow;
     }
@@ -219,6 +228,7 @@ impl App {
       prof: std::env::var_os("HSC_PROF").is_some(),
       rooms: Vec::new(),
       mod_in: Default::default(),
+      mute_due,
       next_anim: None,
       occluded: false,
       damage_hist: [None; 2],
@@ -495,6 +505,11 @@ impl App {
     if let Some(cmd) = chan::command(&self.line.text) {
       self.line.take();
       self.chan_cmd(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::filtercmd::command(&self.line.text) {
+      self.line.take();
+      self.filter_cmd(cmd);
       return self.after_send();
     }
     if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
@@ -905,7 +920,15 @@ impl App {
         let names = tab.map_or_else(Vec::new, |t| t.view.chatters());
         rank(nick, [names]).into_iter().map(|n| format!("@{n}").into()).collect()
       } else if start == 0 && word.starts_with('/') {
-        rank(word, [LOCAL.to_vec(), chan::COMMANDS.to_vec(), crate::model::modcmd::COMMANDS.to_vec()])
+        rank(
+          word,
+          [
+            LOCAL.to_vec(),
+            chan::COMMANDS.to_vec(),
+            crate::model::modcmd::COMMANDS.to_vec(),
+            crate::model::filtercmd::COMMANDS.to_vec(),
+          ],
+        )
       } else {
         let own =
           self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.senders.names(id, now_ms()));
@@ -1313,6 +1336,8 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       NetEvent::ModDone(d) => self.on_mod_done(*d),
+      NetEvent::Lists(l) => self.on_lists(l),
+      NetEvent::MuteSync(s) => self.on_mute_sync(s),
       NetEvent::Whispers { items, live } => self.on_whispers(items, live),
       NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
       NetEvent::Feed(p) => self.on_feed(p),
@@ -1378,6 +1403,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.me = me;
         self.whisper_empty();
         self.set_mention_names();
+        self.filter_names();
         self.entered();
         self.bar_dirty = true;
         self.input_dirty = true;
@@ -1579,7 +1605,10 @@ impl ApplicationHandler<NetEvent> for App {
     if anim.is_some_and(|t| t <= now) {
       self.wake();
     }
-    let wake = [self.flood, anim, self.trim_at].into_iter().flatten().min();
+    if self.mute_due.is_some_and(|t| t <= now) {
+      self.mute_tick();
+    }
+    let wake = [self.flood, anim, self.trim_at, self.mute_due].into_iter().flatten().min();
     el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
   }
 }

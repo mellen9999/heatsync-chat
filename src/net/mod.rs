@@ -7,6 +7,7 @@ pub mod hs_ws;
 pub mod irc;
 mod links;
 pub mod modact;
+pub mod mutes;
 pub mod pin;
 mod recent;
 pub mod relay;
@@ -81,6 +82,10 @@ pub enum NetEvent {
   Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
   Posted { res: Result<crate::model::post::Post, u16> },
   FeedLive(crate::model::post::Post),
+  // your mute / block lists on heatsync, read after a login
+  Lists(mutes::Lists),
+  // a mute changed on another device
+  MuteSync(mutes::Sync),
   // a mod action settled
   ModDone(Box<modact::Done>),
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
@@ -149,6 +154,8 @@ pub enum Cmd {
   Relink(&'static str),
   // a ban, timeout, delete… in a room we moderate
   Mod(modact::Req),
+  // your mute list changed (synced while logged in)
+  Mute(mutes::Op),
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -403,6 +410,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Login(p) => {
         let _ = sess_tx.send(session::Cmd::Login(p, "base"));
+      }
+      Cmd::Mute(op) => {
+        let _ = sess_tx.send(session::Cmd::Mute(op));
       }
       Cmd::Mod(r) => {
         let _ = sess_tx.send(session::Cmd::Mod(r));

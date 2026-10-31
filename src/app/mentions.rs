@@ -19,7 +19,8 @@ impl App {
   // tint a line that pings you; a live one also lands in the mentions tab (and may notify).
   // `room` is the tab key it came from (twitch channel, kick slug, youtube handle)
   pub(super) fn scan_mention(&mut self, p: Platform, room: &str, m: &mut Message) {
-    if !self.mentions.hit(m) {
+    // a blocked person never pings you
+    if !self.mentions.hit(m) || crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&m.login))) {
       return;
     }
     m.flags |= flag::ALERT;

@@ -70,20 +70,12 @@ pub enum Cmd {
 
 // "90", "10m", "2h", "1d" → seconds, clamped to what twitch allows. None = not a duration
 pub fn seconds(s: &str) -> Option<u32> {
-  let s = s.trim().to_ascii_lowercase();
-  let (num, mult) = match s.chars().last()? {
-    'd' => (&s[..s.len() - 1], 86400),
-    'h' => (&s[..s.len() - 1], 3600),
-    'm' => (&s[..s.len() - 1], 60),
-    's' => (&s[..s.len() - 1], 1),
-    c if c.is_ascii_digit() => (&s[..], 1),
-    _ => return None,
-  };
-  let n: u32 = num.parse().ok()?;
-  Some(n.saturating_mul(mult).clamp(1, MAX_TIMEOUT))
+  let n = crate::util::time::span(s)?;
+  Some(u32::try_from(n).unwrap_or(u32::MAX).clamp(1, MAX_TIMEOUT))
 }
 
-fn name(w: &str) -> Option<String> {
+// a user name as typed after a command: "@Bob" → "bob". None = not a plausible login
+pub fn name(w: &str) -> Option<String> {
   let n = w.trim_start_matches('@').to_ascii_lowercase();
   (!n.is_empty() && n.len() <= 64 && n.chars().all(|c| c.is_alphanumeric() || "_-.".contains(c))).then_some(n)
 }

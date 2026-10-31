@@ -33,6 +33,7 @@ pub enum Cmd {
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
   Social(super::social::Cmd),
   Mod(super::modact::Req),
+  Mute(super::mutes::Op),
 }
 
 struct State {
@@ -89,6 +90,9 @@ pub async fn run(
         Some(Cmd::Pixels(w, h, px)) => st.pixels(w, h, px),
         Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
+        Some(Cmd::Mute(op)) => {
+          tokio::spawn(super::mutes::run(st.http.clone(), st.token.clone(), op));
+        }
         Some(Cmd::Mod(r)) => {
           tokio::spawn(super::modact::run(st.http.clone(), st.token.clone(), r, st.out.clone()));
         }
@@ -189,6 +193,7 @@ impl State {
     self.out.send(NetEvent::Me(Some(me)));
     if let Some(t) = &self.token {
       tokio::spawn(emote_ops::load_blocked(self.http.clone(), t.clone(), self.out.clone()));
+      tokio::spawn(super::mutes::load(self.http.clone(), t.clone(), self.out.clone()));
     }
     if !twitch {
       // a kick-only or youtube-only login has no twitch chat: drop a twitch login left from before

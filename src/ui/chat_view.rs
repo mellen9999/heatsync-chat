@@ -13,9 +13,10 @@ use super::theme;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
+use crate::model::filter;
 use crate::model::message::{Kind, Message, Platform, Seg, flag};
 use crate::model::seen::Seen;
-use crate::util::time::hhmm;
+use crate::util::time::{hhmm, now_ms};
 
 // one emote slot in a line; zero-width overlays stack on the base image
 struct EmoteBox {
@@ -62,6 +63,18 @@ struct Row {
   msg: Message,
   height: i32,
   laid: Option<Box<Laid>>,
+  // the filters' verdict (model::filter HIDDEN / MUTED / MARKED), kept off the data so it can change
+  look: u8,
+}
+
+impl Row {
+  fn hidden(&self) -> bool {
+    self.look & filter::HIDDEN != 0
+  }
+
+  fn muted(&self) -> bool {
+    self.look & filter::MUTED != 0
+  }
 }
 
 // an animated emote currently on screen: redrawn alone when its frame flips
@@ -102,6 +115,12 @@ pub struct ChatView {
   view_h: i32,
   // dim text shown while there are no lines (what this tab is for, or why it is empty)
   empty: Box<str>,
+  // a channel tab: the chat filters (hide bots, mutes, blocks…) apply to its lines
+  pub filtered: bool,
+  // people hidden in this tab only (/hide name); gone on restart, like the ext
+  tab_hidden: HashSet<Box<str>>,
+  // the text of the last line shown, for hide duplicates
+  last_text: Box<str>,
 }
 
 pub enum Paint {
@@ -124,7 +143,7 @@ fn seg(s: &mut String, spans: &mut Vec<Span>, g: &Seg) {
   spans.push(Span { range: a..s.len(), ink: Ink(g.ink), bold: g.bold });
 }
 
-fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags: bool) -> Laid {
+fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, ts: bool, tags: bool) -> Laid {
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
   // a line copied into another tab (mentions) still resolves against its own room
@@ -139,7 +158,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
     dim(&mut s, &mut spans, sys);
     s.push('\n');
   }
-  if let Some(parent) = &m.reply_to {
+  if let Some(parent) = m.reply_to.as_ref().filter(|_| !muted) {
     dim(&mut s, &mut spans, &format!("↳ @{parent}\n"));
   }
   if ts {
@@ -190,9 +209,12 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, width: i32, ts: bool, tags
       s.push(':');
     }
     s.push(' ');
-    let (pic, fold) = picture(res, m, width);
+    // a muted sender's words and pictures are stripped; the name and time stay
+    let (pic, fold) = if muted { (None, None) } else { picture(res, m, width) };
     let b0 = s.len();
-    body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
+    if !muted {
+      body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
+    }
     let ink = match (m.has(flag::CLEARED), m.kind) {
       (true, _) => Some(theme::DIM),
       (_, Kind::Action) => Some(m.color),
@@ -418,6 +440,9 @@ impl ChatView {
       top: false,
       view_h: 0,
       empty: "".into(),
+      filtered: false,
+      tab_hidden: HashSet::new(),
+      last_text: "".into(),
     }
   }
 
@@ -444,7 +469,8 @@ impl ChatView {
       self.rows.pop_front();
     }
     self.seq_back += 1;
-    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None });
+    let look = self.look_of(&msg);
+    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None, look });
     self.pending += 1;
   }
 
@@ -456,9 +482,57 @@ impl ChatView {
     let skip = fresh.len().saturating_sub(room);
     for msg in fresh.into_iter().skip(skip).rev() {
       self.seq_front -= 1;
-      self.rows.push_front(Row { seq: self.seq_front, msg, height: 0, laid: None });
+      self.rows.push_front(Row { seq: self.seq_front, msg, height: 0, laid: None, look: 0 });
     }
+    self.refilter();
     self.stale = true;
+  }
+
+  // the filters' verdict on a new line (a list tab shows everything)
+  fn look_of(&mut self, m: &Message) -> u8 {
+    if !self.filtered {
+      return 0;
+    }
+    let (hid, last) = (&self.tab_hidden, &mut self.last_text);
+    filter::with(|f| f.judge(m, now_ms(), hid, last))
+  }
+
+  // the rules changed: judge every line again, oldest first
+  pub fn refilter(&mut self) {
+    if !self.filtered {
+      return;
+    }
+    let now = now_ms();
+    let mut last: Box<str> = "".into();
+    let mut changed = false;
+    filter::with(|f| {
+      for r in &mut self.rows {
+        let look = f.judge(&r.msg, now, &self.tab_hidden, &mut last);
+        if look != r.look {
+          r.look = look;
+          Self::touch(r);
+          changed = true;
+        }
+      }
+    });
+    self.last_text = last;
+    if changed {
+      // a hidden line can't stay selected
+      if self.selected.and_then(|s| self.index_of(s)).is_some_and(|i| self.rows[i].hidden()) {
+        self.selected = None;
+      }
+      self.stale = true;
+    }
+  }
+
+  // /hide name and /unhide name: this tab only
+  pub fn hide_user(&mut self, who: &str, hide: bool) -> bool {
+    let k = filter::key(who);
+    let changed = if hide { self.tab_hidden.insert(k) } else { self.tab_hidden.remove(&k) };
+    if changed {
+      self.refilter();
+    }
+    changed
   }
 
   fn touch(r: &mut Row) {
@@ -468,8 +542,12 @@ impl ChatView {
 
   // swap a line for a new version of itself (a vote landed, a send settled); the selection stays
   pub fn replace(&mut self, id: &str, m: Message) -> bool {
-    let Some(r) = self.rows.iter_mut().find(|r| &*r.msg.id == id) else { return false };
+    let Some(i) = self.rows.iter().position(|r| &*r.msg.id == id) else { return false };
+    let look =
+      if self.filtered { filter::with(|f| f.judge(&m, now_ms(), &self.tab_hidden, &mut "".into())) } else { 0 };
+    let r = &mut self.rows[i];
     r.msg = m;
+    r.look = look;
     Self::touch(r);
     self.stale = true;
     true
@@ -484,11 +562,12 @@ impl ChatView {
     self.scroll = scroll;
     for m in msgs {
       self.seq_back += 1;
-      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None });
+      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None, look: 0 });
     }
     while self.rows.len() > self.cap {
       self.rows.pop_back();
     }
+    self.refilter();
     self.selected = keep.and_then(|id| self.rows.iter().find(|r| *r.msg.id == *id).map(|r| r.seq));
   }
 
@@ -571,8 +650,11 @@ impl ChatView {
   fn height_at(&mut self, i: usize, res: &mut Res) -> i32 {
     let (w, ts, tags) = (self.width, self.timestamps, self.tags);
     let r = &mut self.rows[i];
+    if r.hidden() {
+      return 0;
+    }
     if r.height == 0 {
-      r.height = layout_row(res, &self.channel, &r.msg, w, ts, tags).layout.height().ceil() as i32;
+      r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags).layout.height().ceil() as i32;
     }
     r.height
   }
@@ -607,7 +689,7 @@ impl ChatView {
     while left > 0 {
       i += step;
       let Some(r) = usize::try_from(i).ok().and_then(|j| self.rows.get(j)) else { break };
-      if r.msg.kind != Kind::System {
+      if r.msg.kind != Kind::System && !r.hidden() {
         found = Some(i as usize);
         left -= 1;
       }
@@ -695,8 +777,8 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        let m = &self.rows[i].msg;
-        let laid = layout_row(res, &self.channel, m, self.width, self.timestamps, self.tags);
+        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+        let laid = layout_row(res, &self.channel, m, muted, self.width, self.timestamps, self.tags);
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let eb = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
           PositionedLayoutItem::InlineBox(b)
@@ -737,9 +819,9 @@ impl ChatView {
   fn content_height(&mut self, res: &mut Res) -> i32 {
     let (w, ts, tags) = (self.width, self.timestamps, self.tags);
     let mut total = 0;
-    for r in &mut self.rows {
+    for r in self.rows.iter_mut().filter(|r| !r.hidden()) {
       if r.height == 0 {
-        r.height = layout_row(res, &self.channel, &r.msg, w, ts, tags).layout.height().ceil() as i32;
+        r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags).layout.height().ceil() as i32;
       }
       total += r.height;
     }
@@ -752,12 +834,16 @@ impl ChatView {
     let n = std::mem::take(&mut self.pending);
     let mut shift = 0;
     let (w, ts, tags) = (self.width, self.timestamps, self.tags);
-    for r in self.rows.iter_mut().rev().take(n) {
-      let laid = layout_row(res, &self.channel, &r.msg, w, ts, tags);
+    let mut shown = 0;
+    for r in self.rows.iter_mut().rev().take(n).filter(|r| !r.hidden()) {
+      let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags);
       r.height = laid.layout.height().ceil() as i32;
       shift += r.height;
+      shown += 1;
       r.laid = Some(Box::new(laid));
     }
+    // hidden lines add nothing to paint
+    let n = shown;
     if self.top {
       // a list never blits: whatever changed, repaint it whole
       return if std::mem::take(&mut self.stale) || n > 0 { Paint::Full } else { Paint::Nothing };
@@ -802,8 +888,11 @@ impl ChatView {
       if bottom <= area.y {
         break;
       }
+      if r.hidden() {
+        continue;
+      }
       if r.height == 0 || (r.laid.is_none() && bottom - r.height < clip.bottom()) {
-        let laid = layout_row(res, &self.channel, &r.msg, w, ts, tags);
+        let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, ts, tags);
         r.height = laid.layout.height().ceil() as i32;
         r.laid = Some(Box::new(laid));
       }
@@ -820,7 +909,7 @@ impl ChatView {
           Some(theme::HEATSYNC)
         } else if r.msg.has(flag::FIRST) {
           Some(theme::MAGENTA)
-        } else if r.msg.has(flag::HIGHLIGHTED) {
+        } else if r.msg.has(flag::HIGHLIGHTED) || r.look & filter::MARKED != 0 {
           Some(theme::CYAN)
         } else if r.msg.has(flag::NEW) && self.glow {
           Some(theme::YELLOW)
@@ -945,7 +1034,7 @@ mod tests {
     m.kind = Kind::Chat;
     m.nick = "bob".into();
     m.body = "look https://i.imgur.com/a.png".into();
-    let boxes = |res: &mut Res| layout_row(res, "c", &m, 400, false, false);
+    let boxes = |res: &mut Res| layout_row(res, "c", &m, false, 400, false, false);
     // not loaded: no box, link stays as text, and nothing was requested by measuring
     let l = boxes(&mut res);
     assert!((l.boxes.len(), l.embed.is_some()) == (0, true));
@@ -976,7 +1065,7 @@ mod tests {
     m.user_id = "42".into();
     m.nick = "bob".into();
     m.body = "hi".into();
-    let n = |res: &mut Res| layout_row(res, "c", &m, 400, false, false).boxes.len();
+    let n = |res: &mut Res| layout_row(res, "c", &m, false, 400, false, false).boxes.len();
     // unknown chatter: no badge yet, but the ask is queued
     assert_eq!(n(&mut res), 0);
     assert_eq!(res.cosmetics.take_wanted(), vec![42]);
@@ -1033,6 +1122,58 @@ mod tests {
     v.relayout();
     v.draw(&mut c, &mut res, area, area);
     assert_eq!(tint(&c).2, g0);
+  }
+
+  fn said(login: &str, body: &str) -> Message {
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.login = login.into();
+    m.nick = login.into();
+    m.body = body.into();
+    m
+  }
+
+  #[test]
+  fn filtered_lines_take_no_room_and_come_back() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(50, "c".into());
+    v.filtered = true;
+    v.resize(400);
+    filter::edit(|f| f.bots = true);
+    v.push(said("bob", "hi"));
+    let one = v.content_height(&mut res);
+    v.push(said("nightbot", "!commands"));
+    v.push(said("nightbot", "!discord"));
+    assert_eq!(v.content_height(&mut res), one);
+    // can't select what is hidden
+    v.select_move(-1, &mut res, 100);
+    assert_eq!(&*v.selected().unwrap().login, "bob");
+    v.select_move(-1, &mut res, 100);
+    assert_eq!(&*v.selected().unwrap().login, "bob");
+    // the switch goes off: they are all back
+    filter::edit(|f| f.bots = false);
+    v.refilter();
+    assert_eq!(v.content_height(&mut res), one * 3);
+    // a list tab (not filtered) ignores the rules
+    filter::edit(|f| f.bots = true);
+    let mut list = ChatView::new(50, "feed".into());
+    list.resize(400);
+    list.push(said("nightbot", "!x"));
+    assert_eq!(list.content_height(&mut res), one);
+  }
+
+  #[test]
+  fn a_muted_line_keeps_its_name_but_not_its_words() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(50, "c".into());
+    v.filtered = true;
+    v.resize(120);
+    filter::edit(|f| _ = f.mute("quiet", None));
+    // far longer than one row
+    v.push(said("quiet", &"word ".repeat(80)));
+    v.push(said("loud", &"word ".repeat(80)));
+    let h = |v: &mut ChatView, res: &mut Res, i| v.height_at(i, res);
+    assert!(h(&mut v, &mut res, 0) < h(&mut v, &mut res, 1));
   }
 
   #[test]
@@ -1146,10 +1287,10 @@ mod tests {
       tail: Box::new([Seg { text: " 5".into(), ink: theme::WHITE, bold: false }]),
       edge: 0,
     }));
-    let l = layout_row(&mut res, "tab", &x, 400, false, false);
+    let l = layout_row(&mut res, "tab", &x, false, 400, false, false);
     let n = l.layout.lines().count();
     assert_eq!(n, 1);
-    assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), 400, false, false).layout.width());
+    assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), false, 400, false, false).layout.width());
   }
 
   #[test]

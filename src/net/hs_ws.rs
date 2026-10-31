@@ -351,6 +351,9 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let p = crate::model::post::parse(v.get("data")?)?;
       send(NetEvent::FeedLive(p))
     }
+    "mute:added" | "mute:removed" | "mute:expired" | "mute:cleared" => {
+      super::mutes::frame(v, ty).and_then(|m| send(NetEvent::MuteSync(m)))
+    }
     "whisper:new" => {
       let w = crate::model::whisper::parse(v, 0, None)?;
       send(NetEvent::Whispers { items: vec![w], live: true })

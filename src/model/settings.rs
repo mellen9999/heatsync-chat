@@ -37,6 +37,10 @@ pub struct Settings {
   // a desktop notification for an @mention while the window is not focused. default off, like the
   // ext's hs_notifications: nothing leaves the window unless asked
   pub notify: bool,
+  // chat filters (ext hideBots, hideCommands, hideDuplicates): all off by default
+  pub hide_bots: bool,
+  pub hide_cmds: bool,
+  pub hide_dupes: bool,
   // ask before a ban goes out (the ext's modConfirmBan; here on by default: a ban is permanent)
   pub confirm_ban: bool,
 }
@@ -58,6 +62,9 @@ impl Default for Settings {
       tab_whispers: true,
       tab_mentions: true,
       notify: false,
+      hide_bots: false,
+      hide_cmds: false,
+      hide_dupes: false,
       confirm_ban: true,
     }
   }
@@ -107,6 +114,9 @@ impl Settings {
         "tab_mentions" => out.tab_mentions = on,
         "notify" => out.notify = on,
         "confirm_ban" => out.confirm_ban = on,
+        "hide_bots" => out.hide_bots = on,
+        "hide_cmds" => out.hide_cmds = on,
+        "hide_dupes" => out.hide_dupes = on,
         "zoom" => {
           if let Some(z) = v.trim().parse::<f32>().ok().filter(|z| z.is_finite()) {
             out.zoom = clamp_zoom((z * 100.0).round() as i32);
@@ -120,7 +130,7 @@ impl Settings {
 
   pub fn render(&self) -> String {
     format!(
-      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\ntab_feed={}\ntab_whispers={}\ntab_mentions={}\nnotify={}\nconfirm_ban={}\nzoom={}\n",
+      "vi={}\nauto_hide={}\nfirst_glow={}\npaints={}\nev_online={}\nev_offline={}\nev_game={}\nmoments={}\nmedia={}\ntab_feed={}\ntab_whispers={}\ntab_mentions={}\nnotify={}\nconfirm_ban={}\nhide_bots={}\nhide_cmds={}\nhide_dupes={}\nzoom={}\n",
       self.vi,
       self.auto_hide,
       self.first_glow,
@@ -135,6 +145,9 @@ impl Settings {
       self.tab_mentions,
       self.notify,
       self.confirm_ban,
+      self.hide_bots,
+      self.hide_cmds,
+      self.hide_dupes,
       self.scale()
     )
   }
@@ -204,7 +217,12 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     if let Some(rest) = low.strip_prefix(word)
       && (rest.is_empty() || rest.starts_with(char::is_whitespace))
     {
-      return Some(Local::Tab(Kind::parse(rest), on));
+      let kind = Kind::parse(rest);
+      // `/hide bob` is the filter (hide a person in this tab), not a tab switch
+      if word == "/hide" && kind.is_none() && !rest.trim().is_empty() {
+        return None;
+      }
+      return Some(Local::Tab(kind, on));
     }
   }
   match low.as_str() {
@@ -246,6 +264,9 @@ mod tests {
         tab_whispers: true,
         tab_mentions: true,
         notify: false,
+        hide_bots: false,
+        hide_cmds: false,
+        hide_dupes: false,
         confirm_ban: true
       }
     );
@@ -299,6 +320,8 @@ mod tests {
     assert_eq!(local_cmd("/hide feed"), Some(Local::Tab(Some(Kind::Feed), false)));
     assert_eq!(local_cmd("/SHOW  Mentions"), Some(Local::Tab(Some(Kind::Mentions), true)));
     assert_eq!(local_cmd("/hide"), Some(Local::Tab(None, false)));
+    // a name after /hide is the user filter, handled elsewhere
+    assert_eq!(local_cmd("/hide bob"), None);
     assert_eq!(local_cmd("/show nope"), Some(Local::Tab(None, true)));
     assert_eq!(local_cmd("/hidden"), None);
     assert_eq!(local_cmd("/notify"), Some(Local::Notify));

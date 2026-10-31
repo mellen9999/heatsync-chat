@@ -36,9 +36,34 @@ pub fn parse_iso(s: &str) -> Option<i64> {
   Some(((days * 24 + h) * 60 + mi) * 60_000 + se * 1000 + ms)
 }
 
+// "90", "30s", "10m", "2h", "3d" → seconds. None = not a length
+pub fn span(s: &str) -> Option<u64> {
+  let s = s.trim().to_ascii_lowercase();
+  let (num, mult) = match s.chars().last()? {
+    'd' => (&s[..s.len() - 1], 86400),
+    'h' => (&s[..s.len() - 1], 3600),
+    'm' => (&s[..s.len() - 1], 60),
+    's' => (&s[..s.len() - 1], 1),
+    c if c.is_ascii_digit() => (&s[..], 1),
+    _ => return None,
+  };
+  num.parse::<u64>().ok()?.checked_mul(mult)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn spans() {
+    assert_eq!(span("90"), Some(90));
+    assert_eq!(span("10M"), Some(600));
+    assert_eq!(span("2h"), Some(7200));
+    assert_eq!(span("3d"), Some(259200));
+    assert_eq!(span("x"), None);
+    assert_eq!(span(""), None);
+    assert_eq!(span("99999999999999999999d"), None);
+  }
 
   #[test]
   fn iso() {

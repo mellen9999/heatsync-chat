@@ -2,6 +2,8 @@ pub mod chan;
 pub mod color;
 pub mod complete;
 pub mod feed;
+pub mod filter;
+pub mod filtercmd;
 pub mod ime;
 pub mod line;
 pub mod mention;

@@ -67,6 +67,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
   let first = sources.first().map_or(Box::from(""), |s| s.1.clone());
   let mut view = ChatView::new(SCROLLBACK, first);
   view.tags = tags(&sources);
+  view.filtered = true;
   Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, sources, target: 0 }
 }
 
@@ -181,6 +182,7 @@ impl App {
     t.target = 0;
     if t.view.channel != first {
       t.view = ChatView::new(SCROLLBACK, first);
+      t.view.filtered = true;
     }
     t.view.tags = tags(&new);
     t.view.relayout();
