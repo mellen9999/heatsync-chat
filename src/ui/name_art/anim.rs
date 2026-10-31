@@ -515,7 +515,9 @@ impl AnimArt {
         for (i, &(x0, x1)) in self.boxes.iter().enumerate() {
           let lf = motion::letter_fx(e, i, t, self.s, (x1 - x0) as f32, h as f32);
           let hue = lf.hue.map(motion::hue_matrix);
-          draw(&mut sc.name, (w, h), &sc.sprite, (x0, x1), &lf.xf, lf.opacity, hue.as_ref());
+          // letter_fx works in the glyph's own cell; the sprite is the whole name, so move the cell home
+          let xf = Aff::translate(x0 as f32, 0.0).then(lf.xf).then(Aff::translate(-(x0 as f32), 0.0));
+          draw(&mut sc.name, (w, h), &sc.sprite, (x0, x1), &xf, lf.opacity, hue.as_ref());
         }
         &mut sc.name
       }
@@ -865,5 +867,101 @@ mod tests {
     assert_eq!(ink_count(rp.render(None, &mut sc)), base);
     let (st, mut sc) = build(&spec(json!({"fill": red_blue(), "shadows": sh, "effects": [{"id": "ripple"}]})), false);
     assert!(ink_count(st.render(None, &mut sc)) > base, "static mode keeps the shadows");
+  }
+
+  // ennortix: each letter twirls on its own, staggered by 0.08s per glyph, about its own center
+  #[test]
+  fn twirl_turns_each_letter_alone_with_its_own_delay() {
+    let f = fx(json!([{"id": "twirl", "speed": 1}]), json!(null));
+    let mut text = Text::new(1.0);
+    let spans = [Span { range: 0..8, ink: Ink(theme::WHITE), bold: true }];
+    let w = text.layout("ennortix", &spans, &[], 1e5).full_width().ceil() as i32;
+    let art = AnimArt::build(&mut text, "ennortix", w, &f, true, 0xffffff);
+    assert_eq!(art.boxes.len(), 8, "one cell per glyph");
+    let mut sc = Scratch::new();
+    let rest = art.render(None, &mut sc).to_vec();
+    // glyph 0 is at phase 0.60 (still holding), glyph 7 at 0.60 + 7*0.08/3.6 = 0.756 (mid spin)
+    let px = art.render(Some(0.60 * 3.6), &mut sc).to_vec();
+    let (wu, h) = (art.w as usize, art.h as usize);
+    let cols = |px: &[Px], c: (usize, usize)| -> Vec<Px> {
+      (0..h).flat_map(|y| (c.0..c.1).map(move |x| (y, x))).map(|(y, x)| px[y * wu + x]).collect()
+    };
+    let (c0, c7) = (art.boxes[0], art.boxes[7]);
+    assert_eq!(cols(&px, c0), cols(&rest, c0), "glyph 0 has not started turning");
+    assert_ne!(cols(&px, c7), cols(&rest, c7), "glyph 7 is mid spin");
+    // each cell stays inside its own neighbourhood (a rotation about the cell's center keeps the
+    // glyph within ~h/2 of it), so the last letter never lands on the first
+    let right: u32 = (0..h)
+      .flat_map(|y| (c7.0.saturating_sub(h)..wu).map(move |x| (y, x)))
+      .map(|(y, x)| px[y * wu + x][3] as u32)
+      .sum();
+    let total: u32 = px.iter().map(|q| q[3] as u32).sum();
+    assert!(right * 10 > total, "the name is still spread across its width: {right}/{total}");
+    let left0: u32 = (0..h).flat_map(|y| (0..c0.1).map(move |x| (y, x))).map(|(y, x)| px[y * wu + x][3] as u32).sum();
+    assert!(left0 > 0);
+    // two glyphs at the same t differ by exactly their delay
+    let ang = |i| {
+      let m = motion::letter_fx(&f.effects[0], i, 0.60 * 3.6, 1.0, 8.0, 20.0).xf.0;
+      m[1].atan2(m[0]).to_degrees().rem_euclid(360.0)
+    };
+    assert_eq!(ang(0), 0.0);
+    let want = |i: f32| 360.0 * ((0.60 + i * 0.08 / 3.6 - 0.64) / 0.36).clamp(0.0, 1.0);
+    for i in [2usize, 5, 7] {
+      assert!((ang(i) - want(i as f32)).abs() < 0.1, "glyph {i}: {} vs {}", ang(i), want(i as f32));
+    }
+  }
+
+  // the real ennortix paint (twirl + coin) through the same parse the app uses
+  #[test]
+  fn ennortix_as_served_splits_into_glyph_cells() {
+    let v = json!({"v":2,"base":{"type":"solid","angle":0,"stops":[{"pos":0,"color":"#ffb000"}]},"glow":null,
+      "scene":{"weather":{"id":"petals","tint":"#d7408c","speed":1,"density":1},"backdrop":{"id":"synth","tint":"#0ca43d","speed":1}},
+      "effects":[{"id":"twirl","speed":1},{"id":"coin","speed":1}]});
+    let paint = crate::cosmetics::paint::Paint::from_hs(&v).unwrap();
+    let fx = paint.fx.unwrap();
+    assert!(fx.split);
+    let (art, mut sc) = build(&fx, true);
+    assert_eq!(art.boxes.len(), 6, "mellen: one cell per letter");
+    let rest = art.render(None, &mut sc).to_vec();
+    let px = art.render(Some(0.60 * 3.6), &mut sc).to_vec();
+    let w = art.w as usize;
+    let first = art.boxes[0];
+    let cell = |p: &[Px]| -> Vec<Px> {
+      (0..art.h as usize).flat_map(|y| (first.0..first.1).map(move |x| (y, x))).map(|(y, x)| p[y * w + x]).collect()
+    };
+    // glyph 0 still holds at this instant while the last letter is already turning
+    let ink = |p: &[Px]| p.iter().filter(|q| q[3] > 0 && q[0] > 200).count();
+    assert!(ink(&cell(&px)) > 0 && ink(&cell(&rest)) > 0);
+    assert_eq!(
+      cell(&px).iter().map(|q| q[3] as u32).sum::<u32>(),
+      cell(&rest).iter().map(|q| q[3] as u32).sum::<u32>()
+    );
+  }
+
+  // pixel probe: a letter at the half turn is its resting self rotated 180 degrees about its own cell center
+  #[test]
+  fn a_letter_turns_about_its_own_center() {
+    let f = fx(json!([{"id": "twirl", "speed": 1}]), json!(null));
+    let mut text = Text::new(1.0);
+    let spans = [Span { range: 0..2, ink: Ink(theme::WHITE), bold: true }];
+    // two glyphs: the second sits well right of the origin, so a wrong pivot would throw it off the sprite
+    let w = text.layout("ee", &spans, &[], 1e5).full_width().ceil() as i32;
+    let art = AnimArt::build(&mut text, "ee", w, &f, true, 0xffffff);
+    let mut sc = Scratch::new();
+    let rest = art.render(None, &mut sc).to_vec();
+    let (wu, h) = (art.w as usize, art.h as usize);
+    // glyph 1 is at the half turn when 0.64 + 0.18 = its phase, i.e. t = (0.82 - 0.08/3.6) * 3.6
+    let px = art.render(Some(3.6 * 0.82 - 0.08), &mut sc).to_vec();
+    let (x0, x1) = art.boxes[1];
+    let mut diff = 0;
+    for y in 0..h {
+      for x in x0..x1 {
+        let mirror = rest[(h - 1 - y) * wu + (x0 + x1 - 1 - x)];
+        let got = px[y * wu + x];
+        diff += (0..4).map(|c| (got[c] as i32 - mirror[c] as i32).abs()).sum::<i32>();
+      }
+    }
+    let ink: i32 = (0..h).flat_map(|y| (x0..x1).map(move |x| (y, x))).map(|(y, x)| rest[y * wu + x][3] as i32).sum();
+    assert!(ink > 0 && diff * 10 < ink * 4, "diff {diff} vs ink {ink}");
   }
 }
