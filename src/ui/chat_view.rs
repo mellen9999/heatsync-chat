@@ -10,6 +10,7 @@ use super::theme;
 use crate::emotes::block::Scope;
 use crate::images::{Images, ImgId};
 use crate::model::message::{Kind, Message, Platform, flag};
+use crate::model::seen::Seen;
 use crate::util::time::hhmm;
 
 // one emote slot in a line; zero-width overlays stack on the base image
@@ -74,6 +75,9 @@ pub struct ChatView {
   pub tags: bool,
   // the line picked with `v` / a click (by seq), outlined; replies and actions act on it
   selected: Option<i64>,
+  // orange edge on a person's first line this session (setting first_glow)
+  pub glow: bool,
+  seen: Seen,
 }
 
 pub enum Paint {
@@ -277,6 +281,8 @@ impl ChatView {
       timestamps: true,
       tags: false,
       selected: None,
+      glow: true,
+      seen: Seen::default(),
     }
   }
 
@@ -284,7 +290,14 @@ impl ChatView {
     self.rows.len()
   }
 
-  pub fn push(&mut self, msg: Message) {
+  pub fn push(&mut self, mut msg: Message) {
+    // seen is marked even with the glow off, so toggling it on doesn't light up regulars
+    if msg.kind != Kind::System && msg.system.is_none() {
+      let who = if msg.login.is_empty() { &msg.nick } else { &msg.login };
+      if self.seen.first(who) && !msg.has(flag::FIRST) {
+        msg.flags |= flag::NEW;
+      }
+    }
     if self.rows.len() == self.cap {
       self.rows.pop_front();
     }
@@ -565,6 +578,8 @@ impl ChatView {
           Some(theme::MAGENTA)
         } else if r.msg.has(flag::HIGHLIGHTED) {
           Some(theme::CYAN)
+        } else if r.msg.has(flag::NEW) && self.glow {
+          Some(theme::HEATSYNC)
         } else {
           None
         };
@@ -654,6 +669,27 @@ impl ChatView {
 mod tests {
   use super::*;
   use crate::fake::Fake;
+
+  #[test]
+  fn first_line_per_person_glows_once() {
+    let mut v = ChatView::new(100, "c".into());
+    let mk = |login: &str, first: bool| {
+      let mut m = Message::system(1, Platform::Twitch, "x");
+      m.kind = Kind::Chat;
+      m.login = login.into();
+      if first {
+        m.flags |= flag::FIRST;
+      }
+      m
+    };
+    for m in [mk("a", false), mk("A", false), mk("b", true), mk("c", false)] {
+      v.push(m);
+    }
+    v.push(Message::system(2, Platform::Twitch, "sys"));
+    let new: Vec<bool> = v.rows.iter().map(|r| r.msg.has(flag::NEW)).collect();
+    // second "a" is not new; a channel-first line keeps its own (magenta) mark
+    assert_eq!(new, [true, false, false, true, false]);
+  }
 
   #[test]
   fn selection_walks_lines_and_skips_system() {

@@ -24,6 +24,8 @@ pub mod flag {
   pub const HISTORY: u8 = 1 << 3;
   // our own line, echoed from USERSTATE (no emote positions: resolve twitch globals by name)
   pub const OWN: u8 = 1 << 4;
+  // first line from this person in this tab this session (the glow)
+  pub const NEW: u8 = 1 << 5;
 }
 
 // image url for a byte range of the body

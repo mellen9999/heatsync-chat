@@ -166,6 +166,9 @@ impl App {
     let status =
       if tabs.is_empty() { "no channels — run: heatsync-chat <channel> …".into() } else { String::new() };
     let set = Settings::load();
+    for t in &mut tabs {
+      t.view.glow = set.first_glow;
+    }
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
@@ -339,7 +342,7 @@ impl App {
     self.wake();
   }
 
-  // /vi and /autohide: toggle, persist, confirm in the status slot. never sent anywhere
+  // /vi, /autohide, /glow: toggle, persist, confirm in the status slot. never sent anywhere
   fn local(&mut self, cmd: Local) {
     let on = |b: bool| if b { "on" } else { "off" };
     self.status = match cmd {
@@ -351,6 +354,15 @@ impl App {
       Local::AutoHide => {
         self.set.auto_hide = !self.set.auto_hide;
         format!("auto-hide {}", on(self.set.auto_hide))
+      }
+      Local::Glow => {
+        self.set.first_glow = !self.set.first_glow;
+        for t in &mut self.tabs {
+          t.view.glow = self.set.first_glow;
+          t.view.invalidate();
+        }
+        self.wake();
+        format!("first-chatter glow {}", on(self.set.first_glow))
       }
     };
     self.set.save();
