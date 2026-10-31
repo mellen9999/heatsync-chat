@@ -1,0 +1,51 @@
+# Maintainer: mellen
+# builds from this checkout's committed history (git archive HEAD), so a dirty tree never ships:
+#   cd packaging/arch && paru -Bi .        (or: makepkg -si)
+# it lives in its own folder on purpose: makepkg's src/ and pkg/ work dirs would land on the repo's own src/
+pkgname=heatsync-chat
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='twitch, kick and youtube chat in one native window, with heatsync emotes'
+arch=(x86_64 aarch64)
+url='https://heatsync.org'
+license=(MIT)
+depends=(glibc gcc-libs fontconfig freetype2 libxkbcommon wayland)
+makedepends=(cargo git)
+optdepends=(
+  'libnotify: desktop notification on an @mention'
+  'xdg-utils: open the login page and links'
+  'zenity: file dialog for uploads'
+  'libx11: x11 sessions'
+)
+# ring compiles C: arch's lto flags break its link
+options=(!lto)
+
+prepare() {
+  rm -rf "$srcdir/$pkgname"
+  mkdir -p "$srcdir/$pkgname"
+  git -C "$(git -C "$startdir" rev-parse --show-toplevel)" archive HEAD | tar -x -C "$srcdir/$pkgname"
+  cd "$srcdir/$pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$srcdir/$pkgname"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  install -Dm755 target/release/heatsync-chat "$pkgdir/usr/bin/heatsync-chat"
+  install -Dm644 packaging/heatsync-chat.desktop "$pkgdir/usr/share/applications/heatsync-chat.desktop"
+  install -Dm644 assets/icon-48.png "$pkgdir/usr/share/icons/hicolor/48x48/apps/heatsync-chat.png"
+  install -Dm644 assets/icon-96.png "$pkgdir/usr/share/icons/hicolor/96x96/apps/heatsync-chat.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

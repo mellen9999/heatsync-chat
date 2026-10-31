@@ -1,0 +1,23 @@
+pkgbase = heatsync-chat
+	pkgdesc = twitch, kick and youtube chat in one native window, with heatsync emotes
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://heatsync.org
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	makedepends = git
+	depends = glibc
+	depends = gcc-libs
+	depends = fontconfig
+	depends = freetype2
+	depends = libxkbcommon
+	depends = wayland
+	optdepends = libnotify: desktop notification on an @mention
+	optdepends = xdg-utils: open the login page and links
+	optdepends = zenity: file dialog for uploads
+	optdepends = libx11: x11 sessions
+	options = !lto
+
+pkgname = heatsync-chat

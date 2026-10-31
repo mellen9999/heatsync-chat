@@ -9,6 +9,8 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, Ime as WinIme, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::platform::wayland::WindowAttributesExtWayland;
+use winit::platform::x11::WindowAttributesExtX11;
 use winit::window::{Window, WindowId};
 
 mod builtin;
@@ -61,6 +63,8 @@ use crate::util::time::now_ms;
 
 const FLOOD_EVERY: Duration = Duration::from_millis(50);
 const FLOOD_TAB: &str = "flood";
+// matches packaging/heatsync-chat.desktop (StartupWMClass) and its icon name
+const APP_ID: &str = "heatsync-chat";
 const SCROLLBACK: usize = 1000;
 // animation repaint ceiling: 30fps — smooth for emotes, ~35% fewer wakeups than native gif timing
 const ANIM_MIN_MS: u32 = 33;
@@ -1315,6 +1319,9 @@ impl ApplicationHandler<NetEvent> for App {
       .with_title("heatsync")
       .with_window_icon(icon)
       .with_inner_size(winit::dpi::LogicalSize::new(420, 800));
+    // the app id (wayland) and WM_CLASS (x11): what the .desktop file's icon is matched on
+    let attrs = WindowAttributesExtWayland::with_name(attrs, APP_ID, APP_ID);
+    let attrs = WindowAttributesExtX11::with_name(attrs, APP_ID, APP_ID);
     let window = match el.create_window(attrs) {
       Ok(w) => Rc::new(w),
       Err(e) => {

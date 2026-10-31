@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=heatsync chat
+Comment=twitch, kick and youtube chat in one window
+Exec=heatsync-chat
+Icon=heatsync-chat
+Terminal=false
+Categories=Network;Chat;
+StartupWMClass=heatsync-chat
