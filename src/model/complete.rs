@@ -10,6 +10,14 @@ pub struct Complete {
   pub at: usize,
 }
 
+impl Complete {
+  // the emote this completion settled on, if it was one (not an @nick or a /command)
+  pub fn emote(&self) -> Option<&str> {
+    let m = self.matches.get(self.at)?;
+    (!m.starts_with(['@', '/']) && crate::heatsync::valid_name(m)).then_some(&**m)
+  }
+}
+
 // groups are already in priority order; inside one, exact-case prefix first, then shorter, then a-z
 pub fn rank<'a>(prefix: &str, groups: impl IntoIterator<Item = Vec<&'a str>>) -> Vec<Box<str>> {
   if prefix.is_empty() {
@@ -45,5 +53,15 @@ mod tests {
     let r: Vec<&str> = r.iter().map(|b| &**b).collect();
     assert_eq!(r, ["PogU", "Pogger", "pog", "PogBones", "PogChamp"]);
     assert!(rank("", [vec!["a"]]).is_empty());
+  }
+
+  #[test]
+  fn only_emotes_count_as_picks() {
+    let c = |m: &str, at| Complete { start: 0, end: 0, matches: vec![m.into()], at };
+    assert_eq!(c("Kappa", 0).emote(), Some("Kappa"));
+    assert_eq!(c("@nick", 0).emote(), None);
+    assert_eq!(c("/vi", 0).emote(), None);
+    // not yet cycled to anything
+    assert_eq!(c("Kappa", usize::MAX).emote(), None);
   }
 }

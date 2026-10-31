@@ -747,8 +747,10 @@ impl App {
     if key == Key::Named(NamedKey::Tab) {
       return self.tab_complete(self.mods.shift_key());
     }
-    // any other key commits the current candidate
-    self.complete = None;
+    // any other key commits the current candidate; an emote pick joins the recents
+    if let Some(name) = self.complete.take().and_then(|c| c.emote().map(str::to_owned)) {
+      self.recents.record(&name);
+    }
     let l = &mut self.line;
     match key {
       Key::Named(NamedKey::Escape) if self.set.vi => {
