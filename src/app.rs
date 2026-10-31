@@ -29,6 +29,7 @@ mod pop;
 mod screen;
 mod stream;
 mod tabs;
+mod tip;
 mod upload;
 mod whispers;
 mod zoom;
@@ -112,6 +113,9 @@ pub struct App {
   // when the soonest timed mute ends
   mute_due: Option<Instant>,
   next_anim: Option<Instant>,
+  // the emote hover popup, and when its animated emote flips next
+  tip: Option<crate::ui::tip::Tip>,
+  tip_next: Option<Instant>,
   occluded: bool,
   // damage of recent presents, for buffers handed back with age > 1
   damage_hist: [Option<Rect>; 2],
@@ -251,6 +255,8 @@ impl App {
       mod_in: Default::default(),
       mute_due,
       next_anim: None,
+      tip: None,
+      tip_next: None,
       occluded: false,
       damage_hist: [None; 2],
       trim_at: None,
@@ -559,6 +565,7 @@ impl App {
   fn select(&mut self, i: usize) {
     if i < self.tabs.len() && i != self.active {
       self.find_clear();
+      self.hide_tip();
       self.active = i;
       // a card or menu belongs to the tab it was opened in
       self.card = None;
@@ -758,7 +765,11 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let area = self.chat_area();
-    if (self.menu.is_some() || self.tab_menu.is_some() || self.pop.is_some() || self.card.is_some())
+    if (self.menu.is_some()
+      || self.tab_menu.is_some()
+      || self.pop.is_some()
+      || self.card.is_some()
+      || self.tip.is_some())
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts
@@ -847,6 +858,12 @@ impl App {
     }
     if let Some(r) = self.draw_pop() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
+    if let Some(r) = self.draw_tip() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
+    if let Some(t) = self.tip_next {
+      self.next_anim = Some(self.next_anim.map_or(t, |n| n.min(t)));
     }
     for (id, url, h) in self.res.images.take_wanted() {
       self.net.send(Cmd::Image(id, url, h));
@@ -1145,6 +1162,7 @@ impl App {
 
   // click a line to select it; click the input to type
   fn click(&mut self) {
+    self.hide_tip();
     if self.form.is_some() {
       return self.form_click();
     }
@@ -1552,7 +1570,12 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
-      WindowEvent::Focused(f) => self.focused = f,
+      WindowEvent::Focused(f) => {
+        self.focused = f;
+        if !f {
+          self.hide_tip();
+        }
+      }
       WindowEvent::Occluded(o) => {
         self.occluded = o;
         if !o {
@@ -1570,6 +1593,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.bar_hover();
         self.picker_hover();
         self.link_hover();
+        self.tip_hover();
         let (over, up) = (self.over_button(), self.over_upload());
         if over != self.btn_hover || up != self.up_hover {
           self.btn_hover = over;
@@ -1582,7 +1606,9 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
       WindowEvent::Ime(ev) => self.on_ime(ev),
       WindowEvent::DroppedFile(p) => self.upload_file(p),
+      WindowEvent::CursorLeft { .. } => self.hide_tip(),
       WindowEvent::MouseWheel { delta, .. } => {
+        self.hide_tip();
         let px = match delta {
           MouseScrollDelta::LineDelta(_, y) => (y * self.res.text.line_px * 3.0) as i32,
           MouseScrollDelta::PixelDelta(p) => p.y as i32,
@@ -1603,6 +1629,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+        self.hide_tip();
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
         if self.zoom_key(&k) {
           return;

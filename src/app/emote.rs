@@ -38,12 +38,12 @@ fn rows(owned: bool, blocked: bool, logged_in: bool) -> Vec<(Act, &'static str)>
 
 impl App {
   // is this exact emote (same name, same image) in your own heatsync inventory?
-  fn owned(&mut self, hit: &EmoteHit) -> bool {
+  pub(super) fn owned(&mut self, hit: &EmoteHit) -> bool {
     let Some(id) = self.me.as_ref().and_then(|m| m.twitch_id) else { return false };
     self.res.senders.lookup(id, &hit.name, now_ms()).is_some_and(|x| x.url == hit.url)
   }
 
-  fn emote_under_pointer(&mut self) -> Option<EmoteHit> {
+  pub(super) fn emote_under_pointer(&mut self) -> Option<EmoteHit> {
     let (x, y) = self.pointer;
     let chat = self.chat_area();
     if !chat.contains(x, y) {

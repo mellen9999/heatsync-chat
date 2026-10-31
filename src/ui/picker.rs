@@ -58,6 +58,11 @@ pub struct View {
 }
 
 impl View {
+  // the next draw repaints everything (something drawn over the picker went away)
+  pub fn forget(&mut self) {
+    self.key = None;
+  }
+
   // when the next animated frame should be painted, if any are on screen
   pub fn next_anim(&self) -> Option<Instant> {
     self.due

@@ -34,6 +34,7 @@ impl App {
   }
 
   pub fn close_picker(&mut self) {
+    self.hide_tip();
     self.picker = None;
     self.ime.clear();
     if let Some(t) = self.tabs.get_mut(self.active) {
@@ -49,7 +50,7 @@ impl App {
     self.wake();
   }
 
-  fn picker_geo(&self) -> Geo {
+  pub(super) fn picker_geo(&self) -> Geo {
     geo_of(self.chat_area(), &self.res)
   }
 

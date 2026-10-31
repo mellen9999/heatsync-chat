@@ -14,6 +14,7 @@ pub mod sheet;
 pub mod tab_bar;
 pub mod text;
 pub mod theme;
+pub mod tip;
 
 use canvas::Rect;
 

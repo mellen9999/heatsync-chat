@@ -1,4 +1,4 @@
-// picture/video upload: ctrl-o or the ↑ button opens a file dialog (zenity/kdialog) or, with none
+// picture/video upload: ctrl-o or the + button opens a file dialog (zenity/kdialog) or, with none
 // installed, a path prompt in the input bar; a dropped file uploads at once. the link lands in the box
 use std::path::PathBuf;
 

@@ -121,6 +121,15 @@ impl Images {
     id
   }
 
+  // drop the decoded frames of one picture now (a popup that closed); it reloads from disk if asked again
+  pub fn release(&mut self, id: ImgId) {
+    if let Some(s) = self.slots.get_mut(id as usize)
+      && let State::Ready(d) = std::mem::replace(&mut s.state, State::Idle)
+    {
+      self.bytes -= d.bytes();
+    }
+  }
+
   // ask for the picture now (draw time), without drawing it
   pub fn want(&mut self, id: ImgId) {
     let Some(want) = self.slots.get(id as usize).map(|s| self.target(s)) else { return };
