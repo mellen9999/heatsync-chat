@@ -90,7 +90,7 @@ pub struct ChatView {
   pub tags: bool,
   // the line picked with `v` / a click (by seq), outlined; replies and actions act on it
   selected: Option<i64>,
-  // orange edge on a person's first line this session (setting first_glow)
+  // yellow edge (magenta = twitch first message ever) on a person's first line this session (setting first_glow)
   pub glow: bool,
   seen: Seen,
 }
@@ -635,7 +635,7 @@ impl ChatView {
         } else if r.msg.has(flag::HIGHLIGHTED) {
           Some(theme::CYAN)
         } else if r.msg.has(flag::NEW) && self.glow {
-          Some(theme::HEATSYNC)
+          Some(theme::YELLOW)
         } else {
           None
         };
