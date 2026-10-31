@@ -1,6 +1,6 @@
 pkgbase = heatsync-chat
 	pkgdesc = twitch, kick and youtube chat in one native window, with heatsync emotes
-	pkgver = 0.1.0
+	pkgver = 0.1.0.r62.g812209f
 	pkgrel = 1
 	url = https://heatsync.org
 	arch = x86_64

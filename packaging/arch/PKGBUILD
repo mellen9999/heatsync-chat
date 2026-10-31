@@ -3,7 +3,7 @@
 #   cd packaging/arch && paru -Bi .        (or: makepkg -si)
 # it lives in its own folder on purpose: makepkg's src/ and pkg/ work dirs would land on the repo's own src/
 pkgname=heatsync-chat
-pkgver=0.1.0
+pkgver=0.1.0.r62.g812209f
 pkgrel=1
 pkgdesc='twitch, kick and youtube chat in one native window, with heatsync emotes'
 arch=(x86_64 aarch64)
@@ -19,6 +19,13 @@ optdepends=(
 )
 # ring compiles C: arch's lto flags break its link
 options=(!lto !debug)
+
+# 0.1.0.r<commits>.g<hash>: every landed commit is a newer package, so paru -Bi . always upgrades
+pkgver() {
+  local top
+  top=$(git -C "$startdir" rev-parse --show-toplevel)
+  printf '0.1.0.r%s.g%s' "$(git -C "$top" rev-list --count HEAD)" "$(git -C "$top" rev-parse --short=7 HEAD)"
+}
 
 prepare() {
   rm -rf "$srcdir/$pkgname"
