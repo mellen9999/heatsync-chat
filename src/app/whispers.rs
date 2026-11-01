@@ -82,12 +82,11 @@ impl App {
     }
     if i == self.active {
       self.input_dirty = true;
-      self.wake();
-    } else if live && !self.tabs[i].unread {
-      self.tabs[i].unread = true;
-      self.bar_dirty = true;
-      self.wake();
     }
+    if live {
+      self.unseen_note(crate::model::unseen::Surface::Whispers);
+    }
+    self.wake();
   }
 
   pub(super) fn on_whisper_sent(&mut self, key: u64, res: Result<Who, whisper::Fail>) {

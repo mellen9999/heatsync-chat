@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use super::{NetEvent, ORIGIN, Out};
 use crate::model::message::Platform;
 use crate::model::post::{self, Post};
+use crate::model::unseen::{self, Surface};
 use crate::model::whisper::{self, Fail, Who};
 use crate::ui::theme;
 
@@ -35,6 +36,10 @@ pub enum Cmd {
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
   // the user card's facts: who, on which platform, and the channel it was opened from
   Card { platform: Platform, login: Box<str>, channel: Option<Box<str>> },
+  // when you last looked at the mentions, whispers and feed tabs, on any client
+  SeenGet,
+  // you looked at one just now (`at`); the server tells your other clients
+  SeenBump { surface: Surface, at: i64 },
 }
 
 pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Out) {
@@ -46,6 +51,17 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::WhisperHistory { me, epoch } => {
       if let Some(t) = token {
         history(&http, &t, me, epoch, &out).await;
+      }
+    }
+    Cmd::SeenGet => {
+      if let Some(t) = token {
+        seen_get(&http, &t, &out).await;
+      }
+    }
+    Cmd::SeenBump { surface, at } => {
+      if let Some(t) = token {
+        let body = json!({ "surface": surface.key(), "at": at }).to_string();
+        call(authed(&http, &t, "/api/user/seen-state", body)).await;
       }
     }
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
@@ -187,6 +203,18 @@ async fn thread(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: 
 
 fn authed(http: &reqwest::Client, token: &str, path: &str, body: String) -> reqwest::RequestBuilder {
   http.post(format!("{ORIGIN}{path}")).bearer_auth(token).header("content-type", "application/json").body(body)
+}
+
+async fn seen_get(http: &reqwest::Client, token: &str, out: &Out) {
+  let (status, v) = call(get(http, token, "/api/user/seen-state")).await;
+  if status != 200 {
+    return;
+  }
+  for surface in unseen::ALL {
+    if let Some(at) = unseen::at(v.get(surface.key())) {
+      void(out.send(NetEvent::Seen { surface, at }));
+    }
+  }
 }
 
 // toggles your upvote. ok = (voted now, heat if the server said)

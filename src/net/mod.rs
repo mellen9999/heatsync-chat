@@ -84,6 +84,8 @@ pub enum NetEvent {
   FeedFailed { status: u16 },
   Thread { id: Box<str>, res: Result<(crate::model::post::Post, Vec<crate::model::post::Post>), u16> },
   Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
+  // you last looked at a tab at `at` (here at login, or on another client since)
+  Seen { surface: crate::model::unseen::Surface, at: i64 },
   Posted { res: Result<crate::model::post::Post, u16> },
   FeedLive(crate::model::post::Post),
   // your mute / block lists on heatsync, read after a login

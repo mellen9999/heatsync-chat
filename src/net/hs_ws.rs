@@ -380,6 +380,11 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     "mute:added" | "mute:removed" | "mute:expired" | "mute:cleared" => {
       super::mutes::frame(v, ty).and_then(|m| send(NetEvent::MuteSync(m)))
     }
+    "seen:update" => {
+      use crate::model::unseen::{Surface, at};
+      let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?)?;
+      send(NetEvent::Seen { surface, at: at(v.get("at"))? })
+    }
     "whisper:new" => {
       let w = crate::model::whisper::parse(v, 0, None)?;
       send(NetEvent::Whispers { items: vec![w], live: true, epoch: None })

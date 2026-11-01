@@ -31,6 +31,7 @@ mod screen;
 mod stream;
 mod tabs;
 mod tip;
+mod unseen;
 mod upload;
 mod whispers;
 mod zoom;
@@ -199,6 +200,7 @@ pub struct App {
   // the whispers timeline, and whether this login's history was asked for
   whispers: Timeline,
   whispers_loaded: bool,
+  unseen: crate::model::unseen::Unseen,
   // bumped on every login change: a history read from an earlier one is dropped
   whisper_epoch: u32,
   // the feed tab's posts and open thread; the text of a post in flight (put back if it fails)
@@ -329,6 +331,7 @@ impl App {
       focused: true,
       whispers: Timeline::default(),
       whispers_loaded: false,
+      unseen: Default::default(),
       whisper_epoch: 0,
       feed: Feed::default(),
       pending_post: None,
@@ -597,6 +600,9 @@ impl App {
       self.pop = None;
       self.tabs[i].unread = false;
       self.tabs[i].event = false;
+      if let Some(s) = unseen::surface(self.tabs[i].kind) {
+        self.unseen_clear(s);
+      }
       self.tabs[i].view.invalidate();
       self.bar_dirty = true;
       self.input_dirty = true;
@@ -1640,6 +1646,7 @@ impl App {
       NetEvent::Feed(p) => self.on_feed(p),
       NetEvent::FeedFailed { status } => self.on_feed_failed(status),
       NetEvent::Thread { id, res } => self.on_thread(id, res),
+      NetEvent::Seen { surface, at } => self.on_seen(surface, at),
       NetEvent::Voted { id, res } => self.on_voted(id, res),
       NetEvent::Posted { res } => self.on_posted(res),
       NetEvent::FeedLive(p) => self.on_feed_live(p),
@@ -1695,6 +1702,8 @@ impl App {
         // a different login starts with a clean whispers tab
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
+          // the new account's own seen times arrive with SeenGet below
+          self.unseen = Default::default();
           self.filters_login_changed();
           self.feed_reset();
           self.res.blocked.clear_server();
@@ -1702,6 +1711,9 @@ impl App {
           self.relayout_where(None);
         }
         self.me = me;
+        if self.me.is_some() {
+          self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
+        }
         self.whisper_empty();
         self.set_mention_names();
         self.filter_names();
@@ -1993,6 +2005,14 @@ mod live {
     app.select(feed);
     app.say_line(flood, Platform::Twitch, "switched to chess", Tone::Switch);
     assert!(app.tabs[flood].event && app.tabs[flood].unread, "the news turns the tab yellow");
+    // a mention lights the tab; looking on another client before it changes nothing, after it puts it out
+    use crate::model::unseen::Surface;
+    app.unseen_note(Surface::Mentions);
+    assert!(app.tabs[mentions].unread);
+    app.on_net(NetEvent::Seen { surface: Surface::Mentions, at: now_ms() - 60_000 });
+    assert!(app.tabs[mentions].unread, "an older look elsewhere leaves it lit");
+    app.on_net(NetEvent::Seen { surface: Surface::Mentions, at: now_ms() + 1 });
+    assert!(!app.tabs[mentions].unread, "a look on another client puts it out");
     app.say_line(flood, Platform::Twitch, "[🔥] chat is popping", Tone::Moment);
     app.tabs[mentions].unread = true;
     app.tabs[whispers].unread = true;

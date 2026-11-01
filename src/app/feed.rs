@@ -81,15 +81,8 @@ impl App {
       return;
     }
     self.feed_show();
-    if let Some(i) = self.feed_tab()
-      && i != self.active
-      && top
-      && !mine
-      && !self.tabs[i].unread
-    {
-      self.tabs[i].unread = true;
-      self.bar_dirty = true;
-      self.wake();
+    if top && !mine {
+      self.unseen_note(crate::model::unseen::Surface::Live);
     }
   }
 

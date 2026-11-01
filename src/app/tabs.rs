@@ -402,15 +402,19 @@ impl App {
   // the call without opening it; a plain unread chat tab keeps its menu (ext tab contextmenu)
   fn acknowledge(&mut self, i: usize) -> bool {
     let t = &mut self.tabs[i];
-    let hit = match t.kind {
-      Kind::Mentions | Kind::Whispers => std::mem::take(&mut t.unread),
-      _ => std::mem::take(&mut t.event),
-    };
-    if hit {
-      self.bar_dirty = true;
-      self.wake();
+    match t.kind {
+      // red and cyan go out everywhere you are logged in
+      Kind::Mentions | Kind::Whispers if t.unread => {
+        let s = super::unseen::surface(t.kind).expect("mentions and whispers are surfaces");
+        self.unseen_clear(s);
+      }
+      Kind::Chat if std::mem::take(&mut t.event) => {
+        self.bar_dirty = true;
+        self.wake();
+      }
+      _ => return false,
     }
-    hit
+    true
   }
 
   pub(super) fn tab_menu_changed(&mut self) {

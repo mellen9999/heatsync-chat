@@ -23,5 +23,6 @@ pub mod seen;
 pub mod settings;
 pub mod stream_events;
 pub mod tabs;
+pub mod unseen;
 pub mod vi;
 pub mod whisper;

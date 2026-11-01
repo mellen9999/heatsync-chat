@@ -34,13 +34,7 @@ impl App {
     copy.flags &= !(flag::NEW | flag::FIRST);
     if let Some(i) = self.tab_of(Kind::Mentions) {
       self.tabs[i].view.push(copy);
-      if i == self.active {
-        self.wake();
-      } else if !self.tabs[i].unread {
-        self.tabs[i].unread = true;
-        self.bar_dirty = true;
-        self.wake();
-      }
+      self.unseen_note(crate::model::unseen::Surface::Mentions);
     }
     if self.set.notify && !self.focused {
       notify(&m.nick, room, &m.body);
