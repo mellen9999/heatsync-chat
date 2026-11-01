@@ -1268,7 +1268,7 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
-    if self.vote_press() || self.link_press() || self.emote_press(false) || self.name_press() {
+    if self.vote_press() || self.thread_press() || self.link_press() || self.emote_press(false) || self.name_press() {
       return;
     }
     let res = &mut self.res;
@@ -1970,6 +1970,63 @@ mod live {
       c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
       let _ = std::fs::write(path, out);
     }
+  }
+
+  // a click on a reply's >>id opens its parent's thread with the reply picked out, and a click on
+  // the open thread's own >>id goes back to the list, offline (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_feed_thread -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_feed_thread_click() {
+    use crate::model::post::parse;
+    use crate::net::social;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let post = |id: &str, reply_to: Option<&str>| {
+      let mut v = serde_json::json!({"base36_id": id, "username": "alice", "content": "hi"});
+      if let Some(r) = reply_to {
+        v["reply_to"] = r.into();
+      }
+      parse(&v).unwrap()
+    };
+    let (op, re) = (post("00004c", None), post("00004d", Some("00004c")));
+    app.feed.posts = vec![re.clone(), op.clone()];
+    app.feed.loaded = true;
+    let feed = app.tabs.iter().position(|t| t.kind == Kind::Feed).expect("a feed tab");
+    app.select(feed);
+    app.feed_show();
+    app.redraw();
+    while asked.try_recv().is_ok() {}
+    // the >>id of the line holding `id`
+    let id_spot = |app: &mut App, id: &str| {
+      let area = app.chat_area();
+      (area.x..area.right()).find_map(|x| {
+        (area.y..area.bottom()).find_map(|y| {
+          let res = &mut app.res;
+          (app.tabs[feed].view.thread_at(area, x, y, res)?.as_ref() == id).then_some((x, y))
+        })
+      })
+    };
+    app.pointer = id_spot(&mut app, "00004d").expect("the reply's >>4d is on screen");
+    app.click();
+    let t = app.feed.thread.as_ref().expect("the click opens a thread");
+    assert_eq!(&*t.id, "00004c", "a reply opens its parent's thread");
+    let fetched = std::iter::from_fn(|| asked.try_recv().ok())
+      .any(|c| matches!(c, Cmd::Social(social::Cmd::Thread { ref id }) if &**id == "00004c"));
+    assert!(fetched, "the thread is fetched");
+    app.on_net(NetEvent::Thread { id: "00004c".into(), res: Ok((op, vec![re])) });
+    app.redraw();
+    let picked = app.tabs[feed].view.selected().map(|m| m.id.clone());
+    assert_eq!(picked.as_deref(), Some("00004d"), "the clicked reply is picked out");
+    app.pointer = id_spot(&mut app, "00004c").expect("the op's >>4c heads the thread");
+    app.click();
+    assert!(app.feed.thread.is_none(), "the open thread's own >>id goes back");
   }
 
   // the hover popup and colored mentions, offline: needs a scratch HOME (App::new reads settings):

@@ -83,8 +83,9 @@ struct Laid {
   layout: TextLayout,
   // where the name sits in the laid-out text (empty for notices)
   nick: std::ops::Range<usize>,
-  // the feed's ▲ (empty on every other line)
+  // the feed's ▲ and the post's own >>id (empty on every other line)
   vote: std::ops::Range<usize>,
+  thread: std::ops::Range<usize>,
   boxes: Vec<EmoteBox>,
   // names wearing a paint: the sender's and any mentioned in the words
   names: Vec<PaintedName>,
@@ -318,6 +319,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut embed = None;
   let mut nick = 0..0;
   let mut vote = 0..0;
+  let mut thread = 0..0;
   // where the words sit in the text, for search hits
   let mut words = 0..0;
   if m.kind == Kind::System {
@@ -331,7 +333,11 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     }
   } else {
     for g in x.map_or(&[][..], |x| &x.head) {
+      let a = s.len();
       seg(&mut s, &mut spans, g);
+      if g.text.starts_with(">>") {
+        thread = a..a + g.text.trim_end().len();
+      }
     }
     badges(res, chan, m, &s, &mut ib, &mut boxes);
     let n0 = s.len();
@@ -415,7 +421,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       names.push(PaintedName { uid: uid.clone(), nick: text, color: n.color, paint: paint.clone(), x, w, baseline });
     }
   }
-  Laid { layout, nick, vote, boxes, names, mentions, embed, links, link_runs }
+  Laid { layout, nick, vote, thread, boxes, names, mentions, embed, links, link_runs }
 }
 
 // (x, width, baseline) of the painted name at `range`: its glyph runs, which share a line
@@ -1177,6 +1183,22 @@ impl ChatView {
 
   // the id of the line whose ▲ is under (x, y), as drawn last
   pub fn vote_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
+    self.spot_at(area, (x, y), res, |l| &l.vote)
+  }
+
+  // the feed post whose own >>id is under (x, y)
+  pub fn thread_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
+    self.spot_at(area, (x, y), res, |l| &l.thread)
+  }
+
+  // the line whose `spot` (a range of its laid-out text) is under (x, y)
+  fn spot_at(
+    &mut self,
+    area: Rect,
+    (x, y): (i32, i32),
+    res: &mut Res,
+    spot: fn(&Laid) -> &std::ops::Range<usize>,
+  ) -> Option<Box<str>> {
     let mut bottom = self.edge(area, res);
     for i in (0..self.rows.len()).rev() {
       if bottom <= area.y {
@@ -1186,12 +1208,13 @@ impl ChatView {
       if y >= top && y < bottom {
         let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
         let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
-        if laid.vote.is_empty() {
+        let r = spot(&laid);
+        if r.is_empty() {
           return None;
         }
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let at = Cluster::from_point(&laid.layout, lx, ly)?.0.text_range();
-        return (at.start >= laid.vote.start && at.start < laid.vote.end).then(|| m.id.clone());
+        return r.contains(&at.start).then(|| m.id.clone());
       }
       bottom = top;
     }
@@ -1745,6 +1768,11 @@ mod tests {
     assert!(hits.windows(2).all(|w| w[1] == w[0] + 1) && hits.len() < 30, "only the arrow: {hits:?}");
     assert_eq!(v.vote_at(area, hits[0], 8, &mut res).as_deref(), Some("00abc1"));
     assert!(v.vote_at(area, 2, 8, &mut res).is_none());
+    // the >>id alone opens the thread: a short run at the line's start, not the name or the arrow
+    let ids: Vec<i32> = (0..500).filter(|&x| v.thread_at(area, x, 8, &mut res).is_some()).collect();
+    assert!(!ids.is_empty() && ids.windows(2).all(|w| w[1] == w[0] + 1) && ids.len() < 60, "only >>abc1: {ids:?}");
+    assert_eq!(v.thread_at(area, ids[0], 8, &mut res).as_deref(), Some("00abc1"));
+    assert!(!ids.contains(&hits[0]));
     // logged out: no arrow, nothing to hit
     let mut v = ChatView::new(10, "feed".into());
     v.top = true;

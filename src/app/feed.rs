@@ -1,5 +1,5 @@
 // the feed tab (ext social.js + feed-engage.js): heatsync posts newest first, read from the top.
-// enter opens a thread, u upvotes, r replies, typing posts (a reply while a thread is open), esc or h goes back.
+// enter (or a click on its >>id) opens a thread, u upvotes, r replies, typing posts (a reply while a thread is open), esc or h goes back.
 // logged out it still reads: the hot posts, with the nudge to log in
 use super::App;
 use crate::model::feed::{Feed, MORE_ID};
@@ -94,9 +94,15 @@ impl App {
   }
 
   pub(super) fn on_thread(&mut self, id: Box<str>, res: Result<(Post, Vec<Post>), u16>) {
-    if self.feed.thread_loaded(&id, res) {
-      self.feed_show();
+    if !self.feed.thread_loaded(&id, res) {
+      return;
     }
+    self.feed_show();
+    let Some(focus) = self.feed.thread.as_mut().and_then(|t| t.focus.take()) else { return };
+    let (Some(i), h) = (self.feed_tab(), self.chat_area().h) else { return };
+    let res = &mut self.res;
+    self.tabs[i].view.select_id(&focus, res, h);
+    self.wake();
   }
 
   pub(super) fn on_voted(&mut self, id: Box<str>, res: Result<(bool, Option<u32>), u16>) {
@@ -146,9 +152,10 @@ impl App {
     (!id.is_empty()).then_some(id)
   }
 
+  // a reply opens its parent's thread, picked out once it lands (ext openThread's highlightId)
   fn feed_open(&mut self, id: &str) {
     let root = self.feed_root(id);
-    self.feed.open(&root);
+    self.feed.open(&root, (*root != *id).then_some(id));
     self.net.send(Cmd::Social(social::Cmd::Thread { id: root }));
     self.feed_show();
     let res = &mut self.res;
@@ -178,6 +185,27 @@ impl App {
     }
     self.enter_insert();
     self.wake();
+  }
+
+  // a click on a post's own >>id opens its thread; on the open thread's own, back to the list
+  // (ext toggleThread). true = the click was spent
+  pub(super) fn thread_press(&mut self) -> bool {
+    if self.kind() != Kind::Feed {
+      return false;
+    }
+    let (x, y) = self.pointer;
+    let chat = self.chat_area();
+    let res = &mut self.res;
+    let Some(id) = self.tabs.get_mut(self.active).and_then(|t| t.view.thread_at(chat, x, y, res)) else {
+      return false;
+    };
+    if self.feed.thread.as_ref().is_some_and(|t| t.id == id) {
+      self.feed_back();
+    } else {
+      self.feed_open(&id);
+    }
+    self.wake();
+    true
   }
 
   // a click on a row's ▲ votes on that row. true = the click was a vote press (spent either way)

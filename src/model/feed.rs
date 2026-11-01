@@ -19,6 +19,8 @@ pub struct Thread {
   pub replies: Vec<Post>,
   pub loading: bool,
   pub error: bool,
+  // the reply it was opened for, picked out once the thread lands
+  pub focus: Option<Box<str>>,
 }
 
 #[derive(Default)]
@@ -122,9 +124,10 @@ impl Feed {
     self.voting.remove(id);
   }
 
-  pub fn open(&mut self, id: &str) {
+  pub fn open(&mut self, id: &str, focus: Option<&str>) {
     let op = self.posts.iter().find(|p| &*p.id == id).cloned();
-    self.thread = Some(Thread { id: id.into(), op, replies: Vec::new(), loading: true, error: false });
+    let focus = focus.map(Into::into);
+    self.thread = Some(Thread { id: id.into(), op, replies: Vec::new(), loading: true, error: false, focus });
   }
 
   // the thread's fetch landed (ignored when another thread is open by now)
@@ -251,7 +254,7 @@ mod tests {
   fn replies_bump_the_parent_and_the_open_thread() {
     let mut f = Feed::default();
     f.apply(page(1, vec![post("a", 100, None)], false), 1);
-    f.open("a");
+    f.open("a", None);
     f.thread_loaded("a", Ok((post("a", 100, None), vec![])));
     assert!(f.live(post("r1", 300, Some("a"))));
     assert_eq!(f.posts[0].replies, 1);
@@ -264,7 +267,7 @@ mod tests {
   fn votes_reach_every_copy_and_dont_stack() {
     let mut f = Feed::default();
     f.apply(page(1, vec![post("a", 100, None)], false), 1);
-    f.open("a");
+    f.open("a", None);
     assert!(f.begin_vote("a"));
     assert!(!f.begin_vote("a"));
     f.voted("a", true, Some(40));
@@ -277,8 +280,8 @@ mod tests {
   #[test]
   fn a_stale_thread_answer_is_ignored() {
     let mut f = Feed::default();
-    f.open("a");
-    f.open("b");
+    f.open("a", None);
+    f.open("b", None);
     assert!(!f.thread_loaded("a", Ok((post("a", 1, None), vec![]))));
     assert!(f.thread_loaded("b", Err(404)));
     assert!(f.thread.as_ref().unwrap().error);
