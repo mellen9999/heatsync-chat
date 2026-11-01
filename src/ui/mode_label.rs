@@ -18,7 +18,8 @@ pub fn segs(vi: bool, mode: Mode, selecting: bool, short: bool) -> Vec<Seg> {
   }
   match mode {
     Mode::Insert => vec![("-- insert --", false)],
-    Mode::Normal => vec![(WIDEST, false)],
+    // vi normal inside the input box: "normal" is the chat mode the user lives in
+    Mode::Normal => vec![("-- edit --", false)],
     Mode::Chat if selecting && short => vec![("-- select --", false)],
     Mode::Chat if selecting => vec![
       ("-- select: ", false),
@@ -31,7 +32,7 @@ pub fn segs(vi: bool, mode: Mode, selecting: bool, short: bool) -> Vec<Seg> {
       ("esc", true),
       (" --", false),
     ],
-    Mode::Chat => vec![("-- chat --", false)],
+    Mode::Chat => vec![(WIDEST, false)],
   }
 }
 
@@ -82,8 +83,8 @@ mod tests {
   #[test]
   fn per_mode() {
     assert_eq!(text(&segs(true, Mode::Insert, false, false)), "-- insert --");
-    assert_eq!(text(&segs(true, Mode::Normal, false, false)), "-- normal --");
-    assert_eq!(text(&segs(true, Mode::Chat, false, false)), "-- chat --");
+    assert_eq!(text(&segs(true, Mode::Normal, false, false)), "-- edit --");
+    assert_eq!(text(&segs(true, Mode::Chat, false, false)), "-- normal --");
     assert_eq!(text(&segs(true, Mode::Chat, true, false)), "-- select: r reply · m menu · c card · esc --");
     assert_eq!(text(&segs(true, Mode::Chat, true, true)), "-- select --");
   }
