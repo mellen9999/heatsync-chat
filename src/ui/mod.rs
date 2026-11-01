@@ -8,6 +8,7 @@ pub mod logo;
 pub mod menu;
 pub mod mode_label;
 pub mod name_art;
+pub mod peek;
 pub mod picker;
 pub mod pin_bar;
 pub mod res;

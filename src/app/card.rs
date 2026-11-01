@@ -16,10 +16,20 @@ use crate::util::time::hhmm;
 
 const RECENT: usize = 6;
 
-enum Load {
+pub(super) enum Load {
   Loading,
   Done(Info),
   Failed(&'static str),
+}
+
+// what a card says in place of rows while there are none to show
+pub(super) fn note_of(l: &Load) -> Option<&'static str> {
+  match l {
+    Load::Loading => Some("looking them up…"),
+    Load::Failed(why) => Some(why),
+    Load::Done(i) if !i.registered => Some("not on heatsync"),
+    Load::Done(_) => None,
+  }
 }
 
 pub struct Card {
@@ -31,7 +41,7 @@ pub struct Card {
   rect: Rect,
 }
 
-fn tag(p: Platform) -> (&'static str, u32) {
+pub(super) fn tag(p: Platform) -> (&'static str, u32) {
   match p {
     Platform::Twitch => ("[T] ", crate::ui::theme::TWITCH),
     Platform::Kick => ("[K] ", crate::ui::theme::GREEN),
@@ -43,23 +53,34 @@ impl App {
   pub(super) fn open_card(&mut self, who: Subject) {
     let Some(t) = self.tabs.get(self.active) else { return };
     let recent = t.view.recent_by(&who.login, RECENT);
-    // the room it was opened from: followage is "since when do they follow this channel"
+    // the room it was opened from: followage is "since when do they follow this channel". a fresh
+    // answer from a hover is reused (ext _cardCache), else ask
     let channel = (who.platform == Platform::Twitch).then(|| who.chan.clone());
-    self.net.send(Cmd::Social(social::Cmd::Card { platform: who.platform, login: who.login.clone(), channel }));
+    let info = match self.cards.get(who.platform, &who.login) {
+      Some(Load::Done(i)) => Load::Done(i.clone()),
+      Some(Load::Loading) => Load::Loading,
+      _ => {
+        if self.cards.want(who.platform, &who.login) {
+          self.net.send(Cmd::Social(social::Cmd::Card { platform: who.platform, login: who.login.clone(), channel }));
+        }
+        Load::Loading
+      }
+    };
     let rows = self.person_rows(&who);
     let menu = Menu::new(rows, (0, 0));
-    self.card = Some(Card { who, info: Load::Loading, recent, menu, rect: Rect::new(0, 0, 0, 0) });
+    self.hide_peek();
+    self.card = Some(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) });
     self.pop = None;
     self.card_changed();
   }
 
   pub(super) fn on_card(&mut self, platform: Platform, login: &str, res: Result<Info, u16>) {
+    self.learn_card(platform, login, res);
     let Some(c) = self.card.as_mut().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
-    c.info = match res {
-      Ok(i) => Load::Done(i),
-      Err(429) => Load::Failed("slow down, try again in a moment"),
-      Err(0) => Load::Failed("heatsync didn't answer"),
-      Err(_) => Load::Failed("couldn't look them up"),
+    c.info = match self.cards.get(platform, login) {
+      Some(Load::Done(i)) => Load::Done(i.clone()),
+      Some(Load::Failed(why)) => Load::Failed(why),
+      _ => Load::Loading,
     };
     self.card_changed();
   }
@@ -83,9 +104,14 @@ impl App {
     }
     let res = &mut self.res;
     let Some(t) = self.tabs.get_mut(self.active) else { return false };
-    let Some(m) = t.view.name_at(chat, x, y, res) else { return false };
+    let Some(hit) = t.view.who_at(chat, x, y, res) else { return false };
     t.view.select_at(chat, y, res);
-    match self.subject_of(&m) {
+    let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.message(hit.seq)) else { return false };
+    let who = match &hit.mention {
+      None => self.subject_of(m),
+      Some(n) => self.subject_for(m, &n.login, &n.login, "", n.color, ""),
+    };
+    match who {
       Some(who) => {
         self.open_card(who);
         true
@@ -152,18 +178,21 @@ impl App {
   pub(super) fn draw_card(&mut self) -> Option<Rect> {
     let area = self.chat_area();
     let c = self.card.as_mut()?;
-    let note = match &c.info {
-      Load::Loading => Some("looking them up…"),
-      Load::Failed(why) => Some(*why),
-      Load::Done(i) if !i.registered => Some("not on heatsync"),
-      Load::Done(_) => None,
-    };
+    let note = note_of(&c.info);
     let rows: &[(&'static str, String)] = match &c.info {
       Load::Done(i) => &i.rows,
       _ => &[],
     };
     let recent: Vec<(String, &str)> = c.recent.iter().map(|(ts, body)| (hhmm(*ts), &**body)).collect();
-    let v = view::View { nick: &c.who.nick, color: c.who.color, tag: tag(c.who.platform), rows, note, recent: &recent };
+    let v = view::View {
+      hint: "esc closes",
+      nick: &c.who.nick,
+      color: c.who.color,
+      tag: tag(c.who.platform),
+      rows,
+      note,
+      recent: &recent,
+    };
     let r = view::draw(&mut self.canvas, &mut self.res.text, area, &v, &mut c.menu);
     c.rect = r;
     Some(r)

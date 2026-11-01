@@ -31,7 +31,20 @@ impl App {
 
   // the person behind a line, in the tab it was shown in
   pub(super) fn subject_of(&self, m: &Message) -> Option<Subject> {
-    if m.kind == crate::model::message::Kind::System || m.login.is_empty() {
+    self.subject_for(m, &m.login, &m.nick, &m.user_id, m.color, &m.id)
+  }
+
+  // a person on a line: its sender, or (no line id, so no message actions) someone named in its words
+  pub(super) fn subject_for(
+    &self,
+    m: &Message,
+    login: &str,
+    nick: &str,
+    user_id: &str,
+    color: u32,
+    msg_id: &str,
+  ) -> Option<Subject> {
+    if m.kind == crate::model::message::Kind::System || login.is_empty() {
       return None;
     }
     let t = self.tabs.get(self.active)?;
@@ -40,15 +53,15 @@ impl App {
       None => t.sources.iter().find(|s| s.0 == m.platform).map(|s| s.1.clone())?,
     };
     let own = m.has(crate::model::message::flag::OWN)
-      || self.me.as_ref().is_some_and(|me| me.names.iter().any(|n| n.eq_ignore_ascii_case(&m.login)));
+      || self.me.as_ref().is_some_and(|me| me.names.iter().any(|n| n.eq_ignore_ascii_case(login)));
     Some(Subject {
       platform: m.platform,
       chan,
-      login: m.login.clone(),
-      nick: m.nick.clone(),
-      user_id: m.user_id.clone(),
-      msg_id: m.id.clone(),
-      color: m.color,
+      login: login.into(),
+      nick: nick.into(),
+      user_id: user_id.into(),
+      msg_id: msg_id.into(),
+      color,
       own,
     })
   }

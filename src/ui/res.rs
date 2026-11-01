@@ -5,6 +5,7 @@ use crate::emotes::Emotes;
 use crate::emotes::block::Blocked;
 use crate::heatsync::senders::Senders;
 use crate::images::Images;
+use crate::model::chatters::Chatters;
 
 use super::logo::Logo;
 use super::name_art::NameArts;
@@ -24,6 +25,8 @@ pub struct Res {
   pub cosmetics: Cosmetics,
   pub arts: NameArts,
   pub blocked: Blocked,
+  // who the names in message text mean (their color, paint)
+  pub chatters: Chatters,
   pub logo: Logo,
   // inline pictures under chat lines (ext mediaEmbedsEnabled)
   pub media: bool,
@@ -44,6 +47,7 @@ impl Res {
       cosmetics: Cosmetics::default(),
       arts: NameArts::default(),
       blocked: Blocked::load(),
+      chatters: Chatters::default(),
       media: true,
       partial_links: true,
     }

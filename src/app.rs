@@ -23,6 +23,7 @@ mod find;
 mod link;
 mod mentions;
 mod mods;
+mod peek;
 mod picker;
 mod pin;
 mod pop;
@@ -118,6 +119,10 @@ pub struct App {
   // the emote hover popup, and when its animated emote flips next
   tip: Option<crate::ui::tip::Tip>,
   tip_next: Option<Instant>,
+  // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
+  peek: Option<peek::Peek>,
+  peek_due: Option<Instant>,
+  cards: peek::Cards,
   occluded: bool,
   // damage of recent presents, for buffers handed back with age > 1
   damage_hist: [Option<Rect>; 2],
@@ -265,6 +270,9 @@ impl App {
       next_anim: None,
       tip: None,
       tip_next: None,
+      peek: None,
+      peek_due: None,
+      cards: peek::Cards::default(),
       occluded: false,
       damage_hist: [None; 2],
       trim_at: None,
@@ -646,6 +654,7 @@ impl App {
       if history {
         m.flags |= flag::HISTORY;
       }
+      self.res.chatters.heard(m);
       self.scan_mention(p, key, m);
     }
     for i in self.tabs_with(p, key) {
@@ -696,6 +705,7 @@ impl App {
   fn on_chat(&mut self, ch: &str, ev: Chat) {
     let ev = match ev {
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
+        self.res.chatters.heard(&m);
         self.scan_mention(Platform::Twitch, ch, &mut m);
         Chat::Msg(m)
       }
@@ -897,6 +907,9 @@ impl App {
     if let Some(r) = self.draw_pop() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
+    if let Some(r) = self.draw_peek() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
     if let Some(r) = self.draw_tip() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
@@ -909,6 +922,7 @@ impl App {
     for id in self.res.senders.take_wanted() {
       self.net.send(Cmd::Sender(id, None));
     }
+    self.ask_people();
     for id in self.res.cosmetics.take_wanted() {
       self.net.send(Cmd::Cosmetics(id));
     }
@@ -1566,7 +1580,10 @@ impl ApplicationHandler<NetEvent> for App {
     if self.mute_due.is_some_and(|t| t <= now) {
       self.mute_tick();
     }
-    let wake = [self.flood, anim, self.trim_at, self.mute_due].into_iter().flatten().min();
+    if self.peek_due.is_some_and(|t| t <= now) {
+      self.peek_fire();
+    }
+    let wake = [self.flood, anim, self.trim_at, self.mute_due, self.peek_due].into_iter().flatten().min();
     el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
   }
 }
@@ -1585,6 +1602,7 @@ impl App {
           .filter_map(|e| match e {
             Chat::Msg(mut m) => {
               m.flags |= flag::HISTORY;
+              self.res.chatters.heard(&m);
               self.scan_mention(Platform::Twitch, &ch, &mut m);
               Some(m)
             }
@@ -1859,5 +1877,104 @@ mod live {
       painted > 0 && px > 30,
       "paint stored but the renderer shows none (painted names {painted}, amber px {px})"
     );
+  }
+
+  // the hover popup and colored mentions, offline: needs a scratch HOME (App::new reads settings):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_hover -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_hover_and_mentions() {
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let line = |login: &str, color: u32, body: &str, id: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+      m.kind = crate::model::message::Kind::Chat;
+      m.id = id.into();
+      m.login = login.into();
+      m.nick = login.into();
+      m.color = color;
+      m.body = body.into();
+      Chat::Msg(m)
+    };
+    let tab: &str = FLOOD_TAB;
+    // the flood tab is synthetic: nobody in it counts as heard unless the probe says so
+    for (who, color) in [("alice", 0x00ff00), ("carol", 0xff00ff), ("bob", 0xffff00)] {
+      if let Chat::Msg(m) = line(who, color, "", "") {
+        app.res.chatters.heard(&m);
+      }
+    }
+    app.on_net(NetEvent::Chat(tab.into(), line("alice", 0x00ff00, "morning chat", "1")));
+    app.on_net(NetEvent::Chat(tab.into(), line("carol", 0xff00ff, "hey", "2")));
+    app.on_net(NetEvent::Chat(
+      tab.into(),
+      line("bob", 0xffff00, "alice you are late, ask @carol or @dave what what", "3"),
+    ));
+    app.redraw();
+    // an unknown @dave is looked up once, in the frame after the line landed
+    let mut cards = Vec::new();
+    while let Ok(c) = asked.try_recv() {
+      if let Cmd::Social(crate::net::social::Cmd::Card { login, .. }) = c {
+        cards.push(login);
+      }
+    }
+    assert_eq!(cards, vec!["dave".into()], "only the stranger is asked, once");
+    let ink = |c: &Canvas, rgb: u32| c.px.iter().filter(|&&p| p == rgb).count();
+    assert!(
+      ink(&app.canvas, 0x00ff00) > 30 && ink(&app.canvas, 0xff00ff) > 30,
+      "alice and carol are drawn in their colors"
+    );
+    // find alice inside bob's line and rest the pointer on her
+    // a real room, so a card can say where it was opened from
+    let active = app.active;
+    app.tabs[active].sources.push((Platform::Twitch, "lobby".into()));
+    let area = app.chat_area();
+    let spot = (area.x..area.right()).step_by(2).find_map(|x| {
+      (area.y..area.bottom()).find_map(|y| {
+        let res = &mut app.res;
+        let h = app.tabs[app.active].view.who_at(area, x, y, res)?;
+        (h.mention.as_ref().is_some_and(|n| &*n.login == "alice")).then_some((x, y))
+      })
+    });
+    app.pointer = spot.expect("alice's name in bob's line answers the pointer");
+    app.tip_hover();
+    assert!(app.peek.is_some() && app.peek_due.is_some(), "a cold name shows at once and asks after resting");
+    app.peek_fire();
+    assert!(matches!(asked.try_recv(), Ok(Cmd::Social(crate::net::social::Cmd::Card { .. }))));
+    // heatsync answers
+    let info = crate::model::card::Info {
+      registered: true,
+      rows: vec![
+        ("age", "9y 2mo".into()),
+        ("heat", "1.2k".into()),
+        ("followers", "15k".into()),
+        ("ch follow", "2y".into()),
+      ],
+      color: None,
+      twitch_id: None,
+    };
+    app.on_net(NetEvent::Card { platform: Platform::Twitch, login: "alice".into(), res: Ok(info) });
+    app.redraw();
+    assert!(app.peek.is_some());
+    // the popup is up: more than the bare line shows, a warm name needs no second ask
+    app.hide_tip();
+    app.tip_hover();
+    assert!(app.peek.is_some() && app.peek_due.is_none(), "an answered name opens at once");
+    app.redraw();
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+    // a click on her name in bob's line opens her card from the cached answer: nothing more is asked
+    app.hide_tip();
+    assert!(app.name_press(), "the mention answers a click");
+    assert!(app.card.is_some() && asked.try_recv().is_err());
   }
 }

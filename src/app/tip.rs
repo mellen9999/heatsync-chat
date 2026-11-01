@@ -16,7 +16,7 @@ const ANIM_MIN_MS: u32 = 33;
 type Cand = (Box<str>, Box<str>, bool, bool);
 
 impl App {
-  fn tip_free(&self) -> bool {
+  pub(super) fn tip_free(&self) -> bool {
     self.form.is_none()
       && self.screen.is_none()
       && self.pop.is_none()
@@ -45,6 +45,10 @@ impl App {
 
   // the pointer moved: open, keep or close the popup
   pub(super) fn tip_hover(&mut self) {
+    // a name outranks an emote beside it
+    if self.peek_hover() {
+      return;
+    }
     let want = self.tip_target();
     match (want, &self.tip) {
       (None, None) => {}
@@ -60,7 +64,7 @@ impl App {
   }
 
   // whatever sat under the popup repaints (the chat redraws whole while it is up; the picker once)
-  fn tip_repaint(&mut self) {
+  pub(super) fn tip_repaint(&mut self) {
     if let Some(t) = self.tabs.get_mut(self.active) {
       t.view.invalidate();
     }
@@ -71,6 +75,7 @@ impl App {
   }
 
   pub(super) fn hide_tip(&mut self) {
+    self.hide_peek();
     if let Some(mut t) = self.tip.take() {
       t.release(&mut self.res);
       self.tip_next = None;

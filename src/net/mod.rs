@@ -368,6 +368,13 @@ impl Net {
   pub fn send(&self, c: Cmd) {
     let _ = self.tx.send(c);
   }
+
+  // a net that goes nowhere: what the app asks for lands in the returned receiver (offline probes)
+  #[cfg(test)]
+  pub(crate) fn tap() -> (Net, mpsc::UnboundedReceiver<Cmd>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    (Net { tx }, rx)
+  }
 }
 
 async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {

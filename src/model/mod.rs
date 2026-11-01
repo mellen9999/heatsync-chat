@@ -1,5 +1,6 @@
 pub mod card;
 pub mod chan;
+pub mod chatters;
 pub mod color;
 pub mod complete;
 pub mod feed;

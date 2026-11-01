@@ -12,6 +12,11 @@ pub struct Info {
   pub registered: bool,
   // (label, value), in the ext's order
   pub rows: Vec<(&'static str, String)>,
+  // the name color they picked on heatsync (ext hsResolveUserColor step 2; the twitch lookup it tries
+  // first goes to a third party, so it is not used here)
+  pub color: Option<u32>,
+  // their twitch user id: what their paints hang off
+  pub twitch_id: Option<u64>,
 }
 
 // "4y 3mo", "2mo 5d", "3d", "5h", "just now"
@@ -135,7 +140,15 @@ pub fn parse(v: &Value, now: i64) -> Info {
       format!("{} msgs{}", count(seen), since.map(|t| format!(" over {}", ago(now, t))).unwrap_or_default()),
     ));
   }
-  Info { registered: profile.is_some() && !anonymous, rows }
+  let real = profile.filter(|_| !anonymous);
+  let color = real
+    .and_then(|p| ["/color", "/user_color", "/userColor"].iter().find_map(|k| text(p, k)))
+    .and_then(crate::model::color::parse_hex);
+  let twitch_id = real
+    .and_then(|p| ["/twitch_user_id", "/twitch_id"].iter().find_map(|k| p.pointer(k)))
+    .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+    .filter(|n| *n > 0);
+  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_id }
 }
 
 #[cfg(test)]
@@ -180,6 +193,18 @@ mod tests {
     assert_eq!(get("rel").as_deref(), Some("mutual 1y"));
     assert_eq!(get("ch follow").as_deref(), Some("2y"));
     assert_eq!(get("seen").as_deref(), Some("420 msgs over 1y 10mo"));
+    assert_eq!((i.color, i.twitch_id), (None, None));
+  }
+
+  #[test]
+  fn the_picked_color_and_twitch_id_are_read_when_valid() {
+    let i = parse(&json!({ "profile": { "color": "#ff8800", "twitch_user_id": "1234" } }), NOW);
+    assert_eq!((i.color, i.twitch_id), (Some(0xff8800), Some(1234)));
+    let i = parse(&json!({ "profile": { "user_color": "red", "twitch_id": 0 } }), NOW);
+    assert_eq!((i.color, i.twitch_id), (None, None));
+    // an anonymous profile is nobody
+    let i = parse(&json!({ "profile": { "is_anonymous": true, "color": "#ff8800" } }), NOW);
+    assert_eq!(i.color, None);
   }
 
   #[test]

@@ -53,6 +53,20 @@ struct PaintedName {
   baseline: f32,
 }
 
+// a person named in a line's words: where the name sits in the laid-out text, who, and their paint
+struct Mention {
+  range: std::ops::Range<usize>,
+  // lowercase, without the `@`
+  login: Box<str>,
+  color: u32,
+  paint: Option<PaintId>,
+  // the paint it wears, once their cosmetics are here
+  art: Option<Arc<NamePaint>>,
+}
+
+// what a line's words gave: its links, where their text sits, and the people named
+type Words = (Vec<Link>, Vec<(std::ops::Range<usize>, usize)>, Vec<Mention>);
+
 struct Laid {
   layout: TextLayout,
   // where the name sits in the laid-out text (empty for notices)
@@ -60,7 +74,10 @@ struct Laid {
   // the feed's ▲ (empty on every other line)
   vote: std::ops::Range<usize>,
   boxes: Vec<EmoteBox>,
-  name: Option<PaintedName>,
+  // names wearing a paint: the sender's and any mentioned in the words
+  names: Vec<PaintedName>,
+  // people named in the words (`@bob`, or `bob` once bob has spoken), in text order
+  mentions: Vec<Mention>,
   // the line's inline picture, asked for at draw time (never for rows only measured)
   embed: Option<ImgId>,
   // links in the words, and where each one's text sits in the laid-out text
@@ -108,6 +125,44 @@ struct NameAnim {
 
 const TICK_SMOOTH_MS: u32 = 33;
 const TICK_SCENE_MS: u32 = 42;
+
+// someone under the pointer: where (line, text offset: tells two spots on a line apart) and who
+#[derive(Debug, PartialEq, Eq)]
+pub struct WhoHit {
+  pub seq: i64,
+  pub start: usize,
+  // None = the line's sender
+  pub mention: Option<Mentioned>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Mentioned {
+  pub login: Box<str>,
+  pub color: u32,
+  pub paint: Option<PaintId>,
+}
+
+// which of `ranges` (text offsets) the point (lx, ly) in layout coords is over: on a line, inside a
+// glyph run that overlaps one, and the character there is inside it
+fn over(layout: &TextLayout, lx: f32, ly: f32, ranges: &[std::ops::Range<usize>]) -> Option<usize> {
+  let hit = layout.lines().any(|line| {
+    let lm = line.metrics();
+    (lm.block_min_coord..lm.block_max_coord).contains(&ly)
+      && line.items().any(|it| match it {
+        PositionedLayoutItem::GlyphRun(gr) => {
+          let at = gr.run().text_range();
+          ranges.iter().any(|r| !r.is_empty() && r.start < at.end && at.start < r.end)
+            && (gr.offset()..gr.offset() + gr.advance()).contains(&lx)
+        }
+        _ => false,
+      })
+  });
+  if !hit {
+    return None;
+  }
+  let at = Cluster::from_point(layout, lx, ly)?.0.text_range().start;
+  ranges.iter().position(|r| r.contains(&at))
+}
 
 pub struct ChatView {
   pub channel: Box<str>,
@@ -229,6 +284,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut links = Vec::new();
   let mut link_runs = Vec::new();
   let mut painted = None;
+  let mut mentions = Vec::new();
   let mut embed = None;
   let mut nick = 0..0;
   let mut vote = 0..0;
@@ -272,7 +328,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     let (pic, fold) = if muted { (None, None) } else { picture(res, m, width) };
     let b0 = s.len();
     if !muted {
-      (links, link_runs) = body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
+      (links, link_runs, mentions) = body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
       // a link's words are drawn in link blue
       for (r, _) in &link_runs {
         spans.push(Span { range: r.clone(), ink: Ink(theme::BLUE), bold: false });
@@ -287,6 +343,16 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
     words = b0..s.len();
+    // people named in the words wear their color, bold, over the line's ink; a painted one is drawn
+    // from its own bitmap. a deleted line stays dim
+    if m.has(flag::CLEARED) {
+      mentions.clear();
+    }
+    for n in &mut mentions {
+      n.art = n.paint.as_ref().and_then(|id| res.cosmetics.get(id)?.paint.clone());
+      let tag = if n.art.is_some() { Ink::PAINTED } else { 0 };
+      spans.push(Span { range: n.range.clone(), ink: Ink(n.color | tag), bold: true });
+    }
     // the picture sits on its own line under the text once its size is known
     if let Some(id) = pic {
       embed = Some(id);
@@ -304,20 +370,31 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     hits(f, &s, &name, words, &mut spans);
   }
   let layout = res.text.layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
-  let name = painted.and_then(|(uid, paint)| {
-    let (x, w, baseline) = painted_run(&layout)?;
-    Some(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline })
-  });
-  Laid { layout, nick, vote, boxes, name, embed, links, link_runs }
+  let mut names = Vec::new();
+  if let Some((uid, paint)) = painted
+    && let Some((x, w, baseline)) = painted_run(&layout, &nick)
+  {
+    names.push(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline });
+  }
+  for n in &mentions {
+    if let (Some(uid), Some(paint)) = (&n.paint, &n.art)
+      && let Some((x, w, baseline)) = painted_run(&layout, &n.range)
+    {
+      let text = s.get(n.range.clone()).unwrap_or("").into();
+      names.push(PaintedName { uid: uid.clone(), nick: text, color: n.color, paint: paint.clone(), x, w, baseline });
+    }
+  }
+  Laid { layout, nick, vote, boxes, names, mentions, embed, links, link_runs }
 }
 
-// (x, width, baseline) of the painted name: its glyph runs, which share a line
-fn painted_run(layout: &TextLayout) -> Option<(f32, f32, f32)> {
+// (x, width, baseline) of the painted name at `range`: its glyph runs, which share a line
+fn painted_run(layout: &TextLayout, range: &std::ops::Range<usize>) -> Option<(f32, f32, f32)> {
   let mut found: Option<(f32, f32, f32)> = None;
   for line in layout.lines() {
     for item in line.items() {
       let PositionedLayoutItem::GlyphRun(gr) = item else { continue };
-      if gr.style().brush.0 & Ink::PAINTED == 0 {
+      let at = gr.run().text_range();
+      if gr.style().brush.0 & Ink::PAINTED == 0 || at.start >= range.end || range.start >= at.end {
         continue;
       }
       let (a, b) = (gr.offset(), gr.offset() + gr.advance());
@@ -407,9 +484,10 @@ fn body(
   s: &mut String,
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
-) -> (Vec<Link>, Vec<(std::ops::Range<usize>, usize)>) {
+) -> Words {
   let links = crate::model::links::find(&m.body, res.partial_links);
   let mut runs = Vec::new();
+  let mut people = Vec::new();
   let h = res.images.px(EMOTE_PX);
   let mut prev_emote = false;
   let mut first = true;
@@ -449,15 +527,30 @@ fn body(
         let p0 = s.len();
         s.push_str(word);
         // the words of a link answer clicks
+        let mut linked = false;
         for (k, _) in links.iter().enumerate().filter(|(_, l)| l.range.start < b && a < l.range.end) {
           runs.push((p0..s.len(), k));
+          linked = true;
+        }
+        // names in the words (a link's words are not names)
+        if !linked && word.len() >= 3 {
+          for f in crate::model::chatters::names(word) {
+            let Some(p) = res.chatters.person(m.platform, &word[f.name.clone()], f.at) else { continue };
+            people.push(Mention {
+              range: p0 + f.full.start..p0 + f.full.end,
+              login: word[f.name].to_ascii_lowercase().into(),
+              color: p.color,
+              paint: p.paint,
+              art: None,
+            });
+          }
         }
         prev_emote = word.is_empty() && prev_emote;
       }
     }
     first = false;
   }
-  (links, runs)
+  (links, runs, people)
 }
 
 // the word at body bytes a..b as an emote: twitch's own by position, else by name
@@ -783,7 +876,23 @@ impl ChatView {
 
   // their paint or badge arrived or changed: re-lay out only the lines that name them
   pub fn touch_paint(&mut self, id: &PaintId) {
-    for r in self.rows.iter_mut().filter(|r| PaintId::of_message(&r.msg).as_ref() == Some(id)) {
+    let wears = |r: &Row| {
+      PaintId::of_message(&r.msg).as_ref() == Some(id)
+        || r.laid.as_ref().is_some_and(|l| l.mentions.iter().any(|n| n.paint.as_ref() == Some(id)))
+    };
+    for r in self.rows.iter_mut().filter(|r| wears(r)) {
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
+  // a lookup learned someone's color or id: lines on screen that name them are laid out again
+  pub fn touch_person(&mut self, p: Platform, login: &str) {
+    for r in self
+      .rows
+      .iter_mut()
+      .filter(|r| r.msg.platform == p && r.laid.as_ref().is_some_and(|l| l.mentions.iter().any(|n| *n.login == *login)))
+    {
       Self::touch(r);
       self.stale = true;
     }
@@ -1027,8 +1136,9 @@ impl ChatView {
     None
   }
 
-  // the line whose name is under (x, y), as drawn last
-  pub fn name_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Message> {
+  // the person under (x, y): a line's sender, or someone named in its words. only an identity (no
+  // clone of the line), so a pointer moving over chat can ask on every move
+  pub fn who_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<WhoHit> {
     let mut bottom = self.edge(area, res);
     for i in (0..self.rows.len()).rev() {
       if bottom <= area.y {
@@ -1042,24 +1152,27 @@ impl ChatView {
         }
         let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
-        let over = laid.layout.lines().any(|line| {
-          let lm = line.metrics();
-          (lm.block_min_coord..lm.block_max_coord).contains(&ly)
-            && line.items().any(|it| match it {
-              PositionedLayoutItem::GlyphRun(gr) => {
-                let r = gr.run().text_range();
-                r.start < laid.nick.end
-                  && laid.nick.start < r.end
-                  && (gr.offset()..gr.offset() + gr.advance()).contains(&lx)
-              }
-              _ => false,
-            })
+        let mut ranges = Vec::with_capacity(1 + laid.mentions.len());
+        ranges.push(laid.nick.clone());
+        ranges.extend(laid.mentions.iter().map(|n| n.range.clone()));
+        let k = over(&laid.layout, lx, ly, &ranges)?;
+        let seq = self.rows[i].seq;
+        return Some(match k.checked_sub(1).and_then(|k| laid.mentions.get(k)) {
+          Some(n) => WhoHit {
+            seq,
+            start: n.range.start,
+            mention: Some(Mentioned { login: n.login.clone(), color: n.color, paint: n.paint.clone() }),
+          },
+          None => WhoHit { seq, start: laid.nick.start, mention: None },
         });
-        return over.then(|| m.clone());
       }
       bottom = top;
     }
     None
+  }
+
+  pub fn message(&self, seq: i64) -> Option<&Message> {
+    self.index_of(seq).map(|i| &self.rows[i].msg)
   }
 
   // what this person said here lately (oldest first), for their card
@@ -1244,9 +1357,10 @@ impl ChatView {
               anims.push(Anim { rect: rect.intersect(area), bg, imgs });
             }
           });
-          if let Some(n) = &laid.name {
+          for n in &laid.names {
             let key = ArtKey {
               uid: n.uid.clone(),
+              text: name_art::text_key(&n.nick),
               color: n.color,
               font_px: text.font_px.to_bits(),
               paint: Arc::as_ptr(&n.paint) as usize,
@@ -1780,6 +1894,97 @@ mod tests {
     res.blocked.block("Kappa", url, Scope::Channel);
     v.relayout();
     assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
+  }
+
+  #[test]
+  fn names_in_words_wear_their_color_and_answer_the_pointer() {
+    let mut res = Res::new(1.0);
+    let mut alice = said("alice", "x");
+    alice.color = theme::GREEN;
+    res.chatters.heard(&alice);
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(700);
+    let mut m = said("bob", "hi alice, welcome @carol you what https://alice.example/x");
+    m.color = theme::MAGENTA;
+    v.push(m);
+    let area = Rect::new(0, 0, 700, 200);
+    let mut c = Canvas::new(700, 200);
+    v.draw(&mut c, &mut res, area, area);
+    let who = |v: &mut ChatView, res: &mut Res| {
+      let mut seen: Vec<(Option<Box<str>>, u32)> = Vec::new();
+      for x in (0..700).step_by(2) {
+        if let Some(h) = (150..200).find_map(|y| v.who_at(area, x, y, res)) {
+          let k = h.mention.map(|n| (Some(n.login), n.color)).unwrap_or((None, theme::MAGENTA));
+          if !seen.contains(&k) {
+            seen.push(k);
+          }
+        }
+      }
+      seen
+    };
+    // the sender, a spoken name (bare, with its comma left out), an unknown @name (white until looked up);
+    // plain words, the everyday "you"/"what" and the link's words are none of them
+    let got = who(&mut v, &mut res);
+    assert_eq!(
+      got,
+      vec![(None, theme::MAGENTA), (Some("alice".into()), theme::GREEN), (Some("carol".into()), theme::WHITE)]
+    );
+    let count = |c: &Canvas, ink| c.px.iter().filter(|&&p| p == ink).count();
+    assert!(count(&c, theme::GREEN) > 20, "alice is drawn green");
+    assert_eq!(res.chatters.take_wanted(), vec![(Platform::Twitch, "carol".into())]);
+    // the answer arrives: carol's lines are laid out again in her color
+    res.chatters.learned(Platform::Twitch, "carol", theme::CYAN, None);
+    v.touch_person(Platform::Twitch, "carol");
+    v.draw(&mut c, &mut res, area, area);
+    assert!(who(&mut v, &mut res).contains(&(Some("carol".into()), theme::CYAN)));
+    assert!(count(&c, theme::CYAN) > 20);
+    // a deleted line stays dim: no colors, nothing to hover
+    v.clear_msg("");
+    let mut gone = said("bob", "hi alice");
+    gone.id = "g".into();
+    gone.flags |= flag::CLEARED;
+    let mut w = ChatView::new(10, "c".into());
+    w.resize(700);
+    w.push(gone);
+    assert!(
+      (0..700)
+        .step_by(2)
+        .all(|x| (150..200).all(|y| w.who_at(area, x, y, &mut res).is_none_or(|h| h.mention.is_none())))
+    );
+  }
+
+  #[test]
+  fn a_painted_mention_is_drawn_from_its_bitmap() {
+    use crate::cosmetics::{Cosmetic, paint::Paint as P};
+    let mut res = Res::new(1.0);
+    let paint = P::parse(&serde_json::json!({"id": "G", "function": "linear-gradient", "angle": 90,
+      "stops": [{"at": 0, "color": 0xff0000ffu32 as i32}, {"at": 1, "color": 0x0000ffffu32 as i32}]}))
+    .unwrap();
+    let mut alice = said("alice", "x");
+    alice.user_id = "42".into();
+    alice.color = theme::GREEN;
+    res.chatters.heard(&alice);
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(400);
+    v.push(said("bob", "wwwwwwwwwwww alice"));
+    let area = Rect::new(0, 0, 400, 40);
+    let mut c = Canvas::new(400, 40);
+    v.draw(&mut c, &mut res, area, area);
+    // their cosmetics are asked for, and alice is plain green meanwhile
+    assert_eq!(res.cosmetics.take_wanted(), vec![PaintId::Twitch(42)]);
+    let green = |c: &Canvas| c.px.iter().filter(|&&p| p == theme::GREEN).count();
+    assert!(green(&c) > 20);
+    res.cosmetics.put(&PaintId::Twitch(42), Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+    v.touch_paint(&PaintId::Twitch(42));
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(green(&c), 0, "the name now runs red to blue");
+    let (red, blue) = c.px.iter().fold((0, 0), |(r, b), p| {
+      let (pr, pg, pb) = (p >> 16 & 255, p >> 8 & 255, p & 255);
+      (r + (pr > 200 && pg < 60 && pb < 100) as u32, b + (pb > 200 && pr < 100 && pg < 60) as u32)
+    });
+    assert!(red > 5 && blue > 5, "{red} {blue}");
   }
 
   #[test]

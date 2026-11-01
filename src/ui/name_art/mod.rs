@@ -32,9 +32,18 @@ pub struct Art {
   pub rgba: Box<[u8]>,
 }
 
+pub fn text_key(s: &str) -> u64 {
+  use std::hash::{Hash, Hasher};
+  let mut h = std::collections::hash_map::DefaultHasher::new();
+  s.hash(&mut h);
+  h.finish()
+}
+
 #[derive(Hash, PartialEq, Eq, Clone)]
 pub struct ArtKey {
   pub uid: crate::cosmetics::id::PaintId,
+  // the text it is drawn with (`bob`, `@bob`, `Bob`): one chatter can wear their paint on several
+  pub text: u64,
   pub color: u32,
   pub font_px: u32,
   // the paint is shared by everyone wearing it: its address names it
@@ -385,7 +394,8 @@ mod tests {
   #[test]
   fn cache_is_bounded_lru_and_rebuilds_incomplete_art() {
     let mut arts = NameArts::default();
-    let key = |uid: u64| ArtKey { uid: crate::cosmetics::id::PaintId::Twitch(uid), color: 0, font_px: 15, paint: 1 };
+    let key =
+      |uid: u64| ArtKey { uid: crate::cosmetics::id::PaintId::Twitch(uid), text: 0, color: 0, font_px: 15, paint: 1 };
     let art = || Art { w: 1, h: 1, base: 0.0, rgba: Box::new([0; 4]) };
     let mut built = 0;
     for uid in 0..(MAX_ARTS as u64 * 2) {

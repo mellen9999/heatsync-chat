@@ -13,6 +13,8 @@ const RECENT_MAX: usize = 140;
 pub struct View<'a> {
   pub nick: &'a str,
   pub color: u32,
+  // dim words after the name ("esc closes"); empty = none
+  pub hint: &'a str,
   // "[T] " style platform tag and its color
   pub tag: (&'static str, u32),
   pub rows: &'a [(&'static str, String)],
@@ -27,8 +29,8 @@ fn one_line(s: &str) -> String {
   t
 }
 
-// the whole card; returns its rect so the caller can tell a click outside it
-pub fn draw<T: Copy>(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, menu: &mut Menu<T>) -> Rect {
+// the card's words: name line, then the label: value rows, then a note when there is one
+pub fn head(v: &View) -> (String, Vec<Span>) {
   let mut s = String::new();
   let mut spans: Vec<Span> = Vec::new();
   let mut put = |s: &mut String, t: &str, ink: u32, bold: bool| {
@@ -39,7 +41,11 @@ pub fn draw<T: Copy>(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, menu
   put(&mut s, v.nick, v.color, true);
   put(&mut s, "  ", theme::WHITE, false);
   put(&mut s, v.tag.0.trim_end(), v.tag.1, true);
-  put(&mut s, "   esc closes\n", theme::DIM, false);
+  if !v.hint.is_empty() {
+    put(&mut s, "   ", theme::WHITE, false);
+    put(&mut s, v.hint, theme::DIM, false);
+  }
+  s.push('\n');
   for (label, value) in v.rows {
     put(&mut s, &format!("{label:<LABEL_W$}"), theme::DIM, false);
     put(&mut s, value, theme::WHITE, false);
@@ -49,6 +55,17 @@ pub fn draw<T: Copy>(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, menu
     put(&mut s, n, theme::DIM, false);
     s.push('\n');
   }
+  (s, spans)
+}
+
+// the whole card; returns its rect so the caller can tell a click outside it
+pub fn draw<T: Copy>(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, menu: &mut Menu<T>) -> Rect {
+  let (mut s, mut spans) = head(v);
+  let mut put = |s: &mut String, t: &str, ink: u32, bold: bool| {
+    let a = s.len();
+    s.push_str(t);
+    spans.push(Span { range: a..s.len(), ink: Ink(ink), bold });
+  };
   s.push('\n');
   put(
     &mut s,
@@ -90,8 +107,15 @@ mod tests {
     let area = Rect::new(0, 24, 800, 500);
     let rows = [("age", "4y".to_owned()), ("heat", "1.2k".to_owned())];
     let recent = [("12:00".to_owned(), "hello there")];
-    let v =
-      View { nick: "Bob", color: theme::GREEN, tag: ("[T] ", theme::TWITCH), rows: &rows, note: None, recent: &recent };
+    let v = View {
+      hint: "esc closes",
+      nick: "Bob",
+      color: theme::GREEN,
+      tag: ("[T] ", theme::TWITCH),
+      rows: &rows,
+      note: None,
+      recent: &recent,
+    };
     let mut menu = Menu::new(vec![(1, "mention"), (2, "mute")], (0, 0));
     let r = draw(&mut c, &mut text, area, &v, &mut menu);
     assert!(r.x >= 0 && r.right() <= 800 && r.y >= area.y && r.bottom() <= area.bottom());
