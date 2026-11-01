@@ -282,20 +282,22 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     dim(&mut s, &mut spans, &hhmm(m.ts));
     s.push(' ');
   }
+  let mut ib = Vec::new();
   if tags {
     let (t, c) = match m.platform {
-      Platform::Twitch => ("[T] ", theme::TWITCH),
-      Platform::Kick => ("[K] ", theme::GREEN),
-      Platform::Youtube => ("[Y] ", theme::RED),
+      Platform::Twitch => ("[T]", theme::TWITCH),
+      Platform::Kick => ("[K]", theme::GREEN),
+      Platform::Youtube => ("[Y]", theme::RED),
     };
     let a = s.len();
     s.push_str(t);
     spans.push(Span { range: a..a + 3, ink: Ink(c), bold: true });
+    // ext: 3px after the tag, not a whole monospace cell
+    ib.push(gap(s.len(), res.images.px(3)));
   }
   if let Some(x) = x.filter(|x| !x.chan.is_empty() && m.kind != Kind::System) {
     dim(&mut s, &mut spans, &format!("#{} ", x.chan));
   }
-  let mut ib = Vec::new();
   let mut boxes = Vec::new();
   let mut links = Vec::new();
   let mut link_runs = Vec::new();
@@ -319,7 +321,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     for g in x.map_or(&[][..], |x| &x.head) {
       seg(&mut s, &mut spans, g);
     }
-    badges(res, chan, m, &mut s, &mut ib, &mut boxes);
+    badges(res, chan, m, &s, &mut ib, &mut boxes);
     let n0 = s.len();
     s.push_str(&m.nick);
     nick = n0..s.len();
@@ -471,7 +473,7 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
   }
 }
 
-fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+fn badges(res: &mut Res, chan: &str, m: &Message, s: &str, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
   let mut found: Vec<(Box<str>, Option<u32>)> =
     res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
@@ -487,9 +489,14 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &mut String, ib: &mut Vec<I
     let w = res.images.width(img, (18, 18));
     ib.push(inline(boxes.len(), s.len(), w, h));
     boxes.push(EmoteBox { img, zw: Vec::new(), bg, word: (0, 0), blocked: false });
-    // a thin space keeps badges from touching
-    s.push('\u{2009}');
+    // ext: 2px between badges (a monospace space is a whole cell)
+    ib.push(gap(s.len(), res.images.px(2)));
   }
+}
+
+// an empty run of exact width: its id names no box, so drawing and hit-tests pass over it
+fn gap(index: usize, w: u32) -> InlineBox {
+  InlineBox { id: u64::MAX, ..inline(0, index, w, 1) }
 }
 
 // words become text or emote boxes. twitch's own emotes come by position, the rest by name
