@@ -933,6 +933,17 @@ impl ChatView {
     }
   }
 
+  // a twitch login's id is known now: their lines that came without one (heatsync's archived
+  // history) take it, so they ask for and wear the paint
+  pub fn adopt_id(&mut self, login: &str, uid: &str) {
+    let bare = |r: &Row| r.msg.platform == Platform::Twitch && r.msg.user_id.is_empty() && &*r.msg.login == login;
+    for r in self.rows.iter_mut().filter(|r| bare(r)) {
+      r.msg.user_id = uid.into();
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
   // their paint or badge arrived or changed: re-lay out only the lines that name them
   pub fn touch_paint(&mut self, id: &PaintId) {
     let wears = |r: &Row| {
@@ -1737,6 +1748,35 @@ mod tests {
 
   // a feed post: its author's twitch id asks for their paint, the paint animates like in chat, and
   // only the ▲ (not the heat or the replies beside it) answers a vote click
+  // archived history comes without ids: once one is known those lines take it and ask for the paint,
+  // but never someone else's lines or another platform's
+  #[test]
+  fn lines_without_an_id_adopt_it_and_ask_for_the_paint() {
+    let line = |p: Platform, login: &str, uid: &str| {
+      let mut m = Message::system(0, p, "hi");
+      m.kind = Kind::Chat;
+      m.login = login.into();
+      m.nick = login.into();
+      m.user_id = uid.into();
+      m
+    };
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "x".into());
+    v.resize(500);
+    v.push(line(Platform::Twitch, "ennortix", ""));
+    v.push(line(Platform::Twitch, "alice", ""));
+    v.push(line(Platform::Kick, "ennortix", ""));
+    let area = Rect::new(0, 0, 500, 200);
+    let mut c = Canvas::new(500, 200);
+    v.draw(&mut c, &mut res, area, area);
+    assert!(res.cosmetics.take_wanted().is_empty(), "no ids, nothing to ask");
+    v.adopt_id("ennortix", "37005319");
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(37005319)]);
+    let ids: Vec<&str> = v.rows.iter().map(|r| &*r.msg.user_id).collect();
+    assert_eq!(ids, vec!["37005319", "", ""]);
+  }
+
   #[test]
   fn feed_rows_wear_animated_paints_and_the_arrow_alone_votes() {
     use crate::cosmetics::{Cosmetic, paint::Paint as P};

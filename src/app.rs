@@ -720,7 +720,11 @@ impl App {
   fn on_chat(&mut self, ch: &str, ev: Chat) {
     let ev = match ev {
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
-        self.res.chatters.heard(&m);
+        if self.res.chatters.heard(&m) {
+          for t in &mut self.tabs {
+            t.view.adopt_id(&m.login, &m.user_id);
+          }
+        }
         self.scan_mention(Platform::Twitch, ch, &mut m);
         Chat::Msg(m)
       }
@@ -1613,18 +1617,27 @@ impl App {
         let Some(i) = self.tabs.iter().position(|t| t.name == ch) else {
           return;
         };
-        let history: Vec<Message> = events
+        let mut history: Vec<Message> = events
           .into_iter()
           .filter_map(|e| match e {
-            Chat::Msg(mut m) => {
-              m.flags |= flag::HISTORY;
-              self.res.chatters.heard(&m);
-              self.scan_mention(Platform::Twitch, &ch, &mut m);
-              Some(m)
-            }
+            Chat::Msg(m) => Some(m),
             _ => None,
           })
           .collect();
+        // every line first, so an older line without an id (heatsync's archived part) can take
+        // the one a newer line from the same person carries
+        for m in &history {
+          self.res.chatters.heard(m);
+        }
+        for m in &mut history {
+          m.flags |= flag::HISTORY;
+          if m.user_id.is_empty()
+            && let Some(id) = self.res.chatters.twitch_id(&m.login)
+          {
+            m.user_id = id.to_string().into();
+          }
+          self.scan_mention(Platform::Twitch, &ch, m);
+        }
         self.tabs[i].view.prepend(history);
         self.trim_soon();
         if i == self.active {

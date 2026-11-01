@@ -127,10 +127,11 @@ fn lower<'a>(name: &str, buf: &'a mut [u8; NAME_MAX]) -> Option<&'a str> {
 }
 
 impl Chatters {
-  // a chat line was heard: its sender is a known person now, in their own color
-  pub fn heard(&mut self, m: &Message) {
+  // a chat line was heard: its sender is a known person now, in their own color. true = this line
+  // is the first to say whose they are (their older lines without an id can wear their paint now)
+  pub fn heard(&mut self, m: &Message) -> bool {
     if m.kind == Kind::System || m.login.is_empty() || m.login.len() > NAME_MAX {
-      return;
+      return false;
     }
     let paint = PaintId::of_message(m);
     let map = &mut self.by[slot(m.platform)];
@@ -138,17 +139,29 @@ impl Chatters {
     if let Some(c) = map.get_mut(key) {
       c.color = m.color;
       c.spoke = true;
+      let first = paint.is_some() && c.paint.is_none();
       if paint.is_some() {
         c.paint = paint;
       }
-      return;
+      return first;
     }
     if map.len() >= CAP {
       shed(map);
     }
     let key =
       if key.bytes().any(|b| b.is_ascii_uppercase()) { key.to_ascii_lowercase().into() } else { m.login.clone() };
+    let first = paint.is_some();
     map.insert(key, Chatter { color: m.color, paint, spoke: true, host: false });
+    first
+  }
+
+  // the twitch id a login's paints hang off, when a line or a lookup has said
+  pub fn twitch_id(&self, login: &str) -> Option<u64> {
+    let mut buf = [0u8; NAME_MAX];
+    match self.by[slot(Platform::Twitch)].get(lower(login, &mut buf)?)?.paint {
+      Some(PaintId::Twitch(n)) => Some(n),
+      _ => None,
+    }
   }
 
   // a channel we sit in: its owner is a known person (bare name hovers like one who spoke), their
@@ -251,6 +264,19 @@ mod tests {
 
   fn spans(w: &str) -> Vec<(&str, bool)> {
     names(w).into_iter().map(|f| (&w[f.full], f.at)).collect()
+  }
+
+  #[test]
+  fn the_first_line_with_an_id_says_whose_a_name_is() {
+    let mut c = Chatters::default();
+    assert!(!c.heard(&msg(Platform::Twitch, "ennortix", 1, "")), "no id, nothing learned");
+    assert_eq!(c.twitch_id("ennortix"), None);
+    assert!(c.heard(&msg(Platform::Twitch, "ennortix", 1, "37005319")), "first id");
+    assert!(!c.heard(&msg(Platform::Twitch, "ennortix", 1, "37005319")), "already known");
+    assert_eq!(c.twitch_id("EnnorTix"), Some(37005319));
+    // kick's numbers are not twitch ids
+    c.heard(&msg(Platform::Kick, "bob", 1, "5"));
+    assert_eq!(c.twitch_id("bob"), None);
   }
 
   #[test]
