@@ -412,8 +412,8 @@ mod tests {
     let (none, _) = settings_lines("zzzz", &Settings::default());
     assert!(none.is_empty());
     // a preset answers its own name
-    let (p, t) = settings_lines("low ram", &Settings::default());
-    assert!(t.iter().any(|t| matches!(t, Target::Preset(p) if p.name == "low ram")) && p.len() == 2);
+    let (p, t) = settings_lines("normal", &Settings::default());
+    assert!(t.iter().any(|t| matches!(t, Target::Preset(p) if p.name == "normal")) && p.len() == 2);
   }
 
   #[test]

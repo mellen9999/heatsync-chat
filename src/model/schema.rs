@@ -373,6 +373,19 @@ pub struct Preset {
 
 pub static PRESETS: [Preset; 3] = [
   Preset {
+    name: "normal",
+    tip: "the defaults: every tab, paints and pictures on, plain input",
+    diff: &[
+      ("vi", false),
+      ("first_glow", true),
+      ("paints", true),
+      ("media", true),
+      ("tab_feed", true),
+      ("tab_whispers", true),
+      ("tab_mentions", true),
+    ],
+  },
+  Preset {
     name: "minimal",
     tip: "just chat: no glow, paints, pictures or extra tabs",
     diff: &[
@@ -388,11 +401,6 @@ pub static PRESETS: [Preset; 3] = [
     name: "power user",
     tip: "every tab on, vi keys",
     diff: &[("vi", true), ("tab_feed", true), ("tab_whispers", true), ("tab_mentions", true)],
-  },
-  Preset {
-    name: "low ram",
-    tip: "paints, pictures, feed and whispers off",
-    diff: &[("paints", false), ("media", false), ("tab_feed", false), ("tab_whispers", false), ("tab_mentions", true)],
   },
 ];
 
@@ -423,13 +431,15 @@ mod tests {
         assert!(def(id).and_then(|d| d.on(&Settings::default())).is_some(), "{id}");
       }
     }
-    assert!(PRESETS[1].diff.iter().any(|d| d.0 == "vi"));
+    assert!(PRESETS[2].diff.iter().any(|d| d.0 == "vi"));
+    // a fresh install reads as normal
+    assert!(PRESETS[0].active(&Settings::default()));
   }
 
   #[test]
   fn a_preset_reads_active_only_when_all_of_it_matches() {
     let mut s = Settings::default();
-    let power = &PRESETS[1];
+    let power = &PRESETS[2];
     assert!(!power.active(&s));
     for (id, v) in power.diff {
       assert!(def(id).unwrap().put(&mut s, *v));
