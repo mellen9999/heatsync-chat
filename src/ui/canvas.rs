@@ -55,6 +55,16 @@ fn lerp(dst: u32, src: u32, a: u32) -> u32 {
   rb | g
 }
 
+// one straight-alpha rgba8 pixel over a destination pixel
+fn blend(d: &mut u32, s: &[u8; 4]) {
+  let rgb = (s[0] as u32) << 16 | (s[1] as u32) << 8 | s[2] as u32;
+  match s[3] {
+    0 => {}
+    255 => *d = rgb,
+    a => *d = lerp(*d, rgb, a as u32),
+  }
+}
+
 impl Canvas {
   pub fn new(w: i32, h: i32) -> Self {
     Self { w, h, px: vec![0; (w.max(0) * h.max(0)) as usize] }
@@ -134,12 +144,25 @@ impl Canvas {
       let src = (((py - y) * w + (c.x - x)) * 4) as usize;
       let dst = (py * self.w + c.x) as usize;
       for (d, s) in self.px[dst..dst + c.w as usize].iter_mut().zip(data[src..].as_chunks::<4>().0) {
-        let rgb = (s[0] as u32) << 16 | (s[1] as u32) << 8 | s[2] as u32;
-        match s[3] {
-          0 => {}
-          255 => *d = rgb,
-          a => *d = lerp(*d, rgb, a as u32),
-        }
+        blend(d, s);
+      }
+    }
+  }
+
+  // the same, stretched nearest-neighbor from a sw×sh source to dw×dh at (x, y) (pixel art stays
+  // crisp; a whole-number ratio repeats whole pixels). no scratch buffer
+  #[allow(clippy::too_many_arguments)]
+  pub fn rgba_to(&mut self, x: i32, y: i32, (sw, sh): (i32, i32), (dw, dh): (i32, i32), data: &[u8], clip: Rect) {
+    let c = Rect::new(x, y, dw, dh).intersect(clip).intersect(self.bounds());
+    if c.is_empty() || sw <= 0 || sh <= 0 {
+      return;
+    }
+    for py in c.y..c.bottom() {
+      let row = ((py - y) as i64 * sh as i64 / dh as i64) as usize * sw as usize;
+      let dst = (py * self.w) as usize;
+      for px in c.x..c.right() {
+        let i = (row + ((px - x) as i64 * sw as i64 / dw as i64) as usize) * 4;
+        blend(&mut self.px[dst + px as usize], data[i..i + 4].try_into().unwrap());
       }
     }
   }
@@ -181,6 +204,21 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn rgba_to_stretches_whole_pixels() {
+    let mut c = Canvas::new(8, 4);
+    let px = [1, 2, 3, 255, 9, 8, 7, 255];
+    c.rgba_to(1, 1, (2, 1), (6, 3), &px, c.bounds());
+    assert_eq!(c.px[(8 + 1) as usize], 0x010203);
+    assert_eq!(c.px[(3 * 8 + 3) as usize], 0x010203);
+    assert_eq!(c.px[(8 + 4) as usize], 0x090807);
+    assert_eq!(c.px[(8 + 7) as usize], 0);
+    // clipped: nothing past the clip rect
+    let mut d = Canvas::new(8, 4);
+    d.rgba_to(1, 1, (2, 1), (6, 3), &px, Rect::new(0, 0, 2, 4));
+    assert_eq!(d.px[(8 + 2) as usize], 0);
+  }
 
   #[test]
   fn lerp_endpoints() {

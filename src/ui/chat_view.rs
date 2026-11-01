@@ -26,6 +26,8 @@ use crate::util::time::{hhmm, now_ms};
 struct EmoteBox {
   img: ImgId,
   zw: Vec<ImgId>,
+  // the body words of those overlays, same order
+  zw_words: Vec<(u32, u32)>,
   // tile color behind the image (ffz badges)
   bg: Option<u32>,
   // byte range of the word in the message body; 0..0 for badges
@@ -39,6 +41,16 @@ pub struct EmoteHit {
   pub name: Box<str>,
   pub url: Box<str>,
   pub zero_width: bool,
+  pub scope: Scope,
+  // the zero-width overlays drawn on it, bottom to top (a blocked one is not drawn, so not here)
+  pub over: Vec<Layer>,
+}
+
+// one piece of a stacked emote
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Layer {
+  pub name: Box<str>,
+  pub url: Box<str>,
   pub scope: Scope,
 }
 
@@ -378,7 +390,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       if let Some((w, h)) = res.images.dims(id) {
         s.push('\n');
         ib.push(inline(boxes.len(), s.len(), w, h));
-        boxes.push(EmoteBox { img: id, zw: Vec::new(), bg: None, word: (0, 0), blocked: false });
+        boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
       }
     }
   }
@@ -488,7 +500,7 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &str, ib: &mut Vec<InlineBo
     let img = res.images.id(&url, BADGE_PX);
     let w = res.images.width(img, (18, 18));
     ib.push(inline(boxes.len(), s.len(), w, h));
-    boxes.push(EmoteBox { img, zw: Vec::new(), bg, word: (0, 0), blocked: false });
+    boxes.push(EmoteBox { img, zw: Vec::new(), zw_words: Vec::new(), bg, word: (0, 0), blocked: false });
     // ext: 2px between badges (a monospace space is a whole cell)
     ib.push(gap(s.len(), res.images.px(2)));
   }
@@ -531,6 +543,7 @@ fn body(
         let img = res.images.id(&url, EMOTE_PX);
         if let Some(last) = boxes.last_mut() {
           last.zw.push(img);
+          last.zw_words.push((a as u32, b as u32));
         }
         continue;
       }
@@ -541,7 +554,14 @@ fn body(
         let img = res.images.id(&url, EMOTE_PX);
         let w = res.images.width(img, dims);
         ib.push(inline(boxes.len(), s.len(), w, h));
-        boxes.push(EmoteBox { img, zw: Vec::new(), bg: None, word: (a as u32, b as u32), blocked });
+        boxes.push(EmoteBox {
+          img,
+          zw: Vec::new(),
+          zw_words: Vec::new(),
+          bg: None,
+          word: (a as u32, b as u32),
+          blocked,
+        });
         prev_emote = true;
       }
       None => {
@@ -610,15 +630,24 @@ fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &s
 
 type Found = (Box<str>, (u16, u16), bool, Scope);
 
+// one layer of an emote, drawn `dst` big (its decoded size in chat), centered in `rect`: zero-width
+// overlays center on the base. the hover popup draws its enlarged stack through this same placement
+pub fn blit_layer(c: &mut Canvas, rgba: &[u8], src: (u32, u32), dst: (i32, i32), rect: Rect, clip: Rect) {
+  let x = rect.x + (rect.w - dst.0) / 2;
+  let y = rect.y + (rect.h - dst.1) / 2;
+  if dst == (src.0 as i32, src.1 as i32) {
+    c.rgba(x, y, dst.0, dst.1, rgba, clip);
+  } else {
+    c.rgba_to(x, y, (src.0 as i32, src.1 as i32), dst, rgba, clip);
+  }
+}
+
 fn blit_emote(c: &mut Canvas, images: &mut Images, imgs: &[ImgId], rect: Rect, clip: Rect, next: &mut Option<u32>) {
   for &id in imgs {
     let Some((f, w, h, flip)) = images.frame(id) else {
       continue;
     };
-    // zero-width overlays center on the base
-    let x = rect.x + (rect.w - w as i32) / 2;
-    let y = rect.y + (rect.h - h as i32) / 2;
-    c.rgba(x, y, w as i32, h as i32, &f.rgba, clip);
+    blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, clip);
     if let Some(ms) = flip {
       *next = Some(next.map_or(ms, |n| n.min(ms)));
     }
@@ -1087,7 +1116,16 @@ impl ChatView {
         let (a, b) = (eb.word.0 as usize, eb.word.1 as usize);
         let word = m.body.get(a..b).filter(|w| !w.is_empty())?;
         let (url, _, zero_width, scope) = find_word(res, room(m, &self.channel), m, a, b, word)?;
-        return Some(EmoteHit { name: word.into(), url, zero_width, scope });
+        let over = eb
+          .zw_words
+          .iter()
+          .filter_map(|&(a, b)| {
+            let word = m.body.get(a as usize..b as usize)?;
+            let (url, _, _, scope) = find_word(res, room(m, &self.channel), m, a as usize, b as usize, word)?;
+            Some(Layer { name: word.into(), url, scope })
+          })
+          .collect();
+        return Some(EmoteHit { name: word.into(), url, zero_width, scope, over });
       }
       bottom = top;
     }
@@ -1923,6 +1961,43 @@ mod tests {
     res.blocked.block("Kappa", url, Scope::Channel);
     v.relayout();
     assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
+  }
+
+  #[test]
+  fn a_hit_on_a_stacked_emote_yields_every_layer() {
+    use crate::emotes::{Emote, Provider};
+    let mut res = Res::new(1.0);
+    let (base, ice, spark) = (
+      "https://cdn.7tv.app/emote/a/1x.webp",
+      "https://cdn.7tv.app/emote/b/1x.webp",
+      "https://cdn.7tv.app/emote/c/1x.webp",
+    );
+    let e = |url: &str, zero_width| Emote { url: url.into(), w: 28, h: 28, zero_width };
+    res.emotes.set(
+      None,
+      Provider::SevenTv,
+      [("Kappa".into(), e(base, false)), ("frozen0".into(), e(ice, true)), ("spark".into(), e(spark, true))].into(),
+    );
+    let mut v = ChatView::new(10, "c".into());
+    v.resize(400);
+    let mut m = Fake::new(1).message(1);
+    m.kind = Kind::Chat;
+    m.emotes = Box::new([]);
+    m.body = "hi Kappa frozen0 spark yo".into();
+    v.push(m);
+    let area = Rect::new(0, 0, 400, 200);
+    let hit = (0..400)
+      .step_by(2)
+      .find_map(|x| (150..200).find_map(|y| v.emote_at(area, x, y, &mut res)))
+      .expect("the stack under the pointer");
+    assert_eq!((&*hit.name, &*hit.url), ("Kappa", base));
+    let over: Vec<(&str, &str)> = hit.over.iter().map(|l| (&*l.name, &*l.url)).collect();
+    assert_eq!(over, [("frozen0", ice), ("spark", spark)]);
+    // a blocked overlay is not drawn, so it is not listed
+    res.blocked.block("frozen0", ice, Scope::Channel);
+    v.relayout();
+    let hit = (0..400).step_by(2).find_map(|x| (150..200).find_map(|y| v.emote_at(area, x, y, &mut res))).unwrap();
+    assert_eq!(hit.over.len(), 1);
   }
 
   #[test]

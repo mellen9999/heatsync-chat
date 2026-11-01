@@ -1884,6 +1884,94 @@ mod live {
     );
   }
 
+  // hovering a stacked emote opens the whole stack, offline (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_stack -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_stack_hover() {
+    use crate::emotes::{Emote, Provider};
+    use crate::images::decode::{Decoded, Frame};
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let (base, ice) = ("https://cdn.7tv.app/emote/a/1x.webp", "https://cdn.betterttv.net/emote/b/1x.webp");
+    let e = |url: &str, zero_width| Emote { url: url.into(), w: 28, h: 28, zero_width };
+    app.res.emotes.set(
+      None,
+      Provider::SevenTv,
+      [("Kappa".into(), e(base, false)), ("frozen0".into(), e(ice, true))].into(),
+    );
+    let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+    m.kind = crate::model::message::Kind::Chat;
+    m.id = "1".into();
+    m.login = "alice".into();
+    m.nick = "alice".into();
+    m.color = 0x00ff00;
+    m.body = "so cold Kappa frozen0 brr".into();
+    app.on_net(NetEvent::Chat(FLOOD_TAB.into(), Chat::Msg(m)));
+    app.redraw();
+    // a ring and a dot: the picture, not a flat square, so alignment shows
+    let art = |w: u32, rgb: [u8; 3]| {
+      let px: Vec<u8> = (0..w * w)
+        .flat_map(|i| {
+          let (x, y) = ((i % w) as i32 - w as i32 / 2, (i / w) as i32 - w as i32 / 2);
+          let r2 = x * x + y * y;
+          let on = r2 < (w as i32 / 2).pow(2) && (w as i32 > 14 || r2 > 4);
+          if on { [rgb[0], rgb[1], rgb[2], 255] } else { [0, 0, 0, 0] }
+        })
+        .collect();
+      Decoded { w, h: w, frames: vec![Frame { rgba: px.into(), delay_ms: 0 }] }
+    };
+    let area = app.chat_area();
+    let spot = (area.x..area.right()).step_by(2).find_map(|x| {
+      (area.y..area.bottom()).find_map(|y| {
+        let res = &mut app.res;
+        let h = app.tabs[app.active].view.emote_at(area, x, y, res)?;
+        (&*h.name == "Kappa").then_some((x, y))
+      })
+    });
+    app.pointer = spot.expect("the stack answers the pointer");
+    app.tip_hover();
+    let tip = app.tip.as_ref().expect("hovering the stack opens the popup");
+    assert!(tip.is(
+      "Kappa",
+      base,
+      &[crate::ui::chat_view::Layer {
+        name: "frozen0".into(),
+        url: ice.into(),
+        scope: crate::emotes::block::Scope::Global
+      }]
+    ));
+    // the chat's own pictures first, then the popup's big rungs
+    // (the wanted height packs the max width above bit 16)
+    let mut drawn = None;
+    for _ in 0..4 {
+      app.redraw();
+      while let Ok(c) = asked.try_recv() {
+        let Cmd::Image(id, url, h) = c else { continue };
+        let n = ((h & 0xffff) / 28).max(1);
+        let img = if url.contains("betterttv") { art(14 * n, [0, 255, 255]) } else { art(28 * n, [255, 0, 0]) };
+        app.on_net(NetEvent::Image(id, h, Ok(img)));
+      }
+      drawn = app.draw_tip();
+    }
+    let r = drawn.expect("the popup paints once every piece is here");
+    // both pieces show in the popup: the base's ring and the overlay's dot
+    let has = |rgb| (r.y..r.bottom()).any(|y| (r.x..r.right()).any(|x| app.canvas.px[(y * 720 + x) as usize] == rgb));
+    assert!(has(0xff0000) && has(0x00ffff), "base and overlay both in the popup");
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+  }
+
   // the hover popup and colored mentions, offline: needs a scratch HOME (App::new reads settings):
   //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_hover -- --ignored
   #[test]

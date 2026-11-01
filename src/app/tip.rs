@@ -7,13 +7,15 @@ use super::App;
 use crate::emotes::block::Scope;
 use crate::model::picker::Sec;
 use crate::ui::canvas::Rect;
+use crate::ui::chat_view::Layer;
 use crate::ui::tip::Tip;
 
 // repaint ceiling for an animated emote, same as chat
 const ANIM_MIN_MS: u32 = 33;
 
-// an emote under the pointer: name, url, in your own set, from a heatsync inventory
-type Cand = (Box<str>, Box<str>, bool, bool);
+// an emote under the pointer: name, url, in your own set, from a heatsync inventory, and the
+// zero-width overlays stacked on it
+type Cand = (Box<str>, Box<str>, bool, bool, Vec<Layer>);
 
 impl App {
   pub(super) fn tip_free(&self) -> bool {
@@ -36,11 +38,11 @@ impl App {
       let it =
         g.grid.contains(x, y).then(|| p.cell_at(x - g.grid.x, y - g.grid.y, g.m)).flatten().and_then(|i| p.item(i))?;
       let mine = it.sec == Sec::Mine;
-      return Some((it.name.clone(), it.url.clone(), mine, mine));
+      return Some((it.name.clone(), it.url.clone(), mine, mine, Vec::new()));
     }
     let hit = self.emote_under_pointer()?;
     let owned = self.owned(&hit);
-    Some((hit.name, hit.url, owned, hit.scope == Scope::Hs))
+    Some((hit.name, hit.url, owned, hit.scope == Scope::Hs, hit.over))
   }
 
   // the pointer moved: open, keep or close the popup
@@ -53,11 +55,11 @@ impl App {
     match (want, &self.tip) {
       (None, None) => {}
       (None, Some(_)) => self.hide_tip(),
-      (Some((n, u, ..)), Some(t)) if t.is(&n, &u) => {}
-      (Some((n, u, owned, hs)), _) => {
+      (Some((n, u, _, _, over)), Some(t)) if t.is(&n, &u, &over) => {}
+      (Some((n, u, owned, hs, over)), _) => {
         self.hide_tip();
         let blocked = self.res.blocked.contains(&n, &u);
-        self.tip = Some(Tip::new(&n, &u, owned, hs, blocked, self.pointer));
+        self.tip = Some(Tip::new(&n, &u, owned, hs, blocked, self.pointer, &over));
         self.tip_repaint();
       }
     }
