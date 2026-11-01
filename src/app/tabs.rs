@@ -75,7 +75,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
   let mut view = ChatView::new(SCROLLBACK, first);
   view.tags = tags(&sources);
   view.filtered = true;
-  Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, sources, target: 0 }
+  Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, event: false, sources, target: 0 }
 }
 
 // source tags show on merged tabs and on anything not plain twitch
@@ -123,6 +123,7 @@ impl App {
     self.active = i;
     if let Some(t) = self.tabs.get_mut(i) {
       t.unread = false;
+      t.event = false;
       t.view.invalidate();
     }
     self.bar_dirty = true;
@@ -384,6 +385,9 @@ impl App {
     let (x, y) = self.pointer;
     let Some(p) = self.tab_at(x, y).filter(|&p| p < self.bar_map.len()) else { return };
     let i = self.bar_map[p];
+    if self.acknowledge(i) {
+      return;
+    }
     let at = (self.bar_hits[p].x, self.bar().bottom());
     let items = match self.tabs[i].kind {
       Kind::Chat if self.tabs[i].sources.is_empty() => return,
@@ -392,6 +396,21 @@ impl App {
     };
     self.tab_menu = Some(TabMenu { menu: Menu::new(items, at), tab: i });
     self.tab_menu_changed();
+  }
+
+  // right-click on a tab calling for you (mentions red, whispers cyan, a stream line yellow) clears
+  // the call without opening it; a plain unread chat tab keeps its menu (ext tab contextmenu)
+  fn acknowledge(&mut self, i: usize) -> bool {
+    let t = &mut self.tabs[i];
+    let hit = match t.kind {
+      Kind::Mentions | Kind::Whispers => std::mem::take(&mut t.unread),
+      _ => std::mem::take(&mut t.event),
+    };
+    if hit {
+      self.bar_dirty = true;
+      self.wake();
+    }
+    hit
   }
 
   pub(super) fn tab_menu_changed(&mut self) {

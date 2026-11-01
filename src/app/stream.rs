@@ -15,11 +15,16 @@ fn color(t: Tone) -> u32 {
 }
 
 impl App {
-  fn say_line(&mut self, tab: usize, platform: Platform, text: &str, tone: Tone) {
+  pub(super) fn say_line(&mut self, tab: usize, platform: Platform, text: &str, tone: Tone) {
     let mut m = Message::system(now_ms(), platform, text);
     m.color = color(tone);
     self.tabs[tab].view.push(m);
     self.touched(tab);
+    // the channel's own news (not the chat-spike line) turns an unwatched tab yellow
+    if tone != Tone::Moment && tab != self.active && !self.tabs[tab].event {
+      self.tabs[tab].event = true;
+      self.bar_dirty = true;
+    }
   }
 
   pub(super) fn on_stream(&mut self, l: Line) {

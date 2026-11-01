@@ -103,7 +103,7 @@ pub static KEYS: [Group; 9] = [
       ("alt-1 .. alt-9", "jump to a tab"),
       ("ctrl-tab", "next tab (shift for previous)"),
       ("click", "open a tab; the gear is settings"),
-      ("right-click", "edit, remove or hide a tab"),
+      ("right-click", "clear a red, cyan or yellow tab; else edit, remove or hide it"),
     ],
   },
   Group {

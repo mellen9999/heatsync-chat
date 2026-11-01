@@ -33,7 +33,7 @@ fn make(kind: Kind) -> Tab {
     Kind::Feed => "loading...",
     Kind::Chat => "",
   });
-  Tab { name: name.into(), kind, view, unread: false, sources: Vec::new(), target: 0 }
+  Tab { name: name.into(), kind, view, unread: false, event: false, sources: Vec::new(), target: 0 }
 }
 
 impl App {

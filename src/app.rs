@@ -88,6 +88,8 @@ struct Tab {
   kind: Kind,
   view: ChatView,
   unread: bool,
+  // a stream line (live, offline, game switch) landed while you were elsewhere: the tab reads yellow
+  event: bool,
   // every feed merged into this tab: (platform, routing key)
   sources: Vec<(Platform, Box<str>)>,
   // which source the input sends to (ctrl-n cycles on merged tabs)
@@ -223,6 +225,7 @@ impl App {
         kind: Kind::Chat,
         view: ChatView::new(SCROLLBACK, FLOOD_TAB.into()),
         unread: false,
+        event: false,
         sources: Vec::new(),
         target: 0,
       });
@@ -593,6 +596,7 @@ impl App {
       self.card = None;
       self.pop = None;
       self.tabs[i].unread = false;
+      self.tabs[i].event = false;
       self.tabs[i].view.invalidate();
       self.bar_dirty = true;
       self.input_dirty = true;
@@ -836,9 +840,10 @@ impl App {
           let hot = match t.kind {
             Kind::Mentions => crate::ui::theme::RED,
             Kind::Whispers => crate::ui::theme::CYAN,
+            _ if t.event => crate::ui::theme::YELLOW,
             _ => crate::ui::theme::WHITE,
           };
-          TabLabel { name: &t.name, active: i == self.active, unread: t.unread, hot }
+          TabLabel { name: &t.name, active: i == self.active, unread: t.unread || t.event, hot }
         })
         .collect();
       let bar = self.bar();
@@ -1970,6 +1975,49 @@ mod live {
       c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
       let _ = std::fs::write(path, out);
     }
+  }
+
+  // a stream line turns an unwatched tab yellow, and right-click clears a red, cyan or yellow tab
+  // without opening it or its menu, offline (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_ack -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_tab_ack() {
+    use crate::model::stream_events::Tone;
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.canvas.resize(720, 360);
+    let at = |app: &App, k: Kind| app.tabs.iter().position(|t| t.kind == k).unwrap();
+    let (feed, flood) = (at(&app, Kind::Feed), app.tabs.iter().position(|t| &*t.name == FLOOD_TAB).unwrap());
+    let (mentions, whispers) = (at(&app, Kind::Mentions), at(&app, Kind::Whispers));
+    app.select(feed);
+    app.say_line(flood, Platform::Twitch, "switched to chess", Tone::Switch);
+    assert!(app.tabs[flood].event && app.tabs[flood].unread, "the news turns the tab yellow");
+    app.say_line(flood, Platform::Twitch, "[🔥] chat is popping", Tone::Moment);
+    app.tabs[mentions].unread = true;
+    app.tabs[whispers].unread = true;
+    let right_click = |app: &mut App, i: usize| {
+      app.bar_dirty = true;
+      app.redraw();
+      let p = app.bar_map.iter().position(|&t| t == i).expect("the tab is in the bar");
+      let r = app.bar_hits[p];
+      app.pointer = (r.x + r.w / 2, r.y + r.h / 2);
+      app.right_click();
+    };
+    right_click(&mut app, flood);
+    assert!(!app.tabs[flood].event && app.tabs[flood].unread, "yellow clears, the plain unread stays");
+    for i in [mentions, whispers] {
+      right_click(&mut app, i);
+      assert!(!app.tabs[i].unread && app.tab_menu.is_none(), "cleared, no menu");
+    }
+    assert_eq!(app.active, feed, "nothing was opened");
+    right_click(&mut app, mentions);
+    assert!(app.tab_menu.is_some(), "a quiet tab still gets its menu");
+    // opening a yellow tab clears it too
+    app.tab_menu = None;
+    app.say_line(flood, Platform::Twitch, "went offline", Tone::Offline);
+    app.select(flood);
+    assert!(!app.tabs[flood].event);
   }
 
   // a click on a reply's >>id opens its parent's thread with the reply picked out, and a click on

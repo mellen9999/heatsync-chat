@@ -1,4 +1,4 @@
-// one row of tabs: active reversed (white bg, black text), unread bold, status dim at the end.
+// one row of tabs: active reversed (white bg, black text), unread bold in its call color, status dim at the end.
 // a `+` after the last tab adds one; hover reverses it like the active tab
 use super::canvas::{Canvas, Rect};
 use super::mode_label::{self, Seg};
@@ -9,7 +9,8 @@ pub struct TabLabel<'a> {
   pub name: &'a str,
   pub active: bool,
   pub unread: bool,
-  // the color of an unread tab: white for chat, red for mentions, cyan for whispers (the ext's)
+  // the color of an unread tab: white for chat, yellow after a stream line, red for mentions, cyan
+  // for whispers (the ext's)
   pub hot: u32,
 }
 
