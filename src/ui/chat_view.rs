@@ -1313,13 +1313,18 @@ impl ChatView {
       let top = bottom - r.height;
       if top < clip.bottom() && bottom > clip.y {
         let row = Rect::new(area.x, top, area.w, r.height);
-        let bg = if zebra && r.seq % 2 == 0 { theme::ZEBRA } else { theme::BLACK };
+        let stripe = zebra && r.seq % 2 == 0;
+        let bg = match (r.msg.has(flag::ALERT), stripe) {
+          (true, true) => theme::MENTION_STRIPE,
+          (true, false) => theme::MENTION_BG,
+          (false, true) => theme::ZEBRA,
+          (false, false) => theme::BLACK,
+        };
         if bg != theme::BLACK {
           c.fill(row.intersect(clip), bg);
         }
-        let mark = if r.msg.has(flag::ALERT) {
-          Some(theme::RED)
-        } else if r.msg.has(flag::BRAND) {
+        // a mention's signal is its red fill (ext), so it takes no edge of its own
+        let mark = if r.msg.has(flag::BRAND) {
           Some(theme::HEATSYNC)
         } else if r.msg.has(flag::FIRST) {
           Some(theme::MAGENTA)
@@ -2098,7 +2103,7 @@ mod tests {
   }
 
   #[test]
-  fn alert_lines_get_a_red_edge_and_copies_keep_their_room() {
+  fn alert_lines_get_the_mention_fill_and_copies_keep_their_room() {
     use crate::model::message::{Extra, Seg};
     let mut res = Res::new(1.0);
     let mut v = ChatView::new(10, "c".into());
@@ -2114,9 +2119,16 @@ mod tests {
     let mut c = Canvas::new(400, 80);
     v.draw(&mut c, &mut res, area, area);
     let edge = |y: usize| c.px[y * 400];
-    // newest line sits at the bottom, red; the one above it has no edge
-    assert_eq!(edge(70), theme::RED);
+    // newest line sits at the bottom, on the dark red fill; the one above it stays black
+    assert_eq!(edge(70), theme::MENTION_BG);
     assert_eq!(edge(50), theme::BLACK);
+    // on a zebra row a mention takes the lighter red, never the gray stripe
+    v.zebra = true;
+    v.draw(&mut c, &mut res, area, area);
+    let (ping, plain_row) = (c.px[70 * 400 + 200], c.px[50 * 400 + 200]);
+    assert!([theme::MENTION_BG, theme::MENTION_STRIPE].contains(&ping), "{ping:06x}");
+    assert!([theme::BLACK, theme::ZEBRA].contains(&plain_row), "{plain_row:06x}");
+    assert_ne!(ping == theme::MENTION_STRIPE, plain_row == theme::ZEBRA, "stripes alternate");
     // a copied line draws a room tag and head/tail segs around the name
     let mut x = plain("c", "hi");
     x.x = Some(Box::new(Extra {
