@@ -244,6 +244,9 @@ impl App {
     tabs.splice(0..0, builtin::make_all());
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
+    for t in &tabs {
+      tabs::seat_hosts(&mut res.chatters, &t.sources);
+    }
     res.arts.set_motion(set.paint_motion);
     if flood {
       crate::fake::seed_paints(&mut res.cosmetics);
@@ -1956,6 +1959,7 @@ mod live {
         ("ch follow", "2y".into()),
       ],
       color: None,
+      twitch_name: None,
       twitch_id: None,
     };
     app.on_net(NetEvent::Card { platform: Platform::Twitch, login: "alice".into(), res: Ok(info) });

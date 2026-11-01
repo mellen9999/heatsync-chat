@@ -94,8 +94,10 @@ pub struct Person {
 struct Chatter {
   color: u32,
   paint: Option<PaintId>,
-  // heard speaking (a bare name may only match these)
+  // heard speaking (a bare name may only match these, and channel owners)
   spoke: bool,
+  // the owner of a channel we sit in
+  host: bool,
 }
 
 #[derive(Default)]
@@ -146,7 +148,27 @@ impl Chatters {
     }
     let key =
       if key.bytes().any(|b| b.is_ascii_uppercase()) { key.to_ascii_lowercase().into() } else { m.login.clone() };
-    map.insert(key, Chatter { color: m.color, paint, spoke: true });
+    map.insert(key, Chatter { color: m.color, paint, spoke: true, host: false });
+  }
+
+  // a channel we sit in: its owner is a known person (bare name hovers like one who spoke), their
+  // color and paint asked for like any stranger's. twitch and kick channel keys are the owner's login
+  pub fn host(&mut self, p: Platform, login: &str) {
+    if p == Platform::Youtube || self.person(p, login, true).is_none() {
+      return;
+    }
+    let mut buf = [0u8; NAME_MAX];
+    let Some(l) = lower(login, &mut buf) else { return };
+    let map = &mut self.by[slot(p)];
+    match map.get_mut(l) {
+      Some(c) => c.host = true,
+      None => {
+        if map.len() >= CAP {
+          shed(map);
+        }
+        map.insert(l.into(), Chatter { color: theme::WHITE, paint: None, spoke: false, host: true });
+      }
+    }
   }
 
   // a lookup answered: the color heatsync has for them, and the twitch id their paints hang off.
@@ -168,7 +190,7 @@ impl Chatters {
     if map.len() >= CAP {
       shed(map);
     }
-    map.insert(l.into(), Chatter { color, paint, spoke: false });
+    map.insert(l.into(), Chatter { color, paint, spoke: false, host: false });
   }
 
   // the person a name in text means, or None when it is plain text. an unknown `@name` is white
@@ -178,7 +200,7 @@ impl Chatters {
     let l = lower(name, &mut buf)?;
     let k = slot(p);
     match self.by[k].get(l) {
-      Some(c) if at || (c.spoke && !stop(l)) => Some(Person { color: c.color, paint: c.paint.clone() }),
+      Some(c) if at || ((c.spoke || c.host) && !stop(l)) => Some(Person { color: c.color, paint: c.paint.clone() }),
       Some(_) => None,
       None if at => {
         if self.want.len() < WANT_MAX && !self.asked[k].contains(l) && !self.want.iter().any(|w| w.0 == p && *w.1 == *l)

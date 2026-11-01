@@ -6,8 +6,8 @@ use crate::images::url::allowed;
 use crate::model::color::parse_hex;
 
 // twitch's own public web client id; anonymous reads only
-const GQL_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
-const GQL: &str = "https://gql.twitch.tv/gql";
+pub(crate) const GQL_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+pub(crate) const GQL: &str = "https://gql.twitch.tv/gql";
 const MAX_USERS: usize = 100_000;
 const MAX_BADGES: usize = 2000;
 

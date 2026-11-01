@@ -2007,6 +2007,32 @@ mod tests {
   }
 
   #[test]
+  fn a_channel_owner_answers_the_pointer_by_bare_name_without_speaking() {
+    let mut res = Res::new(1.0);
+    res.chatters.host(Platform::Twitch, "nl_kripp");
+    assert_eq!(res.chatters.take_wanted(), vec![(Platform::Twitch, "nl_kripp".into())]);
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(700);
+    v.push(said("bob", "gg nl_kripp"));
+    let area = Rect::new(0, 0, 700, 200);
+    let mut c = Canvas::new(700, 200);
+    v.draw(&mut c, &mut res, area, area);
+    let hit = |v: &mut ChatView, res: &mut Res| {
+      (0..700)
+        .step_by(2)
+        .find_map(|x| (0..200).find_map(|y| v.who_at(area, x, y, res)?.mention))
+        .map(|n| (n.login, n.color))
+    };
+    assert_eq!(hit(&mut v, &mut res), Some(("nl_kripp".into(), theme::WHITE)));
+    // their color lands from the lookup
+    res.chatters.learned(Platform::Twitch, "nl_kripp", theme::CYAN, None);
+    v.touch_person(Platform::Twitch, "nl_kripp");
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(hit(&mut v, &mut res), Some(("nl_kripp".into(), theme::CYAN)));
+  }
+
+  #[test]
   fn a_painted_mention_is_drawn_from_its_bitmap() {
     use crate::cosmetics::{Cosmetic, paint::Paint as P};
     let mut res = Res::new(1.0);

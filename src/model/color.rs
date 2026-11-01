@@ -14,7 +14,7 @@ pub fn default_for(login: &str) -> u32 {
 }
 
 pub fn parse_hex(s: &str) -> Option<u32> {
-  let h = s.strip_prefix('#')?;
+  let h = s.strip_prefix('#').filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()))?;
   match h.len() {
     6 => u32::from_str_radix(h, 16).ok(),
     3 => {

@@ -12,9 +12,11 @@ pub struct Info {
   pub registered: bool,
   // (label, value), in the ext's order
   pub rows: Vec<(&'static str, String)>,
-  // the name color they picked on heatsync (ext hsResolveUserColor step 2; the twitch lookup it tries
-  // first goes to a third party, so it is not used here)
+  // their name color: twitch's own when the net layer fetched it (ext hsResolveUserColor step 1,
+  // see `chat_color`), else the one they picked on heatsync (step 2)
   pub color: Option<u32>,
+  // the twitch login linked to their heatsync account: who step 1 asks twitch about
+  pub twitch_name: Option<Box<str>>,
   // their twitch user id: what their paints hang off
   pub twitch_id: Option<u64>,
 }
@@ -148,7 +150,17 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .and_then(|p| ["/twitch_user_id", "/twitch_id"].iter().find_map(|k| p.pointer(k)))
     .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
     .filter(|n| *n > 0);
-  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_id }
+  let twitch_name = real
+    .and_then(|p| text(p, "/twitch_username"))
+    .filter(|n| (1..=25).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    .map(Into::into);
+  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_name, twitch_id }
+}
+
+// the color out of twitch's `user(login){chatColor}` answer. the body is hostile: anything but
+// `#rgb` / `#rrggbb` in the right place is no color (a user who never picked one answers null)
+pub fn chat_color(v: &Value) -> Option<u32> {
+  v.pointer("/data/user/chatColor").and_then(Value::as_str).and_then(crate::model::color::parse_hex)
 }
 
 #[cfg(test)]
@@ -194,6 +206,46 @@ mod tests {
     assert_eq!(get("ch follow").as_deref(), Some("2y"));
     assert_eq!(get("seen").as_deref(), Some("420 msgs over 1y 10mo"));
     assert_eq!((i.color, i.twitch_id), (None, None));
+  }
+
+  #[test]
+  fn twitch_chat_color_survives_hostile_answers() {
+    let ok = |c: Value| chat_color(&json!({ "data": { "user": { "chatColor": c } } }));
+    assert_eq!(ok(json!("#1E90FF")), Some(0x1e90ff));
+    assert_eq!(ok(json!("#f80")), Some(0xff8800));
+    for bad in [
+      json!(null),
+      json!(""),
+      json!("#"),
+      json!("1E90FF"),
+      json!("#+12345"),
+      json!("#12345g"),
+      json!("#1E90FF00"),
+      json!(5),
+      json!(["#fff"]),
+      json!("#\u{202e}abcd"),
+    ] {
+      assert_eq!(ok(bad.clone()), None, "{bad}");
+    }
+    for bad in [
+      json!(null),
+      json!([]),
+      json!("x"),
+      json!({ "data": null }),
+      json!({ "data": { "user": null } }),
+      json!({ "data": [1] }),
+    ] {
+      assert_eq!(chat_color(&bad), None);
+    }
+  }
+
+  #[test]
+  fn only_a_sane_linked_twitch_login_is_asked_about() {
+    let name = |n: Value| parse(&json!({ "profile": { "twitch_username": n } }), NOW).twitch_name;
+    assert_eq!(name(json!("nl_kripp")).as_deref(), Some("nl_kripp"));
+    for bad in [json!(""), json!("a b"), json!("x".repeat(26)), json!("é"), json!(7), json!("a\"}")] {
+      assert_eq!(name(bad), None);
+    }
   }
 
   #[test]

@@ -40,6 +40,13 @@ pub(super) fn join(net: &crate::net::Net, p: Platform, key: &str) {
   }
 }
 
+// a twitch channel's owner is someone you can name in it, spoken or not
+pub(super) fn seat_hosts(c: &mut crate::model::chatters::Chatters, sources: &[(Platform, Box<str>)]) {
+  for (p, key) in sources {
+    c.host(*p, key);
+  }
+}
+
 pub(super) fn sources_of(s: &Spec) -> Vec<(Platform, Box<str>)> {
   let mut v = Vec::with_capacity(3);
   if !s.twitch.is_empty() {
@@ -165,6 +172,7 @@ impl App {
   fn add_tab(&mut self, spec: &Spec) {
     let mut tab = make_tab(&self.net, spec);
     tab.view.resize(self.canvas.w);
+    seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
     self.status.clear();
     self.save_tabs();
@@ -178,6 +186,7 @@ impl App {
         join(&self.net, *p, key);
       }
     }
+    seat_hosts(&mut self.res.chatters, &new);
     let old = std::mem::replace(&mut self.tabs[i].sources, new.clone());
     let t = &mut self.tabs[i];
     let first = new.first().map_or(Box::from(""), |s| s.1.clone());

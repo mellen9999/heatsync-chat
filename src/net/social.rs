@@ -148,8 +148,33 @@ async fn card(
     req = req.bearer_auth(t);
   }
   let (status, v) = call(req).await;
-  let res = if status == 200 { Ok(crate::model::card::parse(&v, crate::util::time::now_ms())) } else { Err(status) };
+  let mut res =
+    if status == 200 { Ok(crate::model::card::parse(&v, crate::util::time::now_ms())) } else { Err(status) };
+  // a linked twitch account keeps its twitch color (ext hsResolveUserColor step 1). one anonymous
+  // read, 3s at most; a miss just leaves the heatsync color. the answer is cached with the card
+  if let Ok(info) = &mut res
+    && platform == Platform::Twitch
+    && let Some(name) = &info.twitch_name
+    && let Some(c) = twitch_color(http, name).await
+  {
+    info.color = Some(c);
+  }
   void(out.send(NetEvent::Card { platform, login, res }))
+}
+
+// twitch's own chat color for a login: the public web gql, no auth (ext hsResolveUserColor)
+async fn twitch_color(http: &reqwest::Client, login: &str) -> Option<u32> {
+  let body = json!({
+    "query": "query($login:String!){user(login:$login){chatColor}}",
+    "variables": { "login": login },
+  });
+  let req = http
+    .post(crate::badges::fetch::GQL)
+    .header("Client-Id", crate::badges::fetch::GQL_CLIENT_ID)
+    .timeout(std::time::Duration::from_secs(3))
+    .body(body.to_string());
+  let (status, v) = call(req).await;
+  (status == 200).then(|| crate::model::card::chat_color(&v)).flatten()
 }
 
 // the OP and its replies, replies oldest first (the server pages newest first)
