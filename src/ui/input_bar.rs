@@ -5,6 +5,7 @@ use parley::editing::{Cursor, Selection};
 
 use super::canvas::{Canvas, Rect};
 use super::logo::Logo;
+use super::mode_label::{self, Seg};
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
 use crate::model::line::Line;
@@ -29,6 +30,20 @@ pub struct Bar<'a> {
   // the upload button: an upload is running, the path prompt is open or the pointer is on it
   pub upload_on: bool,
   pub logo: &'a Logo,
+  // vi mode line (empty with vi keys off) and the half-typed command
+  pub label: &'a [Seg],
+  pub showcmd: &'a str,
+}
+
+// the left gutter: wide enough for the widest short label, so the typed text never moves
+fn gutter(text: &mut Text, b: &Bar) -> f32 {
+  if b.label.is_empty() {
+    return 0.0;
+  }
+  let w = text.layout(mode_label::WIDEST, &[], &[], f32::MAX).full_width();
+  // a long label (select hint) only shows over an empty box, so it may outgrow the gutter
+  let long = text.layout(&mode_label::text(b.label), &[], &[], f32::MAX).full_width();
+  (if b.line.text.is_empty() { long.max(w) } else { w }) + text.line_px * 0.5
 }
 
 // the heatsync logo button at the right end of the first row
@@ -79,7 +94,8 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
     s.push_str(b.preedit);
     s.push_str(tail);
   }
-  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0;
+  let cmd = if b.label.is_empty() { 0.0 } else { text.layout("00000", &[], &[], f32::MAX).full_width() };
+  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd;
   Laid { l: text.layout(&s, &spans, &[], room), at, pre }
 }
 
@@ -120,8 +136,20 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
   let cur = Cursor::from_byte_index(l, caret, Affinity::Downstream).geometry(l, CURSOR_W as f32);
   let overflow = (l.height() - area.h as f32).max(0.0);
   let shift = (cur.y1 as f32 - area.h as f32).clamp(0.0, overflow);
-  let (ox, oy) = (area.x as f32 + theme::PAD_X, area.y as f32 - shift);
+  let gut = gutter(text, b);
+  let (ox, oy) = (area.x as f32 + theme::PAD_X + gut, area.y as f32 - shift);
   text.draw(l, c, ox, oy, area, |_, _| {});
+  if !b.label.is_empty() {
+    let s = mode_label::text(b.label);
+    let ll = text.layout(&s, &mode_label::spans(b.label), &[], f32::MAX);
+    text.draw(&ll, c, area.x as f32 + theme::PAD_X, area.y as f32, area, |_, _| {});
+    if !b.showcmd.is_empty() {
+      let sl =
+        text.layout(b.showcmd, &[Span { range: 0..b.showcmd.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
+      let x = upload_button(area, text.line_px as i32).x as f32 - sl.full_width() - theme::PAD_X;
+      text.draw(&sl, c, x, area.y as f32, area, |_, _| {});
+    }
+  }
   underline(c, l, g.pre.clone(), ox, oy, area);
   let (x, y, h) = ((ox + cur.x0 as f32) as i32, (oy + cur.y0 as f32) as i32, (cur.y1 - cur.y0) as i32);
   match b.mode {

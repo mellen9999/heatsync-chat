@@ -59,6 +59,7 @@ use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::chat_view::{ChatView, Paint};
 use crate::ui::form::Hit;
 use crate::ui::input_bar;
+use crate::ui::mode_label;
 use crate::ui::res::Res;
 use crate::ui::tab_bar::{self, TabLabel};
 use crate::ui::union;
@@ -127,6 +128,8 @@ pub struct App {
   line: Line,
   mode: Mode,
   vi: Vi,
+  // the vi mode line last drawn: a change repaints the bar
+  shown_mode: (Vec<mode_label::Seg>, String, bool),
   set: Settings,
   complete: Option<Complete>,
   // replying to: (platform message id, @nick), sent with the next line
@@ -268,6 +271,7 @@ impl App {
       line: Line::default(),
       mode: if set.vi { Mode::Chat } else { Mode::Insert },
       vi: Vi::default(),
+      shown_mode: Default::default(),
       set,
       complete: None,
       reply: None,
@@ -731,8 +735,26 @@ impl App {
     }
   }
 
+  // the vi mode line for what the box is doing right now, and the half-typed command
+  fn mode_line(&self) -> (Vec<mode_label::Seg>, String) {
+    if self.prompt.is_some() {
+      return (Vec::new(), String::new());
+    }
+    let short = !self.line.text.is_empty() && !self.hidden();
+    let segs = mode_label::segs(self.set.vi, self.mode, self.selecting(), short);
+    let cmd = if segs.is_empty() || self.mode != Mode::Normal { String::new() } else { self.vi.showcmd() };
+    (segs, cmd)
+  }
+
   fn redraw(&mut self) {
     let mut dirty: Option<Rect> = None;
+    let (label, showcmd) = self.mode_line();
+    let hidden_now = self.hidden();
+    if (&label, &showcmd, hidden_now) != (&self.shown_mode.0, &self.shown_mode.1, self.shown_mode.2) {
+      self.shown_mode = (label.clone(), showcmd.clone(), hidden_now);
+      self.input_dirty = true;
+      self.bar_dirty = true;
+    }
     if std::mem::take(&mut self.input_dirty) {
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
       let hint = match &self.prompt {
@@ -759,6 +781,8 @@ impl App {
         picker_on: self.picker.is_some() || self.btn_hover,
         upload_on: self.uploading || (self.prompt.is_some() && !self.finding) || self.up_hover,
         logo: &self.res.logo,
+        label: if hidden { &[] } else { &label },
+        showcmd: &showcmd,
       };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
       if h != self.input_h {
@@ -809,6 +833,7 @@ impl App {
         bar,
         &labels,
         &self.status,
+        if hidden_now { (&label, &showcmd) } else { (&[], "") },
         (self.plus_hover, self.gear_hover || self.screen.is_some()),
       );
       self.bar_map = shown;

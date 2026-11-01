@@ -6,6 +6,7 @@ pub mod form;
 pub mod input_bar;
 pub mod logo;
 pub mod menu;
+pub mod mode_label;
 pub mod name_art;
 pub mod picker;
 pub mod pin_bar;

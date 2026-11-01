@@ -228,6 +228,11 @@ impl Vi {
     self.count == 0 && self.op.is_none() && self.pending.is_none()
   }
 
+  // vim's showcmd: the half-typed command
+  pub fn showcmd(&self) -> String {
+    crate::ui::mode_label::showcmd(self.count, self.op.map(|o| (self.op_n, o)), self.pending)
+  }
+
   // the line changed under us (history, send): drop undo state
   pub fn reset(&mut self) {
     self.cancel();
