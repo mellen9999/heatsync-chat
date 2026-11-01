@@ -247,6 +247,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let Opts { ts, tags, find } = o;
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
+  let mut reply = None;
   // a line copied into another tab (mentions) still resolves against its own room
   let x = m.x.as_deref();
   let chan = room(m, chan);
@@ -260,7 +261,22 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     s.push('\n');
   }
   if let Some(parent) = m.reply_to.as_ref().filter(|_| !muted) {
-    dim(&mut s, &mut spans, &format!("↳ @{parent}\n"));
+    dim(&mut s, &mut spans, "↳ ");
+    // the parent is always an `@name`: the same person (color, paint, lookup, hover) as one in the words
+    let a = s.len();
+    s.push('@');
+    s.push_str(parent);
+    let found = crate::model::chatters::names(&s[a..]);
+    if let [f] = &found[..]
+      && f.full == (0..s.len() - a)
+      && let Some(p) = res.chatters.person(m.platform, &s[a + f.name.start..], true)
+    {
+      let login = parent.to_ascii_lowercase().into();
+      reply = Some(Mention { range: a..s.len(), login, color: p.color, paint: p.paint, art: None });
+    } else {
+      spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
+    }
+    s.push('\n');
   }
   if ts {
     dim(&mut s, &mut spans, &hhmm(m.ts));
@@ -343,6 +359,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
     words = b0..s.len();
+    mentions.splice(0..0, reply);
     // people named in the words wear their color, bold, over the line's ink; a painted one is drawn
     // from its own bitmap. a deleted line stays dim
     if m.has(flag::CLEARED) {
@@ -1952,6 +1969,41 @@ mod tests {
         .step_by(2)
         .all(|x| (150..200).all(|y| w.who_at(area, x, y, &mut res).is_none_or(|h| h.mention.is_none())))
     );
+  }
+
+  #[test]
+  fn a_reply_headers_name_is_a_mention() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(700);
+    let mut m = said("bob", "lol");
+    m.reply_to = Some("NL_Kripp".into());
+    v.push(m);
+    let area = Rect::new(0, 0, 700, 200);
+    let mut c = Canvas::new(700, 200);
+    v.draw(&mut c, &mut res, area, area);
+    let ids = |v: &mut ChatView, res: &mut Res| {
+      let mut seen: Vec<(Box<str>, u32)> = Vec::new();
+      for x in (0..700).step_by(2) {
+        for y in 0..200 {
+          if let Some(n) = v.who_at(area, x, y, res).and_then(|h| h.mention) {
+            let k = (n.login, n.color);
+            if !seen.contains(&k) {
+              seen.push(k);
+            }
+          }
+        }
+      }
+      seen
+    };
+    // unknown: white, and a lookup is asked for
+    assert_eq!(ids(&mut v, &mut res), vec![("nl_kripp".into(), theme::WHITE)]);
+    assert_eq!(res.chatters.take_wanted(), vec![(Platform::Twitch, "nl_kripp".into())]);
+    res.chatters.learned(Platform::Twitch, "nl_kripp", theme::CYAN, None);
+    v.touch_person(Platform::Twitch, "nl_kripp");
+    v.draw(&mut c, &mut res, area, area);
+    assert_eq!(ids(&mut v, &mut res), vec![("nl_kripp".into(), theme::CYAN)]);
   }
 
   #[test]
