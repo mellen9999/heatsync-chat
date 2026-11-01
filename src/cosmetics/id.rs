@@ -2,7 +2,7 @@
 // SAFETY). a kick numeric id can equal an unrelated twitch id, so the platform is part of the key
 // everywhere (cache, art, queues) and a bare number never crosses over. wire form = what
 // `/api/paints` and `/api/cosmetics/batch` take: `123`, `kick_123`, `yt_UC…`, or a native users.id
-use crate::model::message::{Message, Platform};
+use crate::model::message::Message;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum PaintId {
@@ -59,12 +59,7 @@ impl PaintId {
     if let Some(p) = m.x.as_deref().and_then(|x| x.paint.as_ref()) {
       return Some(p.clone());
     }
-    let platform = match m.platform {
-      Platform::Twitch => "twitch",
-      Platform::Kick => "kick",
-      Platform::Youtube => "youtube",
-    };
-    Self::of(platform, &m.user_id)
+    Self::of(m.platform.name(), &m.user_id)
   }
 
   pub fn wire(&self) -> String {

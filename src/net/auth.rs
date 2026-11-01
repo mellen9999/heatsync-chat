@@ -232,6 +232,18 @@ impl Me {
   pub fn has_pack(&self, pack: &str) -> bool {
     self.packs.iter().any(|p| &**p == pack)
   }
+
+  // who a chat send on this platform goes out as: the linked platform name, else the account's
+  // own name when it was founded there. never the heatsync name of some other platform
+  pub fn name_on(&self, p: crate::model::message::Platform) -> Option<&str> {
+    use crate::model::message::Platform;
+    let linked = match p {
+      Platform::Twitch => self.twitch.as_deref(),
+      Platform::Kick => self.kick.as_deref(),
+      Platform::Youtube => self.youtube.as_deref(),
+    };
+    linked.or_else(|| (&*self.platform == p.name()).then_some(&*self.username))
+  }
 }
 
 pub enum Check {
@@ -312,6 +324,24 @@ pub async fn logout(http: &reqwest::Client, token: &str) {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::model::message::Platform;
+
+  #[test]
+  fn sends_go_out_as_the_platform_name() {
+    let me = Me {
+      platform: "youtube".into(),
+      username: "mellenpvp".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: None,
+      names: vec![],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    };
+    assert_eq!(me.name_on(Platform::Twitch), Some("mellen"));
+    assert_eq!(me.name_on(Platform::Youtube), Some("mellenpvp"));
+    assert_eq!(me.name_on(Platform::Kick), None);
+  }
 
   #[test]
   fn chat_token_parses_for_any_sign_in() {

@@ -8,6 +8,16 @@ pub enum Platform {
   Youtube,
 }
 
+impl Platform {
+  pub fn name(self) -> &'static str {
+    match self {
+      Platform::Twitch => "twitch",
+      Platform::Kick => "kick",
+      Platform::Youtube => "youtube",
+    }
+  }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
   Chat,

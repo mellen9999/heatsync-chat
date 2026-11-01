@@ -439,9 +439,11 @@ impl App {
       };
     }
     let lead = if self.set.vi { "i type" } else { "type to chat" };
-    match &self.me {
-      None => format!("ctrl-l log in · {lead}"),
-      Some(me) => format!("{lead} as {}", me.username),
+    let Some(me) = &self.me else { return format!("ctrl-l log in · {lead}") };
+    let Some((p, ..)) = self.target() else { return lead.into() };
+    match me.name_on(p) {
+      Some(name) => format!("{lead} as {name}"),
+      None => format!("{} isn't linked · ctrl-l to link it", p.name()),
     }
   }
 

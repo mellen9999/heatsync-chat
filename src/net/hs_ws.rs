@@ -36,11 +36,7 @@ pub enum Cmd {
 }
 
 fn plat(p: Platform) -> &'static str {
-  match p {
-    Platform::Twitch => "twitch",
-    Platform::Kick => "kick",
-    Platform::Youtube => "youtube",
-  }
+  p.name()
 }
 
 pub fn valid_key(k: &str) -> bool {

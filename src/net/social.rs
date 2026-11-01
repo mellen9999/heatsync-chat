@@ -133,11 +133,7 @@ async fn card(
   channel: Option<Box<str>>,
   out: &Out,
 ) {
-  let who = match platform {
-    Platform::Twitch => "twitch",
-    Platform::Kick => "kick",
-    Platform::Youtube => "youtube",
-  };
+  let who = platform.name();
   let mut body = json!({ "platform": who, "login": &*login });
   if let Some(c) = channel.filter(|_| platform == Platform::Twitch) {
     body["channel"] = json!(&*c);
