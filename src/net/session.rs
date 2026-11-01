@@ -25,14 +25,16 @@ pub enum Cmd {
   // which platform to sign in with, and the twitch permission pack to ask for ("base", or
   // "whispers" to add twitch whispers; the other platforms ignore it)
   Login(Provider, &'static str),
-  // attach another platform to the signed-in account
-  Link(Provider),
+  // attach another platform to the signed-in account; `pack` is "base", or "post" to also allow
+  // sending youtube chat (the youtube opt-in)
+  Link(Provider, &'static str),
   Logout,
   Emote(EmoteCmd),
   Upload(std::path::PathBuf),
   Pixels(u32, u32, Vec<u8>),
   Pick,
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
+  Youtube { chan: Box<str>, text: String },
   Social(super::social::Cmd),
   Mod(super::modact::Req),
   Mute(super::mutes::Op),
@@ -78,15 +80,15 @@ pub async fn run(
             }
           }
         }
-        Some(Cmd::Link(provider)) => match st.token.clone() {
+        Some(Cmd::Link(provider, pack)) => match st.token.clone() {
           None => st.out.status("log in first (ctrl-l)"),
           Some(cur) => {
             st.out.status(format!("finish linking {} in your browser…", provider.name()));
-            match auth::login(&st.http, provider, "base", Some(&cur)).await {
+            match auth::login(&st.http, provider, pack, Some(&cur)).await {
               Ok(t) => {
                 // same account, refreshed: the re-check picks up the new link (twitch chat logs in by itself)
                 st.token = Some(t);
-                st.out.status(format!("linked {}", provider.name()));
+                st.out.status(if pack == "post" { "youtube posting allowed".to_owned() } else { format!("linked {}", provider.name()) });
                 next = Instant::now();
               }
               Err(e) => {
@@ -110,6 +112,7 @@ pub async fn run(
         Some(Cmd::Pixels(w, h, px)) => st.pixels(w, h, px),
         Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
+        Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text).await,
         Some(Cmd::Mute(op)) => {
           tokio::spawn(super::mutes::run(st.http.clone(), st.token.clone(), op));
         }
@@ -234,6 +237,18 @@ impl State {
       Err(e) => self.out.status(format!("twitch chat: {e}")),
     }
     true
+  }
+
+  // like kick: success shows up through the relay, a refusal is a system line in the tab
+  async fn youtube(&mut self, chan: Box<str>, text: String) {
+    let why = match &self.token {
+      None => Some("log in to send (ctrl-l)".to_owned()),
+      Some(t) => super::youtube::send(&self.http, t, &chan, &text).await.err(),
+    };
+    if let Some(why) = why {
+      let m = Message::system(now_ms(), Platform::Youtube, format!("not sent: {why}"));
+      self.out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
+    }
   }
 
   async fn kick(&mut self, chan: Box<str>, text: String, reply: Option<Box<str>>) {

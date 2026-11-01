@@ -18,6 +18,8 @@ pub enum Act {
   Login(Provider),
   // attach another platform to the account we're signed in as
   Link(Provider),
+  // ask youtube for the extra permission to post chat as the user (opt-in, never at sign-in)
+  AllowYoutubePosting,
   Logout,
   // a mod action on the person the menu was opened for
   Do(Verb),
@@ -88,7 +90,7 @@ fn account_head(me: &Me) -> String {
   }
 }
 
-// the signed-in menu: a link row for each platform not linked yet, then log out
+// the signed-in menu: a link row for each platform not linked yet, the youtube posting opt-in once youtube is linked, then log out
 fn account_rows(me: &Me) -> Vec<(Act, String)> {
   let linked = [
     (Provider::Twitch, me.twitch.is_some()),
@@ -97,6 +99,9 @@ fn account_rows(me: &Me) -> Vec<(Act, String)> {
   ];
   let mut rows: Vec<(Act, String)> =
     linked.into_iter().filter(|(_, on)| !on).map(|(p, _)| (Act::Link(p), format!("link {}", p.name()))).collect();
+  if me.youtube.is_some() {
+    rows.push((Act::AllowYoutubePosting, "allow youtube posting".to_owned()));
+  }
   rows.push((Act::Logout, "log out".to_owned()));
   rows
 }
@@ -139,6 +144,10 @@ impl App {
       (Act::Link(provider), ..) => {
         self.status = format!("finish linking {} in your browser…", provider.name());
         self.net.send(Cmd::Link(provider));
+      }
+      (Act::AllowYoutubePosting, ..) => {
+        self.status = "finish allowing youtube posting in your browser…".to_owned();
+        self.net.send(Cmd::AllowYoutubePosting);
       }
       (Act::Logout, ..) => self.net.send(Cmd::Logout),
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
@@ -313,8 +322,16 @@ mod tests {
 
   #[test]
   fn fully_linked_account_only_logs_out() {
-    assert_eq!(labels(&me("twitch", true, true, true)), ["log out"]);
-    assert_eq!(labels(&me("twitch", true, false, true)), ["link kick", "log out"]);
+    assert_eq!(labels(&me("twitch", true, true, true)), ["allow youtube posting", "log out"]);
+    assert_eq!(labels(&me("twitch", true, false, true)), ["link kick", "allow youtube posting", "log out"]);
+  }
+
+  #[test]
+  fn posting_is_offered_only_with_youtube_linked() {
+    assert_eq!(labels(&me("kick", false, true, false)), ["link twitch", "link youtube", "log out"]);
+    let m = me("youtube", false, false, true);
+    assert_eq!(labels(&m), ["link twitch", "link kick", "allow youtube posting", "log out"]);
+    assert_eq!(account_rows(&m)[2].0, Act::AllowYoutubePosting);
   }
 
   #[test]

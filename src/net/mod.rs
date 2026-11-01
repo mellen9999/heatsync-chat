@@ -16,6 +16,7 @@ mod session;
 pub mod seventv;
 pub mod social;
 pub mod upload;
+mod youtube;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -151,6 +152,8 @@ pub enum Cmd {
   // sign in with this platform
   Login(auth::Provider),
   Link(auth::Provider),
+  // link youtube again, this time also asking to post chat as the user (the opt-in)
+  AllowYoutubePosting,
   Logout,
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
@@ -437,7 +440,10 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = sess_tx.send(session::Cmd::Login(p, "base"));
       }
       Cmd::Link(p) => {
-        let _ = sess_tx.send(session::Cmd::Link(p));
+        let _ = sess_tx.send(session::Cmd::Link(p, "base"));
+      }
+      Cmd::AllowYoutubePosting => {
+        let _ = sess_tx.send(session::Cmd::Link(auth::Provider::Youtube, "post"));
       }
       Cmd::Mute(op) => {
         let _ = sess_tx.send(session::Cmd::Mute(op));
@@ -472,9 +478,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Send { platform: Platform::Kick, chan, text, reply } => {
         let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id) });
       }
-      Cmd::Send { platform: Platform::Youtube, chan, .. } => {
-        let m = Message::system(crate::util::time::now_ms(), Platform::Youtube, "youtube is read-only here for now");
-        out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
+      Cmd::Send { platform: Platform::Youtube, chan, text, .. } => {
+        let _ = sess_tx.send(session::Cmd::Youtube { chan, text });
       }
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));

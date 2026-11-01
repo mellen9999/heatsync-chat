@@ -48,7 +48,7 @@ src/
 
 ## data sources (from research)
 - **twitch chat**: irc over `wss://irc-ws.chat.twitch.tv` (tags+commands); anon justinfan read, authed via heatsync `GET /api/auth/twitch/chat-token` (same as ext `auth-irc.js`); USERNOTICE = subs/gifts/raids/announcements banners
-- **kick + youtube**: relayed by heatsync `/ws` (`kick-chat-message`, `youtube:chat/status`, backfill) — no direct kick/yt connections; kick send `POST /api/kick/chat/send`
+- **kick + youtube**: relayed by heatsync `/ws` (`kick-chat-message`, `youtube:chat/status`, backfill) — no direct kick/yt connections; kick send `POST /api/kick/chat/send`; youtube send `POST /api/youtube/chat/send` (official data api, brokered; ctrl-l → allow youtube posting)
 - **heatsync ws** `wss://heatsync.org/ws?b=1`: join/leave, emote:watch, ack:channels, youtube:subscribe, heartbeat 25s, `authenticate {token}` when logged in; inbound stream:*, pin:*, moment:spike, heat updates, emote:*, mutes/seen-state/settings
 - **emotes**: 7tv v3 rest + EventAPI ws (live set updates, paints, badges), bttv, ffz, twitch, chatterino badges via `/api/chatterino-badges`, recent-messages via `/api/recent-messages/{ch}`
 - **actions via server**: whispers `/api/twitch/whisper` + EventSub `user.whisper.message` read, mod `/api/mod/*`, clips `/api/twitch/clip`, mutes `/api/mutes`, blocks `/api/user/blocks`, settings `/api/settings`, seen-state `/api/user/seen-state`, feed `/api/messages*`, card `/api/card`

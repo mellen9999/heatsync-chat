@@ -40,7 +40,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 | images | `GET /api/img?url=` → 302 webp | 403 moderation, 413 size, 429. 20 new urls/min |
 | previews | `GET /api/embed/resolve?url=` (tenor/giphy/imgur/spotify/soundcloud/x/kick clips/reddit), `GET /api/link-preview?url=` | non-empty `flagged[]` drops it. 10/min |
 | health | `GET /api/extension/health` → `ext_min, ext_hard_min, kill, disabled[], msg` | native equivalent tbd |
-| authed | `/api/auth/twitch/chat-token`, `/api/kick/chat/send`, `/api/twitch/whisper`, `/api/mod/*`, `/api/twitch/clip`, `/api/mutes`, `/api/user/blocks`, `/api/settings`, `/api/user/seen-state`, `/api/messages*` | need native login (server addition, see PLAN) |
+| authed | `/api/auth/twitch/chat-token`, `/api/kick/chat/send`, `/api/youtube/chat/send` (opt-in: `/api/auth/youtube/login?scopes=post`), `/api/twitch/whisper`, `/api/mod/*`, `/api/twitch/clip`, `/api/mutes`, `/api/user/blocks`, `/api/settings`, `/api/user/seen-state`, `/api/messages*` | need native login (server addition, see PLAN) |
 
 ## ws `wss://heatsync.org/ws?b=1`
 - anon allowed, no-Origin native clients admitted. json text frames. limits: 30 frames/s, 50 channels/socket, 90s idle

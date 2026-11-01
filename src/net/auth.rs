@@ -88,7 +88,7 @@ impl Provider {
     }
   }
 
-  // the server's login route. only twitch has permission packs (`scopes`); the others take none
+  // the server's login route. twitch has permission packs and youtube has `post` (`scopes`); kick takes none
   fn path(self) -> &'static str {
     match self {
       Provider::Twitch => "/api/auth/login",
@@ -98,7 +98,7 @@ impl Provider {
   }
 }
 
-// the browser address for one login. `pack` only rides on twitch (a fixed word, never user text)
+// the browser address for one login. `pack` rides on twitch, and on youtube only as `post` (a fixed word, never user text)
 // `link` is a one-shot ticket (see `link_ticket`): with it the browser attaches this platform to the
 // account we're signed in as, instead of signing in as the platform's own account
 fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str, link: Option<&str>) -> String {
@@ -107,7 +107,8 @@ fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str, link: Option<&
     url.push_str("&nl=");
     url.push_str(t);
   }
-  if provider == Provider::Twitch {
+  // twitch has permission packs; youtube has one opt-in word, `post` (send chat), never asked at sign-in
+  if provider == Provider::Twitch || (provider == Provider::Youtube && pack == "post") {
     url.push_str("&scopes=");
     url.push_str(pack);
   }
@@ -366,6 +367,19 @@ mod tests {
     assert_eq!(
       login_url(Provider::Youtube, 5, &p, "whispers", None),
       "https://heatsync.org/api/auth/youtube/login?native=5&cc=c&ns=s"
+    );
+    // posting is asked only when the user chose it, never on a plain sign-in or link
+    assert_eq!(
+      login_url(Provider::Youtube, 5, &p, "base", None),
+      "https://heatsync.org/api/auth/youtube/login?native=5&cc=c&ns=s"
+    );
+    assert_eq!(
+      login_url(Provider::Youtube, 5, &p, "post", Some("ab12")),
+      "https://heatsync.org/api/auth/youtube/login?native=5&cc=c&ns=s&nl=ab12&scopes=post"
+    );
+    assert_eq!(
+      login_url(Provider::Kick, 5, &p, "post", None),
+      "https://heatsync.org/api/auth/kick/login?native=5&cc=c&ns=s"
     );
   }
 
