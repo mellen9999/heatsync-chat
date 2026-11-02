@@ -1,5 +1,7 @@
-// the message being typed: text + cursor (byte index on a char boundary) + sent history
-use std::collections::VecDeque;
+// the message being typed: text + cursor (byte index on a char boundary) + sent history.
+// words named in `chips` show as their emote and edit as one unit (backspace, delete, arrows)
+use std::collections::{HashSet, VecDeque};
+use std::ops::Range;
 
 // twitch's cap; kick and youtube are lower or equal
 pub const MAX_CHARS: usize = 500;
@@ -9,6 +11,8 @@ const HISTORY: usize = 50;
 pub struct Line {
   pub text: String,
   pub cursor: usize,
+  // emote names drawn as pictures: picked, tab-completed, recalled, or one of yours typed then spaced
+  pub chips: HashSet<Box<str>>,
   history: VecDeque<String>,
   // Some(i) while browsing history; `draft` holds what was typed before
   browsing: Option<usize>,
@@ -35,6 +39,34 @@ impl Line {
     self.insert(" ");
   }
 
+  // the same, drawn as its emote
+  pub fn insert_chip(&mut self, w: &str) {
+    self.chips.insert(w.into());
+    self.insert_word(w);
+  }
+
+  // byte ranges of the words shown as emotes, in order
+  pub fn chip_ranges(&self) -> Vec<Range<usize>> {
+    if self.chips.is_empty() {
+      return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut at = 0;
+    for w in self.text.split(' ') {
+      if !w.is_empty() && self.chips.contains(w) {
+        out.push(at..at + w.len());
+      }
+      at += w.len() + 1;
+    }
+    out
+  }
+
+  // the chip the cursor would edit: one ending at it (or around it) going back, starting at it going forward
+  fn chip_touching(&self, back: bool) -> Option<Range<usize>> {
+    let c = self.cursor;
+    self.chip_ranges().into_iter().find(|r| if back { r.start < c && c <= r.end } else { r.start <= c && c < r.end })
+  }
+
   // swap the whole text (vi edits); drops out of history browsing
   pub fn set_text(&mut self, text: String) {
     self.text = text;
@@ -50,11 +82,11 @@ impl Line {
   }
 
   pub fn left(&mut self) {
-    self.cursor = self.prev(self.cursor);
+    self.cursor = self.chip_touching(true).map_or_else(|| self.prev(self.cursor), |r| r.start);
   }
 
   pub fn right(&mut self) {
-    self.cursor = self.next(self.cursor);
+    self.cursor = self.chip_touching(false).map_or_else(|| self.next(self.cursor), |r| r.end);
   }
 
   pub fn home(&mut self) {
@@ -66,14 +98,15 @@ impl Line {
   }
 
   pub fn backspace(&mut self) {
-    let p = self.prev(self.cursor);
-    self.text.replace_range(p..self.cursor, "");
-    self.cursor = p;
+    let r = self.chip_touching(true).unwrap_or_else(|| self.prev(self.cursor)..self.cursor);
+    self.text.replace_range(r.clone(), "");
+    self.cursor = r.start;
   }
 
   pub fn delete(&mut self) {
-    let n = self.next(self.cursor);
-    self.text.replace_range(self.cursor..n, "");
+    let r = self.chip_touching(false).unwrap_or_else(|| self.cursor..self.next(self.cursor));
+    self.text.replace_range(r.clone(), "");
+    self.cursor = r.start;
   }
 
   // start of the word before the cursor (shell ctrl-w / alt-b)
@@ -128,6 +161,7 @@ impl Line {
   pub fn take(&mut self) -> Option<String> {
     let msg = self.text.trim().to_string();
     self.text.clear();
+    self.chips.clear();
     self.cursor = 0;
     self.browsing = None;
     if msg.is_empty() {
@@ -230,6 +264,38 @@ mod tests {
     assert_eq!(l.current_word(), (9, "three"));
     l.insert(" ");
     assert_eq!(l.current_word(), (15, ""));
+  }
+
+  #[test]
+  fn chips_edit_whole() {
+    let mut l = Line::default();
+    l.insert("hi ");
+    l.insert_chip("Kappa");
+    l.insert("x");
+    assert_eq!((l.chip_ranges().len(), l.chip_ranges().first()), (1, Some(&(3..8))));
+    // x, then the space, then the whole emote
+    l.backspace();
+    l.backspace();
+    assert_eq!(l.text, "hi Kappa");
+    l.backspace();
+    assert_eq!(l.text, "hi ");
+    l.insert_chip("Kappa");
+    l.home();
+    l.right();
+    l.right();
+    l.right();
+    assert_eq!(l.cursor, 3);
+    l.right();
+    assert_eq!(l.cursor, 8);
+    l.left();
+    assert_eq!(l.cursor, 3);
+    l.delete();
+    assert_eq!(l.text, "hi  ");
+    // a chip name inside a longer word is just text
+    l.set_text("Kappas".into());
+    assert!(l.chip_ranges().is_empty());
+    l.take();
+    assert!(l.chips.is_empty());
   }
 
   #[test]

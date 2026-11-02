@@ -61,6 +61,12 @@ impl Senders {
     e.set.get(word).filter(|x| ts >= x.from.saturating_sub(SLACK_MS) && ts < x.until.saturating_add(SLACK_MS))
   }
 
+  // `word` as `id` owns it right now, without asking for the set (our own is fetched at login)
+  pub fn peek(&self, id: u64, word: &str, now: i64) -> Option<&HsEmote> {
+    let x = self.map.get(&id)?.set.get(word)?;
+    (now >= x.from.saturating_sub(SLACK_MS) && now < x.until).then_some(x)
+  }
+
   // what `id` can type right now (tab-complete for our own lines)
   pub fn names(&self, id: u64, now: i64) -> Vec<&str> {
     self.map.get(&id).map_or_else(Vec::new, |e| {

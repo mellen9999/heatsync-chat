@@ -15,6 +15,7 @@ use winit::window::{Window, WindowId};
 
 mod builtin;
 mod card;
+mod chips;
 mod clip;
 mod emote;
 mod feed;
@@ -122,6 +123,8 @@ pub struct App {
   // the emote hover popup, and when its animated emote flips next
   tip: Option<crate::ui::tip::Tip>,
   tip_next: Option<Instant>,
+  // an animated emote in the message box changes frame
+  input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
   peek: Option<peek::Peek>,
   peek_due: Option<Instant>,
@@ -278,6 +281,7 @@ impl App {
       next_anim: None,
       tip: None,
       tip_next: None,
+      input_next: None,
       peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
@@ -784,7 +788,12 @@ impl App {
       self.input_dirty = true;
       self.bar_dirty = true;
     }
+    if self.input_next.is_some_and(|t| t <= Instant::now()) {
+      self.input_next = None;
+      self.input_dirty = true;
+    }
     if std::mem::take(&mut self.input_dirty) {
+      let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
       let hint = match &self.prompt {
         Some(_) if self.finding => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
@@ -812,6 +821,7 @@ impl App {
         logo: &self.res.logo,
         label: if hidden { &[] } else { &label },
         showcmd: &showcmd,
+        chips: &chips,
       };
       let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
       if h != self.input_h {
@@ -823,7 +833,9 @@ impl App {
       }
       if h > 0 {
         let r = self.input_area();
-        self.ime_area = Some(input_bar::draw(&mut self.canvas, &mut self.res.text, r, &bar));
+        let (caret, next) = input_bar::draw(&mut self.canvas, &mut self.res.text, &mut self.res.images, r, &bar);
+        self.ime_area = Some(caret);
+        self.input_next = next.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
         dirty = Some(r);
       }
     }
@@ -933,7 +945,7 @@ impl App {
     if let Some(r) = self.draw_tip() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
-    if let Some(t) = self.tip_next {
+    for t in [self.tip_next, self.input_next].into_iter().flatten() {
       self.next_anim = Some(self.next_anim.map_or(t, |n| n.min(t)));
     }
     for (id, url, h) in self.res.images.take_wanted() {
@@ -1032,7 +1044,7 @@ impl App {
       if matches.is_empty() {
         return;
       }
-      self.complete = Some(Complete { start, end, matches, at: usize::MAX });
+      self.complete = Some(Complete { start, end, matches, at: usize::MAX, chipped: None });
     }
     let Some(c) = &mut self.complete else { return };
     let n = c.matches.len();
@@ -1043,8 +1055,17 @@ impl App {
       (i, true) => (i + n - 1) % n,
     };
     let pick = c.matches[c.at].clone();
+    if let Some(old) = c.chipped.take() {
+      self.line.chips.remove(&old);
+    }
     self.line.replace(c.start..c.end, &pick);
     c.end = c.start + pick.len();
+    if let Some(name) = c.emote()
+      && !self.line.chips.contains(name)
+    {
+      self.line.chips.insert(name.into());
+      c.chipped = Some(name.into());
+    }
     self.input_dirty = true;
     self.wake();
   }
@@ -1057,10 +1078,19 @@ impl App {
     if key == Key::Named(NamedKey::Tab) {
       return self.tab_complete(self.mods.shift_key());
     }
-    // any other key commits the current candidate; an emote pick joins the recents
+    // any other key commits the current candidate; an emote pick joins the recents. esc only ends
+    // the cycle (and a reply), keeping the pick
+    let cycling = self.complete.is_some();
     if let Some(name) = self.complete.take().and_then(|c| c.emote().map(str::to_owned)) {
       self.recents.record(&name);
     }
+    if cycling && key == Key::Named(NamedKey::Escape) {
+      self.reply = None;
+      self.input_dirty = true;
+      return self.wake();
+    }
+    let recall = matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown));
+    let space = key == Key::Named(NamedKey::Space) || text == Some(" ");
     let l = &mut self.line;
     match key {
       Key::Named(NamedKey::Escape) if self.set.vi => {
@@ -1104,6 +1134,11 @@ impl App {
         }
       }
       _ => return,
+    }
+    if recall {
+      self.chip_recalled();
+    } else if space {
+      self.chip_spaced();
     }
     self.input_dirty = true;
     self.wake();
@@ -1184,10 +1219,12 @@ impl App {
       Action::HistoryOlder => {
         self.line.older();
         Vi::settle(&mut self.line);
+        self.chip_recalled();
       }
       Action::HistoryNewer => {
         self.line.newer();
         Vi::settle(&mut self.line);
+        self.chip_recalled();
       }
       Action::Leave => {
         self.reply = None;
@@ -1672,6 +1709,8 @@ impl App {
         self.relayout_where(ch.as_deref());
       }
       NetEvent::Image(id, h, res) => {
+        // a chip's picture may be the one that arrived
+        self.input_dirty |= !self.line.chips.is_empty();
         if self.res.images.loaded(id, h, res) {
           if let Some(t) = self.tabs.get_mut(self.active) {
             t.view.relayout();
@@ -1999,6 +2038,75 @@ mod live {
       let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
       c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
       let _ = std::fs::write(path, out);
+    }
+  }
+
+  // tab-completed emotes draw as pictures in the box, an overlay typed after one stacks on it, a hand-typed
+  // channel emote stays a word, and backspace takes a picture whole (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_input_chips -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_input_chips() {
+    use crate::emotes::{Emote, Provider};
+    use crate::images::decode::{Decoded, Frame};
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    let (base, ice) = ("https://cdn.7tv.app/emote/a/1x.webp", "https://cdn.betterttv.net/emote/b/1x.webp");
+    let e = |url: &str, zero_width| Emote { url: url.into(), w: 28, h: 28, zero_width };
+    app.res.emotes.set(
+      None,
+      Provider::SevenTv,
+      [("Kappa".into(), e(base, false)), ("frozen0".into(), e(ice, true))].into(),
+    );
+    let space = |app: &mut App| app.key_insert(Key::Named(NamedKey::Space), Some(" "));
+    // typed by hand, a channel or global name stays a word
+    app.line.insert("Kappa");
+    space(&mut app);
+    assert!(app.line.chip_ranges().is_empty());
+    app.line.take();
+    app.line.insert("hi Kap");
+    app.tab_complete(false);
+    assert_eq!(app.line.text, "hi Kappa");
+    space(&mut app);
+    app.line.insert("frozen0");
+    space(&mut app);
+    assert_eq!(app.line.text, "hi Kappa frozen0 ", "the words sent are unchanged");
+    assert_eq!(app.line.chip_ranges(), vec![3..8, 9..16]);
+    let solid = |w: u32, rgb: [u8; 3]| {
+      let px: Vec<u8> = (0..w * w).flat_map(|_| [rgb[0], rgb[1], rgb[2], 255]).collect();
+      Decoded { w, h: w, frames: vec![Frame { rgba: px.into(), delay_ms: 0 }] }
+    };
+    for _ in 0..3 {
+      app.input_dirty = true;
+      app.redraw();
+      while let Ok(c) = asked.try_recv() {
+        let Cmd::Image(id, url, h) = c else { continue };
+        let img = if url.contains("betterttv") { solid(10, [0, 255, 255]) } else { solid(28, [255, 0, 0]) };
+        app.on_net(NetEvent::Image(id, h & 0xffff, Ok(img)));
+      }
+    }
+    let r = app.input_area();
+    let count = |app: &App, rgb| {
+      (r.y..r.bottom())
+        .map(|y| (r.x..r.right()).filter(|&x| app.canvas.px[(y * 720 + x) as usize] == rgb).count())
+        .sum::<usize>()
+    };
+    // the base's square with the overlay's smaller square on it: one stack, not two pictures
+    assert!(count(&app, 0xff0000) > 28 * 20, "the base is drawn in the box");
+    assert_eq!(count(&app, 0x00ffff), 100, "the overlay sits on the base");
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+    // the trailing space, then the overlay whole, then the base whole
+    for want in ["hi Kappa frozen0", "hi Kappa ", "hi Kappa", "hi "] {
+      app.key_insert(Key::Named(NamedKey::Backspace), None);
+      assert_eq!(app.line.text, want);
     }
   }
 

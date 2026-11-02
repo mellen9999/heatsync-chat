@@ -63,7 +63,7 @@ impl App {
       if blocked {
         self.run_act(Act::Unblock, &hit, owned);
       } else {
-        self.line.insert_word(&hit.name);
+        self.line.insert_chip(&hit.name);
         self.recents.record(&hit.name);
         self.complete = None;
         self.enter_insert();

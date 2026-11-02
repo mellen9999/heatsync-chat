@@ -1,18 +1,31 @@
 // the message box under the chat: where it sends ([T]/[K]/[Y] on merged tabs), the text, a bar
-// cursor while typing, a block cursor in vi normal mode. an empty box shows a dim hint. wraps up to MAX_LINES, growing upward
-use parley::Affinity;
+// cursor while typing, a block cursor in vi normal mode. an empty box shows a dim hint. wraps up to MAX_LINES, growing upward.
+// chip words (picked emotes) are drawn as the emote itself, overlays stacked on their base, like the ext's input preview
+use std::ops::Range;
+
 use parley::editing::{Cursor, Selection};
+use parley::{Affinity, InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
+use super::chat_view::blit_layer;
 use super::logo::Logo;
 use super::mode_label::{self, Seg};
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
+use crate::images::{Images, ImgId};
 use crate::model::line::Line;
 use crate::model::vi::Mode;
 
-const MAX_LINES: f32 = 4.0;
+const MAX_LINES: usize = 4;
 const CURSOR_W: i32 = 2;
+
+// one emote drawn in the box: the line bytes it stands for (a base and the overlays stacked on it), its layers, its size
+pub struct Chip {
+  pub range: Range<usize>,
+  pub layers: Vec<ImgId>,
+  pub w: u32,
+  pub h: u32,
+}
 
 pub struct Bar<'a> {
   pub line: &'a Line,
@@ -33,6 +46,8 @@ pub struct Bar<'a> {
   // vi mode line (empty with vi keys off) and the half-typed command
   pub label: &'a [Seg],
   pub showcmd: &'a str,
+  // the line's chip words, in order, not overlapping
+  pub chips: &'a [Chip],
 }
 
 // the left gutter: wide enough for the widest short label, so the typed text never moves
@@ -63,7 +78,21 @@ struct Laid {
   // byte index in the layout string where the typed text starts
   at: usize,
   // preedit range in the layout string
-  pre: std::ops::Range<usize>,
+  pre: Range<usize>,
+  // the typed text's plain runs: (line bytes, where they start in the layout string)
+  runs: Vec<(Range<usize>, usize)>,
+}
+
+fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
+  InlineBox {
+    id: id as u64,
+    kind: InlineBoxKind::InFlow,
+    index,
+    width: w as f32,
+    height: h as f32,
+    baseline: None,
+    vertical_align: VerticalAlign::MIDDLE,
+  }
 }
 
 fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
@@ -82,33 +111,103 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   }
   let at = s.len();
   let mut pre = 0..0;
+  let mut runs = Vec::new();
+  let mut boxes = Vec::new();
   if b.line.text.is_empty() && b.preedit.is_empty() && !b.hint.is_empty() && b.reply.is_none() {
     s.push_str(b.hint);
     spans.push(Span { range: at..s.len(), ink: Ink(theme::DIM), bold: false });
-  } else if b.preedit.is_empty() {
-    s.push_str(&b.line.text);
   } else {
-    let (head, tail) = b.line.text.split_at(b.line.cursor);
-    s.push_str(head);
-    pre = s.len()..s.len() + b.preedit.len();
-    s.push_str(b.preedit);
-    s.push_str(tail);
+    let (t, cur) = (&b.line.text, b.line.cursor);
+    // the composition goes in at the cursor: before a chip it starts, after one it ends or sits in
+    let mut pending = !b.preedit.is_empty();
+    let put_pre = |s: &mut String, pre: &mut Range<usize>| {
+      *pre = s.len()..s.len() + b.preedit.len();
+      s.push_str(b.preedit);
+    };
+    let mut plain = |s: &mut String, pre: &mut Range<usize>, r: Range<usize>, pending: &mut bool| {
+      let split = *pending && r.start <= cur && cur <= r.end;
+      let cut = if split { cur } else { r.end };
+      runs.push((r.start..cut, s.len()));
+      s.push_str(&t[r.start..cut]);
+      if split {
+        put_pre(s, pre);
+        *pending = false;
+        runs.push((cut..r.end, s.len()));
+        s.push_str(&t[cut..r.end]);
+      }
+    };
+    let mut i = 0;
+    for (k, c) in b.chips.iter().enumerate() {
+      plain(&mut s, &mut pre, i..c.range.start, &mut pending);
+      boxes.push(inline(k, s.len(), c.w, c.h));
+      if pending && c.range.start < cur && cur <= c.range.end {
+        put_pre(&mut s, &mut pre);
+        pending = false;
+      }
+      i = c.range.end;
+    }
+    plain(&mut s, &mut pre, i..t.len(), &mut pending);
   }
   let cmd = if b.label.is_empty() { 0.0 } else { text.layout("00000", &[], &[], f32::MAX).full_width() };
   let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd;
-  Laid { l: text.layout(&s, &spans, &[], room), at, pre }
+  Laid { l: text.layout(&s, &spans, &boxes, room), at, pre, runs }
 }
 
-// where the caret sits in the layout string: after the composition's caret, else at the cursor
-fn caret_index(b: &Bar, g: &Laid) -> usize {
-  if g.pre.is_empty() { g.at + b.line.cursor } else { g.pre.start + b.preedit_caret.min(b.preedit.len()) }
+// a chip's spot in the layout: x, y, w, h
+fn chip_box(l: &TextLayout, k: usize) -> Option<(f32, f32, f32, f32)> {
+  l.lines().flat_map(|ln| ln.items().collect::<Vec<_>>()).find_map(|it| match it {
+    PositionedLayoutItem::InlineBox(b) if b.id == k as u64 => Some((b.x, b.y, b.width, b.height)),
+    _ => None,
+  })
+}
+
+// the line around layout height `y`: its top and bottom
+fn line_span(l: &TextLayout, y: f32) -> (f32, f32) {
+  let mut last = (0.0, 0.0);
+  for ln in l.lines() {
+    let m = ln.metrics();
+    last = (m.block_min_coord, m.block_max_coord);
+    if y < m.block_max_coord {
+      break;
+    }
+  }
+  last
+}
+
+// where the caret sits (layout coordinates: x, top, bottom), and the chip it rests on in normal mode
+fn caret(b: &Bar, g: &Laid) -> (f32, f32, f32, Option<usize>) {
+  let at_byte = |i: usize| {
+    let c = Cursor::from_byte_index(&g.l, i, Affinity::Downstream).geometry(&g.l, CURSOR_W as f32);
+    (c.x0 as f32, c.y0 as f32, c.y1 as f32, None)
+  };
+  if !g.pre.is_empty() {
+    return at_byte(g.pre.start + b.preedit_caret.min(b.preedit.len()));
+  }
+  let cur = b.line.cursor;
+  for (k, c) in b.chips.iter().enumerate() {
+    let side = if c.range.start == cur {
+      Some(false)
+    } else if c.range.start < cur && cur <= c.range.end {
+      Some(true)
+    } else {
+      None
+    };
+    if let Some(after) = side
+      && let Some((x, y, w, h)) = chip_box(&g.l, k)
+    {
+      let (top, bot) = line_span(&g.l, y + h / 2.0);
+      return (if after { x + w } else { x }, top, bot, (!after).then_some(k));
+    }
+  }
+  let i = g.runs.iter().find(|(r, _)| r.contains(&cur) || r.end == cur).map_or(g.at, |(r, o)| o + cur - r.start);
+  at_byte(i)
 }
 
 // pixel height the bar wants at this width (one line minimum)
 pub fn height(text: &mut Text, b: &Bar, width: i32) -> i32 {
   let l = layout(text, b, width).l;
-  let line = text.line_px;
-  (l.height().max(line).min(line * MAX_LINES)).ceil() as i32
+  let cap = l.lines().nth(MAX_LINES - 1).map_or(l.height(), |ln| ln.metrics().block_max_coord);
+  (l.height().min(cap).max(text.line_px)).ceil() as i32
 }
 
 // composition underline (vt320 underline attr): one row under every line the range spans
@@ -126,19 +225,37 @@ pub fn underline(c: &mut Canvas, l: &TextLayout, range: std::ops::Range<usize>, 
   }
 }
 
-// returns the caret rect (window px) so the input method can park its candidate window there
-pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
+// returns the caret rect (window px) so the input method can park its candidate window there, and
+// when an animated chip next changes frame (ms)
+pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b: &Bar) -> (Rect, Option<u32>) {
   c.fill(area, theme::BLACK);
   let g = layout(text, b, area.w);
-  let (l, at) = (&g.l, g.at);
-  let caret = caret_index(b, &g);
+  let l = &g.l;
+  let (cx, cy0, cy1, on_chip) = caret(b, &g);
   // keep the cursor's line visible when the text is taller than the bar
-  let cur = Cursor::from_byte_index(l, caret, Affinity::Downstream).geometry(l, CURSOR_W as f32);
   let overflow = (l.height() - area.h as f32).max(0.0);
-  let shift = (cur.y1 as f32 - area.h as f32).clamp(0.0, overflow);
+  let shift = (cy1 - area.h as f32).clamp(0.0, overflow);
   let gut = gutter(text, b);
   let (ox, oy) = (area.x as f32 + theme::PAD_X + gut, area.y as f32 - shift);
-  text.draw(l, c, ox, oy, area, |_, _| {});
+  let (x, y, h) = ((ox + cx) as i32, (oy + cy0) as i32, (cy1 - cy0) as i32);
+  // normal mode on a chip: the emote sits on the reversed block
+  if b.mode == Mode::Normal
+    && let Some((_, _, bw, _)) = on_chip.and_then(|k| chip_box(l, k))
+  {
+    c.fill(Rect::new(x, y, bw.ceil() as i32, h).intersect(area), theme::WHITE);
+  }
+  let mut next: Option<u32> = None;
+  text.draw(l, c, ox, oy, area, |c, pb| {
+    let Some(chip) = b.chips.get(pb.id as usize) else { return };
+    let rect = Rect::new(pb.x.round() as i32, pb.y.round() as i32, pb.width.round() as i32, pb.height.round() as i32);
+    for &id in &chip.layers {
+      let Some((f, w, h, flip)) = images.frame(id) else { continue };
+      blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, area);
+      if let Some(ms) = flip {
+        next = Some(next.map_or(ms, |n| n.min(ms)));
+      }
+    }
+  });
   if !b.label.is_empty() {
     let s = mode_label::text(b.label);
     let ll = text.layout(&s, &mode_label::spans(b.label), &[], f32::MAX);
@@ -151,7 +268,6 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
     }
   }
   underline(c, l, g.pre.clone(), ox, oy, area);
-  let (x, y, h) = ((ox + cur.x0 as f32) as i32, (oy + cur.y0 as f32) as i32, (cur.y1 - cur.y0) as i32);
   match b.mode {
     Mode::Insert => {
       let r = Rect::new(x, y, CURSOR_W, h).intersect(area);
@@ -159,15 +275,20 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
         c.fill(r, theme::WHITE);
       }
     }
+    Mode::Normal if on_chip.is_some() => {}
     Mode::Normal => {
       // reversed block on the char under the cursor; a one-char-wide box at the end
-      let ch = b.line.text[b.line.cursor..].chars().next();
+      let cur = b.line.cursor;
+      let ch = b.line.text[cur..].chars().next();
       let em = text.layout("0", &[], &[], 1000.0).full_width();
-      let w = ch.map_or(em, |ch| {
-        let nx = Cursor::from_byte_index(l, at + b.line.cursor + ch.len_utf8(), Affinity::Downstream)
-          .geometry(l, CURSOR_W as f32);
-        if nx.y0 == cur.y0 && nx.x0 > cur.x0 { (nx.x0 - cur.x0) as f32 } else { em }
-      });
+      let here = g.runs.iter().find(|(r, _)| r.contains(&cur)).map(|(r, o)| o + cur - r.start);
+      let w = match (ch, here) {
+        (Some(ch), Some(i)) => {
+          let nx = Cursor::from_byte_index(l, i + ch.len_utf8(), Affinity::Downstream).geometry(l, CURSOR_W as f32);
+          if nx.y0 as f32 == cy0 && nx.x0 as f32 > cx { nx.x0 as f32 - cx } else { em }
+        }
+        _ => em,
+      };
       let r = Rect::new(x, y, w.ceil() as i32, h).intersect(area);
       if !r.is_empty() {
         c.fill(r, theme::WHITE);
@@ -197,5 +318,5 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Bar) -> Rect {
   let (cx, cy) = (up.x + up.w / 2, up.y + up.h / 2);
   c.fill(Rect::new(cx - arm / 2, cy - bar / 2, arm, bar), fg);
   c.fill(Rect::new(cx - bar / 2, cy - arm / 2, bar, arm), fg);
-  Rect::new(x, y, CURSOR_W, h)
+  (Rect::new(x, y, CURSOR_W, h), next)
 }

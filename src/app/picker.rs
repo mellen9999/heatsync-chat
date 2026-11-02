@@ -71,7 +71,7 @@ impl App {
       self.bar_dirty = true;
       return self.wake();
     }
-    self.line.insert_word(&name);
+    self.line.insert_chip(&name);
     self.recents.record(&name);
     self.complete = None;
     if !keep {

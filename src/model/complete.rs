@@ -8,6 +8,8 @@ pub struct Complete {
   pub end: usize,
   pub matches: Vec<Box<str>>,
   pub at: usize,
+  // the shown pick's chip, when the cycle added it (dropped again on the next step)
+  pub chipped: Option<Box<str>>,
 }
 
 impl Complete {
@@ -57,7 +59,7 @@ mod tests {
 
   #[test]
   fn only_emotes_count_as_picks() {
-    let c = |m: &str, at| Complete { start: 0, end: 0, matches: vec![m.into()], at };
+    let c = |m: &str, at| Complete { start: 0, end: 0, matches: vec![m.into()], at, chipped: None };
     assert_eq!(c("Kappa", 0).emote(), Some("Kappa"));
     assert_eq!(c("@nick", 0).emote(), None);
     assert_eq!(c("/vi", 0).emote(), None);
