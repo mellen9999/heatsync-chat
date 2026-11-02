@@ -19,6 +19,8 @@ pub struct Info {
   pub twitch_name: Option<Box<str>>,
   // their twitch user id: what their paints hang off
   pub twitch_id: Option<u64>,
+  // their picture (ext card-model avatarUrl): heatsync's copy, else twitch's own, asked by the net layer
+  pub avatar: Option<Box<str>>,
 }
 
 // "4y 3mo", "2mo 5d", "3d", "5h", "just now"
@@ -154,7 +156,21 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .and_then(|p| text(p, "/twitch_username"))
     .filter(|n| (1..=25).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
     .map(Into::into);
-  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_name, twitch_id }
+  let avatar = real
+    .and_then(|p| ["/twitch_profile_pic", "/kick_profile_pic", "/profile_image_url"].iter().find_map(|k| text(p, k)))
+    .or_else(|| text(v, "/chatter/avatarUrl"))
+    .and_then(avatar_url);
+  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_name, twitch_id, avatar }
+}
+
+// a picture url we will fetch: an allowlisted image host, bounded
+pub fn avatar_url(u: &str) -> Option<Box<str>> {
+  crate::images::url::allowed(u).then(|| u.into())
+}
+
+// the picture out of twitch's `user(login){profileImageURL}` answer, hostile like the color
+pub fn twitch_avatar(v: &Value) -> Option<Box<str>> {
+  text(v, "/data/user/profileImageURL").and_then(avatar_url)
 }
 
 // the color out of twitch's `user(login){chatColor}` answer. the body is hostile: anything but
@@ -206,6 +222,23 @@ mod tests {
     assert_eq!(get("ch follow").as_deref(), Some("2y"));
     assert_eq!(get("seen").as_deref(), Some("420 msgs over 1y 10mo"));
     assert_eq!((i.color, i.twitch_id), (None, None));
+  }
+
+  #[test]
+  fn the_picture_comes_from_an_allowed_host_only() {
+    let pic = |p: Value| parse(&json!({ "profile": p }), NOW).avatar;
+    let ok = "https://static-cdn.jtvnw.net/jtv_user_pictures/a-70x70.png";
+    assert_eq!(pic(json!({"twitch_profile_pic": ok})).as_deref(), Some(ok));
+    assert_eq!(
+      pic(json!({"twitch_profile_pic": null, "kick_profile_pic": "https://files.kick.com/a.webp"})).as_deref(),
+      Some("https://files.kick.com/a.webp")
+    );
+    assert_eq!(pic(json!({"profile_image_url": "https://evil.example/a.png"})), None);
+    assert_eq!(pic(json!({"profile_image_url": "javascript:x"})), None);
+    let chatter = parse(&json!({ "chatter": { "avatarUrl": ok } }), NOW);
+    assert_eq!(chatter.avatar.as_deref(), Some(ok));
+    assert_eq!(twitch_avatar(&json!({"data": {"user": {"profileImageURL": ok}}})).as_deref(), Some(ok));
+    assert_eq!(twitch_avatar(&json!({"data": {"user": {"profileImageURL": 5}}})), None);
   }
 
   #[test]

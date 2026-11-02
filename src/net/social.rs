@@ -165,22 +165,27 @@ async fn card(
   let (status, v) = call(req).await;
   let mut res =
     if status == 200 { Ok(crate::model::card::parse(&v, crate::util::time::now_ms())) } else { Err(status) };
-  // a linked twitch account keeps its twitch color (ext hsResolveUserColor step 1). one anonymous
-  // read, 3s at most; a miss just leaves the heatsync color. the answer is cached with the card
+  // a linked twitch account keeps its twitch color (ext hsResolveUserColor step 1), and anyone on
+  // twitch without a heatsync picture gets twitch's. one anonymous read, 3s at most; a miss leaves
+  // the heatsync color and no picture. the answer is cached with the card
   if let Ok(info) = &mut res
     && platform == Platform::Twitch
-    && let Some(name) = &info.twitch_name
-    && let Some(c) = twitch_color(http, name).await
+    && (info.twitch_name.is_some() || info.avatar.is_none())
   {
-    info.color = Some(c);
+    let name = info.twitch_name.clone().unwrap_or_else(|| login.clone());
+    let (c, pic) = twitch_user(http, &name).await;
+    if info.twitch_name.is_some() && c.is_some() {
+      info.color = c;
+    }
+    info.avatar = info.avatar.take().or(pic);
   }
   void(out.send(NetEvent::Card { platform, login, res }))
 }
 
-// twitch's own chat color for a login: the public web gql, no auth (ext hsResolveUserColor)
-async fn twitch_color(http: &reqwest::Client, login: &str) -> Option<u32> {
+// twitch's own chat color and picture for a login: the public web gql, no auth (ext hsResolveUserColor)
+async fn twitch_user(http: &reqwest::Client, login: &str) -> (Option<u32>, Option<Box<str>>) {
   let body = json!({
-    "query": "query($login:String!){user(login:$login){chatColor}}",
+    "query": "query($login:String!){user(login:$login){chatColor profileImageURL(width:70)}}",
     "variables": { "login": login },
   });
   let req = http
@@ -189,7 +194,10 @@ async fn twitch_color(http: &reqwest::Client, login: &str) -> Option<u32> {
     .timeout(std::time::Duration::from_secs(3))
     .body(body.to_string());
   let (status, v) = call(req).await;
-  (status == 200).then(|| crate::model::card::chat_color(&v)).flatten()
+  if status != 200 {
+    return (None, None);
+  }
+  (crate::model::card::chat_color(&v), crate::model::card::twitch_avatar(&v))
 }
 
 // the OP and its replies, replies oldest first (the server pages newest first)

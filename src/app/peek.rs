@@ -95,6 +95,9 @@ impl Cards {
 }
 
 // the open popup
+// the picture beside the name (ext .hs-card-avatar)
+const AVATAR_PX: u16 = 40;
+
 pub struct Peek {
   platform: Platform,
   login: Box<str>,
@@ -206,9 +209,9 @@ impl App {
     let bounds = self.chat_area();
     let p = self.peek.as_ref()?;
     let load = self.cards.get(p.platform, &p.login);
-    let rows: &[(&'static str, String)] = match load {
-      Some(Load::Done(i)) => &i.rows,
-      _ => &[],
+    let (rows, avatar): (&[(&'static str, String)], _) = match load {
+      Some(Load::Done(i)) => (&i.rows, i.avatar.as_deref()),
+      _ => (&[], None),
     };
     let note = load.map_or(Some("looking them up…"), note_of);
     let v = View {
@@ -220,7 +223,11 @@ impl App {
       note,
       recent: &[],
     };
-    Some(peek::draw(&mut self.canvas, &mut self.res.text, bounds, p.at, &v))
+    let crate::ui::res::Res { text, images, .. } = &mut self.res;
+    let side = images.px(AVATAR_PX) as i32;
+    let id = avatar.map(|u| images.id(u, AVATAR_PX));
+    let pic = id.and_then(|id| images.frame(id)).map(|(f, w, h, _)| (&f.rgba[..], w, h));
+    Some(peek::draw(&mut self.canvas, text, bounds, p.at, &v, pic, side))
   }
 
   // a lookup answered: share it (popup, full card, mention colors)

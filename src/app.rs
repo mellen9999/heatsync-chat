@@ -2703,22 +2703,30 @@ mod live {
       ],
       color: None,
       twitch_name: None,
+      avatar: Some("https://static-cdn.jtvnw.net/jtv_user_pictures/a-70x70.png".into()),
       twitch_id: None,
     };
     app.on_net(NetEvent::Card { platform: Platform::Twitch, login: "alice".into(), res: Ok(info) });
     app.redraw();
     assert!(app.peek.is_some());
+    // her picture is asked for and drawn beside the name
+    let (id, target) = std::iter::from_fn(|| asked.try_recv().ok())
+      .find_map(|c| if let Cmd::Image(id, url, t) = c { url.contains("a-70x70").then_some((id, t)) } else { None })
+      .expect("the popup asks for her picture");
+    let d = crate::images::decode::Decoded {
+      w: 40,
+      h: 40,
+      frames: vec![crate::images::decode::Frame { rgba: [0, 255, 0, 255].repeat(40 * 40).into(), delay_ms: 0 }],
+    };
+    app.res.images.loaded(id, target, Ok(d));
+    app.redraw();
+    assert!(app.canvas.px.iter().filter(|&&p| p == 0x00ff00).count() >= 30 * 30, "the picture shows");
     // the popup is up: more than the bare line shows, a warm name needs no second ask
     app.hide_tip();
     app.tip_hover();
     assert!(app.peek.is_some() && app.peek_due.is_none(), "an answered name opens at once");
     app.redraw();
-    if let Some(path) = std::env::var_os("HSC_DUMP") {
-      let c = &app.canvas;
-      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
-      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
-      let _ = std::fs::write(path, out);
-    }
+    crate::bench::dump(&app.canvas);
     // a click on her name in bob's line opens her card from the cached answer: nothing more is asked
     app.hide_tip();
     assert!(app.name_press(), "the mention answers a click");
