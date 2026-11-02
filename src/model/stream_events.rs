@@ -37,14 +37,24 @@ pub struct Ev {
   pub channel: Box<str>,
   pub game: Box<str>,
   pub prev_game: Box<str>,
+  // how the streamer writes their name, and their color, when the frame says (else the channel key)
+  pub name: Box<str>,
+  pub color: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
   pub platform: Platform,
   pub channel: Box<str>,
+  // the whole line as words (`[ch] ◆ went live — game`): what dedupes it and what tests read
   pub text: Box<str>,
   pub tone: Tone,
+  // the line as drawn (ext .hs-mc-stream-event): the name in their own color or paint, `◆ went live — `
+  // in the tone's color, the game in white
+  pub name: Box<str>,
+  pub color: Option<u32>,
+  pub verb: Box<str>,
+  pub game: Box<str>,
 }
 
 pub fn clean(s: &str) -> Box<str> {
@@ -89,7 +99,21 @@ impl Gate {
       self.shown.retain(|_, t| now - *t < DEDUPE_MS);
     }
     self.shown.insert(k, now);
-    Some(Line { platform: e.platform, channel: e.channel.clone(), text: text.into(), tone })
+    let at = ["went live — ", "switched to "].iter().find_map(|v| what.strip_prefix(v).map(|g| (v.len(), g)));
+    let (verb, game) = match at {
+      Some((n, g)) => (&what[..n], g),
+      None => (what, ""),
+    };
+    Some(Line {
+      platform: e.platform,
+      channel: e.channel.clone(),
+      text: text.into(),
+      tone,
+      name: if e.name.is_empty() { e.channel.clone() } else { e.name.clone() },
+      color: e.color,
+      verb: format!("◆ {verb}").into(),
+      game: game.into(),
+    })
   }
 
   // the grace clock runs from launch, like the ext's content-script load. left to the first event it
@@ -195,7 +219,16 @@ mod tests {
   use super::*;
 
   fn ev(kind: Kind, game: &str, prev: &str) -> Ev {
-    Ev { kind, platform: Platform::Twitch, channel: "cyr".into(), game: game.into(), prev_game: prev.into() }
+    let (name, color) = ("Cyr".into(), None);
+    Ev {
+      kind,
+      platform: Platform::Twitch,
+      channel: "cyr".into(),
+      game: game.into(),
+      prev_game: prev.into(),
+      name,
+      color,
+    }
   }
   const T0: i64 = 1_000_000;
   const LATE: i64 = T0 + GRACE_MS + 1;
@@ -209,6 +242,7 @@ mod tests {
     assert_eq!(g.next_due(), Some(LATE + HOLD_MS));
     let l = g.event(LATE + 10, ev(Kind::Online, "Chess", "")).unwrap();
     assert_eq!(&*l.text, "[cyr] ◆ went live — Chess");
+    assert_eq!((&*l.name, &*l.verb, &*l.game), ("Cyr", "◆ went live — ", "Chess"), "drawn in three parts");
     assert_eq!(l.tone, Tone::Online);
     assert!(g.due(LATE + 5000).is_empty());
     // an update echoing the go-live right after is dropped

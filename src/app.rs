@@ -2354,6 +2354,10 @@ mod live {
       channel: ch.into(),
       text: format!("[{ch}] ◆ went live").into(),
       tone: Tone::Online,
+      name: ch.into(),
+      color: None,
+      verb: "◆ went live".into(),
+      game: "".into(),
     };
     let n = |app: &App, i: usize| app.tabs[i].view.len();
     let before = (n(&app, forsen), n(&app, xqc));
@@ -2365,6 +2369,24 @@ mod live {
     app.on_stream(line("xqc"));
     assert_eq!(n(&app, forsen), before.0 + 2);
     assert!(app.tabs[xqc].event && !app.tabs[forsen].event);
+    // drawn like the ext: name in its color, `◆ verb` in the tone, the game white, a stripe at the left
+    app.on_stream(Line {
+      color: Some(0x00ff00),
+      tone: Tone::Switch,
+      verb: "◆ switched to ".into(),
+      game: "Chess".into(),
+      ..line("forsen")
+    });
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 200);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    app.redraw();
+    let has = |rgb| app.canvas.px.iter().any(|&p| p == rgb);
+    assert!(has(0x00ff00) && has(crate::ui::theme::YELLOW), "the name in its color, the verb in yellow");
+    crate::bench::dump(&app.canvas);
   }
 
   // a stream line turns an unwatched tab yellow, and right-click clears a red, cyan or yellow tab
@@ -2381,7 +2403,7 @@ mod live {
     let (feed, flood) = (at(&app, Kind::Feed), app.tabs.iter().position(|t| &*t.name == FLOOD_TAB).unwrap());
     let (mentions, whispers) = (at(&app, Kind::Mentions), at(&app, Kind::Whispers));
     app.select(feed);
-    app.say_line(flood, Platform::Twitch, "switched to chess", Tone::Switch);
+    app.say_line(flood, Message::system(0, Platform::Twitch, "switched to chess"), Tone::Switch);
     assert!(app.tabs[flood].event && app.tabs[flood].unread, "the news turns the tab yellow");
     // a mention lights the tab; looking on another client before it changes nothing, after it puts it out
     use crate::model::unseen::Surface;
@@ -2391,7 +2413,7 @@ mod live {
     assert!(app.tabs[mentions].unread, "an older look elsewhere leaves it lit");
     app.on_net(NetEvent::Seen { surface: Surface::Mentions, at: now_ms() + 1 });
     assert!(!app.tabs[mentions].unread, "a look on another client puts it out");
-    app.say_line(flood, Platform::Twitch, "[🔥] chat is popping", Tone::Moment);
+    app.say_line(flood, Message::system(0, Platform::Twitch, "[🔥] chat is popping"), Tone::Moment);
     app.tabs[mentions].unread = true;
     app.tabs[whispers].unread = true;
     let right_click = |app: &mut App, i: usize| {
@@ -2413,7 +2435,7 @@ mod live {
     assert!(app.tab_menu.is_some(), "a quiet tab still gets its menu");
     // opening a yellow tab clears it too
     app.tab_menu = None;
-    app.say_line(flood, Platform::Twitch, "went offline", Tone::Offline);
+    app.say_line(flood, Message::system(0, Platform::Twitch, "went offline"), Tone::Offline);
     app.select(flood);
     assert!(!app.tabs[flood].event);
   }

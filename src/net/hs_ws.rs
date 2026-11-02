@@ -366,7 +366,11 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         "stream:offline" => Kind::Offline,
         _ => Kind::Update,
       };
-      let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame") };
+      // the name as they write it, only when it is their channel key in other letters
+      let name = text("displayName");
+      let name = if name.eq_ignore_ascii_case(&channel) { name } else { "".into() };
+      let color = v.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
+      let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color };
       st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
     }
     "moment:spike" => {
