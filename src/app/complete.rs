@@ -82,6 +82,7 @@ impl App {
         self.bar_dirty = true;
         return self.wake();
       }
+      self.line.checkpoint(false);
       self.complete = Some(Complete { start: r.start, end: r.end, matches, at: usize::MAX, chipped: None });
     }
     let Some(c) = &mut self.complete else { return };

@@ -61,6 +61,7 @@ impl App {
   // a pick replaces what was typed; the list stays on as the tab cycle
   fn suggest_pick(&mut self, i: usize) {
     let Some(s) = self.suggest.take() else { return };
+    self.line.checkpoint(false);
     self.complete = Some(Complete { start: s.range.start, end: s.range.end, matches: s.items, at: i, chipped: None });
     self.show_pick();
   }

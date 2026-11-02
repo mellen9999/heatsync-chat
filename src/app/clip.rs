@@ -128,6 +128,7 @@ impl App {
         }
       }
       None => {
+        self.line.checkpoint(false);
         self.line.insert(t);
         self.complete = None;
       }

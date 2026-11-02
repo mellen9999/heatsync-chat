@@ -133,6 +133,8 @@ pub struct App {
   suggest: Option<Suggest>,
   suggest_at: (Box<str>, usize),
   suggest_rows: Vec<(usize, Rect)>,
+  // where the box's text was last drawn (a click places the cursor)
+  input_hit: Option<input_bar::Hit>,
   // an animated emote in the message box changes frame
   input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
@@ -294,6 +296,7 @@ impl App {
       tip: None,
       tip_next: None,
       input_next: None,
+      input_hit: None,
       over_input: false,
       suggest: None,
       suggest_at: ("".into(), 0),
@@ -424,6 +427,7 @@ impl App {
             }
           } else {
             self.complete = None;
+            self.line.checkpoint(false);
             self.line.insert(&text);
           }
         }
@@ -851,8 +855,9 @@ impl App {
       }
       if h > 0 {
         let r = self.input_area();
-        let (caret, next) = input_bar::draw(&mut self.canvas, &mut self.res.text, &mut self.res.images, r, &bar);
+        let (caret, next, hit) = input_bar::draw(&mut self.canvas, &mut self.res.text, &mut self.res.images, r, &bar);
         self.ime_area = Some(caret);
+        self.input_hit = (self.prompt.is_none() && !self.line.text.is_empty()).then_some(hit);
         self.input_next = next.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
         dirty = Some(r);
       }
@@ -1063,6 +1068,14 @@ impl App {
     }
     let recall = matches!(key, Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown));
     let space = key == Key::Named(NamedKey::Space) || text == Some(" ");
+    // an edit leaves a ctrl-z step (a run of typed letters is one); anything else ends the run
+    let alt = self.mods.alt_key();
+    match &key {
+      Key::Named(NamedKey::Backspace | NamedKey::Delete) => self.line.checkpoint(false),
+      Key::Character("w" | "u" | "k") if ctrl => self.line.checkpoint(false),
+      Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !alt => self.line.checkpoint(!space),
+      _ => self.line.seal(),
+    }
     let l = &mut self.line;
     match key {
       Key::Named(NamedKey::Escape) if self.set.vi => {
@@ -1094,12 +1107,14 @@ impl App {
       Key::Character("w") if ctrl => l.delete_word_back(),
       Key::Character("u") if ctrl => l.clear_to_start(),
       Key::Character("k") if ctrl => l.clear_to_end(),
+      Key::Character("z") if ctrl => l.undo(),
+      Key::Character("Z" | "y") if ctrl => l.redo(),
       Key::Character("n") if ctrl => {
         if let Some(t) = self.tabs.get_mut(self.active) {
           t.target = (t.target + 1) % t.sources.len().max(1);
         }
       }
-      Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !self.mods.alt_key() => {
+      Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !alt => {
         // mid-composition the input method owns the text; its commit arrives as an ime event
         if let Some(t) = text.filter(|_| self.ime.accepts_key_text()) {
           l.insert(t);
@@ -1290,6 +1305,13 @@ impl App {
       return self.picker_click();
     }
     if input.contains(x, y) {
+      // the cursor goes where you click, like any text box
+      if let Some(i) = self.input_hit.as_ref().map(|h| h.byte_at(x, y)) {
+        self.complete = None;
+        self.line.seal();
+        self.line.cursor = i.min(self.line.text.len());
+        self.input_dirty = true;
+      }
       return self.enter_insert();
     }
     if !chat.contains(x, y) {
@@ -2081,6 +2103,14 @@ mod live {
       c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
       let _ = std::fs::write(path, out);
     }
+    // a click puts the cursor there: before the first letter, past the end, on a picture's near side
+    let hit = app.input_hit.as_ref().expect("the box remembers where its text is");
+    let mid = r.y + r.h / 2;
+    assert_eq!(hit.byte_at(r.x, mid), 0);
+    assert_eq!(hit.byte_at(r.x + 400, mid), app.line.text.len());
+    let red = (r.x..r.right()).find(|&x| app.canvas.px[(mid * 720 + x) as usize] == 0xff0000).expect("the base");
+    assert_eq!(hit.byte_at(red + 1, mid), 3, "left half of the picture: before it");
+    assert_eq!(hit.byte_at(red + 26, mid), 16, "right half: after the whole stack");
     // the trailing space, then the overlay whole, then the base whole
     for want in ["hi Kappa frozen0", "hi Kappa ", "hi Kappa", "hi "] {
       app.key_insert(Key::Named(NamedKey::Backspace), None);

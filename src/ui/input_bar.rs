@@ -153,6 +153,37 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   Laid { l: text.layout(&s, &spans, &boxes, room), at, pre, runs }
 }
 
+// where the text was drawn, to turn a click into a cursor
+pub struct Hit {
+  l: TextLayout,
+  ox: f32,
+  oy: f32,
+  at: usize,
+  runs: Vec<(Range<usize>, usize)>,
+  chips: Vec<Range<usize>>,
+  len: usize,
+}
+
+impl Hit {
+  // the line byte nearest a click: a picture's nearer side, else between the letters
+  pub fn byte_at(&self, x: i32, y: i32) -> usize {
+    let (lx, ly) = (x as f32 - self.ox, y as f32 - self.oy);
+    for (k, r) in self.chips.iter().enumerate() {
+      if let Some((bx, by, bw, bh)) = chip_box(&self.l, k)
+        && (bx..bx + bw).contains(&lx)
+        && (by..by + bh).contains(&ly)
+      {
+        return if lx < bx + bw / 2.0 { r.start } else { r.end };
+      }
+    }
+    let i = Cursor::from_point(&self.l, lx, ly).index();
+    if i < self.at {
+      return 0;
+    }
+    self.runs.iter().find(|(r, o)| (*o..=o + r.len()).contains(&i)).map_or(self.len, |(r, o)| r.start + i - o)
+  }
+}
+
 // a chip's spot in the layout: x, y, w, h
 fn chip_box(l: &TextLayout, k: usize) -> Option<(f32, f32, f32, f32)> {
   l.lines().flat_map(|ln| ln.items().collect::<Vec<_>>()).find_map(|it| match it {
@@ -225,9 +256,9 @@ pub fn underline(c: &mut Canvas, l: &TextLayout, range: std::ops::Range<usize>, 
   }
 }
 
-// returns the caret rect (window px) so the input method can park its candidate window there, and
-// when an animated chip next changes frame (ms)
-pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b: &Bar) -> (Rect, Option<u32>) {
+// returns the caret rect (window px) so the input method can park its candidate window there, when an
+// animated chip next changes frame (ms), and where the typed text landed (for clicks)
+pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b: &Bar) -> (Rect, Option<u32>, Hit) {
   c.fill(area, theme::BLACK);
   let g = layout(text, b, area.w);
   let l = &g.l;
@@ -318,5 +349,7 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
   let (cx, cy) = (up.x + up.w / 2, up.y + up.h / 2);
   c.fill(Rect::new(cx - arm / 2, cy - bar / 2, arm, bar), fg);
   c.fill(Rect::new(cx - bar / 2, cy - arm / 2, bar, arm), fg);
-  (Rect::new(x, y, CURSOR_W, h), next)
+  let chips = b.chips.iter().map(|c| c.range.clone()).collect();
+  let hit = Hit { l: g.l, ox, oy, at: g.at, runs: g.runs, chips, len: b.line.text.len() };
+  (Rect::new(x, y, CURSOR_W, h), next, hit)
 }

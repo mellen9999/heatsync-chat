@@ -6,6 +6,8 @@ use std::ops::Range;
 // twitch's cap; kick and youtube are lower or equal
 pub const MAX_CHARS: usize = 500;
 const HISTORY: usize = 50;
+// ctrl-z steps kept (ext undo-manager)
+const UNDO: usize = 100;
 
 #[derive(Default)]
 pub struct Line {
@@ -17,6 +19,10 @@ pub struct Line {
   // Some(i) while browsing history; `draft` holds what was typed before
   browsing: Option<usize>,
   draft: String,
+  // ctrl-z / ctrl-y: (text, cursor) before each edit; a run of typed letters is one step
+  undo: Vec<(String, usize)>,
+  redo: Vec<(String, usize)>,
+  typing: bool,
 }
 
 impl Line {
@@ -32,6 +38,7 @@ impl Line {
   // an emote name at the cursor, spaced the way the ext pastes it: a space before unless the
   // text so far is empty or ends in one, and a trailing space to keep typing
   pub fn insert_word(&mut self, w: &str) {
+    self.checkpoint(false);
     if !self.text[..self.cursor].is_empty() && !self.text[..self.cursor].ends_with(' ') {
       self.insert(" ");
     }
@@ -43,6 +50,46 @@ impl Line {
   pub fn insert_chip(&mut self, w: &str) {
     self.chips.insert(w.into());
     self.insert_word(w);
+  }
+
+  // an edit is about to happen: remember the text for ctrl-z. letters typed in a row share one step
+  pub fn checkpoint(&mut self, typing: bool) {
+    let same = typing && self.typing;
+    self.typing = typing;
+    if same || self.undo.last().is_some_and(|u| u.0 == self.text) {
+      return;
+    }
+    if self.undo.len() == UNDO {
+      self.undo.remove(0);
+    }
+    self.undo.push((self.text.clone(), self.cursor));
+    self.redo.clear();
+  }
+
+  // anything but typing ends the current step
+  pub fn seal(&mut self) {
+    self.typing = false;
+  }
+
+  pub fn undo(&mut self) {
+    self.step(true);
+  }
+
+  pub fn redo(&mut self) {
+    self.step(false);
+  }
+
+  fn step(&mut self, back: bool) {
+    let (from, to) = if back { (&mut self.undo, &mut self.redo) } else { (&mut self.redo, &mut self.undo) };
+    // a snapshot equal to now (an edit that changed nothing) is no step
+    while from.last().is_some_and(|u| u.0 == self.text) {
+      from.pop();
+    }
+    let Some((text, cursor)) = from.pop() else { return };
+    to.push((std::mem::replace(&mut self.text, text), self.cursor));
+    self.cursor = cursor.min(self.text.len());
+    self.typing = false;
+    self.browsing = None;
   }
 
   // byte ranges of the words shown as emotes, in order
@@ -163,6 +210,8 @@ impl Line {
     self.text.clear();
     self.chips.clear();
     self.cursor = 0;
+    self.undo.clear();
+    self.redo.clear();
     self.browsing = None;
     if msg.is_empty() {
       return None;
@@ -298,6 +347,43 @@ mod tests {
     assert!(l.chip_ranges().is_empty());
     l.take();
     assert!(l.chips.is_empty());
+  }
+
+  #[test]
+  fn undo_steps_by_word_and_edit() {
+    let mut l = Line::default();
+    for c in ["h", "i"] {
+      l.checkpoint(true);
+      l.insert(c);
+    }
+    l.checkpoint(false);
+    l.insert(" ");
+    for c in ["y", "o"] {
+      l.checkpoint(true);
+      l.insert(c);
+    }
+    l.seal();
+    l.checkpoint(false);
+    l.backspace();
+    assert_eq!(l.text, "hi y");
+    l.undo();
+    assert_eq!(l.text, "hi yo");
+    l.undo();
+    assert_eq!(l.text, "hi ");
+    l.undo();
+    assert_eq!(l.text, "hi");
+    l.undo();
+    assert_eq!(l.text, "");
+    l.undo();
+    assert_eq!(l.text, "");
+    l.redo();
+    l.redo();
+    assert_eq!((l.text.as_str(), l.cursor), ("hi ", 3));
+    // a new edit drops what could be redone
+    l.checkpoint(false);
+    l.insert("!");
+    l.redo();
+    assert_eq!(l.text, "hi !");
   }
 
   #[test]
