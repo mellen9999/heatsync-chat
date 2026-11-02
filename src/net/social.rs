@@ -28,6 +28,8 @@ pub enum Cmd {
   // page 1 = a fresh load; later pages append
   Feed { page: u32 },
   Thread { id: Box<str> },
+  // a held post's withheld files (the viewer pressed show)
+  Media { id: Box<str> },
   Vote { id: Box<str> },
   // reply_to None = a top-level post
   Post { text: String, reply_to: Option<Box<str>> },
@@ -46,6 +48,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
   match cmd {
     Cmd::Feed { page } => feed(&http, token.as_deref(), page, &out).await,
     Cmd::Thread { id } => thread(&http, token.as_deref(), id, &out).await,
+    Cmd::Media { id } => media(&http, token.as_deref(), id, &out).await,
     Cmd::Vote { id } => vote(&http, token.as_deref(), id, &out).await,
     Cmd::Post { text, reply_to } => publish(&http, token.as_deref(), text, reply_to, &out).await,
     Cmd::WhisperHistory { me, epoch } => {
@@ -199,6 +202,17 @@ async fn thread(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: 
     (op, replies)
   });
   void(out.send(NetEvent::Thread { id, res: res.ok_or(status) }))
+}
+
+// logged out reads as not cleared: either way the answer is to log in as an adult
+async fn media(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {
+  let (status, v) = call(read(http, token, &format!("/api/messages/{}/media", crate::util::path_seg(&id)))).await;
+  let res = match status {
+    200 => Ok(post::media_of(&v)),
+    401 => Err(403),
+    s => Err(s),
+  };
+  void(out.send(NetEvent::Media { id, res }))
 }
 
 fn authed(http: &reqwest::Client, token: &str, path: &str, body: String) -> reqwest::RequestBuilder {

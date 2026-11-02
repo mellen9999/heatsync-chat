@@ -4,9 +4,10 @@
 use serde_json::Value;
 
 use super::color;
-use super::message::{Extra, HsEmote, Kind, Message, Platform, Seg};
+use super::message::{Extra, HsEmote, Kind, Message, Pic, Platform, Seg};
 use crate::cosmetics::id::PaintId;
-use crate::heatsync::{cw_blocked, valid_name};
+use crate::heatsync::content::{self, emote_hidden};
+use crate::heatsync::valid_name;
 use crate::images::url::allowed;
 use crate::ui::theme;
 use crate::util::time::{now_ms, parse_iso};
@@ -14,6 +15,33 @@ use crate::util::time::{now_ms, parse_iso};
 const MAX_TEXT: usize = 4000;
 const MAX_NAME: usize = 100;
 const MAX_REFS: usize = 50;
+const MAX_MEDIA: usize = 8;
+const SITE: &str = "https://heatsync.org";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaKind {
+  Image,
+  Gif,
+  Video,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Media {
+  pub url: Box<str>,
+  pub kind: MediaKind,
+  // a video's still (the picture a video row draws)
+  pub thumb: Option<Box<str>>,
+}
+
+impl Media {
+  // what draws: the picture itself, a video's still
+  pub fn pic(&self) -> Option<&str> {
+    match self.kind {
+      MediaKind::Video => self.thumb.as_deref(),
+      _ => Some(&self.url),
+    }
+  }
+}
 
 #[derive(Clone, Debug)]
 pub struct Post {
@@ -37,6 +65,26 @@ pub struct Post {
   pub edited: bool,
   // the AUTHOR's own heatsync emotes, server-resolved: the only heatsync emote source for a post
   pub refs: Box<[HsEmote]>,
+  pub media: Box<[Media]>,
+  // what moderation flagged the media for (held unless the viewer's switch is on, content::held)
+  pub cats: Box<[Box<str>]>,
+  pub media_count: u8,
+  // the server kept the files back (flagged, viewer not cleared): `show` asks /api/messages/:id/media
+  pub withheld: bool,
+  // still in moderation: tagged, never peeked
+  pub pending: bool,
+  // video when the server says so; a withheld post's kind is all we know of it
+  pub video: bool,
+}
+
+// where the viewer's `show` on a held post stands (model::feed keeps one per post, for the session)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reveal {
+  Open,
+  Asking,
+  // 403: the account isn't cleared for adult media
+  Denied,
+  Failed,
 }
 
 fn clamp(s: &str, max: usize) -> String {
@@ -80,11 +128,61 @@ fn refs_of(v: Option<&Value>) -> Box<[HsEmote]> {
     .filter_map(|(word, e)| {
       let url = e.as_str().or_else(|| e.get("url").and_then(Value::as_str))?;
       let gated =
-        e.is_object() && (cw_blocked(e) || e.get("cw").is_some_and(|c| c.as_str().is_some_and(|s| !s.is_empty())));
+        e.is_object() && (emote_hidden(e) || e.get("cw").is_some_and(|c| c.as_str().is_some_and(|s| !s.is_empty())));
       let zero = e.get("zeroWidth").and_then(Value::as_bool) == Some(true);
       (valid_name(word) && !gated && allowed(url)).then(|| (word.as_str().into(), url.into(), zero))
     })
     .take(MAX_REFS)
+    .collect()
+}
+
+// `/uploads/x.webp` → the site's own url; anything else must already be an allowed https url
+fn media_url(v: Option<&Value>) -> Option<Box<str>> {
+  let u = v?.as_str()?;
+  let u = if u.starts_with("/uploads/") { format!("{SITE}{u}") } else { u.to_owned() };
+  allowed(&u).then(|| u.into())
+}
+
+fn kind_of(ty: Option<&str>, url: &str) -> MediaKind {
+  let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
+  if ty == Some("video") {
+    MediaKind::Video
+  } else if path.ends_with(".gif") || path.ends_with(".apng") {
+    MediaKind::Gif
+  } else {
+    MediaKind::Image
+  }
+}
+
+// `media[]` ({type, url, thumbnail_url}), else the single `media_url` + `media_type`. a post's own
+// fields or the answer to /api/messages/:id/media, same shape
+pub fn media_of(v: &Value) -> Box<[Media]> {
+  let one = |url: Option<&Value>, ty: Option<&Value>, thumb: Option<&Value>| {
+    let url = media_url(url)?;
+    let kind = kind_of(ty.and_then(Value::as_str), &url);
+    Some(Media { url, kind, thumb: media_url(thumb) })
+  };
+  let list = v.get("media").and_then(Value::as_array).filter(|a| !a.is_empty());
+  match list {
+    Some(a) => {
+      a.iter().take(MAX_MEDIA).filter_map(|m| one(m.get("url"), m.get("type"), m.get("thumbnail_url"))).collect()
+    }
+    None => one(v.get("media_url"), v.get("media_type"), v.get("thumbnail_url")).into_iter().collect(),
+  }
+}
+
+// `media_held` (what the server kept back), else what moderation flagged
+fn cats_of(v: &Value) -> Box<[Box<str>]> {
+  let held = v.get("media_held").and_then(Value::as_array).filter(|a| !a.is_empty());
+  let flagged = || v.get("moderation_result").and_then(|r| r.get("flaggedCategories")).and_then(Value::as_array);
+  held
+    .or_else(flagged)
+    .into_iter()
+    .flatten()
+    .filter_map(Value::as_str)
+    .filter(|c| !c.is_empty())
+    .take(MAX_MEDIA)
+    .map(|c| clamp(c, 32).into())
     .collect()
 }
 
@@ -112,6 +210,15 @@ pub fn parse(v: &Value) -> Option<Post> {
     _ => String::new(),
   };
   let paint = PaintId::of(name("platform").unwrap_or(""), &uid);
+  let media = media_of(v);
+  // a count comes as a number or a numeric string
+  let count = match v.get("media_count") {
+    Some(Value::Number(n)) => n.as_u64().unwrap_or(0),
+    Some(Value::String(s)) => s.parse().unwrap_or(0),
+    _ => 0,
+  };
+  let has = v.get("has_media").and_then(Value::as_bool) == Some(true) || count > 0;
+  let media_count = (count as usize).max(media.len()).min(MAX_MEDIA * 4) as u8;
   Some(Post {
     id: id.into(),
     user: clamp(user, MAX_NAME).into(),
@@ -129,6 +236,13 @@ pub fn parse(v: &Value) -> Option<Post> {
     voted: v.get("user_vote").and_then(Value::as_i64) == Some(1),
     edited: v.get("edited_at").is_some_and(|e| !e.is_null()),
     refs: refs_of(v.get("emote_refs")),
+    withheld: has && media.is_empty(),
+    media_count: if has { media_count.max(1) } else { media_count },
+    media,
+    cats: cats_of(v),
+    video: name("media_type") == Some("video"),
+    pending: v.get("moderation_pending").and_then(Value::as_bool) == Some(true)
+      || name("moderation_status") == Some("pending"),
   })
 }
 
@@ -220,8 +334,66 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     tail: tail.into(),
     edge: if p.heat > 0 { tier(p.heat).0 } else { 0 },
     paint: p.paint.clone(),
+    pic: pic(p, false, None).map(Box::new),
   }));
   m
+}
+
+// ext inlineMediaTag: img / gif / vid, `media` when they differ, a count when there are several
+fn tag(p: &Post) -> Box<str> {
+  let word = |k: MediaKind| match k {
+    MediaKind::Image => "img",
+    MediaKind::Gif => "gif",
+    MediaKind::Video => "vid",
+  };
+  let label = match p.media.split_first() {
+    Some((a, rest)) if rest.iter().all(|b| b.kind == a.kind) => word(a.kind),
+    Some(_) => "media",
+    None if p.video => "vid",
+    None if p.media_count > 1 => "media",
+    None => "img",
+  };
+  let n = (p.media.len() as u8).max(p.media_count);
+  if n > 1 { format!("[{n} {label}]").into() } else { format!("[{label}]").into() }
+}
+
+// what a post's media looks like on its row. `inline` = an open thread draws it; `reveal` = the
+// viewer's show on a held one
+pub fn pic(p: &Post, inline: bool, reveal: Option<Reveal>) -> Option<Pic> {
+  if p.media_count == 0 {
+    return None;
+  }
+  let hold = content::held(p.cats.iter().map(|c| &**c))
+    .or_else(|| (p.withheld && p.media.is_empty()).then(|| content::Hold { label: "media".into(), can_show: true }));
+  let open = reveal == Some(Reveal::Open) && !p.media.is_empty() && hold.as_ref().is_some_and(|h| h.can_show);
+  let items: Box<[_]> = p
+    .media
+    .iter()
+    .filter_map(|m| Some((m.pic()?.into(), (m.kind == MediaKind::Video).then(|| m.url.clone()))))
+    .collect();
+  let (hidden, button) = match &hold {
+    None => (None, None),
+    Some(_) if open => (None, Some("hide")),
+    Some(h) => {
+      let b = h.can_show.then_some(match reveal {
+        Some(Reveal::Asking) => "loading...",
+        Some(Reveal::Denied) => "log in as an adult to view",
+        Some(Reveal::Failed) => "retry",
+        _ => "show",
+      });
+      (Some(format!("[media hidden — {}]", h.label).into()), b)
+    }
+  };
+  let peek = if p.pending { None } else { p.media.first().and_then(Media::pic).map(Into::into) };
+  Some(Pic {
+    tag: tag(p),
+    // a held post peeks as its box's words instead (the tag's hover reads `hidden`)
+    peek,
+    inline,
+    items: if hidden.is_some() { Box::new([]) } else { items },
+    hidden,
+    button: button.map(Into::into),
+  })
 }
 
 #[cfg(test)]
@@ -333,6 +505,75 @@ mod tests {
     let m = message(&parse(&sample()).unwrap(), None, false);
     assert_eq!(m.hs.len(), 2);
     assert_eq!(&*m.user_id, "", "no twitch id, so no sender-inventory lookup can run for a feed author");
+  }
+
+  #[test]
+  fn media_parses_bounded_and_allowlisted() {
+    let one = json!({"base36_id": "47", "content": "x", "has_media": true, "media_count": "1",
+      "media": [], "media_url": "/uploads/a.webp", "media_type": "image"});
+    let p = parse(&one).unwrap();
+    assert_eq!(&*p.media[0].url, "https://heatsync.org/uploads/a.webp");
+    assert!(!p.withheld && p.media_count == 1);
+    let many: Vec<_> =
+      (0..20).map(|i| json!({"type": "image", "url": format!("https://heatsync.org/uploads/{i}.gif")})).collect();
+    let mut v = json!({"base36_id": "48", "content": "x", "media": many});
+    let p = parse(&v).unwrap();
+    assert_eq!(p.media.len(), MAX_MEDIA);
+    assert_eq!(p.media[0].kind, MediaKind::Gif);
+    v["media"] = json!([{"type": "image", "url": "https://evil.example/a.png"}, {"type": "video", "url": "https://heatsync.org/v.mp4",
+      "thumbnail_url": "javascript:x"}]);
+    let p = parse(&v).unwrap();
+    assert_eq!(p.media.len(), 1, "a url off the allowlist is dropped");
+    assert_eq!((p.media[0].kind, p.media[0].pic()), (MediaKind::Video, None), "a bad still draws nothing");
+    let plain = parse(&json!({"base36_id": "49", "content": "x"})).unwrap();
+    assert!(plain.media.is_empty() && plain.media_count == 0 && pic(&plain, true, None).is_none());
+  }
+
+  #[test]
+  fn held_media_shows_its_box_until_shown() {
+    content::set_shown([]);
+    // >>4a as the server sends it to a viewer not cleared: the files withheld
+    let v = json!({"base36_id": "4a", "content": "x", "has_media": true, "media_count": "1", "media": [],
+      "media_url": null, "media_type": "image", "media_held": ["nsfw"],
+      "moderation_result": {"flaggedCategories": ["nsfw"]}});
+    let mut p = parse(&v).unwrap();
+    assert!(p.withheld);
+    let x = pic(&p, true, None).unwrap();
+    assert_eq!(
+      (&*x.tag, x.hidden.as_deref(), x.button.as_deref()),
+      ("[img]", Some("[media hidden — nsfw]"), Some("show"))
+    );
+    assert!(x.items.is_empty() && x.peek.is_none());
+    assert_eq!(pic(&p, true, Some(Reveal::Denied)).unwrap().button.as_deref(), Some("log in as an adult to view"));
+    assert_eq!(pic(&p, true, Some(Reveal::Failed)).unwrap().button.as_deref(), Some("retry"));
+    // open with no files yet still holds
+    assert!(pic(&p, true, Some(Reveal::Open)).unwrap().hidden.is_some());
+    p.media = media_of(&json!({"media_url": "https://heatsync.org/uploads/b.webp", "media_type": "image"}));
+    let x = pic(&p, true, Some(Reveal::Open)).unwrap();
+    assert_eq!((x.hidden, x.button.as_deref(), x.items.len()), (None, Some("hide"), 1));
+    // switched on: no box at all
+    content::set_shown([(content::Cat::Sexual, true)]);
+    let x = pic(&p, true, None).unwrap();
+    assert_eq!((x.hidden, x.button), (None, None));
+    // csam: a box with no button, whatever the switches
+    p.cats = Box::new(["csam".into()]);
+    let x = pic(&p, true, Some(Reveal::Open)).unwrap();
+    assert_eq!((x.hidden.as_deref(), x.button), (Some("[media hidden — blocked]"), None));
+  }
+
+  #[test]
+  fn tags_name_the_media_like_the_ext() {
+    let t = |v: Value| tag(&parse(&v).unwrap());
+    let base = |m: Value| json!({"base36_id": "1", "content": "x", "media": m});
+    assert_eq!(&*t(base(json!([{"type": "image", "url": "https://heatsync.org/a.webp"}]))), "[img]");
+    assert_eq!(&*t(base(json!([{"type": "video", "url": "https://heatsync.org/a.mp4"}]))), "[vid]");
+    let mixed = json!([{"type": "image", "url": "https://heatsync.org/a.webp"}, {"type": "image", "url": "https://heatsync.org/b.gif"}]);
+    assert_eq!(&*t(base(mixed)), "[2 media]");
+    let held = json!({"base36_id": "1", "content": "x", "has_media": true, "media_count": 3, "media_held": ["nsfw"]});
+    assert_eq!(&*t(held), "[3 media]");
+    let vid =
+      json!({"base36_id": "1", "content": "x", "has_media": true, "media_type": "video", "media_held": ["nsfw"]});
+    assert_eq!(&*t(vid), "[vid]");
   }
 
   #[test]

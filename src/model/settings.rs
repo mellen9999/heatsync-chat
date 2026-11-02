@@ -1,4 +1,5 @@
 // user prefs, persisted as `settings` (key=value lines). vi + auto_hide default off: a plain chat box
+use crate::heatsync::content::Cat;
 use crate::model::schema;
 use crate::model::tabs::Kind;
 use crate::store;
@@ -48,6 +49,12 @@ pub struct Settings {
   pub hide_dupes: bool,
   // ask before a ban goes out (the ext's modConfirmBan, off by default like the ext)
   pub confirm_ban: bool,
+  // flagged pictures and emotes shown, by category (ext viewer_show_*): all off by default
+  pub show_nsfw: bool,
+  pub show_violence: bool,
+  pub show_weapons: bool,
+  pub show_drugs: bool,
+  pub show_hate: bool,
 }
 
 impl Default for Settings {
@@ -73,6 +80,11 @@ impl Default for Settings {
       hide_cmds: false,
       hide_dupes: false,
       confirm_ban: false,
+      show_nsfw: false,
+      show_violence: false,
+      show_weapons: false,
+      show_drugs: false,
+      show_hate: false,
     }
   }
 }
@@ -81,6 +93,17 @@ impl Settings {
   // the multiplier on the window's scale factor
   pub fn scale(&self) -> f32 {
     self.zoom as f32 / 100.0
+  }
+
+  // the content switches, for the one rule in heatsync::content
+  pub fn content(&self) -> [(Cat, bool); 5] {
+    [
+      (Cat::Sexual, self.show_nsfw),
+      (Cat::Violence, self.show_violence),
+      (Cat::Weapons, self.show_weapons),
+      (Cat::Drugs, self.show_drugs),
+      (Cat::Hate, self.show_hate),
+    ]
   }
 
   pub fn shown(&self, k: Kind) -> bool {
@@ -212,7 +235,12 @@ mod tests {
         hide_bots: false,
         hide_cmds: false,
         hide_dupes: false,
-        confirm_ban: false
+        confirm_ban: false,
+        show_nsfw: false,
+        show_violence: false,
+        show_weapons: false,
+        show_drugs: false,
+        show_hate: false
       }
     );
     assert_eq!(Settings::parse(""), Settings::default());

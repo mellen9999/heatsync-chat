@@ -8,7 +8,7 @@ use super::canvas::{Canvas, Rect};
 use super::embed;
 use super::name_art::anim::AnimArt;
 use super::name_art::{self, ArtKey, PAINT_IMG_PX};
-use super::res::{BADGE_PX, EMBED_PX, EMOTE_PX, Res};
+use super::res::{BADGE_PX, EMBED_PX, EMOTE_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
 use crate::cosmetics::id::PaintId;
@@ -86,6 +86,12 @@ struct Laid {
   // the feed's ▲ and the post's own >>id (empty on every other line)
   vote: std::ops::Range<usize>,
   thread: std::ops::Range<usize>,
+  // a feed post's media: its `[img]` tag, the held box's button, and the frames drawn around them
+  media: std::ops::Range<usize>,
+  reveal: std::ops::Range<usize>,
+  frames: Vec<(std::ops::Range<usize>, Frame)>,
+  // the post's pictures, asked for at draw time like `embed`
+  pics: Vec<ImgId>,
   boxes: Vec<EmoteBox>,
   // names wearing a paint: the sender's and any mentioned in the words
   names: Vec<PaintedName>,
@@ -96,6 +102,14 @@ struct Laid {
   // links in the words, and where each one's text sits in the laid-out text
   links: Vec<Link>,
   link_runs: Vec<(std::ops::Range<usize>, usize)>,
+}
+
+#[derive(Clone, Copy)]
+enum Frame {
+  // the held box: the dashed cyan the ext's flagged things wear
+  Held,
+  // its button: 1px white
+  Button,
 }
 
 struct Row {
@@ -351,6 +365,10 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut nick = 0..0;
   let mut vote = 0..0;
   let mut thread = 0..0;
+  let mut media = 0..0;
+  let mut reveal = 0..0;
+  let mut frames = Vec::new();
+  let mut pics = Vec::new();
   // where the words sit in the text, for search hits
   let mut words = 0..0;
   if m.kind == Kind::System {
@@ -421,6 +439,16 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       let tag = if n.art.is_some() { Ink::PAINTED } else { 0 };
       spans.push(Span { range: n.range.clone(), ink: Ink(n.color | tag), bold: true });
     }
+    if let Some(p) = x.and_then(|x| x.pic.as_deref()).filter(|_| !muted) {
+      s.push(' ');
+      let a = s.len();
+      s.push_str(&p.tag);
+      spans.push(Span { range: a..s.len(), ink: Ink(theme::CYAN), bold: false });
+      media = a..s.len();
+      if p.inline {
+        post_media(res, p, width, &mut s, &mut spans, &mut ib, &mut boxes, (&mut reveal, &mut frames, &mut pics));
+      }
+    }
     // the picture sits on its own line under the text once its size is known
     if let Some(id) = pic {
       embed = Some(id);
@@ -452,7 +480,101 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       names.push(PaintedName { uid: uid.clone(), nick: text, color: n.color, paint: paint.clone(), x, w, baseline });
     }
   }
-  Laid { layout, nick, vote, thread, boxes, names, mentions, embed, links, link_runs }
+  Laid { layout, nick, vote, thread, media, reveal, frames, pics, boxes, names, mentions, embed, links, link_runs }
+}
+
+type Spots<'a> = (&'a mut std::ops::Range<usize>, &'a mut Vec<(std::ops::Range<usize>, Frame)>, &'a mut Vec<ImgId>);
+
+// an open thread's media under the words: the held box and its button, or the pictures (each on the
+// row's width, wrapping) with a hide over them once a held one is shown
+#[allow(clippy::too_many_arguments)]
+fn post_media(
+  res: &mut Res,
+  p: &crate::model::message::Pic,
+  width: i32,
+  s: &mut String,
+  spans: &mut Vec<Span>,
+  ib: &mut Vec<InlineBox>,
+  boxes: &mut Vec<EmoteBox>,
+  (reveal, frames, pics): Spots,
+) {
+  let button = |s: &mut String, spans: &mut Vec<Span>, frames: &mut Vec<_>, b: &str| {
+    let a = s.len();
+    s.push(' ');
+    s.push_str(b);
+    s.push(' ');
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::WHITE), bold: false });
+    frames.push((a..s.len(), Frame::Button));
+    a..s.len()
+  };
+  if let Some(h) = &p.hidden {
+    s.push('\n');
+    let a = s.len();
+    s.push(' ');
+    s.push_str(h);
+    s.push(' ');
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::WHITE), bold: false });
+    frames.push((a..s.len(), Frame::Held));
+    if let Some(b) = &p.button {
+      s.push(' ');
+      *reveal = button(s, spans, frames, b);
+    }
+    return;
+  }
+  if let Some(b) = &p.button {
+    s.push('\n');
+    *reveal = button(s, spans, frames, b);
+  }
+  if !res.media {
+    return;
+  }
+  let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
+  let px = if p.items.len() > 1 { MEDIA_MULTI_PX } else { MEDIA_PX };
+  let mut first = true;
+  for (url, _) in &p.items {
+    let id = res.images.id_fit(url, px, avail);
+    if res.images.failed(id) {
+      continue;
+    }
+    pics.push(id);
+    let Some((w, h)) = res.images.dims(id) else { continue };
+    if first {
+      s.push('\n');
+      first = false;
+    } else {
+      ib.push(gap(s.len(), res.images.px(3)));
+    }
+    ib.push(inline(boxes.len(), s.len(), w, h));
+    boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
+  }
+}
+
+// the box around `range` on its first line: (x, top, width, bottom) in layout coordinates
+fn range_rect(layout: &TextLayout, range: &std::ops::Range<usize>) -> Option<(f32, f32, f32, f32)> {
+  for line in layout.lines() {
+    let m = line.metrics();
+    let mut found: Option<(f32, f32)> = None;
+    for item in line.items() {
+      let PositionedLayoutItem::GlyphRun(gr) = item else { continue };
+      let at = gr.run().text_range();
+      if at.start >= range.end || range.start >= at.end {
+        continue;
+      }
+      // only the clusters inside the range: a run can carry more than it
+      let mut x = gr.offset();
+      for c in gr.run().visual_clusters() {
+        let w = c.advance();
+        if range.contains(&c.text_range().start) {
+          found = Some(found.map_or((x, x + w), |(a, b)| (a.min(x), b.max(x + w))));
+        }
+        x += w;
+      }
+    }
+    if let Some((a, b)) = found {
+      return Some((a, m.block_min_coord, b - a, m.block_max_coord));
+    }
+  }
+  None
 }
 
 // (x, width, baseline) of the painted name at `range`: its glyph runs, which share a line
@@ -1240,6 +1362,16 @@ impl ChatView {
     self.spot_at(area, (x, y), res, |l| &l.vote)
   }
 
+  // the feed post whose held box's button (show / hide / retry) is under (x, y)
+  pub fn reveal_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
+    self.spot_at(area, (x, y), res, |l| &l.reveal)
+  }
+
+  // the feed post whose `[img]` tag is under (x, y)
+  pub fn media_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
+    self.spot_at(area, (x, y), res, |l| &l.media)
+  }
+
   // the feed post whose own >>id is under (x, y)
   pub fn thread_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
     self.spot_at(area, (x, y), res, |l| &l.thread)
@@ -1462,19 +1594,25 @@ impl ChatView {
         }
         if self.selected == Some(r.seq) {
           // 1px white outline: emphasis by border, never a fill behind text
-          for e in [
-            Rect::new(area.x, top, area.w, 1),
-            Rect::new(area.x, top + r.height - 1, area.w, 1),
-            Rect::new(area.x, top, 1, r.height),
-            Rect::new(area.right() - 1, top, 1, r.height),
-          ] {
-            c.fill(e.intersect(clip), theme::WHITE);
-          }
+          c.outline(Rect::new(area.x, top, area.w, r.height), clip, theme::WHITE);
         }
         if let Some(laid) = &r.laid {
           let Res { text, images, arts, .. } = res;
           if let Some(id) = laid.embed {
             images.want(id);
+          }
+          for &id in &laid.pics {
+            images.want(id);
+          }
+          let x0 = (area.x + MARK_W) as f32 + theme::PAD_X;
+          for (range, f) in &laid.frames {
+            let Some((fx, ft, fw, fb)) = range_rect(&laid.layout, range) else { continue };
+            let r =
+              Rect::new((x0 + fx).round() as i32, top + ft.round() as i32, fw.round() as i32, (fb - ft).round() as i32);
+            match f {
+              Frame::Held => c.dashed(r, clip, theme::CYAN),
+              Frame::Button => c.outline(r, clip, theme::WHITE),
+            }
           }
           let anims = &mut self.anims;
           let name_anims = &mut self.name_anims;
@@ -2350,6 +2488,7 @@ mod tests {
       tail: Box::new([Seg { text: " 5".into(), ink: theme::WHITE, bold: false }]),
       edge: 0,
       paint: None,
+      pic: None,
     }));
     let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
     let n = l.layout.lines().count();

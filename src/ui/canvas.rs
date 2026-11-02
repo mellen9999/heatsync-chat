@@ -93,6 +93,18 @@ impl Canvas {
     }
   }
 
+  // 1px outline just inside `r`
+  pub fn outline(&mut self, r: Rect, clip: Rect, rgb: u32) {
+    for e in [
+      Rect::new(r.x, r.y, r.w, 1),
+      Rect::new(r.x, r.bottom() - 1, r.w, 1),
+      Rect::new(r.x, r.y, 1, r.h),
+      Rect::new(r.right() - 1, r.y, 1, r.h),
+    ] {
+      self.fill(e.intersect(clip), rgb);
+    }
+  }
+
   // 2px dashed outline (4 on, 4 off) just inside `r`
   pub fn dashed(&mut self, r: Rect, clip: Rect, rgb: u32) {
     const T: i32 = 2;

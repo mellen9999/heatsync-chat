@@ -15,6 +15,9 @@ pub const EMOTE_PX: u16 = 28;
 pub const BADGE_PX: u16 = 18;
 // tallest inline picture in a chat line (the ext's max-height)
 pub const EMBED_PX: u16 = 220;
+// a feed thread's picture, and each of several in a grid (ext .hs-feed-media, .hs-feed-media-multi)
+pub const MEDIA_PX: u16 = 320;
+pub const MEDIA_MULTI_PX: u16 = 180;
 
 pub struct Res {
   pub text: Text,

@@ -290,6 +290,7 @@ pub fn message(w: &Whisper) -> Message {
     ]),
     edge: 0,
     paint: None,
+    pic: None,
   }));
   m
 }

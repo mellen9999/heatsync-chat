@@ -43,6 +43,8 @@ pub enum Fx {
   Links,
   // the filter flags changed: judge every line again
   Filters,
+  // a content switch flipped: what flagged pictures and emotes show
+  Content,
   // a built-in tab came or went
   Tab(Kind),
 }
@@ -78,7 +80,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 22] = [
+pub static DEFS: [Def; 27] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -287,6 +289,61 @@ pub static DEFS: [Def; 22] = [
     alias: "hideword hidden words",
     ctl: Ctl::Words(false),
     fx: Fx::None,
+  },
+  Def {
+    id: "show_nsfw",
+    cmd: Some("/nsfw"),
+    cat: Cat::Filters,
+    section: "content",
+    label: "show nsfw",
+    tip: "sexual pictures and emotes (flagged by moderation). hidden behind a show button when off",
+    alias: "viewer_show_sexual sexual cw content warning sensitive",
+    ctl: pill!(show_nsfw),
+    fx: Fx::Content,
+  },
+  Def {
+    id: "show_violence",
+    cmd: Some("/violence"),
+    cat: Cat::Filters,
+    section: "content",
+    label: "show violence",
+    tip: "gore and violence. hidden behind a show button when off",
+    alias: "viewer_show_gore gore cw content warning sensitive",
+    ctl: pill!(show_violence),
+    fx: Fx::Content,
+  },
+  Def {
+    id: "show_weapons",
+    cmd: Some("/weapons"),
+    cat: Cat::Filters,
+    section: "content",
+    label: "show weapons",
+    tip: "weapons. hidden behind a show button when off",
+    alias: "viewer_show_weapon weapon cw content warning sensitive",
+    ctl: pill!(show_weapons),
+    fx: Fx::Content,
+  },
+  Def {
+    id: "show_drugs",
+    cmd: Some("/drugs"),
+    cat: Cat::Filters,
+    section: "content",
+    label: "show drugs",
+    tip: "drugs. hidden behind a show button when off",
+    alias: "viewer_show_drug drug cw content warning sensitive",
+    ctl: pill!(show_drugs),
+    fx: Fx::Content,
+  },
+  Def {
+    id: "show_hate",
+    cmd: Some("/hate"),
+    cat: Cat::Filters,
+    section: "content",
+    label: "show hate speech",
+    tip: "hate symbols and speech. hidden behind a show button when off",
+    alias: "viewer_show_hate cw content warning sensitive",
+    ctl: pill!(show_hate),
+    fx: Fx::Content,
   },
   Def {
     id: "tab_feed",

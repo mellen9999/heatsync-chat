@@ -201,6 +201,24 @@ impl App {
     true
   }
 
+  // a click on a held post's show / hide / retry. true = the click was spent
+  pub(super) fn reveal_press(&mut self) -> bool {
+    if self.kind() != Kind::Feed {
+      return false;
+    }
+    let (x, y) = self.pointer;
+    let chat = self.chat_area();
+    let res = &mut self.res;
+    let Some(id) = self.tabs.get_mut(self.active).and_then(|t| t.view.reveal_at(chat, x, y, res)) else {
+      return false;
+    };
+    if let Some(id) = self.feed.toggle_reveal(&id) {
+      self.net.send(Cmd::Social(social::Cmd::Media { id }));
+    }
+    self.feed_show();
+    true
+  }
+
   // a click on a row's ▲ votes on that row. true = the click was a vote press (spent either way)
   pub(super) fn vote_press(&mut self) -> bool {
     if self.kind() != Kind::Feed {

@@ -23,6 +23,7 @@ mod feed;
 mod filters;
 mod find;
 mod link;
+mod media_peek;
 mod mentions;
 mod mods;
 mod peek;
@@ -139,6 +140,7 @@ pub struct App {
   input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
   peek: Option<peek::Peek>,
+  media_peek: Option<media_peek::MediaPeek>,
   peek_due: Option<Instant>,
   cards: peek::Cards,
   occluded: bool,
@@ -252,6 +254,7 @@ impl App {
     let status =
       if tabs.is_empty() { "no channels — click + or press ctrl-t to add one".into() } else { String::new() };
     let set = Settings::load();
+    crate::heatsync::content::set_shown(set.content());
     crate::model::filter::edit(|f| {
       *f = crate::model::filter::Filters::load();
       (f.bots, f.cmds, f.dupes) = (set.hide_bots, set.hide_cmds, set.hide_dupes);
@@ -302,6 +305,7 @@ impl App {
       suggest_at: ("".into(), 0),
       suggest_rows: Vec::new(),
       peek: None,
+      media_peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
       occluded: false,
@@ -882,6 +886,7 @@ impl App {
       || self.pop.is_some()
       || self.card.is_some()
       || self.tip.is_some()
+      || self.media_peek.is_some()
       || self.over_input)
       && let Some(t) = self.tabs.get_mut(self.active)
     {
@@ -978,6 +983,9 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     if let Some(r) = self.draw_peek() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
+    if let Some(r) = self.draw_media_peek() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     if let Some(r) = self.draw_tip() {
@@ -1351,7 +1359,13 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
-    if self.vote_press() || self.thread_press() || self.link_press() || self.emote_press(false) || self.name_press() {
+    if self.vote_press()
+      || self.reveal_press()
+      || self.thread_press()
+      || self.link_press()
+      || self.emote_press(false)
+      || self.name_press()
+    {
       return;
     }
     let res = &mut self.res;
@@ -1715,6 +1729,10 @@ impl App {
       NetEvent::Feed(p) => self.on_feed(p),
       NetEvent::FeedFailed { status } => self.on_feed_failed(status),
       NetEvent::Thread { id, res } => self.on_thread(id, res),
+      NetEvent::Media { id, res } => {
+        self.feed.media_loaded(&id, res);
+        self.feed_show();
+      }
       NetEvent::Seen { surface, at } => self.on_seen(surface, at),
       NetEvent::Voted { id, res } => self.on_voted(id, res),
       NetEvent::Posted { res } => self.on_posted(res),
@@ -2402,6 +2420,101 @@ mod live {
     app.pointer = id_spot(&mut app, "00004c").expect("the op's >>4c heads the thread");
     app.click();
     assert!(app.feed.thread.is_none(), "the open thread's own >>id goes back");
+  }
+
+  // feed media, offline: a held post's box and show, the withheld files fetched, a picture under a reply,
+  // the [img] tag's peek. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_feed_media -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_feed_media() {
+    use crate::images::decode::{Decoded, Frame};
+    use crate::model::post::parse;
+    use crate::net::social;
+    crate::heatsync::content::set_shown([]);
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 520);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let op = parse(&serde_json::json!({"base36_id": "00004a", "username": "mellen9", "content": "porn test",
+      "has_media": true, "media_count": "1", "media": [], "media_type": "image", "media_held": ["nsfw"]}))
+    .unwrap();
+    let re =
+      parse(&serde_json::json!({"base36_id": "00004b", "username": "bob", "content": "nice", "reply_to": "00004a",
+      "media_url": "https://heatsync.org/uploads/b.webp", "media_type": "image"}))
+      .unwrap();
+    app.feed.posts = vec![op.clone()];
+    app.feed.loaded = true;
+    let feed = app.tabs.iter().position(|t| t.kind == Kind::Feed).expect("a feed tab");
+    app.select(feed);
+    app.feed.open("00004a", None);
+    app.on_net(NetEvent::Thread { id: "00004a".into(), res: Ok((op, vec![re])) });
+    // every picture asked for lands as a flat 160x120 block, red
+    let land = |app: &mut App, asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      for _ in 0..3 {
+        app.redraw();
+        let wanted: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+          .filter_map(|c| if let Cmd::Image(id, _, target) = c { Some((id, target)) } else { None })
+          .collect();
+        if wanted.is_empty() {
+          break;
+        }
+        for (id, target) in wanted {
+          let d = Decoded {
+            w: 160,
+            h: 120,
+            frames: vec![Frame { rgba: [255, 0, 0, 255].repeat(160 * 120).into(), delay_ms: 0 }],
+          };
+          app.res.images.loaded(id, target, Ok(d));
+        }
+        for t in &mut app.tabs {
+          t.view.relayout();
+        }
+      }
+    };
+    land(&mut app, &mut asked);
+    let spot = |app: &mut App, f: fn(&mut ChatView, Rect, i32, i32, &mut Res) -> Option<Box<str>>| {
+      let area = app.chat_area();
+      (area.y..area.bottom()).step_by(2).find_map(|y| {
+        (area.x..area.right()).step_by(2).find_map(|x| {
+          let res = &mut app.res;
+          f(&mut app.tabs[feed].view, area, x, y, res).map(|id| ((x, y), id))
+        })
+      })
+    };
+    let red = |app: &App| app.canvas.px.iter().filter(|&&p| p == 0xff0000).count();
+    assert!(red(&app) >= 150 * 110, "the reply's picture draws under its words");
+    let cyan = app.canvas.px.iter().filter(|&&p| p == 0x00ffff).count();
+    assert!(cyan > 50, "the held box wears its dashed cyan");
+    let (at, id) = spot(&mut app, ChatView::reveal_at).expect("the held box has a show button");
+    assert_eq!(&*id, "00004a");
+    while asked.try_recv().is_ok() {}
+    app.pointer = at;
+    app.click();
+    let asked_media = std::iter::from_fn(|| asked.try_recv().ok())
+      .any(|c| matches!(c, Cmd::Social(social::Cmd::Media { ref id }) if &**id == "00004a"));
+    assert!(asked_media, "show asks for the withheld files");
+    let files =
+      crate::model::post::media_of(&serde_json::json!({"media_url": "/uploads/a.webp", "media_type": "image"}));
+    app.on_net(NetEvent::Media { id: "00004a".into(), res: Ok(files) });
+    land(&mut app, &mut asked);
+    assert!(red(&app) >= 2 * 150 * 110, "shown: the op's picture too");
+    let (at, _) = spot(&mut app, ChatView::reveal_at).expect("a hide over the shown picture");
+    app.pointer = at;
+    app.click();
+    land(&mut app, &mut asked);
+    assert!(red(&app) < 2 * 150 * 110, "hide folds it back into the box");
+    // the op's [img] tag, held again: its peek is the box's words
+    let (at, id) = spot(&mut app, ChatView::media_at).expect("the op's [img] tag");
+    assert_eq!(&*id, "00004a");
+    app.pointer = at;
+    app.tip_hover();
+    assert!(app.media_peek.is_some(), "hovering the tag opens the peek");
+    land(&mut app, &mut asked);
+    crate::bench::dump(&app.canvas);
   }
 
   // the hover popup and colored mentions, offline: needs a scratch HOME (App::new reads settings):

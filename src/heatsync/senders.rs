@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::{cw_blocked, valid_name};
+use super::content::emote_hidden;
+use super::valid_name;
 use crate::images::url::allowed;
 use crate::util::time::parse_iso;
 
@@ -121,7 +122,7 @@ pub fn parse_set(v: &Value) -> Set {
     let Some(url) = s("url").or_else(|| s("src")).filter(|u| u.len() <= MAX_URL && allowed(u)) else { continue };
     let dim = |k: &str| r.get(k).and_then(Value::as_u64).map_or(0, |n| n.min(u16::MAX as u64) as u16);
     let (w, h) = (dim("width"), dim("height"));
-    if h == 0 || cw_blocked(r) {
+    if h == 0 || emote_hidden(r) {
       continue;
     }
     set.insert(

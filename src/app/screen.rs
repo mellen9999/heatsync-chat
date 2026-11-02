@@ -152,6 +152,11 @@ impl App {
         self.push_flags();
         self.refilter_all();
       }
+      Fx::Content => {
+        crate::heatsync::content::set_shown(self.set.content());
+        self.relayout_where(None);
+        self.feed_show();
+      }
       Fx::Tab(_) => self.fix_active(),
     }
     self.input_dirty = true;

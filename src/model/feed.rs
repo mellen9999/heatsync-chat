@@ -1,9 +1,9 @@
 // the feed tab's state (ext social.js feedMessages / activeThread): newest-first posts, one open thread,
 // and the rows they become. pure, so the rules (cap, dedupe, live replies, votes) are tested without a window
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::message::{Message, Platform};
-use super::post::{self, Post};
+use super::post::{self, Post, Reveal};
 use crate::net::social::Page;
 
 // the ext keeps 150 posts
@@ -37,6 +37,8 @@ pub struct Feed {
   pub failed: Option<u16>,
   pub thread: Option<Thread>,
   voting: HashSet<Box<str>>,
+  // held media the viewer asked to see, this session only (ext: never persisted)
+  reveal: HashMap<Box<str>, Reveal>,
 }
 
 impl Feed {
@@ -144,6 +146,47 @@ impl Feed {
     true
   }
 
+  pub fn reveal(&self, id: &str) -> Option<Reveal> {
+    self.reveal.get(id).copied()
+  }
+
+  // show / hide / retry on a held post. Some(id) = its files were withheld: ask the server for them
+  pub fn toggle_reveal(&mut self, id: &str) -> Option<Box<str>> {
+    let p = self.find(id)?;
+    let fetch = p.withheld && p.media.is_empty();
+    match self.reveal(id) {
+      Some(Reveal::Open) => {
+        self.reveal.remove(id);
+        None
+      }
+      Some(Reveal::Asking) => None,
+      _ if fetch => {
+        self.reveal.insert(id.into(), Reveal::Asking);
+        Some(id.into())
+      }
+      _ => {
+        self.reveal.insert(id.into(), Reveal::Open);
+        None
+      }
+    }
+  }
+
+  // the withheld files came back (or didn't: 403 = not cleared for adult media)
+  pub fn media_loaded(&mut self, id: &str, res: Result<Box<[post::Media]>, u16>) {
+    let state = match res {
+      Ok(m) if !m.is_empty() => {
+        self.each_copy(id, |p| p.media = m.clone());
+        Reveal::Open
+      }
+      Err(403) => Reveal::Denied,
+      _ => Reveal::Failed,
+    };
+    if self.reveal.len() >= CAP * 4 {
+      self.reveal.clear();
+    }
+    self.reveal.insert(id.into(), state);
+  }
+
   pub fn close(&mut self) {
     self.thread = None;
   }
@@ -154,6 +197,14 @@ impl Feed {
     let msg = |p: &Post| post::message(p, me, signed_in);
     let mut out = Vec::new();
     if let Some(t) = &self.thread {
+      // an open thread draws its media under the words
+      let msg = |p: &Post| {
+        let mut m = msg(p);
+        if let Some(x) = &mut m.x {
+          x.pic = post::pic(p, true, self.reveal(&p.id)).map(Box::new);
+        }
+        m
+      };
       out.extend(t.op.iter().map(msg));
       if t.loading {
         out.push(line("loading..."));
@@ -285,6 +336,26 @@ mod tests {
     assert!(!f.thread_loaded("a", Ok((post("a", 1, None), vec![]))));
     assert!(f.thread_loaded("b", Err(404)));
     assert!(f.thread.as_ref().unwrap().error);
+  }
+
+  #[test]
+  fn show_asks_for_withheld_files_once_and_hide_folds_them() {
+    let v = json!({"base36_id": "4a", "content": "x", "username": "a", "user_id": "1", "has_media": true,
+      "media_held": ["nsfw"]});
+    let mut f = Feed::default();
+    f.apply(page(1, vec![post::parse(&v).unwrap()], false), 1);
+    assert_eq!(f.toggle_reveal("4a").as_deref(), Some("4a"));
+    assert_eq!(f.toggle_reveal("4a"), None, "a second press while asking asks nothing");
+    f.media_loaded("4a", Err(403));
+    assert_eq!(f.reveal("4a"), Some(Reveal::Denied));
+    assert!(f.toggle_reveal("4a").is_some(), "a refused show can be pressed again");
+    f.media_loaded("4a", Ok(post::media_of(&json!({"media_url": "/uploads/a.webp"}))));
+    assert_eq!(f.reveal("4a"), Some(Reveal::Open));
+    assert_eq!(f.posts[0].media.len(), 1);
+    assert_eq!(f.toggle_reveal("4a"), None);
+    assert_eq!(f.reveal("4a"), None, "hide");
+    assert_eq!(f.toggle_reveal("4a"), None, "the files are here now: show needs no ask");
+    assert_eq!(f.reveal("4a"), Some(Reveal::Open));
   }
 
   #[test]

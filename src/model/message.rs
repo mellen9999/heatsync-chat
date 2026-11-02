@@ -62,6 +62,28 @@ pub struct Extra {
   pub edge: u32,
   // whose paint the name wears when the line's own platform/user_id can't say (a feed post by a kick author)
   pub paint: Option<crate::cosmetics::id::PaintId>,
+  // a feed post's media (model::post::pic)
+  pub pic: Option<Box<Pic>>,
+}
+
+// one picture (a video's still) and the video it plays
+pub type PicItem = (Box<str>, Option<Box<str>>);
+
+// a feed post's media as its row shows it: a tag after the words, and in an open thread the pictures
+// under them, or the held box with its button
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Pic {
+  // `[img]` `[gif]` `[vid]` `[3 img]`
+  pub tag: Box<str>,
+  // what the tag peeks on hover; None = nothing to peek (still in moderation, or withheld)
+  pub peek: Option<Box<str>>,
+  // drawn under the words (an open thread); else the tag alone
+  pub inline: bool,
+  pub items: Box<[PicItem]>,
+  // the held box's words (`[media hidden — nsfw]`); None = in the clear
+  pub hidden: Option<Box<str>>,
+  // its button: show, hide, retry, …; None = no button (csam)
+  pub button: Option<Box<str>>,
 }
 
 // a reply keeps this much of its parent's words (one line of it shows)

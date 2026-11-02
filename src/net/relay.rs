@@ -2,7 +2,8 @@
 // every field is hostile: bounded, typed, urls allowlisted
 use serde_json::Value;
 
-use crate::heatsync::{cw_blocked, valid_name};
+use crate::heatsync::content::emote_hidden;
+use crate::heatsync::valid_name;
 use crate::images::url::allowed;
 use crate::model::color;
 use crate::model::message::{HsEmote, Kind, Message, Placed, Platform, REPLY_TEXT};
@@ -33,7 +34,7 @@ fn hs_emotes(v: Option<&Value>) -> Box<[HsEmote]> {
     .iter()
     .filter_map(|(word, e)| {
       let url = str_of(e, "url")?;
-      (valid_name(word) && !cw_blocked(e) && allowed(url))
+      (valid_name(word) && !emote_hidden(e) && allowed(url))
         .then(|| (word.as_str().into(), url.into(), e.get("zeroWidth").and_then(Value::as_bool) == Some(true)))
     })
     .take(MAX_HS)

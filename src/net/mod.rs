@@ -83,6 +83,7 @@ pub enum NetEvent {
   Feed(social::Page),
   FeedFailed { status: u16 },
   Thread { id: Box<str>, res: Result<(crate::model::post::Post, Vec<crate::model::post::Post>), u16> },
+  Media { id: Box<str>, res: Result<Box<[crate::model::post::Media]>, u16> },
   Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
   // you last looked at a tab at `at` (here at login, or on another client since)
   Seen { surface: crate::model::unseen::Surface, at: i64 },
