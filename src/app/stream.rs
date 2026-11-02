@@ -9,8 +9,8 @@ use crate::util::time::now_ms;
 
 fn color(t: Tone) -> u32 {
   match t {
-    Tone::Online => theme::GREEN,
-    Tone::Switch => theme::MAGENTA,
+    Tone::Online => theme::RED,
+    Tone::Switch => theme::YELLOW,
     Tone::Offline | Tone::Moment => theme::WHITE,
   }
 }

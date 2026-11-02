@@ -372,7 +372,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   // where the words sit in the text, for search hits
   let mut words = 0..0;
   if m.kind == Kind::System {
-    // stream lines carry their color (green live, magenta game switch); notices stay dim
+    // stream lines carry their color (red live, yellow game switch); notices stay dim
     if m.color == 0 {
       dim(&mut s, &mut spans, &m.body);
     } else {
