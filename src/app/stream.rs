@@ -35,10 +35,13 @@ fn row(l: &Line, color: u32, user_id: Option<u64>) -> Message {
 }
 
 impl App {
-  // a stream line in one tab
+  // a stream line in one tab. news about other channels never lights a tab: only chat does (unread)
+  // and the channel's own news (yellow)
   fn put_line(&mut self, tab: usize, m: Message) {
     self.tabs[tab].chat().push(m);
-    self.touched(tab);
+    if tab == self.active {
+      self.wake();
+    }
   }
 
   // the channel's own news in its own tab

@@ -2408,7 +2408,7 @@ mod live {
     // followed, no tab: both tabs get it, neither turns yellow
     app.on_stream(line("ennortix"));
     assert_eq!((n(&app, forsen), n(&app, xqc)), (before.0 + 1, before.1 + 1));
-    assert!(!app.tabs[xqc].event);
+    assert!(!app.tabs[xqc].event && !app.tabs[xqc].unread, "someone else's news lights no tab");
     // a tabbed channel: everywhere too, and its own tab turns yellow
     app.on_stream(line("xqc"));
     assert_eq!(n(&app, forsen), before.0 + 2);
