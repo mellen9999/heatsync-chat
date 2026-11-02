@@ -2267,6 +2267,35 @@ mod live {
     assert!(open(&mut app).is_some(), "typing opens it again");
   }
 
+  // a channel's went-live lands in every chat tab; only its own tab turns yellow (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_stream_everywhere -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_stream_everywhere() {
+    use crate::model::stream_events::{Line, Tone};
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+    let tab = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
+    let (forsen, xqc) = (tab(&app, "forsen"), tab(&app, "xqc"));
+    app.select(forsen);
+    let line = |ch: &str| Line {
+      platform: Platform::Twitch,
+      channel: ch.into(),
+      text: format!("[{ch}] ◆ went live").into(),
+      tone: Tone::Online,
+    };
+    let n = |app: &App, i: usize| app.tabs[i].view.len();
+    let before = (n(&app, forsen), n(&app, xqc));
+    // followed, no tab: both tabs get it, neither turns yellow
+    app.on_stream(line("ennortix"));
+    assert_eq!((n(&app, forsen), n(&app, xqc)), (before.0 + 1, before.1 + 1));
+    assert!(!app.tabs[xqc].event);
+    // a tabbed channel: everywhere too, and its own tab turns yellow
+    app.on_stream(line("xqc"));
+    assert_eq!(n(&app, forsen), before.0 + 2);
+    assert!(app.tabs[xqc].event && !app.tabs[forsen].event);
+  }
+
   // a stream line turns an unwatched tab yellow, and right-click clears a red, cyan or yellow tab
   // without opening it or its menu, offline (scratch HOME as below):
   //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_ack -- --ignored

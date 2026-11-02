@@ -1,5 +1,6 @@
-// stream lines in the tabs that carry the channel (ext stream-event handler), and the chat-spike line
-// in every tab (ext handleMomentSpike: personal, so only for channels you have a tab for)
+// stream lines (went live, switched game, went offline) of tabbed and followed channels in every chat tab
+// (ext stream-event + follow_stream_event handlers), and the chat-spike line in every tab (ext
+// handleMomentSpike: personal, so only for channels you have a tab for)
 use super::App;
 use crate::model::message::{Message, Platform};
 use crate::model::stream_events::{Line, Tone};
@@ -15,11 +16,17 @@ fn color(t: Tone) -> u32 {
 }
 
 impl App {
-  pub(super) fn say_line(&mut self, tab: usize, platform: Platform, text: &str, tone: Tone) {
+  // a stream line in one tab
+  fn put_line(&mut self, tab: usize, platform: Platform, text: &str, tone: Tone) {
     let mut m = Message::system(now_ms(), platform, text);
     m.color = color(tone);
     self.tabs[tab].view.push(m);
     self.touched(tab);
+  }
+
+  // the channel's own news in its own tab
+  pub(super) fn say_line(&mut self, tab: usize, platform: Platform, text: &str, tone: Tone) {
+    self.put_line(tab, platform, text, tone);
     // the channel's own news (not the chat-spike line) turns an unwatched tab yellow
     if tone != Tone::Moment && tab != self.active && !self.tabs[tab].event {
       self.tabs[tab].event = true;
@@ -37,8 +44,15 @@ impl App {
     if !shown {
       return;
     }
-    for i in self.tabs_with(l.platform, &l.channel) {
-      self.say_line(i, l.platform, &l.text, l.tone);
+    // in every chat tab (ext: wherever you are reading), followed channels too; only the channel's own
+    // tab turns yellow
+    let own = self.tabs_with(l.platform, &l.channel);
+    for i in 0..self.tabs.len() {
+      if own.contains(&i) {
+        self.say_line(i, l.platform, &l.text, l.tone);
+      } else if !self.tabs[i].sources.is_empty() {
+        self.put_line(i, l.platform, &l.text, l.tone);
+      }
     }
   }
 
@@ -52,7 +66,7 @@ impl App {
     let text = format!("[🔥] {text}");
     for i in 0..self.tabs.len() {
       if !self.tabs[i].sources.is_empty() {
-        self.say_line(i, platform, &text, Tone::Moment);
+        self.put_line(i, platform, &text, Tone::Moment);
       }
     }
   }

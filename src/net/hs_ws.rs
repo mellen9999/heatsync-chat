@@ -347,7 +347,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let ids = cosmetic_ids(v);
       (!ids.is_empty()).then(|| send(NetEvent::CosmeticsChanged(ids))).flatten()
     }
-    "stream:online" | "stream:offline" | "stream:update" => {
+    // a tabbed channel's room, and (`follow:`) a channel you follow but have no tab for: one gate for both
+    "stream:online"
+    | "stream:offline"
+    | "stream:update"
+    | "follow:stream:online"
+    | "follow:stream:offline"
+    | "follow:stream:update" => {
+      let ty = ty.strip_prefix("follow:").unwrap_or(ty);
       let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
       let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
       if !valid_key(&channel) {
@@ -396,6 +403,22 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_followed_channel_going_live_is_a_stream_line() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    st.gate.start(0);
+    let v = json!({"type": "follow:stream:online", "platform": "twitch", "channel": "Ennortix", "game": "Chess", "title": "x"});
+    assert!(dispatch(&v, &mut st, &out).is_none());
+    let Ok(NetEvent::Stream(l)) = rx.try_recv() else { panic!("no line") };
+    assert_eq!((&*l.channel, &*l.text), ("ennortix", "[ennortix] ◆ went live — Chess"));
+    // the room reporting the same go-live is the same line: not shown twice
+    let room = json!({"type": "stream:online", "platform": "twitch", "channel": "ennortix", "game": "Chess"});
+    dispatch(&room, &mut st, &out);
+    assert!(rx.try_recv().is_err());
+  }
 
   #[test]
   fn apply_validates_and_dedupes() {
