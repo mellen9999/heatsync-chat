@@ -365,9 +365,10 @@ impl App {
   pub(super) fn bar_hover(&mut self) {
     let (x, y) = self.pointer;
     let at = self.tab_at(x, y);
-    let (plus, gear) = (at == Some(self.bar_map.len()), at == Some(self.bar_map.len() + 1));
-    if (plus, gear) != (self.plus_hover, self.gear_hover) {
-      (self.plus_hover, self.gear_hover) = (plus, gear);
+    let n = self.bar_map.len();
+    let (plus, gear, up) = (at == Some(n), at == Some(n + 1), at == Some(n + 2));
+    if (plus, gear, up) != (self.plus_hover, self.gear_hover, self.update_hover) {
+      (self.plus_hover, self.gear_hover, self.update_hover) = (plus, gear, up);
       self.bar_dirty = true;
       self.wake();
     }
@@ -377,6 +378,7 @@ impl App {
     match self.tab_at(self.pointer.0, self.pointer.1) {
       Some(p) if p == self.bar_map.len() => self.open_form(None),
       Some(p) if p == self.bar_map.len() + 1 => self.open_screen(super::screen::Page::Settings),
+      Some(p) if p == self.bar_map.len() + 2 => self.update_press(),
       // the `← back` tab: a click goes back
       Some(p) if self.bar_map[p] == self.active && self.tabs[self.active].under.is_some() => {
         self.takeover_close();

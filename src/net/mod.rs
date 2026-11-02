@@ -15,6 +15,7 @@ mod senders;
 mod session;
 pub mod seventv;
 pub mod social;
+pub mod update;
 pub mod upload;
 mod youtube;
 
@@ -84,6 +85,10 @@ pub enum NetEvent {
   FeedFailed { status: u16 },
   Thread { id: Box<str>, res: Result<(crate::model::post::Post, Vec<crate::model::post::Post>), u16> },
   Media { id: Box<str>, res: Result<Box<[crate::model::post::Media]>, u16> },
+  // a release newer than this one is out
+  Update(update::Release),
+  // the install finished (restart now) or said why not
+  Updated(Result<(), String>),
   Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
   // you last looked at a tab at `at` (here at login, or on another client since)
   Seen { surface: crate::model::unseen::Surface, at: i64 },
@@ -172,6 +177,8 @@ pub enum Cmd {
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
   // whispers and feed calls bound to the login
   Social(social::Cmd),
+  // a newer release: look, or install it
+  Update(update::Cmd),
   // log in again asking for one more permission pack (twitch whispers, mod)
   Relink(&'static str),
   // a ban, timeout, delete… in a room we moderate
@@ -460,6 +467,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Social(c) => {
         let _ = sess_tx.send(session::Cmd::Social(c));
+      }
+      Cmd::Update(c) => {
+        tokio::spawn(update::run(http.clone(), c, out.clone()));
       }
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);

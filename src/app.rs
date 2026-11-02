@@ -36,6 +36,7 @@ mod suggest;
 mod tabs;
 mod tip;
 mod unseen;
+mod update;
 mod upload;
 mod whispers;
 mod zoom;
@@ -207,6 +208,11 @@ pub struct App {
   bar_map: Vec<usize>,
   plus_hover: bool,
   gear_hover: bool,
+  update_hover: bool,
+  // a newer release, once found; installing it; when to look again
+  update: Option<crate::net::update::Release>,
+  updating: bool,
+  update_due: Option<Instant>,
   // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
   dpi: f32,
   zoom_acc: f32,
@@ -358,6 +364,10 @@ impl App {
       bar_map: Vec::new(),
       plus_hover: false,
       gear_hover: false,
+      update_hover: false,
+      update: None,
+      updating: false,
+      update_due: Some(Instant::now() + update::FIRST_CHECK),
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
@@ -934,6 +944,7 @@ impl App {
         })
         .collect();
       let bar = self.bar();
+      let up = self.update_label();
       self.bar_hits = tab_bar::draw(
         &mut self.canvas,
         &mut self.res.text,
@@ -941,7 +952,11 @@ impl App {
         &labels,
         &self.status,
         if hidden_now { (&label, &showcmd) } else { (&[], "") },
-        (self.plus_hover, self.gear_hover || self.screen.is_some()),
+        tab_bar::Hot {
+          plus: self.plus_hover,
+          gear: self.gear_hover || self.screen.is_some(),
+          update: up.as_deref().map(|l| (l, self.update_hover)),
+        },
       );
       self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
@@ -1705,7 +1720,11 @@ impl ApplicationHandler<NetEvent> for App {
     if self.peek_due.is_some_and(|t| t <= now) {
       self.peek_fire();
     }
-    let wake = [self.flood, anim, self.trim_at, self.mute_due, self.peek_due].into_iter().flatten().min();
+    if self.update_due.is_some_and(|t| t <= now) {
+      self.update_check();
+    }
+    let wake =
+      [self.flood, anim, self.trim_at, self.mute_due, self.peek_due, self.update_due].into_iter().flatten().min();
     el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
   }
 }
@@ -1761,6 +1780,8 @@ impl App {
       NetEvent::Feed(p) => self.on_feed(p),
       NetEvent::FeedFailed { status } => self.on_feed_failed(status),
       NetEvent::Thread { id, res } => self.on_thread(id, res),
+      NetEvent::Update(r) => self.on_update(r),
+      NetEvent::Updated(res) => self.on_updated(res),
       NetEvent::Media { id, res } => {
         self.feed.media_loaded(&id, res);
         self.feed_show();
@@ -2453,6 +2474,38 @@ mod live {
     app.click();
     assert!(app.feed.thread.is_none(), "the open thread's own >>id goes back");
     assert!(app.tabs[feed].under.is_none(), "and the list is back in its tab");
+  }
+
+  // right-click on a chat line opens its menu; r on a picked line starts a reply (scratch HOME as above)
+  #[test]
+  #[ignore]
+  fn headless_line_menu_and_r() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let mut m = Message::system(now_ms(), Platform::Twitch, "hello there");
+    m.kind = crate::model::message::Kind::Chat;
+    m.id = "abc".into();
+    m.nick = "bob".into();
+    m.login = "bob".into();
+    app.on_chat("forsen", Chat::Msg(m));
+    app.redraw();
+    let area = app.chat_area();
+    // the newest line sits at the bottom of the chat
+    app.pointer = (area.x + 200, area.bottom() - 6);
+    app.right_click();
+    assert!(app.pop.is_some(), "right-click opens the line menu");
+    app.pop = None;
+    app.mode = Mode::Normal;
+    app.key_normal(Key::Character("r"));
+    assert!(app.reply.is_some(), "r on the picked line starts a reply");
   }
 
   // a feed post lands as a line in a chat tab; its >>id opens the thread right there, the tab reads

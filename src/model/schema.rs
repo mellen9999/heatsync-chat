@@ -80,7 +80,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 30] = [
+pub static DEFS: [Def; 31] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -178,6 +178,17 @@ pub static DEFS: [Def; 30] = [
     tip: "tints matched messages orange. whole-word, case-insensitive. enter adds one, /unhighlight removes",
     alias: "keywordhighlights words",
     ctl: Ctl::Words(true),
+    fx: Fx::None,
+  },
+  Def {
+    id: "updates",
+    cmd: Some("/updates"),
+    cat: Cat::System,
+    section: "updates",
+    label: "check for updates",
+    tip: "look for a new version on github every few hours; a ↑ button on the tab bar installs it in one click",
+    alias: "update upgrade new version",
+    ctl: pill!(updates),
     fx: Fx::None,
   },
   Def {

@@ -48,6 +48,8 @@ pub struct Settings {
   // a desktop notification for an @mention while the window is not focused. default off, like the
   // ext's hs_notifications: nothing leaves the window unless asked
   pub notify: bool,
+  // look for a newer release now and then (github sees the ask). default on
+  pub updates: bool,
   // chat filters (ext hideBots, hideCommands, hideDuplicates): all off by default
   pub hide_bots: bool,
   pub hide_cmds: bool,
@@ -84,6 +86,7 @@ impl Default for Settings {
       tab_whispers: true,
       tab_mentions: true,
       notify: false,
+      updates: true,
       hide_bots: false,
       hide_cmds: false,
       hide_dupes: false,
@@ -243,6 +246,7 @@ mod tests {
         tab_whispers: true,
         tab_mentions: true,
         notify: false,
+        updates: true,
         hide_bots: false,
         hide_cmds: false,
         hide_dupes: false,

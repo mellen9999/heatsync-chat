@@ -14,6 +14,13 @@ pub struct TabLabel<'a> {
   pub hot: u32,
 }
 
+// the buttons after the tabs: which is under the pointer (or open), and a newer version's label
+pub struct Hot<'a> {
+  pub plus: bool,
+  pub gear: bool,
+  pub update: Option<(&'a str, bool)>,
+}
+
 // returns each tab's rect, then the `+` rect, then the gear (for clicks). hot: pointer on the `+`, gear on or hovered
 pub fn draw(
   c: &mut Canvas,
@@ -23,7 +30,7 @@ pub fn draw(
   status: &str,
   // the vi mode line when auto-hide folded the input bar away
   mode: (&[Seg], &str),
-  hot: (bool, bool),
+  hot: Hot,
 ) -> Vec<Rect> {
   c.fill(area, theme::BLACK);
   let mut x = area.x;
@@ -51,11 +58,14 @@ pub fn draw(
   // the two buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
   // font that sits lower than the `+`)
   let w = text.layout(" + ", &[], &[], f32::MAX).width().ceil() as i32;
-  for (glyph, on) in [("+", hot.0), ("⚙", hot.1)] {
+  for (glyph, on) in [("+", hot.plus), ("⚙", hot.gear)] {
     let r = Rect::new(x, area.y, w, area.h);
     icon(c, text, r, glyph, on);
     hits.push(r);
     x += w;
+  }
+  if let Some((label, on)) = hot.update {
+    hits.push(cell(c, text, &mut x, &format!(" {label} "), theme::YELLOW, true, on));
   }
   if !status.is_empty() {
     let s = format!("  {status}");
