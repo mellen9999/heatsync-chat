@@ -6,6 +6,7 @@ use crate::heatsync::{cw_blocked, valid_name};
 use crate::images::url::allowed;
 use crate::model::color;
 use crate::model::message::{HsEmote, Kind, Message, Placed, Platform, REPLY_TEXT};
+use crate::util::clamp;
 use crate::util::time::{now_ms, parse_iso};
 
 const MAX_TEXT: usize = 2000;
@@ -15,17 +16,6 @@ const MAX_HS: usize = 50;
 
 fn str_of<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
   v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
-}
-
-fn clamp(s: &str, max: usize) -> &str {
-  if s.len() <= max {
-    return s;
-  }
-  let mut end = max;
-  while !s.is_char_boundary(end) {
-    end -= 1;
-  }
-  &s[..end]
 }
 
 fn ts(v: &Value) -> i64 {

@@ -11,6 +11,7 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 use super::{Out, Reply, backoff};
 use crate::model::color;
 use crate::model::message::{Kind, Message, Platform, REPLY_TEXT, flag};
+use crate::util::clamp;
 use crate::util::time::now_ms;
 
 const URL: &str = "wss://irc-ws.chat.twitch.tv:443";
@@ -132,17 +133,6 @@ fn badges(tag: &str) -> Vec<(Box<str>, Box<str>)> {
     .filter(|(s, v)| !s.is_empty() && s.len() <= 64 && v.len() <= 64)
     .map(|(s, v)| (s.into(), v.into()))
     .collect()
-}
-
-fn clamp(s: &str, max: usize) -> &str {
-  if s.len() <= max {
-    return s;
-  }
-  let mut end = max;
-  while !s.is_char_boundary(end) {
-    end -= 1;
-  }
-  &s[..end]
 }
 
 #[derive(Debug)]
