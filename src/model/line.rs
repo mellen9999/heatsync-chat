@@ -145,11 +145,11 @@ impl Line {
     self.text.truncate(self.cursor);
   }
 
-  // the word under/behind the cursor and where it starts (tab-complete target)
-  pub fn current_word(&self) -> (usize, &str) {
-    let a = self.word_back(self.cursor);
-    let a = if self.text[a..self.cursor].contains(' ') { self.cursor } else { a };
-    (a, &self.text[a..self.cursor])
+  // the whole run of non-spaces the cursor touches (tab replaces all of it, past the cursor too)
+  pub fn word_around(&self) -> Range<usize> {
+    let a = self.text[..self.cursor].rfind(' ').map_or(0, |i| i + 1);
+    let b = self.text[self.cursor..].find(' ').map_or(self.text.len(), |i| self.cursor + i);
+    a..b
   }
 
   pub fn replace(&mut self, range: std::ops::Range<usize>, with: &str) {
@@ -261,9 +261,11 @@ mod tests {
     l.word_right();
     assert_eq!(l.cursor, 7);
     l.end();
-    assert_eq!(l.current_word(), (9, "three"));
+    assert_eq!(l.word_around(), 9..14);
     l.insert(" ");
-    assert_eq!(l.current_word(), (15, ""));
+    assert_eq!(l.word_around(), 15..15);
+    l.cursor = 11;
+    assert_eq!(l.word_around(), 9..14);
   }
 
   #[test]

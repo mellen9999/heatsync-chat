@@ -64,7 +64,7 @@ impl App {
         self.run_act(Act::Unblock, &hit, owned);
       } else {
         self.line.insert_chip(&hit.name);
-        self.recents.record(&hit.name);
+        self.used_emote(&hit.name);
         self.complete = None;
         self.enter_insert();
         self.input_dirty = true;

@@ -44,19 +44,23 @@ impl Scope {
     ORDER.iter().find_map(|p| self.sets.get(p)?.get(word))
   }
 
-  fn names(&self) -> Vec<&str> {
-    self.sets.values().flat_map(|s| s.keys().map(|k| &**k)).collect()
+  // every name once, with the provider that wins it
+  fn names(&self) -> Vec<(&str, Provider, &Emote)> {
+    self.provided().collect()
   }
 
   // every emote once, the provider that wins a shared name first
   fn entries(&self) -> Vec<(&str, &Emote)> {
+    self.provided().map(|(k, _, v)| (k, v)).collect()
+  }
+
+  fn provided(&self) -> impl Iterator<Item = (&str, Provider, &Emote)> {
     let mut seen = std::collections::HashSet::new();
     let order = ORDER.iter().chain(std::iter::once(&Provider::Twitch));
     order
-      .filter_map(|p| self.sets.get(p))
-      .flat_map(|s| s.iter().map(|(k, v)| (&**k, v)))
-      .filter(|(k, _)| seen.insert(*k))
-      .collect()
+      .filter_map(|p| Some((*p, self.sets.get(p)?)))
+      .flat_map(|(p, s)| s.iter().map(move |(k, v)| (&**k, p, v)))
+      .filter(move |(k, _, _)| seen.insert(*k))
   }
 }
 
@@ -95,7 +99,7 @@ impl Emotes {
     self.global.sets.get(&Provider::Twitch)?.get(word)
   }
 
-  pub fn channel_names(&self, channel: &str) -> Vec<&str> {
+  pub fn channel_names(&self, channel: &str) -> Vec<(&str, Provider, &Emote)> {
     self.channels.get(channel).map_or_else(Vec::new, Scope::names)
   }
 
@@ -107,7 +111,7 @@ impl Emotes {
     self.global.entries()
   }
 
-  pub fn global_names(&self) -> Vec<&str> {
+  pub fn global_names(&self) -> Vec<(&str, Provider, &Emote)> {
     self.global.names()
   }
 }

@@ -13,6 +13,7 @@ pub mod picker;
 pub mod pin_bar;
 pub mod res;
 pub mod sheet;
+pub mod suggest;
 pub mod tab_bar;
 pub mod text;
 pub mod theme;

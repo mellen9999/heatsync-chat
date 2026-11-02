@@ -72,7 +72,7 @@ impl App {
       return self.wake();
     }
     self.line.insert_chip(&name);
-    self.recents.record(&name);
+    self.used_emote(&name);
     self.complete = None;
     if !keep {
       self.close_picker();

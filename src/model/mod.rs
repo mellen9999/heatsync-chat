@@ -7,6 +7,7 @@ pub mod feed;
 pub mod filter;
 pub mod filtercmd;
 pub mod find;
+pub mod frecency;
 pub mod ime;
 pub mod keys;
 pub mod line;

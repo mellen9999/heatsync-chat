@@ -17,6 +17,7 @@ mod builtin;
 mod card;
 mod chips;
 mod clip;
+mod complete;
 mod emote;
 mod feed;
 mod filters;
@@ -40,15 +41,16 @@ mod zoom;
 use crate::cosmetics::id::PaintId;
 use crate::fake::Fake;
 use crate::model::chan::{self, Form};
-use crate::model::complete::{Complete, rank};
+use crate::model::complete::Complete;
 use crate::model::feed::Feed;
+use crate::model::frecency::Frecency;
 use crate::model::ime::Ime;
 use crate::model::line::Line;
 use crate::model::mention::Mentions;
 use crate::model::message::{Message, Platform, flag};
 use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
-use crate::model::settings::{Local, Settings, commands, local_cmd};
+use crate::model::settings::{Local, Settings, local_cmd};
 use crate::model::stream_events::Moments;
 use crate::model::tabs::Kind;
 use crate::model::vi::{Action, Mode, Vi};
@@ -123,6 +125,8 @@ pub struct App {
   // the emote hover popup, and when its animated emote flips next
   tip: Option<crate::ui::tip::Tip>,
   tip_next: Option<Instant>,
+  // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
+  over_input: bool,
   // an animated emote in the message box changes frame
   input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
@@ -180,6 +184,8 @@ pub struct App {
   zoom_acc: f32,
   picker: Option<Picker>,
   recents: Recents,
+  // how often each emote gets picked: tab ranks by it
+  frecency: Frecency,
   // pointer is over the logo button
   btn_hover: bool,
   up_hover: bool,
@@ -282,6 +288,7 @@ impl App {
       tip: None,
       tip_next: None,
       input_next: None,
+      over_input: false,
       peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
@@ -319,6 +326,7 @@ impl App {
       zoom_acc: 0.0,
       picker: None,
       recents: Recents::load(),
+      frecency: Frecency::load(Recents::load().names(), now_ms()),
       btn_hover: false,
       up_hover: false,
       prompt: None,
@@ -847,7 +855,8 @@ impl App {
       || self.tab_menu.is_some()
       || self.pop.is_some()
       || self.card.is_some()
-      || self.tip.is_some())
+      || self.tip.is_some()
+      || self.over_input)
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts
@@ -926,6 +935,9 @@ impl App {
         canvas.fill(area, crate::ui::theme::BLACK);
         dirty = add(dirty, area);
       }
+    }
+    if let Some(r) = self.draw_over_input() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     if let Some(r) = self.draw_card() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
@@ -1016,60 +1028,6 @@ impl App {
     self.wake();
   }
 
-  // tab / shift-tab: first press finds candidates for the word before the cursor, then cycles them
-  fn tab_complete(&mut self, back: bool) {
-    if self.complete.is_none() {
-      let (start, word) = self.line.current_word();
-      let end = start + word.len();
-      let tab = self.tabs.get(self.active);
-      let chan = tab.map_or("", |t| &*t.view.channel);
-      let matches = if let Some(nick) = word.strip_prefix('@') {
-        let names = tab.map_or_else(Vec::new, |t| t.view.chatters());
-        rank(nick, [names]).into_iter().map(|n| format!("@{n}").into()).collect()
-      } else if start == 0 && word.starts_with('/') {
-        rank(
-          word,
-          [
-            commands(),
-            chan::COMMANDS.to_vec(),
-            crate::model::modcmd::COMMANDS.to_vec(),
-            crate::model::filtercmd::COMMANDS.to_vec(),
-          ],
-        )
-      } else {
-        let own =
-          self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.senders.names(id, now_ms()));
-        rank(word, [self.res.emotes.channel_names(chan), own, self.res.emotes.global_names()])
-      };
-      if matches.is_empty() {
-        return;
-      }
-      self.complete = Some(Complete { start, end, matches, at: usize::MAX, chipped: None });
-    }
-    let Some(c) = &mut self.complete else { return };
-    let n = c.matches.len();
-    c.at = match (c.at, back) {
-      (usize::MAX, false) => 0,
-      (usize::MAX, true) => n - 1,
-      (i, false) => (i + 1) % n,
-      (i, true) => (i + n - 1) % n,
-    };
-    let pick = c.matches[c.at].clone();
-    if let Some(old) = c.chipped.take() {
-      self.line.chips.remove(&old);
-    }
-    self.line.replace(c.start..c.end, &pick);
-    c.end = c.start + pick.len();
-    if let Some(name) = c.emote()
-      && !self.line.chips.contains(name)
-    {
-      self.line.chips.insert(name.into());
-      c.chipped = Some(name.into());
-    }
-    self.input_dirty = true;
-    self.wake();
-  }
-
   fn key_insert(&mut self, key: Key<&str>, text: Option<&str>) {
     let ctrl = self.mods.control_key();
     if self.global_key(key.clone()) {
@@ -1082,7 +1040,7 @@ impl App {
     // the cycle (and a reply), keeping the pick
     let cycling = self.complete.is_some();
     if let Some(name) = self.complete.take().and_then(|c| c.emote().map(str::to_owned)) {
-      self.recents.record(&name);
+      self.used_emote(&name);
     }
     if cycling && key == Key::Named(NamedKey::Escape) {
       self.reply = None;
@@ -2069,8 +2027,11 @@ mod live {
     app.line.take();
     app.line.insert("hi Kap");
     app.tab_complete(false);
-    assert_eq!(app.line.text, "hi Kappa");
-    space(&mut app);
+    assert_eq!(app.line.text, "hi Kappa ", "a pick comes with a space to keep typing");
+    let tip = app.complete.as_ref().and_then(Complete::tip);
+    assert_eq!(tip.as_deref(), Some("1/1 Kappa · global · 7tv users"));
+    app.redraw();
+    assert!(app.over_input, "the cycle's tooltip shows over the box");
     app.line.insert("frozen0");
     space(&mut app);
     assert_eq!(app.line.text, "hi Kappa frozen0 ", "the words sent are unchanged");

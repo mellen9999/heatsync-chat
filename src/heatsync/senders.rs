@@ -67,13 +67,6 @@ impl Senders {
     (now >= x.from.saturating_sub(SLACK_MS) && now < x.until).then_some(x)
   }
 
-  // what `id` can type right now (tab-complete for our own lines)
-  pub fn names(&self, id: u64, now: i64) -> Vec<&str> {
-    self.map.get(&id).map_or_else(Vec::new, |e| {
-      e.set.iter().filter(|(_, x)| now >= x.from.saturating_sub(SLACK_MS) && now < x.until).map(|(k, _)| &**k).collect()
-    })
-  }
-
   // what `id` owns right now, with images (the picker's "my emotes")
   pub fn entries(&self, id: u64, now: i64) -> Vec<(&str, &HsEmote)> {
     self.map.get(&id).map_or_else(Vec::new, |e| {

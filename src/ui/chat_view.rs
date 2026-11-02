@@ -925,6 +925,18 @@ impl ChatView {
       .collect()
   }
 
+  // who spoke here since `since` (ms), newest first, at most `cap`; muted senders left out
+  pub fn recent_chatters(&self, since: i64, cap: usize) -> Vec<&str> {
+    let mut seen = HashSet::new();
+    (self.rows.iter().rev())
+      .take_while(|r| r.msg.ts >= since)
+      .filter(|r| r.msg.kind != Kind::System && !r.msg.nick.is_empty() && !r.muted())
+      .map(|r| &*r.msg.nick)
+      .filter(|n| seen.insert(*n))
+      .take(cap)
+      .collect()
+  }
+
   // a twitch sender's heatsync inventory arrived or changed: re-resolve only their lines
   pub fn touch_sender(&mut self, uid: &str) {
     for r in self.rows.iter_mut().filter(|r| r.msg.platform == Platform::Twitch && &*r.msg.user_id == uid) {

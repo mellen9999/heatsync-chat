@@ -9,7 +9,7 @@ use crate::util::time::now_ms;
 type Found = (Box<str>, (u16, u16), bool);
 
 impl App {
-  fn own_id(&self) -> Option<u64> {
+  pub(super) fn own_id(&self) -> Option<u64> {
     self.me.as_ref().and_then(|m| m.twitch_id)
   }
 
@@ -27,6 +27,12 @@ impl App {
     let found =
       found.or_else(|| self.res.emotes.twitch_global(word).map(e)).or_else(|| self.res.emotes.global(word).map(e));
     found.filter(|(url, _, _)| !self.res.blocked.contains(word, url))
+  }
+
+  // an emote went into the box: the picker's recents and tab's ranking both learn it
+  pub(super) fn used_emote(&mut self, name: &str) {
+    self.recents.record(name);
+    self.frecency.record(name, now_ms());
   }
 
   // the line's chip words as boxes; an overlay right after an emote stacks onto it
