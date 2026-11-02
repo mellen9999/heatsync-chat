@@ -201,7 +201,7 @@ impl App {
     if self.thread_tab().is_some_and(|i| i != self.active) {
       self.takeover_close();
     }
-    let w = self.canvas.w;
+    let w = self.body().w;
     if let Some(t) = self.tabs.get_mut(self.active)
       && t.under.is_none()
     {

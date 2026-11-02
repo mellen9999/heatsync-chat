@@ -55,6 +55,8 @@ pub enum Ctl {
   Pill(fn(&Settings) -> bool, fn(&mut Settings, bool)),
   // the zoom percent, stepped
   Zoom,
+  // the tab bar's side, stepped
+  Side,
   // a list kept with slash commands (hidden words, highlight words); true = highlight
   Words(bool),
 }
@@ -80,7 +82,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 31] = [
+pub static DEFS: [Def; 32] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -134,6 +136,17 @@ pub static DEFS: [Def; 31] = [
     tip: "everything's size, 50 to 300 percent. ctrl-= / ctrl-- / ctrl-0 or ctrl-wheel anywhere. /zoom 1.5",
     alias: "size scale font",
     ctl: Ctl::Zoom,
+    fx: Fx::None,
+  },
+  Def {
+    id: "tab_side",
+    cmd: Some("/tabs"),
+    cat: Cat::Display,
+    section: "layout",
+    label: "tab position",
+    tip: "where the tabs sit: top, bottom, left or right. /tabs left",
+    alias: "tabPosition tab bar side",
+    ctl: Ctl::Side,
     fx: Fx::None,
   },
   Def {

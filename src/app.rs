@@ -53,7 +53,7 @@ use crate::model::mention::Mentions;
 use crate::model::message::{Message, Platform, flag};
 use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
-use crate::model::settings::{Local, Settings, local_cmd};
+use crate::model::settings::{Local, Settings, Side, local_cmd};
 use crate::model::stream_events::Moments;
 use crate::model::suggest::Suggest;
 use crate::model::tabs::Kind;
@@ -476,18 +476,66 @@ impl App {
     }
   }
 
+  // the tab bar: a row on top or at the bottom, a column on the left or right (ext tabPosition)
   fn bar(&self) -> Rect {
-    Rect::new(0, 0, self.canvas.w, self.res.text.line_px as i32)
+    let (w, h) = (self.canvas.w, self.canvas.h);
+    let line = self.res.text.line_px as i32;
+    // a column is about 13 monospace cells (the ext's 90px), never more than half the window
+    let col = ((self.res.text.font_px * 8.0) as i32).min(w / 2);
+    match self.set.tab_side {
+      Side::Top => Rect::new(0, 0, w, line),
+      Side::Bottom => Rect::new(0, (h - line).max(0), w, line),
+      Side::Left => Rect::new(0, 0, col, h),
+      Side::Right => Rect::new(w - col, 0, col, h),
+    }
+  }
+
+  // what the tab bar leaves: the pin, the chat and the input bar stack in here
+  pub(super) fn body(&self) -> Rect {
+    let (w, h, b) = (self.canvas.w, self.canvas.h, self.bar());
+    match self.set.tab_side {
+      Side::Top => Rect::new(0, b.h, w, h - b.h),
+      Side::Bottom => Rect::new(0, 0, w, h - b.h),
+      Side::Left => Rect::new(b.w, 0, w - b.w, h),
+      Side::Right => Rect::new(0, 0, w - b.w, h),
+    }
   }
 
   fn chat_area(&self) -> Rect {
-    let b = self.bar().h;
-    let top = b + self.pin_h;
-    Rect::new(0, top, self.canvas.w, (self.canvas.h - top - self.input_h).max(0))
+    let b = self.body();
+    let top = b.y + self.pin_h;
+    Rect::new(b.x, top, b.w, (b.bottom() - top - self.input_h).max(0))
   }
 
   fn input_area(&self) -> Rect {
-    Rect::new(0, (self.canvas.h - self.input_h).max(0), self.canvas.w, self.input_h)
+    let b = self.body();
+    Rect::new(b.x, (b.bottom() - self.input_h).max(b.y), b.w, self.input_h)
+  }
+
+  // the tab bar moved: everything below it re-lays out at the new width
+  pub(super) fn side_to(&mut self, side: Side) {
+    if side != self.set.tab_side {
+      self.set.tab_side = side;
+      self.set.save();
+      self.relayout_body();
+    }
+    self.say(format!("tabs on the {}", side.name()));
+  }
+
+  // the space under the tabs changed size or place: views take its width, the whole frame repaints
+  pub(super) fn relayout_body(&mut self) {
+    let w = self.body().w;
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      v.resize(w);
+      v.invalidate();
+    }
+    self.canvas.fill(self.canvas.bounds(), crate::ui::theme::BLACK);
+    self.pin_sig = Default::default();
+    self.damage_hist = [None; 2];
+    self.expose = true;
+    self.bar_dirty = true;
+    self.input_dirty = true;
+    self.wake();
   }
 
   fn hint(&self) -> String {
@@ -576,6 +624,8 @@ impl App {
       }
       Local::Zoom(Some(pct)) => self.zoom_to(pct),
       Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.5 to 3)"),
+      Local::Side(Some(side)) => self.side_to(side),
+      Local::Side(None) => self.say("usage: /tabs top, bottom, left or right"),
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Keys => self.open_screen(screen::Page::Keys),
     }
@@ -892,7 +942,8 @@ impl App {
         showcmd: &showcmd,
         chips: &chips,
       };
-      let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, self.canvas.w) };
+      let w = self.body().w;
+      let h = if hidden { 0 } else { input_bar::height(&mut self.res.text, &bar, w) };
       if h != self.input_h {
         // the chat area changed size: repaint it whole
         self.input_h = h;
@@ -1101,8 +1152,9 @@ impl App {
     // softbuffer keeps a resized buffer's age though its pixels are new (zeroed): send it all
     self.expose = true;
     self.input_dirty = true;
+    let bw = self.body().w;
     for v in self.tabs.iter_mut().flat_map(Tab::views) {
-      v.resize(w as i32);
+      v.resize(bw);
     }
     self.bar_dirty = true;
     self.wake();
@@ -2603,6 +2655,44 @@ mod live {
     app.bar_click();
     assert!(app.tabs[chat].under.is_none() && app.feed.thread.is_none());
     assert_eq!(app.tabs[chat].view.len(), rows + 2, "chat that landed meanwhile is there");
+  }
+
+  // tabs on each side: the bar sits there, the chat and input take the rest, a click on a tab picks it.
+  // HSC_DUMP=$d/x.ppm (the last side, left) ... cargo test -j2 --release headless_tab_sides -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_tab_sides() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(640, 240);
+    let (forsen, xqc) = (0..app.tabs.len()).fold((0, 0), |(f, x), i| match &*app.tabs[i].name {
+      "forsen" => (i, x),
+      "xqc" => (f, i),
+      _ => (f, x),
+    });
+    for n in 0..30 {
+      app.on_chat("forsen", Chat::Msg(Message::system(0, Platform::Twitch, format!("line {n}"))));
+    }
+    for side in [Side::Bottom, Side::Right, Side::Top, Side::Left] {
+      app.select(forsen);
+      app.side_to(side);
+      app.redraw();
+      let (bar, body) = (app.bar(), app.body());
+      assert_eq!(bar.w * bar.h + body.w * body.h, 640 * 240, "{side:?}: bar + body tile the window");
+      assert!(app.chat_area().intersect(bar).is_empty() && app.input_area().intersect(bar).is_empty());
+      assert_eq!(app.tabs[forsen].view.width, body.w, "{side:?}: the chat is as wide as the body");
+      assert!(app.bar_hits.iter().all(|r| bar.intersect(*r) == *r || r.is_empty()), "{side:?}: hits in the bar");
+      let p = app.bar_map.iter().position(|&i| i == xqc).unwrap();
+      let r = app.bar_hits[p];
+      app.pointer = (r.x + 2, r.y + 2);
+      app.click();
+      assert_eq!(app.active, xqc, "{side:?}: a click picks the tab");
+    }
+    app.select(forsen);
+    app.redraw();
+    crate::bench::dump(&app.canvas);
   }
 
   // feed media, offline: a held post's box and show, the withheld files fetched, a picture under a reply,

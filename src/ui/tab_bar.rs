@@ -21,7 +21,9 @@ pub struct Hot<'a> {
   pub update: Option<(&'a str, bool)>,
 }
 
-// returns each tab's rect, then the `+` rect, then the gear (for clicks). hot: pointer on the `+`, gear on or hovered
+// returns each tab's rect, then the `+` rect, then the gear (for clicks). hot: pointer on the `+`, gear on or hovered.
+// an area taller than one line is a column (tabs on the left or right, ext tabPosition): a tab a row,
+// full width, a 1px white edge toward the chat
 pub fn draw(
   c: &mut Canvas,
   text: &mut Text,
@@ -33,54 +35,83 @@ pub fn draw(
   hot: Hot,
 ) -> Vec<Rect> {
   c.fill(area, theme::BLACK);
-  let mut x = area.x;
-  let mut hits = Vec::with_capacity(tabs.len() + 1);
-  let cell = |c: &mut Canvas, text: &mut Text, x: &mut i32, label: &str, ink: u32, bold: bool, on: bool| {
-    let l = text.layout(
-      label,
-      &[Span { range: 0..label.len(), ink: Ink(if on { theme::BLACK } else { ink }), bold }],
-      &[],
-      f32::MAX,
-    );
-    let w = l.width().ceil() as i32;
-    if on {
-      c.fill(Rect::new(*x, area.y, w, area.h), theme::WHITE);
-    }
-    text.draw(&l, c, *x as f32, area.y as f32, area, |_, _| {});
-    let r = Rect::new(*x, area.y, w, area.h);
-    *x += w;
-    r
+  let line = text.line_px as i32;
+  let column = area.h > line;
+  let inner = if column {
+    // on the left the edge is its right side, on the right its left side
+    let left = area.x == 0;
+    c.fill(Rect::new(if left { area.right() - 1 } else { area.x }, area.y, 1, area.h), theme::WHITE);
+    Rect::new(if left { area.x } else { area.x + 1 }, area.y, area.w - 1, area.h)
+  } else {
+    area
   };
+  let (mut x, mut y) = (inner.x, inner.y);
+  let mut hits = Vec::with_capacity(tabs.len() + 3);
+  let cell =
+    |c: &mut Canvas, text: &mut Text, x: &mut i32, y: &mut i32, label: &str, ink: u32, bold: bool, on: bool| {
+      let l = text.layout(
+        label,
+        &[Span { range: 0..label.len(), ink: Ink(if on { theme::BLACK } else { ink }), bold }],
+        &[],
+        f32::MAX,
+      );
+      let r = Rect::new(*x, *y, if column { inner.w } else { l.width().ceil() as i32 }, line);
+      if on {
+        c.fill(r.intersect(inner), theme::WHITE);
+      }
+      text.draw(&l, c, *x as f32, *y as f32, inner, |_, _| {});
+      if column {
+        *y += line;
+      } else {
+        *x += r.w;
+      }
+      r
+    };
   for t in tabs {
     let ink = if t.unread { t.hot } else { theme::DIM };
-    hits.push(cell(c, text, &mut x, &format!(" {} ", t.name), ink, t.unread || t.active, t.active));
+    let label = if column { format!(" {}", t.name) } else { format!(" {} ", t.name) };
+    hits.push(cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, t.active));
   }
   // the two buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
-  // font that sits lower than the `+`)
+  // font that sits lower than the `+`). in a column they share one row
   let w = text.layout(" + ", &[], &[], f32::MAX).width().ceil() as i32;
   for (glyph, on) in [("+", hot.plus), ("⚙", hot.gear)] {
-    let r = Rect::new(x, area.y, w, area.h);
-    icon(c, text, r, glyph, on);
+    let r = Rect::new(x, y, w, line);
+    icon(c, text, r.intersect(inner), glyph, on);
     hits.push(r);
     x += w;
   }
-  if let Some((label, on)) = hot.update {
-    hits.push(cell(c, text, &mut x, &format!(" {label} "), theme::YELLOW, true, on));
+  if column {
+    (x, y) = (inner.x, y + line);
   }
+  if let Some((label, on)) = hot.update {
+    hits.push(cell(c, text, &mut x, &mut y, &format!(" {label} "), theme::YELLOW, true, on));
+  }
+  // status and mode: after the buttons on a row, wrapped under them in a column
+  // a column indents every wrapped line by one cell, like the tab names
+  let indent = if column { text.layout(" ", &[], &[], f32::MAX).width().ceil() as i32 } else { 0 };
+  let wrap = if column { (inner.w - 2 * indent) as f32 } else { f32::MAX };
+  let lead = if column { "" } else { "  " };
+  let mut put = |text: &mut Text, s: &str, spans: &[Span], x: &mut i32, y: &mut i32| {
+    let l = text.layout(s, spans, &[], wrap);
+    text.draw(&l, c, (*x + indent) as f32, *y as f32, inner, |_, _| {});
+    if column {
+      *y += l.height().ceil() as i32;
+    } else {
+      *x += l.width().ceil() as i32;
+    }
+  };
   if !status.is_empty() {
-    let s = format!("  {status}");
-    let l = text.layout(&s, &[Span { range: 0..s.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
-    text.draw(&l, c, x as f32, area.y as f32, area, |_, _| {});
-    x += l.width().ceil() as i32;
+    let s = format!("{lead}{status}");
+    put(text, &s, &[Span { range: 0..s.len(), ink: Ink(theme::DIM), bold: false }], &mut x, &mut y);
   }
   if !mode.0.is_empty() {
-    let s = format!("  {}{}{}", mode_label::text(mode.0), if mode.1.is_empty() { "" } else { "  " }, mode.1);
+    let s = format!("{lead}{}{}{}", mode_label::text(mode.0), if mode.1.is_empty() { "" } else { "  " }, mode.1);
     let mut spans = mode_label::spans(mode.0);
     for sp in &mut spans {
-      sp.range = sp.range.start + 2..sp.range.end + 2;
+      sp.range = sp.range.start + lead.len()..sp.range.end + lead.len();
     }
-    let l = text.layout(&s, &spans, &[], f32::MAX);
-    text.draw(&l, c, x as f32, area.y as f32, area, |_, _| {});
+    put(text, &s, &spans, &mut x, &mut y);
   }
   hits
 }

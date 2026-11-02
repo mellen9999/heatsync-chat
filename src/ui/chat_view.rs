@@ -199,7 +199,7 @@ pub struct ChatView {
   cap: usize,
   seq_back: i64,
   seq_front: i64,
-  width: i32,
+  pub width: i32,
   // px scrolled up from the bottom; 0 = pinned to newest
   scroll: i32,
   // rows appended since the last draw, for the scroll-blit fast path

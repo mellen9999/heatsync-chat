@@ -32,7 +32,7 @@ impl App {
   // frames and reload at the new height (slots key on logical height, so none are orphaned)
   pub(super) fn apply_scale(&mut self) {
     self.res.set_scale(self.scale());
-    let w = self.canvas.w;
+    let w = self.body().w;
     for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
       v.relayout();
       v.resize(w);

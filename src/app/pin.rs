@@ -9,7 +9,8 @@ use crate::ui::theme;
 
 impl App {
   pub(super) fn pin_area(&self) -> Rect {
-    Rect::new(0, self.bar().h, self.canvas.w, self.pin_h)
+    let b = self.body();
+    Rect::new(b.x, b.y, b.w, self.pin_h)
   }
 
   fn cur_pin(&self) -> Option<&Pin> {
@@ -30,14 +31,15 @@ impl App {
   // repaint the bar if what it shows (or the room it gets) changed; the chat below re-lays out
   pub(super) fn sync_pin(&mut self) -> Option<Rect> {
     let pin = self.cur_pin().cloned();
-    let sig = (pin.as_ref().map(|p| p.id.clone()), self.pin_open, self.canvas.w, self.res.text.line_px as i32);
+    let sig = (pin.as_ref().map(|p| p.id.clone()), self.pin_open, self.body().w, self.res.text.line_px as i32);
     if sig == self.pin_sig {
       return None;
     }
     self.pin_sig = sig;
     let old = self.pin_h;
-    self.pin_h = pin.as_ref().map_or(0, |p| pin_bar::height(&mut self.res.text, p, self.canvas.w, self.pin_open));
-    let area = Rect::new(0, self.bar().h, self.canvas.w, self.pin_h.max(old));
+    let w = self.body().w;
+    self.pin_h = pin.as_ref().map_or(0, |p| pin_bar::height(&mut self.res.text, p, w, self.pin_open));
+    let area = Rect { h: self.pin_h.max(old), ..self.pin_area() };
     self.canvas.fill(area, theme::BLACK);
     let bar = self.pin_area();
     if let Some(p) = &pin {

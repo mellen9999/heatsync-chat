@@ -5,6 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Cmd as ChanCmd, Form, Spec};
 use crate::model::message::Platform;
+use crate::model::settings::Side;
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
 use crate::net::hs_ws::Cmd as HsCmd;
@@ -172,7 +173,7 @@ impl App {
 
   fn add_tab(&mut self, spec: &Spec) {
     let mut tab = make_tab(&self.net, spec);
-    tab.view.resize(self.canvas.w);
+    tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
     self.status.clear();
@@ -189,6 +190,7 @@ impl App {
     }
     seat_hosts(&mut self.res.chatters, &new);
     let old = std::mem::replace(&mut self.tabs[i].sources, new.clone());
+    let w = self.body().w;
     let t = &mut self.tabs[i];
     let first = new.first().map_or(Box::from(""), |s| s.1.clone());
     t.name = spec.name().into();
@@ -197,7 +199,7 @@ impl App {
     if v.channel != first {
       *v = ChatView::new(SCROLLBACK, first);
       v.filtered = true;
-      v.resize(self.canvas.w);
+      v.resize(w);
     }
     v.tags = tags(&new);
     v.relayout();
@@ -353,6 +355,22 @@ impl App {
 
   // ---- the tab bar ----
 
+  // where a menu opens off a bar cell: under it on top, beside it in a column, above it at the bottom
+  // (menus clamp into menu_room, which lifts or shifts them clear of the bar)
+  fn off_bar(&self, r: Rect) -> (i32, i32) {
+    match self.set.tab_side {
+      Side::Top => (r.x, r.bottom()),
+      Side::Left => (r.right(), r.y),
+      Side::Bottom | Side::Right => (r.x, r.y),
+    }
+  }
+
+  // menus float over the chat: the space under the tabs, above the input bar
+  pub(super) fn menu_room(&self) -> Rect {
+    let b = self.body();
+    Rect { h: (b.h - self.input_h).max(0), ..b }
+  }
+
   // position in the drawn bar: shown tabs in order, then the + button, then the gear
   fn tab_at(&self, x: i32, y: i32) -> Option<usize> {
     self.bar_hits.iter().position(|r| r.contains(x, y))
@@ -395,7 +413,7 @@ impl App {
     if self.acknowledge(i) {
       return;
     }
-    let at = (self.bar_hits[p].x, self.bar().bottom());
+    let at = self.off_bar(self.bar_hits[p]);
     let items = match self.tabs[i].kind {
       Kind::Chat if self.tabs[i].sources.is_empty() => return,
       Kind::Chat => vec![(TabAct::Edit, "edit"), (TabAct::Remove, "remove")],
@@ -488,7 +506,7 @@ impl App {
   }
 
   pub(super) fn draw_tab_menu(&mut self) -> Option<Rect> {
-    let bounds = Rect::new(0, 0, self.canvas.w, (self.canvas.h - self.input_h).max(0));
+    let bounds = self.menu_room();
     let m = self.tab_menu.as_mut()?;
     let r = m.menu.draw(&mut self.canvas, &mut self.res.text, bounds);
     Some(union(r, r))

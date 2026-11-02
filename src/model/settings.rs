@@ -13,10 +13,44 @@ pub fn clamp_zoom(pct: i32) -> u16 {
   pct.clamp(ZOOM_MIN as i32, ZOOM_MAX as i32) as u16
 }
 
+// where the tab bar sits (ext tabPosition): a row on top or bottom, a column on the left or right
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Side {
+  #[default]
+  Top,
+  Right,
+  Bottom,
+  Left,
+}
+
+impl Side {
+  // the ext's order, which h / l step through
+  const ALL: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
+
+  pub fn name(self) -> &'static str {
+    match self {
+      Side::Top => "top",
+      Side::Right => "right",
+      Side::Bottom => "bottom",
+      Side::Left => "left",
+    }
+  }
+
+  pub fn parse(s: &str) -> Option<Side> {
+    Self::ALL.into_iter().find(|d| d.name() == s.trim())
+  }
+
+  pub fn step(self, up: bool) -> Side {
+    let i = Self::ALL.iter().position(|&d| d == self).unwrap_or(0);
+    Self::ALL[(i + if up { 1 } else { 3 }) % 4]
+  }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Settings {
   // everything's size, percent of the display scale (100 = native)
   pub zoom: u16,
+  pub tab_side: Side,
   // vim keys in the message box + chat-driving mode
   pub vi: bool,
   // the input bar takes no room while empty and unused
@@ -68,6 +102,7 @@ impl Default for Settings {
   fn default() -> Self {
     Settings {
       zoom: 100,
+      tab_side: Side::Top,
       vi: false,
       auto_hide: false,
       first_glow: true,
@@ -149,6 +184,11 @@ impl Settings {
       {
         out.zoom = clamp_zoom((z * 100.0).round() as i32);
       }
+      if k == "tab_side"
+        && let Some(d) = Side::parse(v)
+      {
+        out.tab_side = d;
+      }
     }
     out
   }
@@ -160,7 +200,7 @@ impl Settings {
         out.push_str(&format!("{}={on}\n", d.id));
       }
     }
-    out.push_str(&format!("zoom={}\n", self.scale()));
+    out.push_str(&format!("zoom={}\ntab_side={}\n", self.scale(), self.tab_side.name()));
     out
   }
 
@@ -182,6 +222,8 @@ pub enum Local {
   Toggle(&'static str),
   // `/zoom 1.5`; None = no usable number
   Zoom(Option<u16>),
+  // `/tabs left`; None = no such side
+  Side(Option<Side>),
   // `/hide feed`, `/show mentions`; None = no such tab
   Tab(Option<Kind>, bool),
   // the settings screen, the key map
@@ -197,6 +239,11 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     let z = rest.trim().trim_end_matches('%').parse::<f32>().ok().filter(|z| z.is_finite() && *z > 0.0);
     // 1.5 and 150 both mean 150%
     return Some(Local::Zoom(z.map(|z| clamp_zoom(if z < 10.0 { (z * 100.0).round() } else { z.round() } as i32))));
+  }
+  if let Some(rest) = low.strip_prefix("/tabs")
+    && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+  {
+    return Some(Local::Side(Side::parse(rest)));
   }
   for (word, on) in [("/hide", false), ("/show", true)] {
     if let Some(rest) = low.strip_prefix(word)
@@ -228,6 +275,7 @@ mod tests {
       Settings::default(),
       Settings {
         zoom: 100,
+        tab_side: Side::Top,
         vi: false,
         auto_hide: false,
         first_glow: true,
@@ -275,6 +323,19 @@ mod tests {
     }
     // unknown keys and spacing are tolerated
     assert_eq!(Settings::parse("future=1\n vi = true \n"), Settings { vi: true, ..Settings::default() });
+  }
+
+  #[test]
+  fn tab_side_parses_saves_and_steps() {
+    assert_eq!(Settings::parse("tab_side=left").tab_side, Side::Left);
+    assert_eq!(Settings::parse("tab_side=sideways").tab_side, Side::Top);
+    let s = Settings { tab_side: Side::Bottom, ..Settings::default() };
+    assert_eq!(Settings::parse(&s.render()), s);
+    assert_eq!(Side::Top.step(false), Side::Left);
+    assert_eq!(Side::Left.step(true), Side::Top);
+    assert_eq!(local_cmd("/tabs Right"), Some(Local::Side(Some(Side::Right))));
+    assert_eq!(local_cmd("/tabs"), Some(Local::Side(None)));
+    assert_eq!(local_cmd("/tabsy"), None);
   }
 
   #[test]

@@ -109,7 +109,8 @@ fn account_rows(me: &Me) -> Vec<(Act, String)> {
 impl App {
   // ctrl-l: logged in opens the account menu (who, link more, log out); logged out asks which platform
   pub(super) fn login(&mut self) {
-    let at = (self.canvas.w / 2 - 80, self.bar().bottom());
+    let b = self.body();
+    let at = (b.x + b.w / 2 - 80, b.y);
     let menu = match &self.me {
       Some(me) => Menu::new(account_rows(me), at).titled(account_head(me)),
       None => Menu::new(login_rows(), at).titled("log in with"),
@@ -284,7 +285,7 @@ impl App {
   }
 
   pub(super) fn draw_pop(&mut self) -> Option<Rect> {
-    let bounds = Rect::new(0, 0, self.canvas.w, (self.canvas.h - self.input_h).max(0));
+    let bounds = self.menu_room();
     let p = self.pop.as_mut()?;
     Some(p.menu.draw(&mut self.canvas, &mut self.res.text, bounds))
   }

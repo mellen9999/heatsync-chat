@@ -44,6 +44,7 @@ pub fn all() -> Vec<Slash> {
   let switches = schema::DEFS.iter().filter_map(|d| match d.ctl {
     Ctl::Pill(..) => Some(s(d.cmd?, "", d.label)),
     Ctl::Zoom => Some(s(d.cmd?, "[percent]", d.label)),
+    Ctl::Side => Some(s(d.cmd?, "<top|bottom|left|right>", d.label)),
     _ => None,
   });
   FIXED.into_iter().chain(switches).collect()
