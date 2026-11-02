@@ -215,9 +215,11 @@ async fn thread(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: 
 // logged out reads as not cleared: either way the answer is to log in as an adult
 async fn media(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {
   let (status, v) = call(read(http, token, &format!("/api/messages/{}/media", crate::util::path_seg(&id)))).await;
+  // 403 says why: not logged in (log in), or this account isn't cleared for it (451 here: no button helps)
   let res = match status {
     200 => Ok(post::media_of(&v)),
     401 => Err(403),
+    403 if v.get("code").and_then(Value::as_str) == Some("not_available") => Err(451),
     s => Err(s),
   };
   void(out.send(NetEvent::Media { id, res }))

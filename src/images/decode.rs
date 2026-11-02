@@ -23,6 +23,9 @@ impl Decoded {
 const MAX_SIDE: u32 = 4096;
 const MAX_FRAMES: usize = 512;
 const MAX_CANVAS_PX: u64 = 1024 * 1024;
+// a still picture (a feed photo, a linked image) may be a real camera size: decoded once, scaled down
+// right away, so only the moment of decoding holds it
+const MAX_STILL_PX: u64 = 4096 * 3072;
 // source frames held at once while decoding (full size, before scaling down)
 const MAX_SRC_BYTES: usize = 48 << 20;
 // decoded frames of one chat picture
@@ -71,8 +74,10 @@ fn max_frames(w: u32, h: u32) -> usize {
   (MAX_SRC_BYTES / (w as usize * h as usize * 4).max(1)).clamp(1, MAX_FRAMES)
 }
 
-fn check_dims(w: u32, h: u32) -> Result<(), String> {
-  if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || w as u64 * h as u64 > MAX_CANVAS_PX {
+// `still` = one frame: a bigger canvas is fine; every frame of an animation is held, so those stay small
+fn check_dims(w: u32, h: u32, still: bool) -> Result<(), String> {
+  let cap = if still { MAX_STILL_PX } else { MAX_CANVAS_PX };
+  if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || w as u64 * h as u64 > cap {
     return Err(format!("bad dimensions {w}x{h}"));
   }
   Ok(())
@@ -81,7 +86,7 @@ fn check_dims(w: u32, h: u32) -> Result<(), String> {
 fn webp(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   let mut d = image_webp::WebPDecoder::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
   let (w, h) = d.dimensions();
-  check_dims(w, h)?;
+  check_dims(w, h, !d.is_animated())?;
   let alpha = d.has_alpha();
   let len = d.output_buffer_size().ok_or("too large")?;
   let mut buf = vec![0u8; len];
@@ -110,7 +115,7 @@ fn gif(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   opts.set_color_output(gif::ColorOutput::RGBA);
   let mut d = opts.read_info(Cursor::new(bytes)).map_err(|e| e.to_string())?;
   let (w, h) = (d.width() as u32, d.height() as u32);
-  check_dims(w, h)?;
+  check_dims(w, h, false)?;
   let mut canvas = vec![0u8; (w * h * 4) as usize];
   let mut frames = Vec::new();
   while frames.len() < max_frames(w, h) {
@@ -164,7 +169,7 @@ fn png(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   d.set_transformations(png::Transformations::normalize_to_color8());
   let mut r = d.read_info().map_err(|e| e.to_string())?;
   let (w, h) = (r.info().width, r.info().height);
-  check_dims(w, h)?;
+  check_dims(w, h, true)?;
   let mut buf = vec![0u8; r.output_buffer_size().ok_or("too large")?];
   let info = r.next_frame(&mut buf).map_err(|e| e.to_string())?;
   let px = &buf[..info.buffer_size()];
@@ -257,5 +262,22 @@ mod tests {
     let d = decode(&bytes, 4).unwrap();
     assert_eq!((d.w, d.h, d.frames.len()), (4, 4, 1));
     assert_eq!(&d.frames[0].rgba[..4], &[255, 0, 0, 255]);
+  }
+
+  #[test]
+  fn a_photo_sized_still_decodes_but_an_animation_that_big_does_not() {
+    let (w, h) = (1620, 2160);
+    let mut bytes = Vec::new();
+    {
+      let mut e = png::Encoder::new(&mut bytes, w, h);
+      e.set_color(png::ColorType::Rgb);
+      e.set_depth(png::BitDepth::Eight);
+      let mut wr = e.write_header().unwrap();
+      wr.write_image_data(&vec![9; (w * h * 3) as usize]).unwrap();
+    }
+    let d = decode(&bytes, 320).unwrap();
+    assert_eq!(d.h, 320, "decoded straight down to the size it shows at");
+    assert!(check_dims(w, h, false).is_err() && check_dims(w, h, true).is_ok());
+    assert!(check_dims(4096, 4096, true).is_err(), "still bounded");
   }
 }

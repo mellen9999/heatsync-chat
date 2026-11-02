@@ -197,6 +197,7 @@ impl Feed {
         Reveal::Open
       }
       Err(403) => Reveal::Denied,
+      Err(451) => Reveal::Unavailable,
       _ => Reveal::Failed,
     };
     if self.reveal.len() >= CAP * 4 {

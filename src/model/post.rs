@@ -82,8 +82,10 @@ pub struct Post {
 pub enum Reveal {
   Open,
   Asking,
-  // 403: the account isn't cleared for adult media
+  // 403: log in (as an adult) to see it
   Denied,
+  // logged in, and this account isn't cleared for it
+  Unavailable,
   Failed,
 }
 
@@ -378,6 +380,7 @@ pub fn pic(p: &Post, inline: bool, reveal: Option<Reveal>) -> Option<Pic> {
       let b = h.can_show.then_some(match reveal {
         Some(Reveal::Asking) => "loading...",
         Some(Reveal::Denied) => "log in as an adult to view",
+        Some(Reveal::Unavailable) => "not available to your account",
         Some(Reveal::Failed) => "retry",
         _ => "show",
       });
