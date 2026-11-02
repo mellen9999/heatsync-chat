@@ -165,13 +165,12 @@ impl App {
     self.wake();
   }
 
-  // flip a switch, save, say what it is now
+  // flip a switch and save: the change shows for itself
   pub(super) fn flip(&mut self, d: &'static Def) {
     let Some(on) = d.on(&self.set).map(|v| !v) else { return };
     d.put(&mut self.set, on);
     self.applied(d.fx);
     self.set.save();
-    self.say(format!("{} {}", d.label, if on { "on" } else { "off" }));
   }
 
   fn set_switch(&mut self, d: &'static Def, on: bool) {

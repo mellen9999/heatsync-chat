@@ -21,7 +21,6 @@ impl App {
       self.set.save();
       self.apply_scale();
     }
-    self.say(format!("zoom {}%", self.set.zoom));
   }
 
   pub(super) fn zoom_by(&mut self, steps: i32) {

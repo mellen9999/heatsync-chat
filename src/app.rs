@@ -519,7 +519,6 @@ impl App {
       self.set.save();
       self.relayout_body();
     }
-    self.say(format!("tabs on the {}", side.name()));
   }
 
   // the space under the tabs changed size or place: views take its width, the whole frame repaints
@@ -615,10 +614,7 @@ impl App {
           self.flip(d);
         }
       }
-      Local::Tab(Some(k), shown) => {
-        self.set_shown(k, shown);
-        self.say(format!("{} tab {}", k.name(), if shown { "shown" } else { "hidden" }));
-      }
+      Local::Tab(Some(k), shown) => self.set_shown(k, shown),
       Local::Tab(None, shown) => {
         self.say(format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }))
       }
