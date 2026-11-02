@@ -347,17 +347,19 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let ids = cosmetic_ids(v);
       (!ids.is_empty()).then(|| send(NetEvent::CosmeticsChanged(ids))).flatten()
     }
-    // a tabbed channel's room, and (`follow:`) a channel you follow but have no tab for: one gate for both
+    // a tabbed channel's room, and (`follow:`) a channel you follow but have no tab for: one gate for both.
+    // the server also broadcasts plain `stream:*` to every socket for its live grid: only our rooms count
     "stream:online"
     | "stream:offline"
     | "stream:update"
     | "follow:stream:online"
     | "follow:stream:offline"
     | "follow:stream:update" => {
+      let followed = ty.starts_with("follow:");
       let ty = ty.strip_prefix("follow:").unwrap_or(ty);
       let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
       let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
-      if !valid_key(&channel) {
+      if !valid_key(&channel) || !(followed || st.rooms.contains(&(plat(platform), channel.clone()))) {
         return None;
       }
       let text = |k: &str| stream_events::clean(v.get(k).and_then(Value::as_str).unwrap_or(""));
@@ -419,9 +421,24 @@ mod tests {
     let Ok(NetEvent::Stream(l)) = rx.try_recv() else { panic!("no line") };
     assert_eq!((&*l.channel, &*l.text), ("ennortix", "[ennortix] ◆ went live — Chess"));
     // the room reporting the same go-live is the same line: not shown twice
+    apply(&mut st, Cmd::Join(Platform::Twitch, "ennortix".into()));
     let room = json!({"type": "stream:online", "platform": "twitch", "channel": "ennortix", "game": "Chess"});
     dispatch(&room, &mut st, &out);
     assert!(rx.try_recv().is_err());
+  }
+
+  #[test]
+  fn a_live_grid_broadcast_for_a_channel_without_a_tab_is_dropped() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    st.gate.start(0);
+    let grid = json!({"type": "stream:online", "platform": "twitch", "channel": "zbra", "game": "Overwatch"});
+    dispatch(&grid, &mut st, &out);
+    assert!(rx.try_recv().is_err(), "not followed, not tabbed: no line");
+    apply(&mut st, Cmd::Join(Platform::Twitch, "zbra".into()));
+    dispatch(&grid, &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::Stream(_))), "its own tab still hears it");
   }
 
   #[test]
