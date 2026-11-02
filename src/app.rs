@@ -2384,7 +2384,7 @@ mod live {
       t.view.resize(720);
     }
     app.redraw();
-    let has = |rgb| app.canvas.px.iter().any(|&p| p == rgb);
+    let has = |rgb| app.canvas.px.contains(&rgb);
     assert!(has(0x00ff00) && has(crate::ui::theme::YELLOW), "the name in its color, the verb in yellow");
     crate::bench::dump(&app.canvas);
   }
