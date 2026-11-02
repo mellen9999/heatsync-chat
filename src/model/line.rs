@@ -1,5 +1,6 @@
 // the message being typed: text + cursor (byte index on a char boundary) + sent history.
-// words named in `chips` show as their emote and edit as one unit (backspace, delete, arrows)
+// words named in `chips` show as their emote and edit as one unit (backspace, delete, arrows); an emoji
+// (a grapheme: 👍🏽, 🇯🇵) is one step too
 use std::collections::{HashSet, VecDeque};
 use std::ops::Range;
 
@@ -15,6 +16,8 @@ pub struct Line {
   pub cursor: usize,
   // emote names drawn as pictures: picked, tab-completed, recalled, or one of yours typed then spaced
   pub chips: HashSet<Box<str>>,
+  // the chips that are overlays (zero-width): one right after another chip stacks onto it
+  pub overlays: HashSet<Box<str>>,
   history: VecDeque<String>,
   // Some(i) while browsing history; `draft` holds what was typed before
   browsing: Option<usize>,
@@ -108,6 +111,33 @@ impl Line {
     out
   }
 
+  // the emotes as drawn: an overlay chip right after another chip joins its stack
+  pub fn stacks(&self) -> Vec<Range<usize>> {
+    let mut out: Vec<Range<usize>> = Vec::new();
+    for r in self.chip_ranges() {
+      if self.overlays.contains(&self.text[r.clone()])
+        && let Some(last) = out.last_mut()
+        && last.end + 1 == r.start
+      {
+        last.end = r.end;
+      } else {
+        out.push(r);
+      }
+    }
+    out
+  }
+
+  // the text cut into what vi steps over: each emote stack whole (true), else one grapheme
+  pub fn units(&self) -> Vec<(Range<usize>, bool)> {
+    let stacks = self.stacks();
+    let inside = |b: usize| stacks.iter().any(|r| r.start < b && b < r.end);
+    let mut cuts: Vec<usize> = breaks(&self.text).filter(|&b| !inside(b)).collect();
+    cuts.extend(stacks.iter().flat_map(|r| [r.start, r.end]));
+    cuts.sort_unstable();
+    cuts.dedup();
+    cuts.windows(2).map(|w| (w[0]..w[1], stacks.iter().any(|r| r.start == w[0]))).collect()
+  }
+
   // the chip the cursor would edit: one ending at it (or around it) going back, starting at it going forward
   fn chip_touching(&self, back: bool) -> Option<Range<usize>> {
     let c = self.cursor;
@@ -121,11 +151,11 @@ impl Line {
   }
 
   fn prev(&self, i: usize) -> usize {
-    self.text[..i].char_indices().next_back().map_or(0, |(j, _)| j)
+    breaks(&self.text).take_while(|&b| b < i).last().unwrap_or(0)
   }
 
   fn next(&self, i: usize) -> usize {
-    self.text[i..].chars().next().map_or(i, |c| i + c.len_utf8())
+    next_break(&self.text, i)
   }
 
   pub fn left(&mut self) {
@@ -209,6 +239,7 @@ impl Line {
     let msg = self.text.trim().to_string();
     self.text.clear();
     self.chips.clear();
+    self.overlays.clear();
     self.cursor = 0;
     self.undo.clear();
     self.redo.clear();
@@ -252,6 +283,16 @@ impl Line {
     }
     self.cursor = self.text.len();
   }
+}
+
+// grapheme boundaries (byte offsets, 0 and the end included)
+pub fn breaks(s: &str) -> impl Iterator<Item = usize> + '_ {
+  icu_segmenter::GraphemeClusterSegmenter::new().segment_str(s)
+}
+
+// end of the grapheme starting at or containing byte `i` (`i` at the end)
+pub fn next_break(s: &str, i: usize) -> usize {
+  breaks(s).find(|&b| b > i).unwrap_or(s.len())
 }
 
 #[cfg(test)]
@@ -347,6 +388,35 @@ mod tests {
     assert!(l.chip_ranges().is_empty());
     l.take();
     assert!(l.chips.is_empty());
+  }
+
+  #[test]
+  fn emoji_edits_whole() {
+    let mut l = Line::default();
+    l.insert("a👍🏽🇯🇵b");
+    l.left();
+    l.left();
+    assert_eq!(l.cursor, "a👍🏽".len());
+    l.backspace();
+    assert_eq!(l.text, "a🇯🇵b");
+    l.delete();
+    assert_eq!(l.text, "ab");
+    l.right();
+    assert_eq!(l.cursor, 2);
+  }
+
+  #[test]
+  fn stacks_and_units() {
+    let mut l = Line::default();
+    l.insert("a Kappa frozen0 🌇");
+    l.chips.extend(["Kappa".into(), "frozen0".into()]);
+    assert_eq!(l.stacks(), vec![2..7, 8..15], "not an overlay: two emotes");
+    l.overlays.insert("frozen0".into());
+    assert_eq!(l.stacks(), vec![2..15]);
+    let u = l.units();
+    assert_eq!(u.len(), 5);
+    assert_eq!(u[2], (2..15, true));
+    assert_eq!(u[4], (16..l.text.len(), false));
   }
 
   #[test]

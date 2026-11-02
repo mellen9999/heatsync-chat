@@ -40,23 +40,23 @@ impl App {
     self.box_emote(word).map(|f| f.0)
   }
 
-  // the line's chip words as boxes; an overlay right after an emote stacks onto it
+  // which chips are overlays, so the line knows its stacks (drawing, and vi stepping over them whole)
+  pub(super) fn sync_overlays(&mut self) {
+    let ov = self.line.chips.iter().filter(|w| self.box_emote(w).is_some_and(|f| f.2)).cloned().collect();
+    self.line.overlays = ov;
+  }
+
+  // the line's emote stacks as boxes: a base and the overlays on it, one box
   pub(super) fn input_chips(&mut self) -> Vec<Chip> {
+    self.sync_overlays();
     let h = self.res.images.px(EMOTE_PX);
     let mut out: Vec<Chip> = Vec::new();
-    for r in self.line.chip_ranges() {
-      let Some((url, dims, zw)) = self.box_emote(&self.line.text[r.clone()]) else { continue };
-      let img = self.res.images.id(&url, EMOTE_PX);
-      if zw
-        && let Some(last) = out.last_mut()
-        && last.range.end + 1 == r.start
-      {
-        last.layers.push(img);
-        last.range.end = r.end;
-        continue;
-      }
-      let w = self.res.images.width(img, dims);
-      out.push(Chip { range: r, layers: vec![img], w, h });
+    for r in self.line.stacks() {
+      let found: Vec<Found> = self.line.text[r.clone()].split(' ').filter_map(|w| self.box_emote(w)).collect();
+      let Some(dims) = found.first().map(|f| f.1) else { continue };
+      let layers: Vec<_> = found.iter().map(|f| self.res.images.id(&f.0, EMOTE_PX)).collect();
+      let w = self.res.images.width(layers[0], dims);
+      out.push(Chip { range: r, layers, w, h });
     }
     out
   }

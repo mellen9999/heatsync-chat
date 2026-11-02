@@ -26,21 +26,74 @@ pub enum Action {
 
 const UNDO_CAP: usize = 100;
 
-// text + cursor as chars, for the duration of one key
+// text + cursor as units, for the duration of one key (and kept whole for undo). a unit is one char, or a
+// handle char standing for an emoji (a grapheme of several chars) or an emote stack, which vi steps over,
+// deletes and yanks whole (the ext's atoms)
+#[derive(Clone)]
 struct Buf {
   c: Vec<char>,
   pos: usize,
+  // what each handle stands for, and whether it's an emote
+  units: Vec<(Box<str>, bool)>,
+}
+
+// handles live in a private-use plane; a typed char from it gets a handle of its own, so none is ambiguous
+const HANDLE: u32 = 0xF0000;
+
+fn handle_of(c: char) -> Option<usize> {
+  (c as u32).checked_sub(HANDLE).map(|i| i as usize)
 }
 
 impl Buf {
   fn load(line: &Line) -> Buf {
-    let head = line.text.get(..line.cursor).unwrap_or(&line.text);
-    Buf { c: line.text.chars().collect(), pos: head.chars().count() }
+    let mut b = Buf { c: Vec::new(), pos: 0, units: Vec::new() };
+    for (r, emote) in line.units() {
+      if r.end <= line.cursor {
+        b.pos += 1;
+      }
+      b.push(&line.text[r], emote);
+    }
+    b
+  }
+
+  fn push(&mut self, s: &str, emote: bool) {
+    let mut cs = s.chars();
+    match (cs.next(), cs.next()) {
+      (Some(c), None) if !emote && handle_of(c).is_none() => self.c.push(c),
+      _ => {
+        self.c.push(char::from_u32(HANDLE + self.units.len() as u32).unwrap_or(' '));
+        self.units.push((s.into(), emote));
+      }
+    }
+  }
+
+  fn unit(&self, c: char) -> Option<&(Box<str>, bool)> {
+    handle_of(c).and_then(|i| self.units.get(i))
+  }
+
+  fn expand(&self, cs: &[char]) -> String {
+    let mut out = String::new();
+    for &c in cs {
+      match self.unit(c) {
+        Some((s, _)) => out.push_str(s),
+        None => out.push(c),
+      }
+    }
+    out
+  }
+
+  // the units as text, to compare two loads
+  fn strs(&self) -> Vec<String> {
+    self.c.iter().map(|&c| self.expand(&[c])).collect()
+  }
+
+  fn text(&self) -> String {
+    self.expand(&self.c)
   }
 
   fn store(&self, line: &mut Line) {
-    let text: String = self.c.iter().collect();
-    let cursor = self.c[..self.pos.min(self.c.len())].iter().map(|c| c.len_utf8()).sum();
+    let text = self.text();
+    let cursor = self.expand(&self.c[..self.pos.min(self.c.len())]).len();
     if text != line.text {
       line.set_text(text);
     }
@@ -61,33 +114,50 @@ impl Buf {
   }
 
   fn slice(&self, a: usize, b: usize) -> String {
-    self.c[a..b].iter().collect()
+    self.expand(&self.c[a..b])
   }
 
-  // replace chars a..e; returns how many chars went in (control bytes become spaces, line cap holds)
+  // word class of each unit: blank, word, punctuation, emote (`big`: blank or not)
+  fn classes(&self, big: bool) -> Vec<u8> {
+    self
+      .c
+      .iter()
+      .map(|&c| match self.unit(c) {
+        Some((_, true)) => {
+          if big {
+            1
+          } else {
+            3
+          }
+        }
+        Some((s, false)) => s.chars().next().map_or(0, |c| cls(c, big)),
+        None => cls(c, big),
+      })
+      .collect()
+  }
+
+  fn chars(&self, a: usize, b: usize) -> usize {
+    self.slice(a, b).chars().count()
+  }
+
+  // replace units a..e; returns how many went in (control bytes become spaces, line cap holds)
   fn splice(&mut self, a: usize, e: usize, with: &str) -> usize {
-    let room = MAX_CHARS.saturating_sub(self.c.len() - (e - a));
-    let ins: Vec<char> = with.chars().map(|c| if c.is_control() { ' ' } else { c }).take(room).collect();
-    let n = ins.len();
-    self.c.splice(a..e, ins);
+    let mut room = MAX_CHARS.saturating_sub(self.chars(0, a) + self.chars(e, self.len()));
+    let mut ins = Buf { c: Vec::new(), pos: 0, units: std::mem::take(&mut self.units) };
+    let clean: String = with.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    for r in crate::model::line::breaks(&clean).collect::<Vec<_>>().windows(2) {
+      let g = &clean[r[0]..r[1]];
+      let n = g.chars().count();
+      if n > room {
+        break;
+      }
+      room -= n;
+      ins.push(g, false);
+    }
+    self.units = ins.units;
+    let n = ins.c.len();
+    self.c.splice(a..e, ins.c);
     n
-  }
-}
-
-#[derive(Clone)]
-struct Snap {
-  c: Vec<char>,
-  pos: usize,
-}
-
-impl Snap {
-  fn of(b: &Buf) -> Snap {
-    Snap { c: b.c.clone(), pos: b.pos }
-  }
-
-  fn apply(self, b: &mut Buf) {
-    b.c = self.c;
-    b.pos = self.pos;
   }
 }
 
@@ -101,7 +171,7 @@ struct Edit {
 
 // an insert session in progress
 struct Rec {
-  before: Vec<char>,
+  before: Vec<String>,
   keys: Vec<String>,
 }
 
@@ -116,8 +186,8 @@ pub struct Vi {
   reg: String,
   // the register was just written by a yank: the app mirrors it to the system clipboard
   fresh: bool,
-  undo: Vec<Snap>,
-  redo: Vec<Snap>,
+  undo: Vec<Buf>,
+  redo: Vec<Buf>,
   last: Option<Edit>,
   rec: Option<Rec>,
   // keys of the command being typed
@@ -135,50 +205,50 @@ fn cls(ch: char, big: bool) -> u8 {
   }
 }
 
-fn word_fwd(c: &[char], mut p: usize, n: usize, big: bool) -> usize {
+fn word_fwd(k: &[u8], mut p: usize, n: usize) -> usize {
   for _ in 0..n {
-    if p >= c.len() {
+    if p >= k.len() {
       break;
     }
-    let k = cls(c[p], big);
-    while p < c.len() && cls(c[p], big) == k {
+    let cl = k[p];
+    while p < k.len() && k[p] == cl {
       p += 1;
     }
-    while p < c.len() && cls(c[p], big) == 0 {
+    while p < k.len() && k[p] == 0 {
       p += 1;
     }
   }
   p
 }
 
-fn word_back(c: &[char], mut p: usize, n: usize, big: bool) -> usize {
+fn word_back(k: &[u8], mut p: usize, n: usize) -> usize {
   for _ in 0..n {
     if p == 0 {
       break;
     }
     p -= 1;
-    while p > 0 && cls(c[p], big) == 0 {
+    while p > 0 && k[p] == 0 {
       p -= 1;
     }
-    let k = cls(c[p], big);
-    while p > 0 && cls(c[p - 1], big) == k {
+    let cl = k[p];
+    while p > 0 && k[p - 1] == cl {
       p -= 1;
     }
   }
   p
 }
 
-fn word_end(c: &[char], mut p: usize, n: usize, big: bool) -> usize {
+fn word_end(k: &[u8], mut p: usize, n: usize) -> usize {
   for _ in 0..n {
-    if p + 1 >= c.len() {
+    if p + 1 >= k.len() {
       break;
     }
     p += 1;
-    while p + 1 < c.len() && cls(c[p], big) == 0 {
+    while p + 1 < k.len() && k[p] == 0 {
       p += 1;
     }
-    let k = cls(c[p], big);
-    while p + 1 < c.len() && cls(c[p + 1], big) == k {
+    let cl = k[p];
+    while p + 1 < k.len() && k[p + 1] == cl {
       p += 1;
     }
   }
@@ -203,12 +273,9 @@ fn target(b: &Buf, key: char, n: usize, ch: Option<char>) -> Option<usize> {
   Some(match key {
     'h' => p.saturating_sub(n),
     'l' => (p + n).min(b.last()),
-    'w' => word_fwd(c, p, n, false),
-    'W' => word_fwd(c, p, n, true),
-    'b' => word_back(c, p, n, false),
-    'B' => word_back(c, p, n, true),
-    'e' => word_end(c, p, n, false),
-    'E' => word_end(c, p, n, true),
+    'w' | 'W' => word_fwd(&b.classes(key == 'W'), p, n),
+    'b' | 'B' => word_back(&b.classes(key == 'B'), p, n),
+    'e' | 'E' => word_end(&b.classes(key == 'E'), p, n),
     '0' => 0,
     '$' => b.last(),
     '^' => c.iter().position(|x| !x.is_whitespace()).unwrap_or(c.len()),
@@ -262,15 +329,14 @@ impl Vi {
     let mut b = Buf::load(line);
     if let Some(r) = self.rec.take() {
       let changed = match self.undo.last() {
-        Some(s) => s.c != b.c,
-        None => r.before != b.c,
+        Some(s) => s.text() != b.text(),
+        None => r.before != b.strs(),
       };
       if !changed {
         self.undo.pop();
       } else if !self.replaying {
-        let (p, s) = affix(&r.before, &b.c);
-        self.last =
-          Some(Edit { keys: r.keys, del: r.before.len() - p - s, ins: b.c[p..b.c.len() - s].iter().collect() });
+        let (p, s) = affix(&r.before, &b.strs());
+        self.last = Some(Edit { keys: r.keys, del: r.before.len() - p - s, ins: b.slice(p, b.len() - s) });
       }
     }
     b.pos = b.pos.saturating_sub(1);
@@ -313,13 +379,13 @@ impl Vi {
     if self.undo.len() == UNDO_CAP {
       self.undo.remove(0);
     }
-    self.undo.push(Snap::of(b));
+    self.undo.push(b.clone());
     self.redo.clear();
   }
 
   fn enter_insert(&mut self, b: &Buf) {
     let keys = if self.replaying { Vec::new() } else { std::mem::take(&mut self.cur) };
-    self.rec = Some(Rec { before: b.c.clone(), keys });
+    self.rec = Some(Rec { before: b.strs(), keys });
   }
 
   fn commit(&mut self) {
@@ -330,15 +396,13 @@ impl Vi {
 
   fn undo(&mut self, b: &mut Buf) {
     if let Some(s) = self.undo.pop() {
-      self.redo.push(Snap::of(b));
-      s.apply(b);
+      self.redo.push(std::mem::replace(b, s));
     }
   }
 
   fn redo(&mut self, b: &mut Buf) {
     if let Some(s) = self.redo.pop() {
-      self.undo.push(Snap::of(b));
-      s.apply(b);
+      self.undo.push(std::mem::replace(b, s));
     }
   }
 
@@ -493,13 +557,13 @@ impl Vi {
       'l' => Some((p, (p + n).min(len))),
       'h' => Some((p.saturating_sub(n), p)),
       // cw on a word acts like ce (vim)
-      'w' | 'W' if op == 'c' && p < len && cls(b.c[p], key == 'W') != 0 => {
-        let big = key == 'W';
+      'w' | 'W' if op == 'c' && p < len && b.classes(key == 'W')[p] != 0 => {
+        let k = b.classes(key == 'W');
         let mut q = p;
-        while q + 1 < len && cls(b.c[q + 1], big) == cls(b.c[p], big) {
+        while q + 1 < len && k[q + 1] == k[p] {
           q += 1;
         }
-        Some((p, word_end(&b.c, q, n - 1, big) + 1))
+        Some((p, word_end(&k, q, n - 1) + 1))
       }
       'e' | 'E' | '$' | 'f' | 't' => t.map(|t| (p, (t + 1).min(len))),
       _ => t.map(|t| if t >= p { (p, t) } else { (t, p) }),
@@ -626,7 +690,7 @@ impl Vi {
 }
 
 // common prefix and suffix lengths of two texts (the part insert mode changed is between)
-fn affix(a: &[char], b: &[char]) -> (usize, usize) {
+fn affix(a: &[String], b: &[String]) -> (usize, usize) {
   let p = a.iter().zip(b).take_while(|(x, y)| x == y).count();
   let s = a[p..].iter().rev().zip(b[p..].iter().rev()).take_while(|(x, y)| x == y).count();
   (p, s)
@@ -1051,6 +1115,68 @@ mod tests {
     let mut s = Sim::new("éß", 0);
     s.keys("2~");
     assert_eq!(s.text(), "Éß", "ß has no one-char upper: left alone");
+  }
+
+  #[test]
+  fn emoji_is_one_step() {
+    // skin tone, flag, zwj family: each is several chars but one emoji
+    let mut s = Sim::new("a👍🏽🇯🇵👨‍👩‍👧🌇b", 0);
+    s.keys("l");
+    assert_eq!(s.l.cursor, 1);
+    s.keys("l");
+    assert_eq!(s.l.cursor, "a👍🏽".len());
+    s.keys("x");
+    assert_eq!(s.text(), "a👍🏽👨‍👩‍👧🌇b");
+    s.keys("2x");
+    assert_eq!(s.text(), "a👍🏽b");
+    s.keys("hyl$p");
+    assert_eq!(s.text(), "a👍🏽b👍🏽");
+    assert_eq!(s.l.cursor, "a👍🏽b".len(), "the block sits on the pasted emoji");
+    s.keys("X");
+    assert_eq!(s.text(), "a👍🏽👍🏽");
+    s.keys("u");
+    assert_eq!(s.text(), "a👍🏽b👍🏽");
+  }
+
+  // the line "pepezen frozen0 hi" with frozen0 an overlay on pepezen: one stack
+  fn stacked(at: usize) -> Sim {
+    let mut s = Sim::new("x pepezen frozen0 hi", at);
+    s.l.chips.extend(["pepezen".into(), "frozen0".into()]);
+    s.l.overlays.insert("frozen0".into());
+    s
+  }
+
+  #[test]
+  fn emote_stack_is_one_unit() {
+    // from the h of "hi", hh lands on the whole stack, x takes it all
+    let mut s = stacked(18);
+    s.keys("hh");
+    assert_eq!(s.l.cursor, 2, "the cursor rests on the stack's start");
+    s.keys("x");
+    assert_eq!(s.text(), "x  hi");
+    s.keys("u");
+    assert_eq!(s.text(), "x pepezen frozen0 hi");
+    // l steps over it, w treats it as its own word, dw/yank/paste carry it whole
+    let mut s = stacked(2);
+    s.keys("l");
+    assert_eq!(s.l.cursor, 17);
+    s.keys("0w");
+    assert_eq!(s.l.cursor, 2);
+    s.keys("w");
+    assert_eq!(s.l.cursor, 18);
+    s.keys("bdw");
+    assert_eq!(s.text(), "x hi");
+    s.keys("P");
+    assert_eq!(s.text(), "x pepezen frozen0 hi");
+    // a cursor that landed inside the stack (a click, history) snaps to its start
+    let mut s = stacked(12);
+    s.keys("x");
+    assert_eq!(s.text(), "x  hi");
+    // not an overlay: two emotes, two steps
+    let mut s = stacked(18);
+    s.l.overlays.clear();
+    s.keys("hhx");
+    assert_eq!(s.text(), "x pepezen  hi");
   }
 
   #[test]

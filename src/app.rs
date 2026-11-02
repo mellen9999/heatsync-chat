@@ -1076,6 +1076,9 @@ impl App {
       Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !alt => self.line.checkpoint(!space),
       _ => self.line.seal(),
     }
+    if self.set.vi && key == Key::Named(NamedKey::Escape) {
+      self.sync_overlays();
+    }
     let l = &mut self.line;
     match key {
       Key::Named(NamedKey::Escape) if self.set.vi => {
@@ -1192,6 +1195,7 @@ impl App {
       Key::Named(NamedKey::End) => "End",
       _ => return,
     };
+    self.sync_overlays();
     let act = self.vi.key(&mut self.line, name);
     if let Some(y) = self.vi.take_fresh() {
       self.copy(&y);
@@ -2116,6 +2120,18 @@ mod live {
       app.key_insert(Key::Named(NamedKey::Backspace), None);
       assert_eq!(app.line.text, want);
     }
+    // vi: esc, hh lands on the whole stack (drawn as one reversed block), x takes it whole
+    app.set.vi = true;
+    app.mode = Mode::Insert;
+    app.line.insert("Kappa frozen0 yo");
+    app.key_insert(Key::Named(NamedKey::Escape), None);
+    assert_eq!(app.mode, Mode::Normal);
+    for _ in 0..3 {
+      app.key_normal(Key::Character("h"), Some("h"));
+    }
+    assert_eq!(app.line.cursor, 3, "on the stack, not inside it");
+    app.key_normal(Key::Character("x"), Some("x"));
+    assert_eq!(app.line.text, "hi  yo");
   }
 
   // `:ka` lists emotes, `@` people, a lone `/b` commands; arrows move, enter picks into the tab cycle,

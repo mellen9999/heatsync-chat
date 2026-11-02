@@ -13,7 +13,7 @@ use super::mode_label::{self, Seg};
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
 use crate::images::{Images, ImgId};
-use crate::model::line::Line;
+use crate::model::line::{Line, next_break};
 use crate::model::vi::Mode;
 
 const MAX_LINES: usize = 4;
@@ -308,14 +308,14 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
     }
     Mode::Normal if on_chip.is_some() => {}
     Mode::Normal => {
-      // reversed block on the char under the cursor; a one-char-wide box at the end
+      // reversed block on the char (or whole emoji) under the cursor; a one-char-wide box at the end
       let cur = b.line.cursor;
-      let ch = b.line.text[cur..].chars().next();
+      let ch = Some(&b.line.text[cur..next_break(&b.line.text, cur)]).filter(|g| !g.is_empty());
       let em = text.layout("0", &[], &[], 1000.0).full_width();
       let here = g.runs.iter().find(|(r, _)| r.contains(&cur)).map(|(r, o)| o + cur - r.start);
       let w = match (ch, here) {
         (Some(ch), Some(i)) => {
-          let nx = Cursor::from_byte_index(l, i + ch.len_utf8(), Affinity::Downstream).geometry(l, CURSOR_W as f32);
+          let nx = Cursor::from_byte_index(l, i + ch.len(), Affinity::Downstream).geometry(l, CURSOR_W as f32);
           if nx.y0 as f32 == cy0 && nx.x0 as f32 > cx { nx.x0 as f32 - cx } else { em }
         }
         _ => em,
@@ -323,10 +323,9 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
       let r = Rect::new(x, y, w.ceil() as i32, h).intersect(area);
       if !r.is_empty() {
         c.fill(r, theme::WHITE);
-        if let Some(ch) = ch.filter(|c| !c.is_whitespace()) {
-          let s = ch.to_string();
+        if let Some(s) = ch.filter(|g| !g.trim().is_empty()) {
           let span = Span { range: 0..s.len(), ink: Ink(theme::BLACK), bold: false };
-          let gl = text.layout(&s, &[span], &[], 1000.0);
+          let gl = text.layout(s, &[span], &[], 1000.0);
           text.draw(&gl, c, x as f32, y as f32, r, |_, _| {});
         }
       }

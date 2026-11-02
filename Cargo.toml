@@ -10,6 +10,7 @@ winit = "0.30"
 softbuffer = "0.4"
 parley = "0.12"
 swash = "0.2"
+icu_segmenter = { version = "2", default-features = false, features = ["compiled_data"] }
 tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "sync", "macros"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
