@@ -155,8 +155,8 @@ pub struct App {
   shown_mode: (Vec<mode_label::Seg>, String, bool),
   set: Settings,
   complete: Option<Complete>,
-  // replying to: (platform message id, @nick), sent with the next line
-  reply: Option<(Box<str>, Box<str>)>,
+  // replying to this line, sent with the next one
+  reply: Option<Reply>,
   // last pointer position (window px), for clicks
   pointer: (i32, i32),
   input_h: i32,
@@ -588,7 +588,7 @@ impl App {
     }
     let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
     if let Some(text) = self.line.take() {
-      let reply = self.reply.take().map(|(id, nick)| Reply { id, nick });
+      let reply = self.reply.take();
       if let Some(v) = self.view() {
         v.deselect();
       }
@@ -840,7 +840,7 @@ impl App {
         Some(_) => Some(("path: ", crate::ui::theme::YELLOW)),
         None => self.target().and_then(|t| t.2),
       };
-      let reply = self.reply.as_ref().filter(|_| self.prompt.is_none()).map(|r| &*r.1);
+      let reply = self.reply.as_ref().filter(|_| self.prompt.is_none()).map(|r| &*r.nick);
       let bar = input_bar::Bar {
         line: self.prompt.as_ref().unwrap_or(&self.line),
         mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
@@ -1263,11 +1263,12 @@ impl App {
     if m.id.is_empty() {
       return self.say("that line can't be replied to");
     }
-    let (id, nick, p) = (m.id.clone(), m.nick.clone(), m.platform);
+    let reply = Reply { id: m.id.clone(), nick: m.nick.clone(), text: m.body.clone() };
+    let p = m.platform;
     if let Some(i) = t.sources.iter().position(|s| s.0 == p) {
       t.target = i;
     }
-    self.reply = Some((id, nick));
+    self.reply = Some(reply);
     self.enter_insert();
   }
 
@@ -2182,7 +2183,7 @@ mod live {
     assert!(app.selecting());
     assert_eq!(app.mode_line().0.first().map(|s| s.0), Some("-- select --"), "short: the box holds text");
     k(&mut app, "r");
-    assert_eq!(app.reply.as_ref().map(|r| &*r.1), Some("alice"));
+    assert_eq!(app.reply.as_ref().map(|r| &*r.nick), Some("alice"));
     assert_eq!(app.mode, Mode::Insert);
     // esc: back to normal (never a third mode), again: let go of the line, again: the reply goes
     app.key_insert(Key::Named(NamedKey::Escape), None);

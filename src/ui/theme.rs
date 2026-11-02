@@ -9,6 +9,8 @@ pub const CYAN: u32 = 0x00ffff;
 pub const WHITE: u32 = 0xffffff;
 pub const ZEBRA: u32 = 0x444444;
 pub const DIM: u32 = 0x808080;
+// dim text on a zebra stripe, where #808080 sinks into the gray (the reply line)
+pub const DIM_STRIPE: u32 = 0xbcbcbc;
 pub const HEATSYNC: u32 = 0xff8700;
 pub const TWITCH: u32 = 0xc8a8ff;
 // a line that pings you (ext --hs-mention-bg); on a zebra row the lighter red, never the gray

@@ -64,6 +64,9 @@ pub struct Extra {
   pub paint: Option<crate::cosmetics::id::PaintId>,
 }
 
+// a reply keeps this much of its parent's words (one line of it shows)
+pub const REPLY_TEXT: usize = 300;
+
 // image url for a byte range of the body
 pub type Placed = (Range<u32>, Box<str>);
 // (word, url, zero-width)
@@ -87,8 +90,9 @@ pub struct Message {
   pub hs: Box<[HsEmote]>,
   // (set, version) pairs from the twitch `badges=` tag
   pub badges: Box<[(Box<str>, Box<str>)]>,
-  // `@name` the message replies to
+  // `@name` the message replies to, and the start of that line's words
   pub reply_to: Option<Box<str>>,
+  pub reply_text: Option<Box<str>>,
   // usernotice system text shown above the user's part (sub/raid/announcement)
   pub system: Option<Box<str>>,
   pub x: Option<Box<Extra>>,
@@ -111,6 +115,7 @@ impl Message {
       hs: Box::new([]),
       badges: Box::new([]),
       reply_to: None,
+      reply_text: None,
       system: None,
       x: None,
     }

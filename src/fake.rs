@@ -88,6 +88,7 @@ impl Fake {
       hs: Box::new([]),
       badges: Box::new([]),
       reply_to: None,
+      reply_text: None,
       system: None,
       x: None,
     }

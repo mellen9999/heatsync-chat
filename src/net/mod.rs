@@ -133,10 +133,11 @@ pub fn backoff(attempt: u32) -> Duration {
   Duration::from_secs_f64(base * jitter)
 }
 
-// the line being answered: its platform message id, and @nick for our own echo
+// the line being answered: its platform message id, and @nick + its words for our own echo
 pub struct Reply {
   pub id: Box<str>,
   pub nick: Box<str>,
+  pub text: Box<str>,
 }
 
 pub enum Cmd {

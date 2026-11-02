@@ -26,6 +26,8 @@ impl Ink {
   pub const PAINTED: u32 = 1 << 24;
   // set on a search hit: drawn in reverse video, white behind black glyphs
   pub const REVERSE: u32 = 1 << 25;
+  // dim that lifts to the lighter gray when drawn on a zebra stripe (`Text::stripe`)
+  pub const LIFT: u32 = 1 << 26;
 }
 
 impl Default for Ink {
@@ -70,6 +72,8 @@ pub struct Text {
   glyphs: HashMap<GlyphKey, Option<Glyph>>,
   pub font_px: f32,
   pub line_px: f32,
+  // the row being drawn sits on a zebra stripe
+  pub stripe: bool,
 }
 
 impl Text {
@@ -81,6 +85,7 @@ impl Text {
       glyphs: HashMap::new(),
       font_px: (theme::FONT_PX * scale).round(),
       line_px: (theme::LINE_PX * scale).round(),
+      stripe: false,
     }
   }
 
@@ -121,7 +126,8 @@ impl Text {
     clip: Rect,
     mut on_box: impl FnMut(&mut Canvas, &PositionedInlineBox),
   ) {
-    let Self { glyphs, scale, .. } = self;
+    let Self { glyphs, scale, stripe: self_stripe, .. } = self;
+    let self_stripe = *self_stripe;
     if glyphs.len() > GLYPH_CACHE_MAX {
       glyphs.clear();
     }
@@ -156,7 +162,7 @@ impl Text {
           let bar = Rect::new(x.floor() as i32, y0.floor() as i32, gr.advance().ceil() as i32, (y1 - y0).ceil() as i32);
           c.fill(bar.intersect(clip), theme::WHITE);
         }
-        let ink = ink & 0xff_ffff;
+        let ink = if ink & Ink::LIFT != 0 && self_stripe { theme::DIM_STRIPE } else { ink & 0xff_ffff };
         let coords = run.normalized_coords();
         let key = |g: &parley::Glyph| {
           let gx = ox + g.x;

@@ -256,6 +256,26 @@ macro_rules! opts {
   };
 }
 
+// ": words" after `head`, cut with … so the two fit one line `w` wide. control chars become spaces
+fn one_line(res: &mut Res, head: &str, words: &str, w: f32) -> String {
+  let mut out = String::from(": ");
+  out.extend(words.chars().map(|c| if c.is_control() { ' ' } else { c }));
+  let full = format!("{head}{out}");
+  let l = res.text.layout(&full, &[], &[], f32::MAX);
+  if l.full_width() <= w {
+    return out;
+  }
+  let ell = res.text.layout("…", &[], &[], f32::MAX).full_width();
+  let y = res.text.line_px / 2.0;
+  let at = Cluster::from_point(&l, (w - ell).max(0.0), y).map_or(full.len(), |c| c.0.text_range().start);
+  let keep = at.saturating_sub(head.len()).min(out.len());
+  let keep = (0..=keep).rev().find(|&i| out.is_char_boundary(i)).unwrap_or(0);
+  out.truncate(keep);
+  out.truncate(out.trim_end().len());
+  out.push('…');
+  out
+}
+
 fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o: Opts) -> Laid {
   let Opts { ts, tags, find } = o;
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
@@ -274,6 +294,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     s.push('\n');
   }
   if let Some(parent) = m.reply_to.as_ref().filter(|_| !muted) {
+    let r0 = s.len();
     dim(&mut s, &mut spans, "↳ ");
     // the parent is always an `@name`: the same person (color, paint, lookup, hover) as one in the words
     let a = s.len();
@@ -288,6 +309,16 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       reply = Some(Mention { range: a..s.len(), login, color: p.color, paint: p.paint, art: None });
     } else {
       spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
+    }
+    // then the parent's words, dim, cut to the one line (ext's reply snippet)
+    if let Some(t) = m.reply_text.as_deref().filter(|t| !t.trim().is_empty()) {
+      let line0 = s.rfind('\n').map_or(0, |i| i + 1);
+      let words = one_line(res, &s[line0..], t, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
+      dim(&mut s, &mut spans, &words);
+    }
+    // the reply line's dim stays readable on a zebra stripe
+    for sp in spans.iter_mut().filter(|sp| sp.range.start >= r0 && sp.ink.0 == theme::DIM) {
+      sp.ink.0 |= Ink::LIFT;
     }
     s.push('\n');
   }
@@ -1448,6 +1479,7 @@ impl ChatView {
           let anims = &mut self.anims;
           let name_anims = &mut self.name_anims;
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
+          text.stripe = stripe;
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
             let Some(eb) = laid.boxes.get(b.id as usize) else {
               return;
@@ -2136,6 +2168,25 @@ mod tests {
         .step_by(2)
         .all(|x| (150..200).all(|y| w.who_at(area, x, y, &mut res).is_none_or(|h| h.mention.is_none())))
     );
+  }
+
+  #[test]
+  fn a_reply_shows_its_parents_words_on_one_line() {
+    let mut res = Res::new(1.0);
+    let mut m = said("bob", "lol");
+    m.reply_to = Some("wollip".into());
+    m.reply_text = Some("short one".into());
+    let text = |l: &Laid| l.layout.lines().map(|ln| ln.text_range()).collect::<Vec<_>>();
+    let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+    assert_eq!(text(&l).len(), 2);
+    // long words (and a newline from a tag) are cut with …, never a third line
+    m.reply_text = Some(format!("{}\nline two", "words ".repeat(60)).into());
+    for w in [140, 400, 900] {
+      let l = layout_row(&mut res, "c", &m, false, w, NO_OPTS);
+      assert_eq!(text(&l).len(), 2, "at {w}px");
+    }
+    let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+    assert!(l.layout.lines().next().is_some_and(|ln| ln.text_range().len() > 20), "the line is filled, not emptied");
   }
 
   #[test]

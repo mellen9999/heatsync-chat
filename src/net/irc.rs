@@ -10,7 +10,7 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::{Out, Reply, backoff};
 use crate::model::color;
-use crate::model::message::{Kind, Message, Platform, flag};
+use crate::model::message::{Kind, Message, Platform, REPLY_TEXT, flag};
 use crate::util::time::now_ms;
 
 const URL: &str = "wss://irc-ws.chat.twitch.tv:443";
@@ -204,6 +204,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     hs: Box::new([]),
     body: body.into(),
     reply_to: l.tag("reply-parent-display-name").map(Into::into),
+    reply_text: l.tag("reply-parent-msg-body").map(|t| clamp(&t, REPLY_TEXT).into()),
     system: None,
     x: None,
   }
@@ -278,7 +279,7 @@ pub struct Creds {
 struct Sent {
   chan: Box<str>,
   text: String,
-  reply_to: Option<Box<str>>,
+  reply: Option<Reply>,
 }
 
 const MAX_PENDING: usize = 20;
@@ -435,7 +436,7 @@ async fn session(
               if let Some(i) = pending.iter().position(|p| &*p.chan == ch) {
                 let Some(p) = pending.remove(i) else { continue };
                 let mut m = own_message(&line, &nick, &me_id, &p.text);
-                m.reply_to = p.reply_to;
+                (m.reply_to, m.reply_text) = p.reply.map(|r| (r.nick, clamp(&r.text, REPLY_TEXT).into())).unzip();
                 if !out.chat(p.chan, Chat::Msg(m)) {
                   return End::Quit;
                 }
@@ -471,7 +472,7 @@ async fn session(
             if pending.len() == MAX_PENDING {
               pending.pop_front();
             }
-            pending.push_back(Sent { chan, text, reply_to: reply.map(|r| r.nick) });
+            pending.push_back(Sent { chan, text, reply });
             l
           }
           Some(c) => match apply(chans, c) {
@@ -562,6 +563,17 @@ mod tests {
     assert_eq!(m.kind, Kind::Action);
     assert_eq!(&*m.body, "waves");
     assert_eq!(&*m.nick, "A B");
+  }
+
+  #[test]
+  fn a_reply_carries_its_parents_words() {
+    let raw =
+      "@reply-parent-display-name=wollip;reply-parent-msg-body=is\\sthis\\son;id=1 :b!b@b PRIVMSG #c :@wollip yes";
+    let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
+    assert_eq!((m.reply_to.as_deref(), m.reply_text.as_deref()), (Some("wollip"), Some("is this on")));
+    let long = format!("@reply-parent-display-name=w;reply-parent-msg-body={} :b!b@b PRIVMSG #c :x", "a".repeat(5000));
+    let (_, Chat::Msg(m)) = to_chat(&parse(&long).unwrap()).unwrap() else { panic!() };
+    assert_eq!(m.reply_text.map(|t| t.len()), Some(REPLY_TEXT), "bounded");
   }
 
   #[test]
