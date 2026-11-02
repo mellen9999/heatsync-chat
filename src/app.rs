@@ -144,6 +144,9 @@ pub struct App {
   peek_due: Option<Instant>,
   cards: peek::Cards,
   occluded: bool,
+  // the window was resized or shown again (after a fullscreen app, a hidden tag): the buffer or the
+  // compositor's copy of it may hold nothing, so the next present sends the whole frame
+  expose: bool,
   // damage of recent presents, for buffers handed back with age > 1
   damage_hist: [Option<Rect>; 2],
   // pending heap trim after bursts of parsing (emote sets, history)
@@ -309,6 +312,7 @@ impl App {
       peek_due: None,
       cards: peek::Cards::default(),
       occluded: false,
+      expose: false,
       damage_hist: [None; 2],
       trim_at: None,
       line: Line::default(),
@@ -1008,6 +1012,8 @@ impl App {
   }
 
   fn present(&mut self, dirty: Option<Rect>) {
+    let whole = self.canvas.bounds();
+    let dirty = if std::mem::take(&mut self.expose) { Some(whole) } else { dirty };
     let (Some(g), Some(d)) = (&mut self.gfx, dirty) else {
       return;
     };
@@ -1033,6 +1039,8 @@ impl App {
       }
       None => buf.copy_from_slice(&self.canvas.px),
     }
+    // a fresh buffer carries the whole frame: say so, or the compositor keeps only the damage of it
+    let d = if copy.is_none() { whole } else { d };
     let r = softbuffer::Rect {
       x: d.x as u32,
       y: d.y as u32,
@@ -1054,6 +1062,8 @@ impl App {
     }
     self.canvas.resize(w as i32, h as i32);
     self.damage_hist = [None; 2];
+    // softbuffer keeps a resized buffer's age though its pixels are new (zeroed): send it all
+    self.expose = true;
     self.input_dirty = true;
     for t in &mut self.tabs {
       t.view.resize(w as i32);
@@ -1545,6 +1555,7 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::Occluded(o) => {
         self.occluded = o;
         if !o {
+          self.expose = true;
           self.wake();
         }
       }
