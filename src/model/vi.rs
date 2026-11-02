@@ -4,11 +4,9 @@ use super::line::{Line, MAX_CHARS};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Mode {
-  // keys drive the chat (scroll, select)
   #[default]
-  Chat,
   Insert,
-  // vim normal mode on the message box
+  // vim normal mode on the message box; a picked line and the space leader reach the chat from here
   Normal,
 }
 
@@ -20,7 +18,7 @@ pub enum Action {
   Send,
   HistoryOlder,
   HistoryNewer,
-  // esc with nothing pending: back to chat mode
+  // esc with nothing pending: let go of the reply or the search
   Leave,
 }
 
@@ -293,6 +291,16 @@ impl Vi {
   // nothing half-typed (count, operator, f/t/r/g waiting)
   pub fn idle(&self) -> bool {
     self.count == 0 && self.op.is_none() && self.pending.is_none()
+  }
+
+  // a half-typed `g` (the app takes `gt` `gT` for tabs)
+  pub fn g_pending(&self) -> bool {
+    self.pending == Some('g') && self.op.is_none()
+  }
+
+  // drop the half-typed command
+  pub fn abort(&mut self) {
+    self.cancel();
   }
 
   // vim's showcmd: the half-typed command

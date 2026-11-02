@@ -1,5 +1,5 @@
 // the pinned-line bar under the tabs (ext pin-bar.js): newest unhidden pin of the active tab's feeds.
-// click opens/folds it, the × (or x in chat mode) hides that pin for this session
+// click opens/folds it, the × (or space x in vi normal mode) hides that pin for this session
 use super::App;
 use crate::model::message::Platform;
 use crate::model::pin::Pin;

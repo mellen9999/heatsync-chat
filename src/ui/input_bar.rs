@@ -95,6 +95,11 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
   }
 }
 
+// an empty box shows the dim hint in place of text
+fn hinting(b: &Bar) -> bool {
+  b.line.text.is_empty() && b.preedit.is_empty() && !b.hint.is_empty() && b.reply.is_none()
+}
+
 fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   let mut s = String::new();
   let mut spans = Vec::with_capacity(2);
@@ -113,7 +118,7 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   let mut pre = 0..0;
   let mut runs = Vec::new();
   let mut boxes = Vec::new();
-  if b.line.text.is_empty() && b.preedit.is_empty() && !b.hint.is_empty() && b.reply.is_none() {
+  if hinting(b) {
     s.push_str(b.hint);
     spans.push(Span { range: at..s.len(), ink: Ink(theme::DIM), bold: false });
   } else {
@@ -306,7 +311,8 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
         c.fill(r, theme::WHITE);
       }
     }
-    Mode::Normal if on_chip.is_some() => {}
+    // on a chip the block is drawn under it; over the hint, the mode line says normal
+    Mode::Normal if on_chip.is_some() || hinting(b) => {}
     Mode::Normal => {
       // reversed block on the char (or whole emoji) under the cursor; a one-char-wide box at the end
       let cur = b.line.cursor;
@@ -330,7 +336,6 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
         }
       }
     }
-    Mode::Chat => {}
   }
   let btn = button(area, text.line_px as i32);
   let (bg, art) = if b.picker_on { (theme::WHITE, &b.logo.black) } else { (theme::BLACK, &b.logo.color) };

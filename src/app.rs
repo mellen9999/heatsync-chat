@@ -112,7 +112,7 @@ pub struct App {
   bar_dirty: bool,
   status: String,
   mods: ModifiersState,
-  // first key of a two-key vim chord (g)
+  // vi normal: space was pressed, the next key is a chat command
   chord: Option<char>,
   fake: Fake,
   flood: Option<Instant>,
@@ -308,7 +308,7 @@ impl App {
       damage_hist: [None; 2],
       trim_at: None,
       line: Line::default(),
-      mode: if set.vi { Mode::Chat } else { Mode::Insert },
+      mode: if set.vi { Mode::Normal } else { Mode::Insert },
       vi: Vi::default(),
       shown_mode: Default::default(),
       set,
@@ -499,6 +499,13 @@ impl App {
     self.mode = m;
     self.input_dirty = true;
     self.wake();
+  }
+
+  // vi: back to normal, the cursor stepping back onto a char
+  fn leave_insert(&mut self) {
+    self.sync_overlays();
+    self.vi.end_insert(&mut self.line);
+    self.set_mode(Mode::Normal);
   }
 
   fn enter_insert(&mut self) {
@@ -796,7 +803,11 @@ impl App {
     }
     let short = !self.line.text.is_empty() && !self.hidden();
     let segs = mode_label::segs(self.set.vi, self.mode, self.selecting(), short);
-    let cmd = if segs.is_empty() || self.mode != Mode::Normal { String::new() } else { self.vi.showcmd() };
+    let cmd = match self.chord {
+      _ if segs.is_empty() || self.mode != Mode::Normal => String::new(),
+      Some(' ') => "space".into(),
+      _ => self.vi.showcmd(),
+    };
     (segs, cmd)
   }
 
@@ -816,7 +827,7 @@ impl App {
     if std::mem::take(&mut self.input_dirty) {
       self.sync_suggest();
       let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
-      let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
+      let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
       let hint = match &self.prompt {
         Some(_) if self.finding => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
         Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
@@ -1086,8 +1097,7 @@ impl App {
         if empty {
           self.reply = None;
         }
-        self.vi.end_insert(l);
-        return self.set_mode(if empty { Mode::Chat } else { Mode::Normal });
+        return self.leave_insert();
       }
       Key::Named(NamedKey::Escape) => {
         self.reply = None;
@@ -1160,23 +1170,41 @@ impl App {
     true
   }
 
-  // vim normal mode on the message box (vi keys on)
-  fn key_normal(&mut self, key: Key<&str>, text: Option<&str>) {
+  // vi normal mode: a picked line's keys first, then the space leader's chat commands, then vim on the box
+  fn key_normal(&mut self, key: Key<&str>) {
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     if self.global_key(key.clone()) {
       return;
     }
-    // an empty box has nothing to navigate: a printable key starts the message
-    if !ctrl
-      && !alt
-      && self.line.text.is_empty()
-      && self.vi.idle()
-      && let (Key::Character(_) | Key::Named(NamedKey::Space), Some(t)) = (key.clone(), text)
-    {
-      self.enter_insert();
-      self.line.insert(t);
-      self.input_dirty = true;
+    if self.chord.take() == Some(' ') {
+      self.leader_key(key);
       return self.wake();
+    }
+    if self.selecting() && self.pick_key(key.clone()) {
+      return;
+    }
+    let idle = self.vi.idle();
+    let half = self.chat_area().h / 2;
+    match key {
+      Key::Named(NamedKey::Space) if idle && !ctrl && !alt => {
+        self.chord = Some(' ');
+        return self.wake();
+      }
+      Key::Character("t" | "T") if self.vi.g_pending() => {
+        self.vi.abort();
+        return self.select(self.step_tab(self.active, key == Key::Character("T")));
+      }
+      Key::Character("v") if idle && !ctrl => return self.select_start(),
+      Key::Character("?") if idle => return self.open_screen(screen::Page::Keys),
+      // vim's own / n N search the box, which is one line: here they search the chat
+      Key::Character("/") if idle && !ctrl => return self.find_open(),
+      Key::Character("n") if idle && !ctrl && self.find_on() => return self.find_step(1),
+      Key::Character("N") if idle && !ctrl && self.find_on() => return self.find_step(-1),
+      Key::Character("d") if ctrl => return self.scroll(-half),
+      Key::Character("u") if ctrl => return self.scroll(half),
+      Key::Character("w") if ctrl => return self.close_tab(),
+      Key::Named(NamedKey::Escape) if idle && self.feed_back() => return,
+      _ => {}
     }
     let name = match key {
       Key::Character("r") if ctrl => "<c-r>",
@@ -1218,8 +1246,9 @@ impl App {
         self.chip_recalled();
       }
       Action::Leave => {
-        self.reply = None;
-        self.mode = Mode::Chat;
+        if !self.find_clear() {
+          self.reply = None;
+        }
       }
     }
     self.complete = None;
@@ -1328,6 +1357,9 @@ impl App {
     let picked = self.tabs.get_mut(self.active).is_some_and(|t| t.view.select_at(chat, y, res));
     if picked && self.tabs[self.active].kind == Kind::Mentions {
       self.jump_to_mention();
+    } else if picked && self.set.vi && self.mode == Mode::Insert {
+      // a picked line's keys (r, m, c) are normal mode's
+      self.leave_insert();
     }
     self.wake();
   }
@@ -1372,75 +1404,61 @@ impl App {
     self.tabs.get(self.active).is_some_and(|t| t.view.selected().is_some())
   }
 
-  fn key(&mut self, key: Key<&str>) {
-    let line = self.res.text.line_px as i32;
-    let half = self.chat_area().h / 2;
-    let ctrl = self.mods.control_key();
-    let alt = self.mods.alt_key();
-    let chord = self.chord.take();
-    if self.global_key(key.clone()) {
-      return;
-    }
-    // a selected line: j/k move it, r replies, esc lets go
-    if self.selecting() {
-      match key {
-        Key::Character("j") | Key::Named(NamedKey::ArrowDown) => return self.select_move(1),
-        Key::Character("k") | Key::Named(NamedKey::ArrowUp) => return self.select_move(-1),
-        Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => return self.jump_to_mention(),
-        Key::Named(NamedKey::Enter) if self.kind() == Kind::Feed => return self.feed_activate(),
-        Key::Character("u") if self.kind() == Kind::Feed => return self.feed_vote(),
-        Key::Character("r") if self.kind() == Kind::Feed => return self.feed_reply(),
-        Key::Character("h") | Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Backspace) if self.feed_back() => {
-          return;
-        }
-        Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => return self.whisper_activate(),
-        Key::Character("r") if self.kind() == Kind::Whispers => return self.whisper_reply_selected(),
-        Key::Character("r") => return self.reply_selected(),
-        Key::Character("m") if !ctrl => return self.line_menu_key(),
-        Key::Character("c") if !ctrl => return self.card_selected(),
-        Key::Character("o") if !ctrl && !alt => return self.open_selected_link(),
-        Key::Character("c") if ctrl => return self.copy_selected(),
-        Key::Named(NamedKey::Escape) | Key::Character("v") => {
-          if let Some(v) = self.view() {
-            v.deselect();
-          }
-          return self.wake();
-        }
-        _ => {}
-      }
-    }
+  // a picked line's keys: j/k move it, r replies, esc lets go. false = not one of them (vi gets it)
+  fn pick_key(&mut self, key: Key<&str>) -> bool {
+    let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     match key {
-      Key::Named(NamedKey::Escape) | Key::Character("h") if !ctrl && self.feed_back() => {}
-      Key::Character("?") => self.open_screen(screen::Page::Keys),
-      Key::Character("/") if !ctrl => self.find_open(),
-      Key::Character("n") if !ctrl && self.find_on() => self.find_step(1),
-      Key::Character("N") if !ctrl && self.find_on() => self.find_step(-1),
-      Key::Named(NamedKey::Escape) if self.find_on() => _ = self.find_clear(),
-      Key::Character("v") if !ctrl => self.select_start(),
-      // r needs a line to answer: say how to pick one instead of doing nothing
-      Key::Character("r") if !ctrl => self.say("pick a line first: v (then j/k) or click it, then r"),
-      Key::Character("x") if !ctrl && !alt => self.pin_hide(),
-      Key::Character("t") if chord == Some('g') => self.select(self.step_tab(self.active, false)),
-      Key::Character("T") if chord == Some('g') => self.select(self.step_tab(self.active, true)),
-      Key::Character("g") if chord == Some('g') => {
+      Key::Character("j") | Key::Named(NamedKey::ArrowDown) if !ctrl => self.select_move(1),
+      Key::Character("k") | Key::Named(NamedKey::ArrowUp) if !ctrl => self.select_move(-1),
+      Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => self.jump_to_mention(),
+      Key::Named(NamedKey::Enter) if self.kind() == Kind::Feed => self.feed_activate(),
+      Key::Character("u") if !ctrl && self.kind() == Kind::Feed => self.feed_vote(),
+      Key::Character("r") if !ctrl && self.kind() == Kind::Feed => self.feed_reply(),
+      Key::Character("h") | Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Backspace)
+        if !ctrl && self.feed_back() => {}
+      Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => self.whisper_activate(),
+      Key::Character("r") if !ctrl && self.kind() == Kind::Whispers => self.whisper_reply_selected(),
+      Key::Character("r") if !ctrl => self.reply_selected(),
+      Key::Character("m") if !ctrl => self.line_menu_key(),
+      Key::Character("c") if !ctrl => self.card_selected(),
+      Key::Character("o") if !ctrl && !alt => self.open_selected_link(),
+      Key::Character("c") if ctrl => self.copy_selected(),
+      Key::Named(NamedKey::Escape) | Key::Character("v") if !ctrl => {
+        if let Some(v) = self.view() {
+          v.deselect();
+        }
+        self.wake();
+      }
+      _ => return false,
+    }
+    true
+  }
+
+  // space then a key (the ext's leader): chat commands that vim's keys would otherwise take
+  fn leader_key(&mut self, key: Key<&str>) {
+    let Key::Character(c) = key else { return };
+    match c {
+      "/" => self.find_open(),
+      "n" if self.find_on() => self.find_step(1),
+      "N" if self.find_on() => self.find_step(-1),
+      "]" => self.select(self.step_tab(self.active, false)),
+      "[" => self.select(self.step_tab(self.active, true)),
+      "x" => self.pin_hide(),
+      "g" => {
         let res = &mut self.res;
         if let Some(t) = self.tabs.get_mut(self.active) {
           t.view.scroll_to_top(res);
         }
-        self.wake();
       }
-      Key::Character("g") => self.chord = Some('g'),
-      Key::Character("j") | Key::Named(NamedKey::ArrowDown) => self.scroll(-line),
-      Key::Character("k") | Key::Named(NamedKey::ArrowUp) => self.scroll(line),
-      Key::Character("w") if ctrl => self.close_tab(),
-      Key::Character("i" | "a") | Key::Named(NamedKey::Enter) if !ctrl && !alt => self.enter_insert(),
-      Key::Character("d") if ctrl => self.scroll(-half),
-      Key::Character("u") if ctrl => self.scroll(half),
-      Key::Character("G") | Key::Named(NamedKey::End) => {
+      "G" => {
         if let Some(v) = self.view() {
           v.scroll_to_bottom();
         }
-        self.wake();
+      }
+      d if d.len() == 1 && (b'1'..=b'9').contains(&d.as_bytes()[0]) => {
+        if let Some(i) = self.nth_visible((d.as_bytes()[0] - b'1') as usize) {
+          self.select(i);
+        }
       }
       _ => {}
     }
@@ -1608,8 +1626,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
         match self.mode {
           Mode::Insert => self.key_insert(k, t),
-          Mode::Normal => self.key_normal(k, t),
-          Mode::Chat => self.key(k),
+          Mode::Normal => self.key_normal(k),
         }
       }
       _ => {}
@@ -2127,11 +2144,62 @@ mod live {
     app.key_insert(Key::Named(NamedKey::Escape), None);
     assert_eq!(app.mode, Mode::Normal);
     for _ in 0..3 {
-      app.key_normal(Key::Character("h"), Some("h"));
+      app.key_normal(Key::Character("h"));
     }
     assert_eq!(app.line.cursor, 3, "on the stack, not inside it");
-    app.key_normal(Key::Character("x"), Some("x"));
+    app.key_normal(Key::Character("x"));
     assert_eq!(app.line.text, "hi  yo");
+  }
+
+  // vi has two modes: normal edits the box, and once a line is picked r/m/c act on it; space leads chat
+  // commands (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_vi_normal -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_vi_normal() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    app.set.vi = true;
+    app.mode = Mode::Normal;
+    let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+    m.kind = crate::model::message::Kind::Chat;
+    (m.id, m.login, m.nick, m.color, m.body) = ("1".into(), "alice".into(), "alice".into(), 0x00ff00, "yo".into());
+    app.on_net(NetEvent::Chat(FLOOD_TAB.into(), Chat::Msg(m)));
+    app.redraw();
+    let k = |app: &mut App, c: &'static str| app.key_normal(Key::Character(c));
+    // nothing picked: r is vim's replace
+    app.line.insert("hey");
+    Vi::settle(&mut app.line);
+    k(&mut app, "r");
+    k(&mut app, "a");
+    assert_eq!(app.line.text, "hea");
+    assert!(app.reply.is_none());
+    // a picked line takes r: reply to it, typing
+    k(&mut app, "v");
+    assert!(app.selecting());
+    assert_eq!(app.mode_line().0.first().map(|s| s.0), Some("-- select --"), "short: the box holds text");
+    k(&mut app, "r");
+    assert_eq!(app.reply.as_ref().map(|r| &*r.1), Some("alice"));
+    assert_eq!(app.mode, Mode::Insert);
+    // esc: back to normal (never a third mode), again: let go of the line, again: the reply goes
+    app.key_insert(Key::Named(NamedKey::Escape), None);
+    assert_eq!(app.mode, Mode::Normal);
+    app.key_normal(Key::Named(NamedKey::Escape));
+    assert!(!app.selecting() && app.reply.is_some());
+    app.key_normal(Key::Named(NamedKey::Escape));
+    assert!(app.reply.is_none());
+    assert_eq!(app.mode, Mode::Normal);
+    // space then x hides the pin, not a char; the leader shows while armed
+    app.key_normal(Key::Named(NamedKey::Space));
+    assert_eq!(app.mode_line().1, "space");
+    k(&mut app, "x");
+    assert_eq!(app.line.text, "hea");
+    assert_eq!(app.mode_line().1, "");
+    k(&mut app, "x");
+    assert_eq!(app.line.text.len(), 2, "without space, x deletes a char");
   }
 
   // `:ka` lists emotes, `@` people, a lone `/b` commands; arrows move, enter picks into the tab cycle,

@@ -140,7 +140,7 @@ pub static DEFS: [Def; 22] = [
     cat: Cat::Chat,
     section: "input",
     label: "vi mode",
-    tip: "j/k scroll, g/G top/bottom, / search",
+    tip: "vim keys on the message box, space then a key for the chat",
     alias: "viMode vim keys",
     ctl: pill!(vi),
     fx: Fx::Vi,
@@ -454,7 +454,7 @@ mod tests {
     let vi = def("vi").unwrap();
     assert!(vi.matches("vim"));
     assert!(vi.matches("VI mode"));
-    assert!(vi.matches("search scroll"));
+    assert!(vi.matches("box chat"));
     assert!(!vi.matches("vi banana"));
     assert!(vi.matches(""));
     assert!(def("paints").unwrap().matches("seventv"));

@@ -1,4 +1,4 @@
-// vim's mode line for the vi keys: which of the three modes you are in, plus the half-typed command.
+// vim's mode line for the vi keys: normal or insert (or the picked line's keys), plus the half-typed command.
 // shown at the left of the input bar, or in the tab bar when auto-hide has folded the bar away.
 // plain (non-vi) mode shows nothing
 use super::text::{Ink, Span};
@@ -18,10 +18,8 @@ pub fn segs(vi: bool, mode: Mode, selecting: bool, short: bool) -> Vec<Seg> {
   }
   match mode {
     Mode::Insert => vec![("-- insert --", false)],
-    // vi normal inside the input box: "normal" is the chat mode the user lives in
-    Mode::Normal => vec![("-- edit --", false)],
-    Mode::Chat if selecting && short => vec![("-- select --", false)],
-    Mode::Chat if selecting => vec![
+    Mode::Normal if selecting && short => vec![("-- select --", false)],
+    Mode::Normal if selecting => vec![
       ("-- select: ", false),
       ("r", true),
       (" reply · ", false),
@@ -32,7 +30,7 @@ pub fn segs(vi: bool, mode: Mode, selecting: bool, short: bool) -> Vec<Seg> {
       ("esc", true),
       (" --", false),
     ],
-    Mode::Chat => vec![(WIDEST, false)],
+    Mode::Normal => vec![(WIDEST, false)],
   }
 }
 
@@ -75,7 +73,7 @@ mod tests {
 
   #[test]
   fn plain_shows_nothing() {
-    for m in [Mode::Chat, Mode::Insert, Mode::Normal] {
+    for m in [Mode::Insert, Mode::Normal] {
       assert!(segs(false, m, true, false).is_empty());
     }
   }
@@ -83,17 +81,17 @@ mod tests {
   #[test]
   fn per_mode() {
     assert_eq!(text(&segs(true, Mode::Insert, false, false)), "-- insert --");
-    assert_eq!(text(&segs(true, Mode::Normal, false, false)), "-- edit --");
-    assert_eq!(text(&segs(true, Mode::Chat, false, false)), "-- normal --");
-    assert_eq!(text(&segs(true, Mode::Chat, true, false)), "-- select: r reply · m menu · c card · esc --");
-    assert_eq!(text(&segs(true, Mode::Chat, true, true)), "-- select --");
+    assert_eq!(text(&segs(true, Mode::Normal, false, false)), "-- normal --");
+    assert_eq!(text(&segs(true, Mode::Normal, true, false)), "-- select: r reply · m menu · c card · esc --");
+    assert_eq!(text(&segs(true, Mode::Normal, true, true)), "-- select --");
+    assert_eq!(text(&segs(true, Mode::Insert, true, false)), "-- insert --");
   }
 
   #[test]
   fn select_keys_bold() {
-    let bold: Vec<_> = segs(true, Mode::Chat, true, false).into_iter().filter(|s| s.1).map(|s| s.0).collect();
+    let bold: Vec<_> = segs(true, Mode::Normal, true, false).into_iter().filter(|s| s.1).map(|s| s.0).collect();
     assert_eq!(bold, ["r", "m", "c", "esc"]);
-    let s = segs(true, Mode::Chat, true, false);
+    let s = segs(true, Mode::Normal, true, false);
     let sp = spans(&s);
     assert_eq!(sp.len(), s.len());
     assert_eq!(sp.last().map(|x| x.range.end), Some(text(&s).len()));
@@ -101,7 +99,7 @@ mod tests {
 
   #[test]
   fn short_labels_fit_the_gutter() {
-    for m in [Mode::Chat, Mode::Insert, Mode::Normal] {
+    for m in [Mode::Insert, Mode::Normal] {
       assert!(text(&segs(true, m, true, true)).chars().count() <= WIDEST.chars().count());
     }
   }

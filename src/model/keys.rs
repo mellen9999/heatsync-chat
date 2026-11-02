@@ -1,5 +1,5 @@
 // every key the app answers, in plain words, grouped for the `?` screen. the handlers live in
-// app.rs (global_key, key, key_insert, key_normal), app/picker.rs and the menus; when a binding
+// app.rs (global_key, key_insert, key_normal, pick_key, leader_key), app/picker.rs and the menus; when a binding
 // changes there, change its row here. a test keeps this list well-formed
 pub struct Group {
   pub name: &'static str,
@@ -26,17 +26,15 @@ pub static KEYS: [Group; 9] = [
   Group {
     name: "chat",
     rows: &[
-      ("j k  up down", "scroll a line"),
       ("ctrl-d ctrl-u", "scroll half a page"),
-      ("gg  G", "oldest, newest"),
-      ("i a enter", "start typing"),
-      ("v", "pick a line"),
-      ("/", "search this tab"),
+      ("space g  space G", "oldest, newest"),
+      ("v  click", "pick a line"),
+      ("/  space /", "search this tab"),
       ("ctrl-f", "search this tab (any mode)"),
       ("n  N", "next, previous match"),
       ("ctrl-g", "next match (shift: previous)"),
       ("esc", "clear the search"),
-      ("x", "hide the pinned line"),
+      ("space x", "hide the pinned line"),
       ("ctrl-w", "close the tab"),
     ],
   },
@@ -85,8 +83,8 @@ pub static KEYS: [Group; 9] = [
       ("u  ctrl-r", "undo, redo"),
       ("i a I A", "start typing here, after, ends"),
       ("j k", "older, newer sent lines"),
-      ("enter", "send"),
-      ("esc", "back to the chat"),
+      ("enter", "send (empty: start typing)"),
+      ("esc", "drop the reply"),
     ],
   },
   Group {
@@ -103,7 +101,8 @@ pub static KEYS: [Group; 9] = [
   Group {
     name: "tabs",
     rows: &[
-      ("gt  gT", "next, previous tab"),
+      ("gt  gT  space ] [", "next, previous tab"),
+      ("space 1 .. space 9", "jump to a tab"),
       ("alt-1 .. alt-9", "jump to a tab"),
       ("ctrl-tab", "next tab (shift for previous)"),
       ("click", "open a tab; the gear is settings"),

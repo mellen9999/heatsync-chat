@@ -1,4 +1,4 @@
-// search in a channel tab (ext live-search.js): `/` in vi chat mode or ctrl-f anywhere opens a prompt in the
+// search in a channel tab (ext live-search.js): `/` in vi normal mode or ctrl-f anywhere opens a prompt in the
 // input bar; the tab shows only matching lines as you type, hits in reverse video. enter keeps the filter
 // (n / N, or ctrl-g / ctrl-shift-g, walk the matches), esc clears it. `@name` keeps one person's lines.
 // leaving the tab drops it, like the ext
