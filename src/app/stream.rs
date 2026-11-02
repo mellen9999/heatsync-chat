@@ -46,7 +46,8 @@ impl App {
 
   // the channel's own news in its own tab
   pub(super) fn say_line(&mut self, tab: usize, m: Message, tone: Tone) {
-    self.put_line(tab, m);
+    self.tabs[tab].chat().push(m);
+    self.touched(tab);
     // the channel's own news (not the chat-spike line) turns an unwatched tab yellow
     if tone != Tone::Moment && tab != self.active && !self.tabs[tab].event {
       self.tabs[tab].event = true;
