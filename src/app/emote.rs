@@ -91,10 +91,8 @@ impl App {
     let name = &hit.name;
     match act {
       Act::Copy => {
-        self.status.clear();
-        self.copy(name);
-        if self.status.is_empty() {
-          self.status = format!("copied {name}");
+        if self.copy(name) {
+          self.say(format!("copied {name}"));
         }
       }
       Act::Block | Act::Unblock => {
@@ -106,7 +104,7 @@ impl App {
           self.res.blocked.unblock(name, &hit.url, scope)
         };
         self.res.blocked.save();
-        self.status = format!("{} {name}", if block { "blocked" } else { "unblocked" });
+        self.say(format!("{} {name}", if block { "blocked" } else { "unblocked" }));
         if self.me.is_some() {
           for hash in hashes {
             self.net.send(Cmd::Emote(if block { EmoteCmd::Block { hash } } else { EmoteCmd::Unblock { hash } }));
@@ -114,9 +112,9 @@ impl App {
         }
         self.relayout_where(None);
       }
-      Act::Add | Act::Remove if self.me.is_none() => self.status = "log in first (ctrl-l)".into(),
+      Act::Add | Act::Remove if self.me.is_none() => self.say("log in first (ctrl-l)"),
       Act::Add => {
-        self.status = format!("adding {name}…");
+        self.say(format!("adding {name}…"));
         self.net.send(Cmd::Emote(EmoteCmd::Add {
           name: name.clone(),
           url: hit.url.clone(),
@@ -125,7 +123,7 @@ impl App {
         }));
       }
       Act::Remove => {
-        self.status = format!("removing {name}…");
+        self.say(format!("removing {name}…"));
         self.net.send(Cmd::Emote(EmoteCmd::Remove { name: name.clone() }));
       }
     }

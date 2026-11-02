@@ -139,15 +139,15 @@ impl App {
   pub(super) fn act(&mut self, act: Act, who: Option<Subject>, todo: Option<Todo>) {
     match (act, who, todo) {
       (Act::Login(provider), ..) => {
-        self.status = format!("finish logging in with {} in your browser…", provider.name());
+        self.say(format!("finish logging in with {} in your browser…", provider.name()));
         self.net.send(Cmd::Login(provider));
       }
       (Act::Link(provider), ..) => {
-        self.status = format!("finish linking {} in your browser…", provider.name());
+        self.say(format!("finish linking {} in your browser…", provider.name()));
         self.net.send(Cmd::Link(provider));
       }
       (Act::AllowYoutubePosting, ..) => {
-        self.status = "finish allowing youtube posting in your browser…".to_owned();
+        self.say("finish allowing youtube posting in your browser…");
         self.net.send(Cmd::AllowYoutubePosting);
       }
       (Act::Logout, ..) => self.net.send(Cmd::Logout),

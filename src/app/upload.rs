@@ -6,10 +6,12 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use crate::model::line::Line;
+use crate::model::message::{Message, Platform};
 use crate::model::pathcomp;
 use crate::net::Cmd;
 use crate::net::upload::{Upload, expand};
 use crate::ui::input_bar;
+use crate::util::time::now_ms;
 
 fn home() -> Option<String> {
   std::env::var("HOME").ok().filter(|h| h.starts_with('/'))
@@ -21,9 +23,11 @@ impl App {
     self.input_h > 0 && input_bar::upload_button(self.input_area(), self.res.text.line_px as i32).contains(x, y)
   }
 
+  // a dim line in the chat on screen: what just happened, or why it didn't
   pub(super) fn say(&mut self, s: impl Into<String>) {
-    self.status = s.into();
-    self.bar_dirty = true;
+    let s = s.into();
+    let Some(t) = self.tabs.get_mut(self.active).filter(|_| !s.is_empty()) else { return };
+    t.view.push(Message::system(now_ms(), Platform::Twitch, s));
     self.wake();
   }
 

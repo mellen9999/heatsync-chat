@@ -145,7 +145,7 @@ impl App {
     let who = if verb == Verb::Delete { "message".into() } else { login.to_string() };
     match res {
       Ok(()) => {
-        self.status = format!("{} {who}", verb.done());
+        self.say(format!("{} {who}", verb.done()));
         // twitch echoes bans, timeouts and deletes back through chat; unban never echoes, and kick echoes nothing
         let actor = self.me.as_ref().map_or_else(|| "you".to_owned(), |m| m.username.to_string());
         let note = match verb {
@@ -171,12 +171,12 @@ impl App {
           self.touched(i);
         }
       }
-      Err(Fail::Auth) => self.status = "log in first (ctrl-l)".into(),
+      Err(Fail::Auth) => self.say("log in first (ctrl-l)"),
       Err(Fail::Relink) => {
-        self.status = "moderating needs a twitch permission. finish allowing it in your browser…".into();
+        self.say("moderating needs a twitch permission. finish allowing it in your browser…");
         self.net.send(Cmd::Relink("mod"));
       }
-      Err(Fail::Other(e)) => self.status = format!("{} failed: {e}", verb.name()),
+      Err(Fail::Other(e)) => self.say(format!("{} failed: {e}", verb.name())),
     }
     self.bar_dirty = true;
     self.wake();

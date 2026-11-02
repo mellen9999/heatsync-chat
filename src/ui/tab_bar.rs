@@ -1,4 +1,4 @@
-// one row of tabs: active reversed (white bg, black text), unread bold in its call color, status dim at the end.
+// one row of tabs: active reversed (white bg, black text), unread bold in its call color.
 // a `+` after the last tab adds one; hover reverses it like the active tab
 use super::canvas::{Canvas, Rect};
 use super::mode_label::{self, Seg};
@@ -29,7 +29,6 @@ pub fn draw(
   text: &mut Text,
   area: Rect,
   tabs: &[TabLabel],
-  status: &str,
   // the vi mode line when auto-hide folded the input bar away
   mode: (&[Seg], &str),
   hot: Hot,
@@ -87,7 +86,7 @@ pub fn draw(
   if let Some((label, on)) = hot.update {
     hits.push(cell(c, text, &mut x, &mut y, &format!(" {label} "), theme::YELLOW, true, on));
   }
-  // status and mode: after the buttons on a row, wrapped under them in a column
+  // the mode line: after the buttons on a row, wrapped under them in a column
   // a column indents every wrapped line by one cell, like the tab names
   let indent = if column { text.layout(" ", &[], &[], f32::MAX).width().ceil() as i32 } else { 0 };
   let wrap = if column { (inner.w - 2 * indent) as f32 } else { f32::MAX };
@@ -101,10 +100,6 @@ pub fn draw(
       *x += l.width().ceil() as i32;
     }
   };
-  if !status.is_empty() {
-    let s = format!("{lead}{status}");
-    put(text, &s, &[Span { range: 0..s.len(), ink: Ink(theme::DIM), bold: false }], &mut x, &mut y);
-  }
   if !mode.0.is_empty() {
     let s = format!("{lead}{}{}{}", mode_label::text(mode.0), if mode.1.is_empty() { "" } else { "  " }, mode.1);
     let mut spans = mode_label::spans(mode.0);

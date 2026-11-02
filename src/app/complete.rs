@@ -78,7 +78,7 @@ impl App {
       }
       let matches = self.candidates(word, slash);
       if matches.is_empty() {
-        self.status = format!("no match for {word}");
+        self.say(format!("no match for {word}"));
         self.bar_dirty = true;
         return self.wake();
       }

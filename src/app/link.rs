@@ -18,9 +18,7 @@ impl App {
 
   fn open_link(&mut self, url: &str) {
     if let Err(e) = crate::util::open::open_url(url) {
-      self.status = e;
-      self.bar_dirty = true;
-      self.wake();
+      self.say(e);
     }
   }
 
@@ -49,7 +47,7 @@ impl App {
     match url {
       Some(u) => self.open_link(&u),
       None => {
-        self.status = "no link on that line".into();
+        self.say("no link on that line");
         self.bar_dirty = true;
         self.wake();
       }

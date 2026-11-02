@@ -67,7 +67,7 @@ impl App {
     let Some(it) = self.picker.as_ref().and_then(|p| p.selected()) else { return };
     let (name, url) = (it.name.clone(), it.url.clone());
     if self.res.blocked.contains(&name, &url) {
-      self.status = format!("{name} is blocked (right-click it in chat to unblock)");
+      self.say(format!("{name} is blocked (right-click it in chat to unblock)"));
       self.bar_dirty = true;
       return self.wake();
     }

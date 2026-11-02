@@ -164,9 +164,6 @@ impl App {
     }
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
     self.save_tabs();
-    if !self.tabs.iter().any(|t| t.kind == Kind::Chat) {
-      self.status = "no channels — click + or press ctrl-t to add one".into();
-    }
     self.fix_active();
     self.activate(self.active);
   }
@@ -176,7 +173,6 @@ impl App {
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
-    self.status.clear();
     self.save_tabs();
     self.activate(self.tabs.len() - 1);
   }

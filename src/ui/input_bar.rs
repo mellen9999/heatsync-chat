@@ -296,12 +296,12 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
     let s = mode_label::text(b.label);
     let ll = text.layout(&s, &mode_label::spans(b.label), &[], f32::MAX);
     text.draw(&ll, c, area.x as f32 + theme::PAD_X, area.y as f32, area, |_, _| {});
-    if !b.showcmd.is_empty() {
-      let sl =
-        text.layout(b.showcmd, &[Span { range: 0..b.showcmd.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
-      let x = upload_button(area, text.line_px as i32).x as f32 - sl.full_width() - theme::PAD_X;
-      text.draw(&sl, c, x, area.y as f32, area, |_, _| {});
-    }
+  }
+  if !b.showcmd.is_empty() {
+    let sl =
+      text.layout(b.showcmd, &[Span { range: 0..b.showcmd.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
+    let x = upload_button(area, text.line_px as i32).x as f32 - sl.full_width() - theme::PAD_X;
+    text.draw(&sl, c, x, area.y as f32, area, |_, _| {});
   }
   underline(c, l, g.pre.clone(), ox, oy, area);
   match b.mode {

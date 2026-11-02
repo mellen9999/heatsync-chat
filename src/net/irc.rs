@@ -409,7 +409,6 @@ async fn session(
             "RECONNECT" => return End::Reconnect,
             "GLOBALUSERSTATE" => {
               me_id = line.tag("user-id").filter(|u| u.bytes().all(|b| b.is_ascii_digit())).unwrap_or_default().into();
-              out.status(format!("twitch connected as {nick}"));
             }
             // a bad/expired token: say so and fall back to reading anonymously
             "NOTICE" if line.channel().is_none() && line.trailing().is_some_and(|t| t.contains("authentication failed") || t.contains("Improperly formatted auth")) => {

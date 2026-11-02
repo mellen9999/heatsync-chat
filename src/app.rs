@@ -127,7 +127,8 @@ pub struct App {
   active: usize,
   net: Net,
   bar_dirty: bool,
-  status: String,
+  // the search's count ("3/10", "no match"), at the input bar's right
+  find_note: String,
   mods: ModifiersState,
   // vi normal: space was pressed, the next key is a chat command
   chord: Option<char>,
@@ -276,8 +277,6 @@ impl App {
         under: None,
       });
     }
-    let status =
-      if tabs.is_empty() { "no channels — click + or press ctrl-t to add one".into() } else { String::new() };
     let set = Settings::load();
     crate::heatsync::content::set_shown(set.content());
     crate::model::filter::edit(|f| {
@@ -311,7 +310,7 @@ impl App {
       active,
       net,
       bar_dirty: true,
-      status,
+      find_note: String::new(),
       mods: ModifiersState::empty(),
       chord: None,
       fake: Fake::new(0x5eed),
@@ -538,6 +537,9 @@ impl App {
   }
 
   fn hint(&self) -> String {
+    if !self.tabs.iter().any(|t| t.kind == Kind::Chat) {
+      return "no channels — click + or press ctrl-t to add one".into();
+    }
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
     }
@@ -881,14 +883,14 @@ impl App {
   // the vi mode line for what the box is doing right now, and the half-typed command
   fn mode_line(&self) -> (Vec<mode_label::Seg>, String) {
     if self.prompt.is_some() {
-      return (Vec::new(), String::new());
+      return (Vec::new(), if self.finding { self.find_note.clone() } else { String::new() });
     }
     let short = !self.line.text.is_empty() && !self.hidden();
     let segs = mode_label::segs(self.set.vi, self.mode, self.selecting(), short);
     let cmd = match self.chord {
       _ if segs.is_empty() || self.mode != Mode::Normal => String::new(),
       Some(' ') => "space".into(),
-      _ => self.vi.showcmd(),
+      _ => Some(self.vi.showcmd()).filter(|c| !c.is_empty()).unwrap_or_else(|| self.find_note.clone()),
     };
     (segs, cmd)
   }
@@ -997,7 +999,6 @@ impl App {
         &mut self.res.text,
         bar,
         &labels,
-        &self.status,
         if hidden_now { (&label, &showcmd) } else { (&[], "") },
         tab_bar::Hot {
           plus: self.plus_hover,
@@ -1885,10 +1886,9 @@ impl App {
           self.res.senders.lookup(id, "", now_ms());
           self.wake();
         }
-        self.status = match &me {
-          Some(m) => format!("logged in as {}", m.username),
-          None => String::new(),
-        };
+        if let Some(m) = &me {
+          self.say(format!("logged in as {}", m.username));
+        }
         // a different login starts with a clean whispers tab
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
@@ -1982,11 +1982,7 @@ impl App {
       }
       NetEvent::Links { tab, kick, yt } => self.on_links(&tab, kick, yt),
       NetEvent::Upload(u) => self.on_upload(u),
-      NetEvent::Status(s) => {
-        self.status = s;
-        self.bar_dirty = true;
-        self.wake();
-      }
+      NetEvent::Status(s) => self.say(s),
     }
   }
 }
@@ -2663,6 +2659,7 @@ mod live {
     app.dpi = 1.0;
     app.res.set_scale(app.scale());
     app.canvas.resize(640, 240);
+    app.relayout_body();
     let (forsen, xqc) = (0..app.tabs.len()).fold((0, 0), |(f, x), i| match &*app.tabs[i].name {
       "forsen" => (i, x),
       "xqc" => (f, i),

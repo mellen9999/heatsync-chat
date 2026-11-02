@@ -46,23 +46,23 @@ impl App {
     self.clip.as_mut()
   }
 
-  pub(super) fn copy(&mut self, text: &str) {
+  // true when it is on the clipboard (a failure says why)
+  pub(super) fn copy(&mut self, text: &str) -> bool {
     if text.is_empty() {
-      return;
+      return false;
     }
     let ok = self.clipboard().is_some_and(|c| c.set_text(text).is_ok());
     if !ok {
       self.say("couldn't copy: no clipboard available");
     }
+    ok
   }
 
   // ctrl-c on a selected chat line
   pub(super) fn copy_selected(&mut self) {
     let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.selected()) else { return };
     let s = line_text(m);
-    self.status.clear();
-    self.copy(&s);
-    if self.status.is_empty() {
+    if self.copy(&s) {
       self.say("copied");
     }
   }
@@ -95,7 +95,6 @@ impl App {
     if !to_picker && !to_line {
       return self.picker.is_some() || self.menu.is_some() || self.mode == Mode::Insert;
     }
-    self.status.clear();
     match self.read_clipboard() {
       Got::Text(t) => self.paste_text(&t, to_picker),
       Got::Pixels(w, h, px) if !to_picker => self.paste_pixels(w, h, px),

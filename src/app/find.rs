@@ -33,13 +33,13 @@ impl App {
     let (h, res) = (self.chat_area().h, &mut self.res);
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     let n = t.view.set_search(q, res, h);
-    self.status = match (t.view.searching(), n) {
+    self.find_note = match (t.view.searching(), n) {
       (false, _) => String::new(),
       (true, 0) => "no match".into(),
       (true, 1) => "1 found".into(),
       (true, n) => format!("{n} found"),
     };
-    self.bar_dirty = true;
+    self.input_dirty = true;
     self.wake();
   }
 
@@ -68,10 +68,10 @@ impl App {
     let (h, res) = (self.chat_area().h, &mut self.res);
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     match t.view.search_step(dir, res, h) {
-      Some((at, of)) => self.status = format!("{at}/{of}"),
-      None => self.status = "no match".into(),
+      Some((at, of)) => self.find_note = format!("{at}/{of}"),
+      None => self.find_note = "no match".into(),
     }
-    self.bar_dirty = true;
+    self.input_dirty = true;
     self.wake();
   }
 
