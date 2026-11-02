@@ -1,5 +1,5 @@
 // user prefs, persisted as `settings` (key=value lines). vi + auto_hide default off: a plain chat box
-use crate::model::schema::{self, Ctl};
+use crate::model::schema;
 use crate::model::tabs::Kind;
 use crate::store;
 
@@ -155,14 +155,6 @@ pub enum Local {
   Keys,
 }
 
-// every command this file answers, for tab completion
-pub fn commands() -> Vec<&'static str> {
-  let mut v: Vec<&'static str> =
-    schema::DEFS.iter().filter(|d| matches!(d.ctl, Ctl::Pill(..) | Ctl::Zoom)).filter_map(|d| d.cmd).collect();
-  v.extend(["/hide", "/show", "/settings", "/keys"]);
-  v
-}
-
 pub fn local_cmd(text: &str) -> Option<Local> {
   let low = text.trim().to_ascii_lowercase();
   if let Some(rest) = low.strip_prefix("/zoom")
@@ -194,6 +186,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::model::schema::Ctl;
 
   #[test]
   fn defaults() {
@@ -301,6 +294,5 @@ mod tests {
         assert_eq!(local_cmd(c), Some(Local::Toggle(d.id)));
       }
     }
-    assert!(commands().contains(&"/vi") && commands().contains(&"/keys") && !commands().contains(&"/hideword"));
   }
 }

@@ -126,8 +126,6 @@ pub fn command(text: &str) -> Option<Cmd> {
   })
 }
 
-pub const COMMANDS: [&str; 5] = ["/ban", "/timeout", "/unban", "/delete", "/purge"];
-
 #[cfg(test)]
 mod tests {
   use super::*;

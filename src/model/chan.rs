@@ -6,9 +6,6 @@ use crate::model::line::Line;
 pub const RESERVED: [&str; 10] =
   ["feed", "discover", "whispers", "mentions", "pinned", "modlog", "live", "add", "settings", "flood"];
 
-// typed commands that manage tabs (for completion)
-pub const COMMANDS: [&str; 2] = ["/join", "/part"];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Err {
   Empty,

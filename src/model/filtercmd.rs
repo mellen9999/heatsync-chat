@@ -32,21 +32,6 @@ pub enum Cmd {
   Usage(&'static str),
 }
 
-pub const COMMANDS: [&str; 12] = [
-  "/mute",
-  "/unmute",
-  "/block",
-  "/unblock",
-  "/hide",
-  "/unhide",
-  "/hideword",
-  "/unhideword",
-  "/highlight",
-  "/unhighlight",
-  "/mutes",
-  "/blocks",
-];
-
 // the longest mute we accept, in seconds: a year
 const MAX_SPAN: u64 = 365 * 86400;
 

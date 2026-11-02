@@ -31,6 +31,7 @@ mod pin;
 mod pop;
 mod screen;
 mod stream;
+mod suggest;
 mod tabs;
 mod tip;
 mod unseen;
@@ -52,6 +53,7 @@ use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
 use crate::model::settings::{Local, Settings, local_cmd};
 use crate::model::stream_events::Moments;
+use crate::model::suggest::Suggest;
 use crate::model::tabs::Kind;
 use crate::model::vi::{Action, Mode, Vi};
 use crate::model::whisper::{self, Timeline};
@@ -127,6 +129,10 @@ pub struct App {
   tip_next: Option<Instant>,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
+  // the open `:` `@` `/` list, the text and cursor it was made for, its rows on screen (index, rect)
+  suggest: Option<Suggest>,
+  suggest_at: (Box<str>, usize),
+  suggest_rows: Vec<(usize, Rect)>,
   // an animated emote in the message box changes frame
   input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
@@ -289,6 +295,9 @@ impl App {
       tip_next: None,
       input_next: None,
       over_input: false,
+      suggest: None,
+      suggest_at: ("".into(), 0),
+      suggest_rows: Vec::new(),
       peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
@@ -801,6 +810,7 @@ impl App {
       self.input_dirty = true;
     }
     if std::mem::take(&mut self.input_dirty) {
+      self.sync_suggest();
       let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Chat);
       let hint = match &self.prompt {
@@ -1033,6 +1043,10 @@ impl App {
     if self.global_key(key.clone()) {
       return;
     }
+    self.sync_suggest();
+    if self.suggest_key(&key) {
+      return;
+    }
     if key == Key::Named(NamedKey::Tab) {
       return self.tab_complete(self.mods.shift_key());
     }
@@ -1258,6 +1272,9 @@ impl App {
     let (x, y) = self.pointer;
     if self.bar().contains(x, y) {
       return self.bar_click();
+    }
+    if self.suggest_click() {
+      return;
     }
     if self.pin_click() {
       return;
@@ -2069,6 +2086,70 @@ mod live {
       app.key_insert(Key::Named(NamedKey::Backspace), None);
       assert_eq!(app.line.text, want);
     }
+  }
+
+  // `:ka` lists emotes, `@` people, a lone `/b` commands; arrows move, enter picks into the tab cycle,
+  // esc shuts the list until the text moves (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_suggest -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_suggest() {
+    use crate::emotes::{Emote, Provider};
+    use crate::model::suggest::Kind as S;
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), true);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    let e = |url: &str| Emote { url: url.into(), w: 28, h: 28, zero_width: false };
+    let set = [
+      ("Kappa".into(), e("https://cdn.7tv.app/emote/a/1x.webp")),
+      ("KappaPride".into(), e("https://cdn.7tv.app/emote/b/1x.webp")),
+    ];
+    app.res.emotes.set(None, Provider::SevenTv, set.into());
+    let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+    m.kind = crate::model::message::Kind::Chat;
+    (m.id, m.login, m.nick, m.color, m.body) = ("1".into(), "alice".into(), "alice".into(), 0x00ff00, "yo".into());
+    app.on_net(NetEvent::Chat(FLOOD_TAB.into(), Chat::Msg(m)));
+    let key = |app: &mut App, k: NamedKey| app.key_insert(Key::Named(k), None);
+    let open = |app: &mut App| {
+      app.input_dirty = true;
+      app.redraw();
+      app.suggest.as_ref().map(|s| (s.kind, s.items.iter().map(|p| p.name.to_string()).collect::<Vec<_>>()))
+    };
+    app.line.insert("so :ka");
+    assert_eq!(open(&mut app), Some((S::Emote, vec!["Kappa".into(), "KappaPride".into()])));
+    assert!(app.over_input && !app.suggest_rows.is_empty(), "the list is on screen");
+    key(&mut app, NamedKey::ArrowDown);
+    key(&mut app, NamedKey::Enter);
+    assert_eq!(app.line.text, "so KappaPride ");
+    assert_eq!(app.line.chip_ranges(), vec![3..13]);
+    // the list carries on as the tab cycle
+    key(&mut app, NamedKey::Tab);
+    assert_eq!(app.line.text, "so Kappa ");
+    assert_eq!(app.line.chip_ranges(), vec![3..8]);
+    app.line.take();
+    app.complete = None;
+    app.line.insert("hi @al");
+    assert_eq!(open(&mut app).map(|o| o.0), Some(S::People));
+    key(&mut app, NamedKey::Tab);
+    assert_eq!(app.line.text, "hi @alice ");
+    app.line.take();
+    app.complete = None;
+    app.line.insert("/ba");
+    let cmds = open(&mut app).expect("a lone /word lists commands");
+    assert!(cmds.0 == S::Command && cmds.1.contains(&"/ban".to_string()));
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+    key(&mut app, NamedKey::Escape);
+    assert_eq!(open(&mut app), None, "esc shuts it");
+    assert_eq!(app.line.text, "/ba");
+    app.line.insert("n");
+    assert!(open(&mut app).is_some(), "typing opens it again");
   }
 
   // a stream line turns an unwatched tab yellow, and right-click clears a red, cyan or yellow tab

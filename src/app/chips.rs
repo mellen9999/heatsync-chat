@@ -35,6 +35,11 @@ impl App {
     self.frecency.record(name, now_ms());
   }
 
+  // the picture an emote name shows in the box
+  pub(super) fn box_url(&self, word: &str) -> Option<Box<str>> {
+    self.box_emote(word).map(|f| f.0)
+  }
+
   // the line's chip words as boxes; an overlay right after an emote stacks onto it
   pub(super) fn input_chips(&mut self) -> Vec<Chip> {
     let h = self.res.images.px(EMOTE_PX);

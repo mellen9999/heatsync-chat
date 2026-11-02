@@ -2,11 +2,8 @@
 // cursor, the next ones cycle them in place, and a tooltip over the box names the shown one
 use super::App;
 use crate::emotes::Provider;
-use crate::model::chan;
 use crate::model::complete::{Cand, Complete, MIN_WORD, Pick, commands, emotes, people};
-use crate::model::settings;
-use crate::ui::canvas::Rect;
-use crate::ui::suggest;
+use crate::model::slash;
 use crate::util::time::now_ms;
 
 // people who spoke in this tab lately lead a bare word (ext RECENCY_WINDOW_MS / RECENCY_MAX)
@@ -34,17 +31,11 @@ impl App {
     self.tabs.iter().flat_map(|t| t.view.chatters()).filter(|n| seen.insert(n.to_lowercase())).collect()
   }
 
-  fn candidates(&self, word: &str, slash: bool) -> Vec<Pick> {
+  pub(super) fn candidates(&self, word: &str, slash: bool) -> Vec<Pick> {
     let tab = self.tabs.get(self.active);
     let chat = |n: Box<str>| Pick { name: n, what: "chatter", emote: false };
     if slash {
-      let groups = [
-        settings::commands(),
-        chan::COMMANDS.to_vec(),
-        crate::model::modcmd::COMMANDS.to_vec(),
-        crate::model::filtercmd::COMMANDS.to_vec(),
-      ];
-      return commands(word, groups);
+      return commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
     }
     let recent = tab.map_or_else(Vec::new, |t| t.view.recent_chatters(now_ms() - RECENT_MS, RECENT_MAX));
     if let Some(q) = word.strip_prefix('@') {
@@ -76,14 +67,6 @@ impl App {
     out
   }
 
-  // the cycle's tooltip over the box; remembers that it covered the chat
-  pub(super) fn draw_over_input(&mut self) -> Option<Rect> {
-    let s = self.complete.as_ref().and_then(Complete::tip).filter(|_| self.input_h > 0);
-    self.over_input = s.is_some();
-    let (s, input) = (s?, self.input_area());
-    Some(suggest::tip(&mut self.canvas, &mut self.res.text, input, &s))
-  }
-
   pub(super) fn tab_complete(&mut self, back: bool) {
     if self.complete.is_none() {
       let r = self.line.word_around();
@@ -109,13 +92,19 @@ impl App {
       (i, false) => (i + 1) % n,
       (i, true) => (i + n - 1) % n,
     };
-    let pick = c.matches[c.at].name.clone();
+    self.show_pick();
+  }
+
+  // put the cycle's current candidate in the box, followed by one space to keep typing (kept, not
+  // doubled, while cycling). an emote shows as its picture; the one it replaces stops showing
+  pub(super) fn show_pick(&mut self) {
+    let Some(c) = &mut self.complete else { return };
+    let Some(pick) = c.matches.get(c.at).map(|m| m.name.clone()) else { return };
     if let Some(old) = c.chipped.take() {
       self.line.chips.remove(&old);
     }
     self.line.replace(c.start..c.end, &pick);
     c.end = c.start + pick.len();
-    // the pick is followed by one space to keep typing (kept, not doubled, while cycling)
     if !self.line.text[c.end..].starts_with(' ') {
       self.line.insert(" ");
     } else {
