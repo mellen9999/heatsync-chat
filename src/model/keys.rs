@@ -1,12 +1,12 @@
 // every key the app answers, in plain words, grouped for the `?` screen. the handlers live in
-// app.rs (global_key, key_insert, key_normal, pick_key, leader_key), app/picker.rs and the menus; when a binding
+// app.rs (global_key, key_insert, key_normal, pick_key, leader_key), app/picker.rs, app/img_view.rs and the menus; when a binding
 // changes there, change its row here. a test keeps this list well-formed
 pub struct Group {
   pub name: &'static str,
   pub rows: &'static [(&'static str, &'static str)],
 }
 
-pub static KEYS: [Group; 9] = [
+pub static KEYS: [Group; 10] = [
   Group {
     name: "anywhere",
     rows: &[
@@ -116,6 +116,15 @@ pub static KEYS: [Group; 9] = [
       ("/ban /timeout /unban", "by name"),
       ("/delete /purge", "this line, a person's lines"),
       ("/confirmban", "ask before a ban"),
+    ],
+  },
+  Group {
+    name: "picture",
+    rows: &[
+      ("click", "a picture in chat fills the pane"),
+      ("+ - 0", "zoom in, out, fit"),
+      ("h j k l  arrows  wheel", "move around it"),
+      ("esc q  click  ← back", "close it"),
     ],
   },
   Group {

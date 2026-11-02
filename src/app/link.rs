@@ -54,8 +54,9 @@ impl App {
     }
   }
 
-  // a hand over a link, the plain arrow everywhere else (only when it changes)
-  pub(super) fn link_hover(&mut self) {
+  // the pointer's look (only set when it changes): a magnifier with a minus over the open picture, one
+  // with a plus over a picture in chat (ext zoom-out / zoom-in), a hand over a link, else the arrow
+  pub(super) fn cursor_sync(&mut self) {
     let free = self.form.is_none()
       && self.screen.is_none()
       && self.pop.is_none()
@@ -63,12 +64,28 @@ impl App {
       && self.tab_menu.is_none()
       && self.menu.is_none()
       && self.picker.is_none();
-    let over = free && self.link_under_pointer().is_some();
-    if over != self.link_hand {
-      self.link_hand = over;
+    let (x, y) = self.pointer;
+    let in_chat = self.chat_area().contains(x, y);
+    let icon = if self.img_view.is_some() && in_chat {
+      CursorIcon::ZoomOut
+    } else if free && in_chat && self.pic_under_pointer() {
+      CursorIcon::ZoomIn
+    } else if free && self.link_under_pointer().is_some() {
+      CursorIcon::Pointer
+    } else {
+      CursorIcon::Default
+    };
+    if icon != self.cursor {
+      self.cursor = icon;
       if let Some(g) = &self.gfx {
-        g.window.set_cursor(Cursor::Icon(if over { CursorIcon::Pointer } else { CursorIcon::Default }));
+        g.window.set_cursor(Cursor::Icon(icon));
       }
     }
+  }
+
+  fn pic_under_pointer(&mut self) -> bool {
+    let ((x, y), chat) = (self.pointer, self.chat_area());
+    let res = &mut self.res;
+    self.tabs.get_mut(self.active).is_some_and(|t| t.view.pic_at(chat, x, y, res).is_some())
   }
 }

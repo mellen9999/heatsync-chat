@@ -393,7 +393,8 @@ impl App {
       Some(p) if p == self.bar_map.len() => self.open_form(None),
       Some(p) if p == self.bar_map.len() + 1 => self.open_screen(super::screen::Page::Settings),
       Some(p) if p == self.bar_map.len() + 2 => self.update_press(),
-      // the `← back` tab: a click goes back
+      // the `← back` tab: a click goes back (the picture first, then a thread)
+      Some(p) if self.bar_map[p] == self.active && self.img_view.is_some() => self.img_close(),
       Some(p) if self.bar_map[p] == self.active && self.tabs[self.active].under.is_some() => {
         self.takeover_close();
       }

@@ -22,6 +22,7 @@ mod emote;
 mod feed;
 mod filters;
 mod find;
+mod img_view;
 mod link;
 mod media_peek;
 mod mentions;
@@ -195,7 +196,10 @@ pub struct App {
   form: Option<Form>,
   form_hover: Option<Hit>,
   // the pointer is a hand: it sits on a link
-  link_hand: bool,
+  // the pointer's look: a hand over a link, a magnifier over a picture or the open view
+  cursor: winit::window::CursorIcon,
+  // a picture filling the chat area
+  img_view: Option<img_view::ImgView>,
   tab_menu: Option<tabs::TabMenu>,
   // the floating menu for login and line actions
   pop: Option<pop::Pop>,
@@ -354,7 +358,8 @@ impl App {
       menu: None,
       form: None,
       form_hover: None,
-      link_hand: false,
+      cursor: winit::window::CursorIcon::Default,
+      img_view: None,
       tab_menu: None,
       pop: None,
       card: None,
@@ -706,6 +711,7 @@ impl App {
 
   fn select(&mut self, i: usize) {
     if i < self.tabs.len() && i != self.active {
+      self.img_close();
       self.find_clear();
       self.hide_tip();
       self.active = i;
@@ -918,7 +924,8 @@ impl App {
         None if show_hint => self.hint(),
         None => String::new(),
       };
-      let hidden = self.hidden();
+      // the picture view is no place to type (ext): the box steps aside
+      let hidden = self.hidden() || self.img_view.is_some();
       let tag = match &self.prompt {
         Some(_) if self.finding => Some(("find: ", crate::ui::theme::YELLOW)),
         Some(_) => Some(("path: ", crate::ui::theme::YELLOW)),
@@ -987,7 +994,7 @@ impl App {
             _ => crate::ui::theme::WHITE,
           };
           // a tab something took over reads `← back` while you look at it (ext takeover.js)
-          let back = t.under.is_some() && i == self.active;
+          let back = (t.under.is_some() || self.img_view.is_some()) && i == self.active;
           let name = if back { "← back" } else { &t.name };
           TabLabel { name, active: i == self.active, unread: !back && (t.unread || t.event), hot }
         })
@@ -1020,6 +1027,10 @@ impl App {
     } else if self.screen.is_some() {
       self.next_anim = None;
       if let Some(r) = self.draw_screen() {
+        dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      }
+    } else if self.img_view.is_some() {
+      if let Some(r) = self.draw_img_view() {
         dirty = Some(dirty.map_or(r, |d| union(d, r)));
       }
     } else if self.picker.is_some() {
@@ -1425,6 +1436,10 @@ impl App {
     if self.bar().contains(x, y) {
       return self.bar_click();
     }
+    if self.img_view.is_some() {
+      // the picture is its own way out
+      return self.img_close();
+    }
     if self.suggest_click() {
       return;
     }
@@ -1455,6 +1470,7 @@ impl App {
       return;
     }
     if self.vote_press()
+      || self.img_press()
       || self.reveal_press()
       || self.thread_press()
       || self.link_press()
@@ -1654,7 +1670,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.form_hover_move();
         self.bar_hover();
         self.picker_hover();
-        self.link_hover();
+        self.cursor_sync();
         self.tip_hover();
         let (over, up) = (self.over_button(), self.over_upload());
         if over != self.btn_hover || up != self.up_hover {
@@ -1684,6 +1700,8 @@ impl ApplicationHandler<NetEvent> for App {
         }
         if self.screen.is_some() {
           self.screen_wheel(px);
+        } else if self.img_view.is_some() {
+          self.img_wheel(px);
         } else if self.picker.is_some() {
           self.picker_wheel(px);
         } else {
@@ -1710,6 +1728,9 @@ impl ApplicationHandler<NetEvent> for App {
         }
         if self.screen.is_some() {
           return self.screen_key(k, t);
+        }
+        if self.img_view.is_some() {
+          return self.img_key(k);
         }
         if self.mods.control_key() && k == Key::Character(";") {
           return self.toggle_picker();
@@ -2686,6 +2707,94 @@ mod live {
     app.select(forsen);
     app.redraw();
     crate::bench::dump(&app.canvas);
+  }
+
+  // a picture in chat: the magnifier over it, a click fills the pane, + zooms, esc goes back.
+  // HSC_DUMP=$d/x.ppm (the open view) ... cargo test -j2 --release headless_img_view -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_img_view() {
+    use crate::images::decode::{Decoded, Frame};
+    use winit::window::CursorIcon;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(640, 400);
+    app.relayout_body();
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let mut m = Message::system(0, Platform::Twitch, "look https://heatsync.org/uploads/cat.png");
+    m.kind = crate::model::message::Kind::Chat;
+    m.nick = "bob".into();
+    m.login = "bob".into();
+    app.on_chat("forsen", Chat::Msg(m));
+    // every picture asked for lands as a 400x300 blue block
+    let land = |app: &mut App, asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      for _ in 0..3 {
+        app.redraw();
+        let wanted: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+          .filter_map(|c| if let Cmd::Image(id, _, target) = c { Some((id, target)) } else { None })
+          .collect();
+        if wanted.is_empty() {
+          break;
+        }
+        for (id, target) in wanted {
+          let rgba = [0, 0, 255, 255].repeat(400 * 300).into();
+          app.res.images.loaded(id, target, Ok(Decoded { w: 400, h: 300, frames: vec![Frame { rgba, delay_ms: 0 }] }));
+        }
+        for t in &mut app.tabs {
+          t.view.relayout();
+        }
+      }
+    };
+    land(&mut app, &mut asked);
+    let find = |app: &mut App| {
+      let area = app.chat_area();
+      (area.y..area.bottom())
+        .step_by(4)
+        .find_map(|y| {
+          (area.x..area.right())
+            .step_by(4)
+            .find(|&x| {
+              let res = &mut app.res;
+              app.tabs[chat].view.pic_at(area, x, y, res).is_some()
+            })
+            .map(|x| (x, y))
+        })
+        .expect("the picture is under the pointer somewhere")
+    };
+    let at = find(&mut app);
+    app.pointer = at;
+    app.cursor_sync();
+    assert_eq!(app.cursor, CursorIcon::ZoomIn, "a magnifier over a picture");
+    app.click();
+    assert!(app.img_view.is_some(), "a click opens it");
+    land(&mut app, &mut asked);
+    app.bar_dirty = true;
+    app.redraw();
+    assert_eq!(app.input_h, 0, "no input bar under the picture");
+    let blue = |app: &App| app.canvas.px.iter().filter(|&&p| p == 0x0000ff).count();
+    assert!(blue(&app) >= 390 * 290, "the picture at its own size");
+    app.cursor_sync();
+    assert_eq!(app.cursor, CursorIcon::ZoomOut);
+    let p = app.bar_map.iter().position(|&i| i == chat).unwrap();
+    let r = app.bar_hits[p];
+    crate::bench::dump(&app.canvas);
+    app.img_key(Key::Character("+"));
+    app.redraw();
+    assert!(blue(&app) > 400 * 300, "+ makes it bigger");
+    app.img_key(Key::Character("0"));
+    app.img_key(Key::Named(NamedKey::Escape));
+    assert!(app.img_view.is_none(), "esc closes it");
+    // ← back closes it too
+    app.redraw();
+    app.pointer = find(&mut app);
+    app.click();
+    assert!(app.img_view.is_some());
+    app.pointer = (r.x + 2, r.y + 2);
+    app.click();
+    assert!(app.img_view.is_none() && app.active == chat, "← back closes it, the tab stays");
   }
 
   // feed media, offline: a held post's box and show, the withheld files fetched, a picture under a reply,

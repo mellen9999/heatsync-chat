@@ -121,6 +121,11 @@ impl Images {
     id
   }
 
+  // where a picture comes from
+  pub fn url(&self, id: ImgId) -> Option<&str> {
+    self.slots.get(id as usize).map(|s| &*s.url)
+  }
+
   // drop the decoded frames of one picture now (a popup that closed); it reloads from disk if asked again
   pub fn release(&mut self, id: ImgId) {
     if let Some(s) = self.slots.get_mut(id as usize)
