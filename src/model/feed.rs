@@ -1,6 +1,6 @@
 // the feed tab's state (ext social.js feedMessages / activeThread): newest-first posts, one open thread,
 // and the rows they become. pure, so the rules (cap, dedupe, live replies, votes) are tested without a window
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::message::{Message, Platform};
 use super::post::{self, Post, Reveal};
@@ -12,6 +12,8 @@ pub const CAP: usize = 150;
 pub const STALE_MS: i64 = 120_000;
 
 pub const MORE_ID: &str = "more";
+// posts shown as lines in the chat tabs, kept so their >>id, tag and peek still resolve
+const INLINE: usize = 200;
 
 pub struct Thread {
   pub id: Box<str>,
@@ -39,6 +41,8 @@ pub struct Feed {
   voting: HashSet<Box<str>>,
   // held media the viewer asked to see, this session only (ext: never persisted)
   reveal: HashMap<Box<str>, Reveal>,
+  // posts put into the chat tabs, newest last
+  inline: VecDeque<Post>,
 }
 
 impl Feed {
@@ -74,7 +78,7 @@ impl Feed {
   }
 
   fn each_copy(&mut self, id: &str, mut f: impl FnMut(&mut Post)) {
-    self.posts.iter_mut().filter(|p| &*p.id == id).for_each(&mut f);
+    self.posts.iter_mut().chain(self.inline.iter_mut()).filter(|p| &*p.id == id).for_each(&mut f);
     if let Some(t) = &mut self.thread {
       t.op.iter_mut().chain(t.replies.iter_mut()).filter(|p| &*p.id == id).for_each(&mut f);
     }
@@ -82,7 +86,21 @@ impl Feed {
 
   pub fn find(&self, id: &str) -> Option<&Post> {
     let t = self.thread.as_ref();
-    t.into_iter().flat_map(|t| t.op.iter().chain(t.replies.iter())).chain(self.posts.iter()).find(|p| &*p.id == id)
+    let open = t.into_iter().flat_map(|t| t.op.iter().chain(t.replies.iter()));
+    open.chain(self.posts.iter()).chain(self.inline.iter().rev()).find(|p| &*p.id == id)
+  }
+
+  // a post the chat tabs should show: true the first time it is heard (the server and your own send
+  // can both report it)
+  pub fn heard(&mut self, p: &Post) -> bool {
+    if self.inline.iter().any(|x| x.id == p.id) {
+      return false;
+    }
+    if self.inline.len() >= INLINE {
+      self.inline.pop_front();
+    }
+    self.inline.push_back(p.clone());
+    true
   }
 
   // a post pushed by the server (or your own just posted). true = the visible rows changed
@@ -191,32 +209,35 @@ impl Feed {
     self.thread = None;
   }
 
-  // everything the tab shows, top to bottom
+  // the open thread's rows: the OP, then its replies, media drawn under the words
+  pub fn thread_rows(&self, me: Option<&str>, signed_in: bool) -> Vec<Message> {
+    let Some(t) = &self.thread else { return Vec::new() };
+    let line = |t: &str| Message::system(0, Platform::Twitch, t);
+    let msg = |p: &Post| {
+      let mut m = post::message(p, me, signed_in);
+      if let Some(x) = &mut m.x {
+        x.pic = post::pic(p, true, self.reveal(&p.id)).map(Box::new);
+      }
+      m
+    };
+    let mut out: Vec<Message> = t.op.iter().map(msg).collect();
+    if t.loading {
+      out.push(line("loading..."));
+    } else if t.error {
+      out.push(line("thread unavailable — post may have been removed"));
+    } else if t.replies.is_empty() {
+      out.push(line("no replies yet"));
+    } else {
+      out.extend(t.replies.iter().map(msg));
+    }
+    out
+  }
+
+  // the list, newest first
   pub fn rows(&self, me: Option<&str>, signed_in: bool) -> Vec<Message> {
     let line = |t: &str| Message::system(0, Platform::Twitch, t);
     let msg = |p: &Post| post::message(p, me, signed_in);
     let mut out = Vec::new();
-    if let Some(t) = &self.thread {
-      // an open thread draws its media under the words
-      let msg = |p: &Post| {
-        let mut m = msg(p);
-        if let Some(x) = &mut m.x {
-          x.pic = post::pic(p, true, self.reveal(&p.id)).map(Box::new);
-        }
-        m
-      };
-      out.extend(t.op.iter().map(msg));
-      if t.loading {
-        out.push(line("loading..."));
-      } else if t.error {
-        out.push(line("thread unavailable — post may have been removed"));
-      } else if t.replies.is_empty() {
-        out.push(line("no replies yet"));
-      } else {
-        out.extend(t.replies.iter().map(msg));
-      }
-      return out;
-    }
     if let Some(cold) = self.hot {
       out.push(line(match (signed_in, cold) {
         (false, _) => "hot posts · log in at heatsync.org to follow people",

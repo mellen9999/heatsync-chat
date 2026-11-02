@@ -231,8 +231,8 @@ impl App {
       let paint =
         (platform == Platform::Twitch).then(|| i.twitch_id.map(crate::cosmetics::id::PaintId::Twitch)).flatten();
       self.res.chatters.learned(platform, login, color::readable(c), paint);
-      for t in &mut self.tabs {
-        t.view.touch_person(platform, login);
+      for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
+        v.touch_person(platform, login);
       }
     }
     self.cards.put(platform, login, res);

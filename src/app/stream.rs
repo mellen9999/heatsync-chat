@@ -20,7 +20,7 @@ impl App {
   fn put_line(&mut self, tab: usize, platform: Platform, text: &str, tone: Tone) {
     let mut m = Message::system(now_ms(), platform, text);
     m.color = color(tone);
-    self.tabs[tab].view.push(m);
+    self.tabs[tab].chat().push(m);
     self.touched(tab);
   }
 

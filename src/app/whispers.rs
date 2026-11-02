@@ -21,7 +21,7 @@ impl App {
       Some(_) => "no whispers yet. /w user msg to start one, /r msg to answer the last",
     };
     if let Some(i) = self.tab_of(Kind::Whispers) {
-      self.tabs[i].view.set_empty(text);
+      self.tabs[i].chat().set_empty(text);
     }
   }
 
@@ -40,7 +40,7 @@ impl App {
     self.whispers_loaded = false;
     self.whisper_epoch = self.whisper_epoch.wrapping_add(1);
     if let Some(i) = self.tab_of(Kind::Whispers) {
-      self.tabs[i].view.clear();
+      self.tabs[i].chat().clear();
       self.tabs[i].unread = false;
     }
     self.whisper_empty();
@@ -51,7 +51,7 @@ impl App {
   fn put_row(&mut self, w: &Whisper) {
     let Some(i) = self.tab_of(Kind::Whispers) else { return };
     let m = whisper::message(w);
-    let v = &mut self.tabs[i].view;
+    let v = self.tabs[i].chat();
     if !v.replace(&m.id.clone(), m.clone()) {
       v.push(m);
     }
@@ -69,12 +69,12 @@ impl App {
     if live {
       let rows: Vec<_> = self.whispers.iter().rev().take(1).map(whisper::message).collect();
       for m in rows {
-        self.tabs[i].view.push(m);
+        self.tabs[i].chat().push(m);
       }
     } else {
       // history lands in time order among whatever is already here
       let rows: Vec<_> = self.whispers.iter().map(whisper::message).collect();
-      let v = &mut self.tabs[i].view;
+      let v = self.tabs[i].chat();
       v.clear();
       for m in rows {
         v.push(m);
@@ -176,7 +176,7 @@ impl App {
     if let Some(i) = self.tab_of(Kind::Whispers)
       && i == self.active
     {
-      self.tabs[i].view.scroll_to_bottom();
+      self.tabs[i].chat().scroll_to_bottom();
     }
     self.input_dirty = true;
     self.wake();

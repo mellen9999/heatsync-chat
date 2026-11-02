@@ -27,7 +27,7 @@ impl App {
   // every channel tab judges its lines again
   pub(super) fn refilter_all(&mut self) {
     for t in self.tabs.iter_mut().filter(|t| t.kind == Kind::Chat) {
-      t.view.refilter();
+      t.views().for_each(|v| v.refilter());
     }
     self.wake();
   }

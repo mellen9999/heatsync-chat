@@ -75,7 +75,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
   let mut view = ChatView::new(SCROLLBACK, first);
   view.tags = tags(&sources);
   view.filtered = true;
-  Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, event: false, sources, target: 0 }
+  Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, event: false, sources, target: 0, under: None }
 }
 
 // source tags show on merged tabs and on anything not plain twitch
@@ -193,14 +193,15 @@ impl App {
     let first = new.first().map_or(Box::from(""), |s| s.1.clone());
     t.name = spec.name().into();
     t.target = 0;
-    if t.view.channel != first {
-      t.view = ChatView::new(SCROLLBACK, first);
-      t.view.filtered = true;
-      t.view.resize(self.canvas.w);
+    let v = t.chat();
+    if v.channel != first {
+      *v = ChatView::new(SCROLLBACK, first);
+      v.filtered = true;
+      v.resize(self.canvas.w);
     }
-    t.view.tags = tags(&new);
-    t.view.relayout();
-    t.view.invalidate();
+    v.tags = tags(&new);
+    v.relayout();
+    v.invalidate();
     for (p, key) in old {
       if !new.iter().any(|s| s.0 == p && s.1 == key) {
         self.leave(p, key);
@@ -376,6 +377,10 @@ impl App {
     match self.tab_at(self.pointer.0, self.pointer.1) {
       Some(p) if p == self.bar_map.len() => self.open_form(None),
       Some(p) if p == self.bar_map.len() + 1 => self.open_screen(super::screen::Page::Settings),
+      // the `← back` tab: a click goes back
+      Some(p) if self.bar_map[p] == self.active && self.tabs[self.active].under.is_some() => {
+        self.takeover_close();
+      }
       Some(p) => self.select(self.bar_map[p]),
       None => {}
     }

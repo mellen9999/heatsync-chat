@@ -127,9 +127,9 @@ impl App {
       Fx::None => {}
       Fx::Vi => self.mode = Mode::Insert,
       Fx::Glow => {
-        for t in &mut self.tabs {
-          t.view.glow = self.set.first_glow;
-          t.view.invalidate();
+        for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
+          v.glow = self.set.first_glow;
+          v.invalidate();
         }
       }
       Fx::Paints => {

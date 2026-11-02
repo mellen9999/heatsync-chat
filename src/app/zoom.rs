@@ -33,10 +33,10 @@ impl App {
   pub(super) fn apply_scale(&mut self) {
     self.res.set_scale(self.scale());
     let w = self.canvas.w;
-    for t in &mut self.tabs {
-      t.view.relayout();
-      t.view.resize(w);
-      t.view.invalidate();
+    for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
+      v.relayout();
+      v.resize(w);
+      v.invalidate();
     }
     self.damage_hist = [None; 2];
     self.bar_dirty = true;

@@ -49,7 +49,7 @@ pub static KEYS: [Group; 9] = [
       ("ctrl-c", "copy the line"),
       ("enter", "open it (mentions, feed)"),
       ("u", "upvote (feed)"),
-      ("h", "back out of a thread (feed)"),
+      ("h", "back out of a thread, like the ← back tab"),
       ("v esc", "let go"),
     ],
   },

@@ -3,11 +3,16 @@
 // logged out it still reads: the hot posts, with the nudge to log in
 use super::App;
 use crate::model::feed::{Feed, MORE_ID};
-use crate::model::post::Post;
+use crate::model::post::{self, Post};
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
 use crate::net::social::{self, Page};
+use crate::ui::chat_view::ChatView;
+use crate::ui::theme;
 use crate::util::time::now_ms;
+
+// a thread's rows at most (the OP and its replies)
+const THREAD_ROWS: usize = 1000;
 
 const LOGIN_FIRST: &str = "log in at heatsync.org first";
 const TRY_AGAIN: &str = "that didn’t work — try again";
@@ -21,23 +26,38 @@ impl App {
     self.me.as_ref().map(|m| m.username.clone())
   }
 
-  // redraw the tab from the state, keeping scroll and selection
+  // the tab a thread has taken over (the one it was opened from), if one is open
+  pub(super) fn thread_tab(&self) -> Option<usize> {
+    self.tabs.iter().position(|t| t.under.is_some())
+  }
+
+  // the active tab reads the feed: the feed tab, or any tab a thread has taken over
+  pub(super) fn feedish(&self) -> bool {
+    self.kind() == Kind::Feed || self.tabs.get(self.active).is_some_and(|t| t.under.is_some())
+  }
+
+  // redraw the list and the open thread from the state, keeping scroll and selection
   pub(super) fn feed_show(&mut self) {
-    let Some(i) = self.feed_tab() else { return };
     let me = self.my_name();
-    let rows = self.feed.rows(me.as_deref(), self.me.is_some());
-    let none = rows.is_empty();
-    let v = &mut self.tabs[i].view;
-    v.set_empty(self.feed.empty_text());
-    if none {
-      v.clear();
-    } else {
-      v.reload(rows);
+    let signed_in = self.me.is_some();
+    if let Some(i) = self.feed_tab() {
+      let rows = self.feed.rows(me.as_deref(), signed_in);
+      let v = self.tabs[i].chat();
+      v.set_empty(self.feed.empty_text());
+      if rows.is_empty() {
+        v.clear();
+      } else {
+        v.reload(rows);
+      }
     }
-    if i == self.active {
+    if let Some(i) = self.thread_tab() {
+      let rows = self.feed.thread_rows(me.as_deref(), signed_in);
+      self.tabs[i].view.reload(rows);
+    }
+    if self.feedish() || self.kind() == Kind::Feed {
       self.input_dirty = true;
-      self.wake();
     }
+    self.wake();
   }
 
   fn feed_load(&mut self, page: u32) {
@@ -57,6 +77,7 @@ impl App {
 
   // a different login reads a different (following) feed
   pub(super) fn feed_reset(&mut self) {
+    self.takeover_close();
     self.feed = Feed::default();
     self.feed_show();
     if self.kind() == Kind::Feed {
@@ -74,7 +95,34 @@ impl App {
     self.feed_show();
   }
 
+  // a feed post as a line in every chat tab (ext injectInlineNotif): the >>id opens its thread right
+  // there. `force` = your own post, shown whatever the switches say (a receipt, not news)
+  fn feed_inline(&mut self, p: &Post, force: bool) {
+    let (on, edge) = if p.thread_op {
+      (self.set.inline_mop, theme::MAGENTA)
+    } else if p.is_op {
+      (self.set.inline_op, theme::RED)
+    } else {
+      (self.set.inline_re, theme::CYAN)
+    };
+    if p.anon || !(on || force) || !self.feed.heard(p) {
+      return;
+    }
+    let mut m = post::message(p, self.my_name().as_deref(), false);
+    if let Some(x) = &mut m.x {
+      x.edge = edge;
+    }
+    for i in 0..self.tabs.len() {
+      if self.tabs[i].kind == Kind::Chat && !self.tabs[i].sources.is_empty() {
+        self.tabs[i].chat().push(m.clone());
+      }
+    }
+    // news about the feed, not about the channel: no tab turns unread over it
+    self.wake();
+  }
+
   pub(super) fn on_feed_live(&mut self, p: Post) {
+    self.feed_inline(&p, false);
     let mine = self.my_name().is_some_and(|n| n.eq_ignore_ascii_case(&p.user));
     let top = p.is_op;
     if !self.feed.live(p) {
@@ -92,7 +140,7 @@ impl App {
     }
     self.feed_show();
     let Some(focus) = self.feed.thread.as_mut().and_then(|t| t.focus.take()) else { return };
-    let (Some(i), h) = (self.feed_tab(), self.chat_area().h) else { return };
+    let (Some(i), h) = (self.thread_tab(), self.chat_area().h) else { return };
     let res = &mut self.res;
     self.tabs[i].view.select_id(&focus, res, h);
     self.wake();
@@ -115,6 +163,7 @@ impl App {
     match res {
       Ok(p) => {
         self.say("posted to feed");
+        self.feed_inline(&p, true);
         self.feed.live(p);
         self.feed_show();
       }
@@ -140,14 +189,30 @@ impl App {
   }
 
   fn selected_post_id(&self) -> Option<Box<str>> {
-    let t = self.tabs.get(self.active).filter(|t| t.kind == Kind::Feed)?;
+    let t = self.tabs.get(self.active).filter(|_| self.feedish())?;
     let id = t.view.selected()?.id.clone();
     (!id.is_empty()).then_some(id)
   }
 
-  // a reply opens its parent's thread, picked out once it lands (ext openThread's highlightId)
-  fn feed_open(&mut self, id: &str) {
+  // a reply opens its parent's thread, picked out once it lands (ext openThread's highlightId). it
+  // takes over the tab it was opened from, which reads `← back` until it closes
+  pub(super) fn feed_open(&mut self, id: &str) {
     let root = self.feed_root(id);
+    if self.thread_tab().is_some_and(|i| i != self.active) {
+      self.takeover_close();
+    }
+    let w = self.canvas.w;
+    if let Some(t) = self.tabs.get_mut(self.active)
+      && t.under.is_none()
+    {
+      let mut v = ChatView::new(THREAD_ROWS, "".into());
+      v.glow = false;
+      v.top = true;
+      v.timestamps = false;
+      v.resize(w);
+      t.under = Some(std::mem::replace(&mut t.view, v));
+      self.bar_dirty = true;
+    }
     self.feed.open(&root, (*root != *id).then_some(id));
     self.net.send(Cmd::Social(social::Cmd::Thread { id: root }));
     self.feed_show();
@@ -156,6 +221,20 @@ impl App {
       t.view.deselect();
       t.view.scroll_to_top(res);
     }
+  }
+
+  // back out of whatever took the active tab over: its own lines return as they were left
+  pub(super) fn takeover_close(&mut self) -> bool {
+    let Some(i) = self.thread_tab() else { return false };
+    let t = &mut self.tabs[i];
+    let Some(under) = t.under.take() else { return false };
+    t.view = under;
+    t.view.invalidate();
+    self.feed.close();
+    self.bar_dirty = true;
+    self.input_dirty = true;
+    self.feed_show();
+    true
   }
 
   // enter on a row: a post opens its thread, "more" loads the next page
@@ -183,9 +262,6 @@ impl App {
   // a click on a post's own >>id opens its thread; on the open thread's own, back to the list
   // (ext toggleThread). true = the click was spent
   pub(super) fn thread_press(&mut self) -> bool {
-    if self.kind() != Kind::Feed {
-      return false;
-    }
     let (x, y) = self.pointer;
     let chat = self.chat_area();
     let res = &mut self.res;
@@ -203,7 +279,7 @@ impl App {
 
   // a click on a held post's show / hide / retry. true = the click was spent
   pub(super) fn reveal_press(&mut self) -> bool {
-    if self.kind() != Kind::Feed {
+    if !self.feedish() {
       return false;
     }
     let (x, y) = self.pointer;
@@ -221,7 +297,7 @@ impl App {
 
   // a click on a row's ▲ votes on that row. true = the click was a vote press (spent either way)
   pub(super) fn vote_press(&mut self) -> bool {
-    if self.kind() != Kind::Feed {
+    if !self.feedish() {
       return false;
     }
     let (x, y) = self.pointer;
@@ -249,18 +325,12 @@ impl App {
     self.net.send(Cmd::Social(social::Cmd::Vote { id }));
   }
 
-  // esc / h: out of the thread, back to the list. false = nothing to leave
+  // esc / h / the `← back` tab: out of the thread, back to where it was opened. false = nothing to leave
   pub(super) fn feed_back(&mut self) -> bool {
-    if self.kind() != Kind::Feed || self.feed.thread.is_none() {
+    if !self.tabs.get(self.active).is_some_and(|t| t.under.is_some()) {
       return false;
     }
-    self.feed.close();
-    self.feed_show();
-    if let Some(v) = self.view() {
-      v.deselect();
-    }
-    self.wake();
-    true
+    self.takeover_close()
   }
 
   // a typed line in the feed tab: a new post, or a reply to the open thread

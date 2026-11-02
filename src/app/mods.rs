@@ -157,7 +157,7 @@ impl App {
           Verb::Delete => Some(format!("{actor} deleted a message")),
         };
         for i in self.tabs_with(platform, &chan) {
-          let v = &mut self.tabs[i].view;
+          let v = self.tabs[i].chat();
           if platform == Platform::Kick {
             match (verb, &msg_id) {
               (Verb::Delete, Some(id)) => v.clear_msg(id),

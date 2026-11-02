@@ -33,7 +33,7 @@ impl App {
     // a copy of a line is not a new person: the first-line glow never applies here
     copy.flags &= !(flag::NEW | flag::FIRST);
     if let Some(i) = self.tab_of(Kind::Mentions) {
-      self.tabs[i].view.push(copy);
+      self.tabs[i].chat().push(copy);
       self.unseen_note(crate::model::unseen::Surface::Mentions);
     }
     if self.set.notify && !self.focused {

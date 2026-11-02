@@ -80,7 +80,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 27] = [
+pub static DEFS: [Def; 30] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -222,6 +222,39 @@ pub static DEFS: [Def; 27] = [
     tip: "line when a streamer changes the game",
     alias: "game category",
     ctl: pill!(ev_game),
+    fx: Fx::None,
+  },
+  Def {
+    id: "inline_op",
+    cmd: Some("/inlineop"),
+    cat: Cat::Notifs,
+    section: "feed in chat",
+    label: "new threads",
+    tip: "a new heatsync thread ([OP]) shows as a line in every chat tab",
+    alias: "inline op feed posts",
+    ctl: pill!(inline_op),
+    fx: Fx::None,
+  },
+  Def {
+    id: "inline_mop",
+    cmd: Some("/inlinemop"),
+    cat: Cat::Notifs,
+    section: "feed in chat",
+    label: "op replies",
+    tip: "a thread's author answering in their own thread shows in every chat tab",
+    alias: "inline op reply feed",
+    ctl: pill!(inline_mop),
+    fx: Fx::None,
+  },
+  Def {
+    id: "inline_re",
+    cmd: Some("/inlinere"),
+    cat: Cat::Notifs,
+    section: "feed in chat",
+    label: "replies",
+    tip: "a reply ([RE]) to a heatsync thread shows in every chat tab",
+    alias: "inline re feed replies",
+    ctl: pill!(inline_re),
     fx: Fx::None,
   },
   Def {

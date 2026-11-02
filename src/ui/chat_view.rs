@@ -89,6 +89,8 @@ struct Laid {
   // a feed post's media: its `[img]` tag, the held box's button, and the frames drawn around them
   media: std::ops::Range<usize>,
   reveal: std::ops::Range<usize>,
+  // `>>id` written in the words: where, and the post (server id) it names
+  refs: Vec<(std::ops::Range<usize>, Box<str>)>,
   frames: Vec<(std::ops::Range<usize>, Frame)>,
   // the post's pictures, asked for at draw time like `embed`
   pics: Vec<ImgId>,
@@ -367,6 +369,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut thread = 0..0;
   let mut media = 0..0;
   let mut reveal = 0..0;
+  let mut refs = Vec::new();
   let mut frames = Vec::new();
   let mut pics = Vec::new();
   // where the words sit in the text, for search hits
@@ -428,6 +431,10 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
     words = b0..s.len();
+    refs = post_refs(&s, b0);
+    for (r, _) in &refs {
+      spans.push(Span { range: r.clone(), ink: Ink(theme::YELLOW), bold: false });
+    }
     mentions.splice(0..0, reply);
     // people named in the words wear their color, bold, over the line's ink; a painted one is drawn
     // from its own bitmap. a deleted line stays dim
@@ -480,7 +487,42 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       names.push(PaintedName { uid: uid.clone(), nick: text, color: n.color, paint: paint.clone(), x, w, baseline });
     }
   }
-  Laid { layout, nick, vote, thread, media, reveal, frames, pics, boxes, names, mentions, embed, links, link_runs }
+  Laid {
+    layout,
+    nick,
+    vote,
+    thread,
+    media,
+    reveal,
+    refs,
+    frames,
+    pics,
+    boxes,
+    names,
+    mentions,
+    embed,
+    links,
+    link_runs,
+  }
+}
+
+// `>>4a` in the words from `from` on: a whole word, 1-6 base36 chars, read as the server's padded id
+fn post_refs(s: &str, from: usize) -> Vec<(std::ops::Range<usize>, Box<str>)> {
+  let mut out = Vec::new();
+  let mut at = from;
+  while let Some(i) = s[at..].find(">>") {
+    let a = at + i;
+    let tail = &s[a + 2..];
+    let n = tail.bytes().take_while(|b| b.is_ascii_digit() || b.is_ascii_lowercase()).count();
+    let end = a + 2 + n;
+    let starts = a == from || s[..a].ends_with([' ', '\n']);
+    let ends = s[end..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+    if starts && ends && (1..=6).contains(&n) && out.len() < 8 {
+      out.push((a..end, format!("{:0>6}", &tail[..n]).into()));
+    }
+    at = end.max(a + 2);
+  }
+  out
 }
 
 type Spots<'a> = (&'a mut std::ops::Range<usize>, &'a mut Vec<(std::ops::Range<usize>, Frame)>, &'a mut Vec<ImgId>);
@@ -1372,9 +1414,33 @@ impl ChatView {
     self.spot_at(area, (x, y), res, |l| &l.media)
   }
 
-  // the feed post whose own >>id is under (x, y)
+  // the feed post whose >>id is under (x, y): a post's own, or one written in a line's words
   pub fn thread_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
-    self.spot_at(area, (x, y), res, |l| &l.thread)
+    if let Some(id) = self.spot_at(area, (x, y), res, |l| &l.thread) {
+      return Some(id);
+    }
+    let (i, top) = self.row_at(area, y, res)?;
+    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let ranges: Vec<_> = laid.refs.iter().map(|r| r.0.clone()).collect();
+    let k = over(&laid.layout, (x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32, &ranges)?;
+    laid.refs.into_iter().nth(k).map(|r| r.1)
+  }
+
+  // the row under height `y` and its top, as drawn last
+  fn row_at(&mut self, area: Rect, y: i32, res: &mut Res) -> Option<(usize, i32)> {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        return None;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        return Some((i, top));
+      }
+      bottom = top;
+    }
+    None
   }
 
   // the line whose `spot` (a range of its laid-out text) is under (x, y)
@@ -1747,6 +1813,14 @@ impl ChatView {
 mod tests {
   use super::*;
   use crate::fake::Fake;
+
+  #[test]
+  fn post_refs_are_whole_words() {
+    let ids = |s: &str| post_refs(s, 0).into_iter().map(|r| r.1.into_string()).collect::<Vec<_>>();
+    assert_eq!(ids(">>3t and >>4a, not a>>5 or >>xyz1234 or >>Ab"), ["00003t", "00004a"]);
+    assert_eq!(post_refs("x >>9", 2)[0].0, 2..5);
+    assert!(ids(">> >>").is_empty());
+  }
 
   #[test]
   fn picture_waits_for_its_size_then_folds_the_link() {

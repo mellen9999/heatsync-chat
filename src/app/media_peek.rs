@@ -4,7 +4,6 @@
 use super::App;
 use crate::images::ImgId;
 use crate::model::post;
-use crate::model::tabs::Kind;
 use crate::ui::canvas::Rect;
 use crate::ui::chat_view::blit_layer;
 use crate::ui::text::{Ink, Span};
@@ -30,7 +29,7 @@ impl App {
   pub(super) fn media_hover(&mut self) -> bool {
     let (x, y) = self.pointer;
     let chat = self.chat_area();
-    let on = (self.tip_free() && self.picker.is_none() && self.kind() == Kind::Feed && chat.contains(x, y))
+    let on = (self.tip_free() && self.picker.is_none() && chat.contains(x, y))
       .then(|| {
         let res = &mut self.res;
         self.tabs.get_mut(self.active)?.view.media_at(chat, x, y, res)

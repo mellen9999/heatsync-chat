@@ -101,6 +101,21 @@ struct Tab {
   sources: Vec<(Platform, Box<str>)>,
   // which source the input sends to (ctrl-n cycles on merged tabs)
   target: usize,
+  // something took the tab over (a feed thread): `view` shows it, the tab's own lines wait here, still
+  // filling, and the label reads `← back` until it closes
+  under: Option<ChatView>,
+}
+
+impl Tab {
+  // the tab's own lines, wherever they are right now: chat lands here even while a thread covers it
+  fn chat(&mut self) -> &mut ChatView {
+    self.under.as_mut().unwrap_or(&mut self.view)
+  }
+
+  // both, for what every line must hear (a catalog, a paint, a width)
+  fn views(&mut self) -> impl Iterator<Item = &mut ChatView> {
+    std::iter::once(&mut self.view).chain(self.under.as_mut())
+  }
 }
 
 pub struct App {
@@ -252,6 +267,7 @@ impl App {
         event: false,
         sources: Vec::new(),
         target: 0,
+        under: None,
       });
     }
     let status =
@@ -468,7 +484,7 @@ impl App {
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
     }
-    if self.kind() == Kind::Feed {
+    if self.feedish() {
       return self.feed_hint();
     }
     if self.kind() == Kind::Whispers {
@@ -576,7 +592,7 @@ impl App {
       self.mod_slash(cmd);
       return self.after_send();
     }
-    if self.kind() == Kind::Feed && !self.line.text.trim().is_empty() {
+    if self.feedish() && !self.line.text.trim().is_empty() {
       self.feed_post();
       return self.after_send();
     }
@@ -664,7 +680,7 @@ impl App {
   fn relayout_where(&mut self, ch: Option<&str>) {
     for t in &mut self.tabs {
       if ch.is_none_or(|c| *c == *t.name) {
-        t.view.relayout();
+        t.views().for_each(ChatView::relayout);
       }
     }
     self.wake();
@@ -672,16 +688,16 @@ impl App {
 
   fn touch_sender(&mut self, id: u64) {
     let uid = id.to_string();
-    for t in &mut self.tabs {
-      t.view.touch_sender(&uid);
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      v.touch_sender(&uid);
     }
     self.wake();
   }
 
   // a paint or badge landed: redo only the lines whose name it dresses
   fn touch_paint(&mut self, id: &PaintId) {
-    for t in &mut self.tabs {
-      t.view.touch_paint(id);
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      v.touch_paint(id);
     }
     self.wake();
   }
@@ -713,7 +729,7 @@ impl App {
       self.scan_mention(p, key, m);
     }
     for i in self.tabs_with(p, key) {
-      let v = &mut self.tabs[i].view;
+      let v = self.tabs[i].chat();
       if history {
         v.prepend(msgs.clone());
         if i == self.active {
@@ -749,8 +765,10 @@ impl App {
         t.sources.push(src);
       }
     }
-    t.view.tags = t.sources.len() > 1;
-    t.view.relayout();
+    let tags = t.sources.len() > 1;
+    let v = t.chat();
+    v.tags = tags;
+    v.relayout();
     self.input_dirty = true;
     if i == self.active {
       self.wake();
@@ -761,8 +779,8 @@ impl App {
     let ev = match ev {
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
         if self.res.chatters.heard(&m) {
-          for t in &mut self.tabs {
-            t.view.adopt_id(&m.login, &m.user_id);
+          for v in self.tabs.iter_mut().flat_map(Tab::views) {
+            v.adopt_id(&m.login, &m.user_id);
           }
         }
         self.scan_mention(Platform::Twitch, ch, &mut m);
@@ -776,16 +794,16 @@ impl App {
       self.tabs_with(Platform::Twitch, ch).first().copied()
     };
     let Some(i) = i else { return };
-    let tab = &mut self.tabs[i];
+    let tab = self.tabs[i].chat();
     match ev {
-      Chat::Msg(m) => tab.view.push(m),
-      Chat::ClearMsg(id) => tab.view.clear_msg(&id),
+      Chat::Msg(m) => tab.push(m),
+      Chat::ClearMsg(id) => tab.clear_msg(&id),
       Chat::ClearUser { login, secs } => {
-        tab.view.clear_user(&login);
+        tab.clear_user(&login);
         let what = secs.map_or_else(|| "banned".to_owned(), |s| format!("timed out for {s}s"));
-        tab.view.push(Message::system(now_ms(), Platform::Twitch, format!("{login} was {what}")));
+        tab.push(Message::system(now_ms(), Platform::Twitch, format!("{login} was {what}")));
       }
-      Chat::ClearAll => tab.view.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
+      Chat::ClearAll => tab.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
       Chat::Room { id } => {
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
           self.rooms.push((ch.into(), id.clone()));
@@ -797,8 +815,8 @@ impl App {
     }
     if i == self.active {
       self.wake();
-    } else if !tab.unread {
-      tab.unread = true;
+    } else if !self.tabs[i].unread {
+      self.tabs[i].unread = true;
       self.bar_dirty = true;
       self.wake();
     }
@@ -909,7 +927,10 @@ impl App {
             _ if t.event => crate::ui::theme::YELLOW,
             _ => crate::ui::theme::WHITE,
           };
-          TabLabel { name: &t.name, active: i == self.active, unread: t.unread || t.event, hot }
+          // a tab something took over reads `← back` while you look at it (ext takeover.js)
+          let back = t.under.is_some() && i == self.active;
+          let name = if back { "← back" } else { &t.name };
+          TabLabel { name, active: i == self.active, unread: !back && (t.unread || t.event), hot }
         })
         .collect();
       let bar = self.bar();
@@ -1065,8 +1086,8 @@ impl App {
     // softbuffer keeps a resized buffer's age though its pixels are new (zeroed): send it all
     self.expose = true;
     self.input_dirty = true;
-    for t in &mut self.tabs {
-      t.view.resize(w as i32);
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      v.resize(w as i32);
     }
     self.bar_dirty = true;
     self.wake();
@@ -1436,9 +1457,9 @@ impl App {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) if !ctrl => self.select_move(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) if !ctrl => self.select_move(-1),
       Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => self.jump_to_mention(),
-      Key::Named(NamedKey::Enter) if self.kind() == Kind::Feed => self.feed_activate(),
-      Key::Character("u") if !ctrl && self.kind() == Kind::Feed => self.feed_vote(),
-      Key::Character("r") if !ctrl && self.kind() == Kind::Feed => self.feed_reply(),
+      Key::Named(NamedKey::Enter) if self.feedish() => self.feed_activate(),
+      Key::Character("u") if !ctrl && self.feedish() => self.feed_vote(),
+      Key::Character("r") if !ctrl && self.feedish() => self.feed_reply(),
       Key::Character("h") | Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Backspace)
         if !ctrl && self.feed_back() => {}
       Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => self.whisper_activate(),
@@ -1719,7 +1740,7 @@ impl App {
           }
           self.scan_mention(Platform::Twitch, &ch, m);
         }
-        self.tabs[i].view.prepend(history);
+        self.tabs[i].chat().prepend(history);
         self.trim_soon();
         if i == self.active {
           self.wake();
@@ -1873,7 +1894,7 @@ impl App {
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::RelayClear { platform, key, login } => {
         for i in self.tabs_with(platform, &key) {
-          self.tabs[i].view.clear_user(&login);
+          self.tabs[i].chat().clear_user(&login);
           self.touched(i);
         }
       }
@@ -1886,7 +1907,7 @@ impl App {
           _ => return,
         };
         for i in self.tabs_with(Platform::Youtube, &key) {
-          self.tabs[i].view.push(Message::system(now_ms(), Platform::Youtube, format!("{line} ({key})")));
+          self.tabs[i].chat().push(Message::system(now_ms(), Platform::Youtube, format!("{line} ({key})")));
           self.touched(i);
         }
       }
@@ -2431,6 +2452,82 @@ mod live {
     app.pointer = id_spot(&mut app, "00004c").expect("the op's >>4c heads the thread");
     app.click();
     assert!(app.feed.thread.is_none(), "the open thread's own >>id goes back");
+    assert!(app.tabs[feed].under.is_none(), "and the list is back in its tab");
+  }
+
+  // a feed post lands as a line in a chat tab; its >>id opens the thread right there, the tab reads
+  // `← back`, chat keeps landing underneath, and back puts the chat where it was (scratch HOME as above):
+  //   ... cargo test -j2 --release headless_thread_takeover -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_thread_takeover() {
+    use crate::model::post::parse;
+    use crate::net::social;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let line = |t: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, t);
+      m.kind = crate::model::message::Kind::Chat;
+      m.nick = "bob".into();
+      m.login = "bob".into();
+      m
+    };
+    app.on_chat("forsen", Chat::Msg(line("before")));
+    let op =
+      parse(&serde_json::json!({"base36_id": "00003t", "username": "alice", "user_id": "5", "content": "a thread"}))
+        .unwrap();
+    app.on_feed_live(op.clone());
+    app.on_feed_live(op.clone());
+    let rows = app.tabs[chat].view.len();
+    assert_eq!(rows, 2, "the post is one line in the chat tab, heard once");
+    app.on_chat("forsen", Chat::Msg(line("see >>3t")));
+    app.redraw();
+    while asked.try_recv().is_ok() {}
+    let area = app.chat_area();
+    let spot = |app: &mut App, want: &str| {
+      (area.y..area.bottom()).find_map(|y| {
+        (area.x..area.right()).find_map(|x| {
+          let res = &mut app.res;
+          (app.tabs[chat].view.thread_at(area, x, y, res)?.as_ref() == want).then_some((x, y))
+        })
+      })
+    };
+    // both the post's own >>3t and the one written in chat name it; click the written one
+    let hits: Vec<_> = (area.y..area.bottom())
+      .filter_map(|y| {
+        let res = &mut app.res;
+        (area.x..area.right()).find(|&x| app.tabs[chat].view.thread_at(area, x, y, res).is_some()).map(|x| (x, y))
+      })
+      .collect();
+    assert!(hits.len() >= 2, "a post's >>id and one typed in chat are both clickable");
+    app.pointer = *hits.last().unwrap();
+    app.click();
+    assert!(app.tabs[chat].under.is_some(), "the thread took the chat tab over");
+    assert!(app.feedish(), "keys and typing go to the thread");
+    let fetched = std::iter::from_fn(|| asked.try_recv().ok())
+      .any(|c| matches!(c, Cmd::Social(social::Cmd::Thread { ref id }) if &**id == "00003t"));
+    assert!(fetched);
+    app.on_net(NetEvent::Thread { id: "00003t".into(), res: Ok((op, vec![])) });
+    app.on_chat("forsen", Chat::Msg(line("during")));
+    assert_eq!(app.tabs[chat].view.len(), 2, "the thread view: the op and 'no replies yet'");
+    app.redraw();
+    assert!(spot(&mut app, "00003t").is_some());
+    crate::bench::dump(&app.canvas);
+    // the tab reads `← back`; a click on it goes back
+    let p = app.bar_map.iter().position(|&i| i == chat).unwrap();
+    let r = app.bar_hits[p];
+    app.pointer = (r.x + 2, r.y + 2);
+    app.bar_click();
+    assert!(app.tabs[chat].under.is_none() && app.feed.thread.is_none());
+    assert_eq!(app.tabs[chat].view.len(), rows + 2, "chat that landed meanwhile is there");
   }
 
   // feed media, offline: a held post's box and show, the withheld files fetched, a picture under a reply,
@@ -2461,7 +2558,7 @@ mod live {
     app.feed.loaded = true;
     let feed = app.tabs.iter().position(|t| t.kind == Kind::Feed).expect("a feed tab");
     app.select(feed);
-    app.feed.open("00004a", None);
+    app.feed_open("00004a");
     app.on_net(NetEvent::Thread { id: "00004a".into(), res: Ok((op, vec![re])) });
     // every picture asked for lands as a flat 160x120 block, red
     let land = |app: &mut App, asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {

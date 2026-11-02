@@ -32,6 +32,11 @@ pub struct Settings {
   pub ev_offline: bool,
   pub ev_game: bool,
   pub moments: bool,
+  // heatsync feed posts as lines in every chat tab (ext inlineNotifs): new threads, the OP answering in
+  // their own thread, replies. all on, like the ext
+  pub inline_op: bool,
+  pub inline_mop: bool,
+  pub inline_re: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
   // host-less and defanged links (watch?v=…, r/sub/comments/…, site (dot) com) are clickable. default on, like the ext (partialLinksEnabled)
@@ -70,6 +75,9 @@ impl Default for Settings {
       ev_offline: false,
       ev_game: true,
       moments: true,
+      inline_op: true,
+      inline_mop: true,
+      inline_re: true,
       media: true,
       partial_links: true,
       tab_feed: true,
@@ -226,6 +234,9 @@ mod tests {
         ev_offline: false,
         ev_game: true,
         moments: true,
+        inline_op: true,
+        inline_mop: true,
+        inline_re: true,
         media: true,
         partial_links: true,
         tab_feed: true,
