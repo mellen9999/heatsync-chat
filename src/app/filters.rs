@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::App;
 use crate::model::filter::{self, DEFAULT_MUTE_MS, Filters};
-use crate::model::filtercmd::{Cmd, Span};
+use crate::model::filtercmd::{Cmd, RuleCmd, Span};
 use crate::model::tabs::Kind;
 use crate::net::Cmd as NetCmd;
 use crate::net::mutes::{self, Lists, Op, Sync};
@@ -14,7 +14,7 @@ use crate::util::time::now_ms;
 impl App {
   pub(super) fn push_flags(&self) {
     let s = &self.set;
-    filter::edit(|f| (f.bots, f.cmds, f.dupes) = (s.hide_bots, s.hide_cmds, s.hide_dupes));
+    filter::edit(|f| (f.bots, f.cmds, f.dupes, f.caps) = (s.hide_bots, s.hide_cmds, s.hide_dupes, s.automod_caps));
   }
 
   // who counts as you: never hidden by these filters
@@ -32,7 +32,7 @@ impl App {
     self.wake();
   }
 
-  fn saved(&mut self) {
+  pub(super) fn saved(&mut self) {
     filter::with(Filters::save);
     self.arm_mute_timer();
     self.refilter_all();
@@ -92,6 +92,8 @@ impl App {
         });
       }
       Cmd::Word { marks, add, term } => self.word(marks, add, term),
+      Cmd::Pattern { add, pat } => self.pattern(add, pat),
+      Cmd::Rule(r) => self.rule(r),
       Cmd::Mutes => {
         self.list_people("muted", filter::with(|f| f.mutes().into_iter().map(|(n, _)| n.to_owned()).collect()))
       }
@@ -169,6 +171,58 @@ impl App {
     }
     self.saved();
     self.say(format!("{} {what} {}", if add { "added" } else { "removed" }, term.to_lowercase()));
+  }
+
+  fn pattern(&mut self, add: bool, pat: Option<String>) {
+    let Some(pat) = pat else {
+      let list = filter::with(|f| f.patterns().iter().map(|p| p.to_string()).collect::<Vec<_>>());
+      return self.say(if list.is_empty() {
+        "no automod patterns. /automod <regex> adds one".to_owned()
+      } else {
+        format!("automod: {}", list.join("  "))
+      });
+    };
+    if !filter::edit(|f| f.pattern(add, &pat)) {
+      return self.say(if add {
+        "couldn't add that pattern (empty, a repeat, or too many)".to_owned()
+      } else {
+        format!("{pat} isn't an automod pattern")
+      });
+    }
+    self.texts_edited();
+    self.saved();
+    self.say(format!("{} automod pattern {}", if add { "added" } else { "removed" }, pat.trim()));
+  }
+
+  fn rule(&mut self, cmd: RuleCmd) {
+    let done = match cmd {
+      RuleCmd::List => {
+        let rows = filter::with(|f| f.rules().describe());
+        return self.say(if rows.is_empty() {
+          "no rules. /rule add <hide|highlight> <keyword|regex|user|badge|msgtype|expr> <value>".to_owned()
+        } else {
+          rows.join(" · ")
+        });
+      }
+      RuleCmd::Add { action, ty, value } => {
+        let id = format!("{:x}{:x}", now_ms(), filter::with(|f| f.rules().len()));
+        match filter::edit(|f| f.rules_mut().add(id, &action, &ty, &value)) {
+          Ok(()) => Some("added rule"),
+          Err(why) => return self.say(why),
+        }
+      }
+      RuleCmd::Del(k) => filter::edit(|f| f.rules_mut().remove(&k)).then_some("removed rule"),
+      RuleCmd::Enable(k, on) => {
+        filter::edit(|f| f.rules_mut().enable(&k, on)).then_some(if on { "rule on" } else { "rule off" })
+      }
+      RuleCmd::Shift(k, up) => {
+        filter::edit(|f| f.rules_mut().shift(&k, up)).then_some(if up { "moved up" } else { "moved down" })
+      }
+    };
+    let Some(done) = done else { return self.say("no such rule. /rule list shows the numbers") };
+    self.texts_edited();
+    self.saved();
+    self.say(done);
   }
 
   // your lists on heatsync after a login: merged into ours (the ext never removes on a fetch)

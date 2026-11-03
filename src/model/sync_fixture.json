@@ -23,6 +23,23 @@
   "scope": "sync",
   "default": false
  },
+ "automodAllCaps": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "automodRegex": {
+  "type": "text",
+  "scope": "sync",
+  "default": "",
+  "maxLen": 4096
+ },
+ "chatFilterRules": {
+  "type": "text",
+  "scope": "local-mirror",
+  "default": "[]",
+  "maxLen": 524288
+ },
  "firstChatterGlow": {
   "type": "bool",
   "scope": "sync",

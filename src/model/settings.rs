@@ -202,6 +202,8 @@ pub struct Settings {
   pub hide_bots: bool,
   pub hide_cmds: bool,
   pub hide_dupes: bool,
+  // automod hides lines that are mostly capitals (ext automodAllCaps), off by default
+  pub automod_caps: bool,
   // ask before a ban goes out (the ext's modConfirmBan, off by default like the ext)
   pub confirm_ban: bool,
   // flagged pictures and emotes shown, by category (ext viewer_show_*): all off by default
@@ -251,6 +253,7 @@ impl Default for Settings {
       hide_bots: false,
       hide_cmds: false,
       hide_dupes: false,
+      automod_caps: false,
       confirm_ban: false,
       show_nsfw: false,
       show_violence: false,
@@ -462,6 +465,7 @@ mod tests {
         hide_bots: false,
         hide_cmds: false,
         hide_dupes: false,
+        automod_caps: false,
         confirm_ban: false,
         show_nsfw: false,
         show_violence: false,

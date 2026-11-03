@@ -4,7 +4,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use crate::model::automod::{self, Automod};
 use crate::model::message::{Kind, Message, flag};
+use crate::model::rules::{Line, Rules, Verdict};
 use crate::store;
 
 // a line's verdict bits
@@ -41,6 +43,11 @@ pub struct Filters {
   pub bots: bool,
   pub cmds: bool,
   pub dupes: bool,
+  // automod: hide lines that are mostly capitals (ext automodAllCaps) or match a pattern (automodRegex)
+  pub caps: bool,
+  automod: Automod,
+  // the ext's per-rule hide / highlight list (chatFilterRules)
+  rules: Rules,
   // lowercase terms: a line containing one is hidden / lit up
   words: Vec<Box<str>>,
   marks: Vec<Box<str>>,
@@ -109,6 +116,15 @@ impl Filters {
     if !me && low.as_deref().is_some_and(|l| self.words.iter().any(|w| l.contains(&**w))) {
       return HIDDEN;
     }
+    // automod, then the rules: the ext's order. your own lines are never hidden; a hide rule that
+    // matches one also keeps a highlight rule from lighting it
+    if !me && ((self.caps && automod::all_caps(&m.body)) || self.automod.hits(&m.body)) {
+      return HIDDEN;
+    }
+    let ruled = if self.rules.is_empty() { Verdict::Pass } else { self.rules.judge(&Line::new(m)) };
+    if ruled == Verdict::Hide && !me {
+      return HIDDEN;
+    }
     if self.dupes && !me && !m.body.is_empty() {
       if **last == *m.body {
         return HIDDEN;
@@ -119,7 +135,7 @@ impl Filters {
     if self.muted(&who, now) {
       look |= MUTED;
     }
-    if low.as_deref().is_some_and(|l| self.marks.iter().any(|t| has_word(l, t))) {
+    if ruled == Verdict::Mark || low.as_deref().is_some_and(|l| self.marks.iter().any(|t| has_word(l, t))) {
       look |= MARKED;
     }
     look
@@ -260,6 +276,37 @@ impl Filters {
     }
   }
 
+  pub fn patterns(&self) -> &[Box<str>] {
+    self.automod.patterns()
+  }
+
+  // add / remove one automod pattern. false = nothing changed
+  pub fn pattern(&mut self, add: bool, p: &str) -> bool {
+    self.automod.pattern(add, p)
+  }
+
+  // the ext's automodRegex text (one pattern per line) in and out
+  pub fn patterns_text(&self) -> String {
+    self.automod.text()
+  }
+
+  pub fn set_patterns_text(&mut self, t: &str) -> bool {
+    self.automod.set_text(t)
+  }
+
+  pub fn rules(&self) -> &Rules {
+    &self.rules
+  }
+
+  pub fn rules_mut(&mut self) -> &mut Rules {
+    &mut self.rules
+  }
+
+  // the ext's chatFilterRules text in. false = unusable, the rules stay as they were
+  pub fn set_rules_text(&mut self, t: &str) -> bool {
+    Rules::parse(t).map(|r| self.rules = r).is_some()
+  }
+
   pub fn parse(s: &str) -> Self {
     let mut f = Self::default();
     for l in s.lines() {
@@ -267,6 +314,8 @@ impl Filters {
       match kind {
         "hide" => _ = f.word(false, true, rest),
         "mark" => _ = f.word(true, true, rest),
+        "automod" => _ = f.pattern(true, rest),
+        "rules" => _ = f.set_rules_text(rest),
         "block" => _ = f.block(rest),
         "sblock" => _ = f.block_synced(rest),
         "mute" | "smute" => {
@@ -290,6 +339,12 @@ impl Filters {
     }
     for w in &self.marks {
       s.push_str(&format!("mark {w}\n"));
+    }
+    for p in self.automod.patterns() {
+      s.push_str(&format!("automod {p}\n"));
+    }
+    if !self.rules.is_empty() {
+      s.push_str(&format!("rules {}\n", self.rules.json()));
     }
     let mut blocks: Vec<_> = self.blocks.iter().collect();
     blocks.sort_unstable();
@@ -437,6 +492,65 @@ mod tests {
     assert_eq!(g.mutes(), vec![("perm", None), ("quiet", Some(5))]);
     assert_eq!(Filters::parse("garbage\nmute\nhide \n").mutes().len(), 0);
     assert!(!Filters::default().clone().word(false, true, &"x".repeat(MAX_TERM + 1)));
+  }
+
+  #[test]
+  fn automod_and_rules_share_the_one_verdict() {
+    let mut f = Filters { caps: true, ..Filters::default() };
+    f.pattern(true, r"bit\.ly");
+    f.rules_mut().add("a".into(), "hide", "keyword", "nope").unwrap();
+    f.rules_mut().add("b".into(), "highlight", "keyword", "gg").unwrap();
+    let shout = "STOP SHOUTING AT ME PLEASE";
+    assert_eq!(judge(&f, &line("a", shout)), HIDDEN);
+    assert_eq!(judge(&f, &line("a", "go to BIT.LY now")), HIDDEN);
+    assert_eq!(judge(&f, &line("a", "oh nope")), HIDDEN);
+    assert_eq!(judge(&f, &line("a", "gg")), MARKED);
+    assert_eq!(judge(&f, &line("a", "fine")), 0);
+    // a mod is not spared, only you are
+    let mut m = line("a", shout);
+    m.badges = Box::new([("moderator".into(), "1".into())]);
+    assert_eq!(judge(&f, &m), HIDDEN);
+    f.set_me(&["me".into()]);
+    assert_eq!(judge(&f, &line("me", shout)), 0);
+    assert_eq!(judge(&f, &line("me", "bit.ly nope")), 0);
+    // a highlight rule still lights your own line, a hide rule that matches it keeps it plain
+    assert_eq!(judge(&f, &line("me", "gg")), MARKED);
+    assert_eq!(judge(&f, &line("me", "gg nope")), 0);
+    // a hide rule beats the highlight rules after it and the keyword highlights
+    f.word(true, true, "gg");
+    assert_eq!(judge(&f, &line("a", "gg nope")), HIDDEN);
+    // turned off, the lines come back
+    f.caps = false;
+    assert_eq!(judge(&f, &line("a", shout)), 0);
+    assert!(f.pattern(false, r"bit\.ly"));
+    assert_eq!(judge(&f, &line("a", "bit.ly")), 0);
+    assert!(f.rules_mut().remove("1"));
+    assert_eq!(judge(&f, &line("a", "oh nope")), 0);
+    // system lines are never judged
+    f.caps = true;
+    assert_eq!(judge(&f, &Message::system(0, Platform::Twitch, shout)), 0);
+  }
+
+  #[test]
+  fn automod_and_rules_survive_the_file_and_the_account_text() {
+    let mut f = Filters::default();
+    f.pattern(true, r"free\s+v-?bucks");
+    f.pattern(true, "oh (no");
+    f.rules_mut().add("a".into(), "hide", "expr", "user:bob && !first").unwrap();
+    let g = Filters::parse(&f.render());
+    assert_eq!(g.patterns_text(), f.patterns_text());
+    assert_eq!(g.rules().json(), f.rules().json());
+    assert_eq!(judge(&g, &line("bob", "hi")), HIDDEN);
+    assert_eq!(judge(&g, &line("al", "FREE   vbucks")), HIDDEN);
+    // the account's text in: unusable text changes nothing
+    let mut h = Filters::default();
+    assert!(h.set_patterns_text("a\n  b  \n") && h.patterns().len() == 2);
+    assert!(!h.set_patterns_text(&"x\n".repeat(100)) && h.patterns().len() == 2);
+    assert!(h.set_rules_text(&f.rules().json()) && h.rules().len() == 1);
+    assert!(!h.set_rules_text("{\"not\":\"an array\"}") && h.rules().len() == 1);
+    // a hostile file line is skipped, not fatal
+    let junk = Filters::parse("rules [[[[\nrules {}\nautomod \nautomod x\n");
+    assert_eq!((junk.patterns().len(), junk.rules().len()), (1, 0));
   }
 
   #[test]

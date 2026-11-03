@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 29] = [
+const FIXED: [Slash; 32] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -38,6 +38,9 @@ const FIXED: [Slash; 29] = [
   s("/unhideword", "<term>", "stop hiding a term"),
   s("/highlight", "[term]", "light up lines with a word; alone, list them"),
   s("/unhighlight", "<term>", "stop lighting a word"),
+  s("/automod", "[pattern]", "hide lines matching a regex; alone, list them"),
+  s("/unautomod", "<pattern>", "stop hiding a pattern"),
+  s("/rule", "[add|del|on|off|up|down|list] ...", "per-rule hide / highlight filters"),
   s("/mutes", "", "who is muted"),
   s("/blocks", "", "who is blocked"),
   s("/settings", "", "open settings"),

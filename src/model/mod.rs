@@ -1,3 +1,4 @@
+pub mod automod;
 pub mod card;
 pub mod chan;
 pub mod chatters;
@@ -27,6 +28,7 @@ pub mod pin;
 pub mod post;
 pub mod postcmd;
 pub mod preview;
+pub mod rules;
 pub mod schema;
 pub mod seen;
 pub mod settings;

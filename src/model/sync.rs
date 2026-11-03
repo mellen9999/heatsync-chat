@@ -20,6 +20,11 @@ const ECHO_MS: i64 = 3000;
 // bounds on one value: a real one is a few bytes (a list of tab ids, a map of flags)
 const MAX_ITEMS: usize = 256;
 const MAX_TEXT: usize = 64;
+// the ext's free-text settings that ride the same channel, and the longest value of each we take (the
+// server caps the big ones at 32KB; the ext's own maxLen for the patterns is 4096)
+pub const AUTOMOD: &str = "automodRegex";
+pub const RULES: &str = "chatFilterRules";
+const TEXTS: [(&str, usize); 2] = [(AUTOMOD, 4096), (RULES, 32 * 1024)];
 // the ext's default for hiddenTabs: what a list that was never written means
 const HIDDEN_DEFAULT: [&str; 3] = ["pinned", "modlog", "discover"];
 
@@ -39,7 +44,7 @@ fn get_cell(d: &Def, s: &Settings) -> Option<Cell> {
     Ctl::Pick(c, get, _) => Some(Cell::Is(c.names[get(s)])),
     Ctl::Side => Some(Cell::Is(s.tab_side.name())),
     Ctl::Counter => Some(Cell::Is(s.tab_counter.name())),
-    Ctl::Zoom | Ctl::Words(_) => None,
+    Ctl::Zoom | Ctl::Words(_) | Ctl::Patterns | Ctl::Rules => None,
   }
 }
 
@@ -67,9 +72,13 @@ fn mapped() -> impl Iterator<Item = &'static Def> {
   DEFS.iter().filter(|d| d.wire != Wire::None)
 }
 
+fn text_cap(k: &str) -> Option<usize> {
+  TEXTS.iter().find(|(t, _)| *t == k).map(|(_, cap)| *cap)
+}
+
 // each ext key once
 fn keys() -> Vec<&'static str> {
-  let mut out: Vec<&'static str> = Vec::new();
+  let mut out: Vec<&'static str> = TEXTS.iter().map(|(k, _)| *k).collect();
   for k in mapped().filter_map(|d| d.wire.key()) {
     if !out.contains(&k) {
       out.push(k);
@@ -107,7 +116,9 @@ pub fn pluck(state: &Value) -> (Inbound, u32) {
   let (mut out, mut bad) = (Vec::new(), 0);
   for k in keys() {
     match o.get(k) {
-      Some(v) if small(v) => out.push((k, v.clone())),
+      Some(v) if text_cap(k).map_or_else(|| small(v), |cap| v.as_str().is_some_and(|t| t.len() <= cap)) => {
+        out.push((k, v.clone()))
+      }
       Some(_) => bad += 1,
       None => {}
     }
@@ -202,11 +213,20 @@ fn keep(v: &Value) -> Option<Value> {
   }
 }
 
+// one free-text row: what the account holds, a write waiting for the echo, a change not sent yet
+#[derive(Default)]
+struct Text {
+  synced: Option<String>,
+  flight: Option<(String, i64)>,
+  queued: Option<String>,
+}
+
 pub struct Acct {
   // what the account holds for every mapped row, as far as we know: the base a change is measured from
   synced: Settings,
   // the last good map / list per shared key
   server: HashMap<&'static str, Value>,
+  texts: HashMap<&'static str, Text>,
   // sent but not yet echoed, per row id: (value, give up at)
   flight: HashMap<&'static str, (Cell, i64)>,
   // when the first unsent change was seen
@@ -217,7 +237,7 @@ pub struct Acct {
 
 impl Acct {
   pub fn new(s: &Settings) -> Self {
-    Acct { synced: *s, server: HashMap::new(), flight: HashMap::new(), dirty: None, ignored: 0 }
+    Acct { synced: *s, server: HashMap::new(), texts: HashMap::new(), flight: HashMap::new(), dirty: None, ignored: 0 }
   }
 
   // a different login (or none): nothing pending belongs to the new account
@@ -274,15 +294,62 @@ impl Acct {
     moved
   }
 
+  // the account's free-text values: (key, value, first time it said anything about this key). one the
+  // account already holds, or that is ours still waiting to go, is not returned
+  pub fn text_inbound(&mut self, st: &Inbound, now: i64) -> Vec<(&'static str, String, bool)> {
+    let mut out = Vec::new();
+    for (k, v) in st {
+      let (Some(cap), Some(v)) = (text_cap(k), v.as_str()) else { continue };
+      if v.len() > cap {
+        self.ignored += 1;
+        continue;
+      }
+      let t = self.texts.entry(k).or_default();
+      if let Some((sent, until)) = &t.flight {
+        if sent == v {
+          t.flight = None;
+          t.synced = Some(v.to_owned());
+          continue;
+        }
+        // a push that crossed our write carries the older value: wait for the echo of ours
+        if now < *until {
+          continue;
+        }
+        t.flight = None;
+      }
+      if t.synced.as_deref() == Some(v) {
+        continue;
+      }
+      let first = t.synced.is_none();
+      t.synced = Some(v.to_owned());
+      if t.queued.is_none() {
+        out.push((*k, v.to_owned(), first));
+      }
+    }
+    out
+  }
+
+  // you changed a free-text setting: send it with the next patch
+  pub fn text_queue(&mut self, key: &'static str, value: String, now: i64) {
+    if text_cap(key).is_some_and(|cap| value.len() <= cap) {
+      self.texts.entry(key).or_default().queued = Some(value);
+      self.dirty.get_or_insert(now);
+    }
+  }
+
+  fn text_waiting(&self) -> bool {
+    self.texts.values().any(|t| t.queued.is_some())
+  }
+
   // the patch to send now, if there is one: only rows you changed since the account last agreed
   pub fn outbound(&mut self, s: &Settings, now: i64, ready: bool) -> Option<Value> {
     // the common wake: nothing differs at all
-    if *s == self.synced {
+    if *s == self.synced && !self.text_waiting() {
       self.dirty = None;
       return None;
     }
     let changed: Vec<&Def> = mapped().filter(|d| get_cell(d, s) != get_cell(d, &self.synced)).collect();
-    if changed.is_empty() {
+    if changed.is_empty() && !self.text_waiting() {
       // the unmapped fields differ too: forget them so the next look is a plain compare
       self.synced = *s;
       self.dirty = None;
@@ -320,6 +387,13 @@ impl Acct {
         self.flight.insert(d.id, (c, now + ECHO_MS));
       }
     }
+    for (k, t) in &mut self.texts {
+      if let Some(v) = t.queued.take() {
+        patch.insert((*k).to_owned(), Value::String(v.clone()));
+        t.synced = Some(v.clone());
+        t.flight = Some((v, now + ECHO_MS));
+      }
+    }
     self.dirty = None;
     (!patch.is_empty()).then_some(Value::Object(patch))
   }
@@ -328,13 +402,25 @@ impl Acct {
   pub fn stale(&mut self, now: i64) -> bool {
     let n = self.flight.len();
     self.flight.retain(|_, (_, until)| *until > now);
-    self.flight.len() != n
+    let mut late = self.flight.len() != n;
+    for t in self.texts.values_mut() {
+      if t.flight.as_ref().is_some_and(|(_, until)| *until <= now) {
+        t.flight = None;
+        late = true;
+      }
+    }
+    late
   }
 
   // when `outbound` / `stale` next has something to do
   pub fn due(&self) -> Option<i64> {
     let sends = self.dirty.map(|t| t + DEBOUNCE_MS);
-    let echoes = self.flight.values().map(|(_, until)| *until).min();
+    let echoes = self
+      .flight
+      .values()
+      .map(|(_, until)| *until)
+      .chain(self.texts.values().filter_map(|t| t.flight.as_ref().map(|(_, until)| *until)))
+      .min();
     [sends, echoes].into_iter().flatten().min()
   }
 }
@@ -366,6 +452,14 @@ mod tests {
       };
       out.extend(cells.into_iter().filter_map(|c| put(d, c, None)).map(|v| (key, v)));
     }
+    // the free-text rows: a few patterns, and rules as the window writes them
+    let mut rules = crate::model::rules::Rules::default();
+    rules.add("a1".into(), "hide", "keyword", "spoiler").unwrap();
+    rules.add("a2".into(), "highlight", "expr", "user:bob && !first").unwrap();
+    out.push((AUTOMOD, json!("bit\\.ly\nfree\\s+v-bucks")));
+    out.push((AUTOMOD, json!("")));
+    out.push((RULES, json!(rules.json())));
+    out.push((RULES, json!("[]")));
     out
   }
 
@@ -418,6 +512,7 @@ mod tests {
         "bool" => v.is_boolean(),
         "enum" => e["options"].as_array().unwrap().contains(&v),
         "range" => v.as_f64().is_some_and(|x| x >= e["min"].as_f64().unwrap() && x <= e["max"].as_f64().unwrap()),
+        "text" => v.as_str().is_some_and(|t| t.len() as u64 <= e["maxLen"].as_u64().unwrap()),
         "boolmap" => {
           // our own entry must be a known one; someone else's pass through
           let o = v.as_object().unwrap();
@@ -435,6 +530,61 @@ mod tests {
       };
       assert!(ok, "{key} = {v}");
     }
+  }
+
+  #[test]
+  fn the_text_rows_fit_the_ext() {
+    let fx = fixture();
+    let (empty, none) = (crate::model::automod::Automod::default(), crate::model::rules::Rules::default());
+    for (key, cap) in TEXTS {
+      assert_eq!(fx[key]["type"], "text", "{key}");
+      assert!(cap as u64 <= fx[key]["maxLen"].as_u64().unwrap(), "{key}");
+    }
+    assert_eq!(json!(empty.text()), fx[AUTOMOD]["default"]);
+    assert_eq!(json!(none.json()), fx[RULES]["default"]);
+  }
+
+  #[test]
+  fn text_rows_follow_the_account_and_go_up_once() {
+    let s = Settings::default();
+    let mut a = Acct::new(&s);
+    // the account's word, the first time: applied
+    let got = a.text_inbound(&one(AUTOMOD, json!("a\nb")), NOW);
+    assert_eq!(got, vec![(AUTOMOD, "a\nb".to_owned(), true)]);
+    assert!(a.text_inbound(&one(AUTOMOD, json!("a\nb")), NOW + 1).is_empty(), "nothing new");
+    assert_eq!(a.text_inbound(&one(AUTOMOD, json!("c")), NOW + 2), vec![(AUTOMOD, "c".to_owned(), false)]);
+    // wrong type, too long, not ours: ignored
+    assert!(a.text_inbound(&one(RULES, json!(5)), NOW).is_empty());
+    assert!(a.text_inbound(&one(AUTOMOD, json!("x".repeat(5000))), NOW).is_empty());
+    assert_eq!(a.ignored, 1);
+    // our edit goes once, after the debounce, and its echo changes nothing
+    a.text_queue(AUTOMOD, "mine".into(), NOW + 10);
+    assert!(a.outbound(&s, NOW + 10, true).is_none());
+    let patch = a.outbound(&s, NOW + 10 + DEBOUNCE_MS, true).unwrap();
+    assert_eq!(patch[AUTOMOD], json!("mine"));
+    assert!(a.outbound(&s, NOW + 500, true).is_none());
+    // a push that crossed our write is waited out, the echo clears it
+    assert!(a.text_inbound(&one(AUTOMOD, json!("c")), NOW + 300).is_empty());
+    assert!(a.text_inbound(&one(AUTOMOD, json!("mine")), NOW + 400).is_empty());
+    assert!(!a.stale(NOW + 9999));
+    // not signed in yet: it waits, and goes when ready
+    a.text_queue(RULES, "[]".into(), NOW + 1000);
+    assert!(a.outbound(&s, NOW + 2000, false).is_none());
+    assert!(a.outbound(&s, NOW + 2200, true).is_none());
+    assert!(a.outbound(&s, NOW + 2200 + DEBOUNCE_MS, true).is_some());
+    // never echoed: ask again
+    assert!(a.stale(NOW + 2200 + DEBOUNCE_MS + ECHO_MS + 1));
+  }
+
+  #[test]
+  fn text_rows_are_plucked_with_their_own_bounds() {
+    let st = json!({ "automodRegex": "x", "chatFilterRules": "[]", "other": "y".repeat(100) });
+    let (got, bad) = pluck(&st);
+    assert_eq!((got.len(), bad), (2, 0));
+    let st = json!({ "automodRegex": "x".repeat(5000), "chatFilterRules": ["a"] });
+    assert_eq!(pluck(&st), (Vec::new(), 2));
+    let st = json!({ "chatFilterRules": "r".repeat(30_000) });
+    assert_eq!(pluck(&st).0.len(), 1);
   }
 
   #[test]

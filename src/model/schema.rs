@@ -66,6 +66,10 @@ pub enum Ctl {
   Pick(&'static Choice, fn(&Settings) -> usize, fn(&mut Settings, usize)),
   // a list kept with slash commands (hidden words, highlight words); true = highlight
   Words(bool),
+  // the automod patterns, kept with /automod and /unautomod
+  Patterns,
+  // the per-rule hide / highlight list, kept with /rule
+  Rules,
 }
 
 // how a row travels to and from the account's ui-state (model/sync.rs holds the codecs). the ext's key
@@ -125,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 44] = [
+pub static DEFS: [Def; 47] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -511,6 +515,30 @@ pub static DEFS: [Def; 44] = [
     wire: Wire::Bool("modConfirmBan"),
   },
   Def {
+    id: "automod_caps",
+    cmd: Some("/automodcaps"),
+    cat: Cat::Mod,
+    section: "automod",
+    label: "hide all-caps spam",
+    tip: "hide messages over 10 chars that are mostly uppercase",
+    alias: "automodAllCaps caps shouting",
+    ctl: pill!(automod_caps),
+    fx: Fx::Filters,
+    wire: Wire::Bool("automodAllCaps"),
+  },
+  Def {
+    id: "automod_regex",
+    cmd: Some("/automod"),
+    cat: Cat::Mod,
+    section: "automod",
+    label: "filter regex",
+    tip: "matching messages get hidden. case-insensitive; a pattern that isn't a valid regex matches as plain text. enter adds one, /unautomod removes",
+    alias: "automodRegex pattern",
+    ctl: Ctl::Patterns,
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
     id: "hide_bots",
     cmd: Some("/hidebots"),
     cat: Cat::Filters,
@@ -555,6 +583,18 @@ pub static DEFS: [Def; 44] = [
     tip: "messages containing any of these get hidden. enter adds one, /unhideword removes",
     alias: "hideword hidden words",
     ctl: Ctl::Words(false),
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
+    id: "filter_rules",
+    cmd: Some("/rule"),
+    cat: Cat::Filters,
+    section: "rules",
+    label: "filter rules",
+    tip: "per-rule highlight/hide filters — keyword, regex, user, badge, msgtype or expr; first hide wins. enter adds one, /rule list shows them, /rule del removes",
+    alias: "chatFilterRules rule",
+    ctl: Ctl::Rules,
     fx: Fx::None,
     wire: Wire::None,
   },
