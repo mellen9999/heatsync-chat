@@ -1,7 +1,8 @@
 // the feed tab's state (ext social.js feedMessages / activeThread): newest-first posts, one open thread,
 // and the rows they become. pure, so the rules (cap, dedupe, live replies, votes) are tested without a window
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
+use super::engage::Marks;
 use super::message::{Message, Platform};
 use super::post::{self, Post, Reveal};
 use crate::net::social::Page;
@@ -38,7 +39,10 @@ pub struct Feed {
   // why the last load failed (http status; 0 = no answer)
   pub failed: Option<u16>,
   pub thread: Option<Thread>,
-  voting: HashSet<Box<str>>,
+  // posts a vote is out for, with what your vote was before it (a refusal puts it back)
+  voting: HashMap<Box<str>, bool>,
+  // which posts you bookmarked
+  pub marks: Marks,
   // held media the viewer asked to see, this session only (ext: never persisted)
   reveal: HashMap<Box<str>, Reveal>,
   // posts put into the chat tabs, newest last
@@ -135,13 +139,64 @@ impl Feed {
     });
   }
 
-  // one request per post at a time: two fast presses would toggle back
+  // a press: flip your vote now (ext feedVoteOptimistic). false = one is already out for this post,
+  // or it is not here. one request per post at a time: two fast presses would toggle back
   pub fn begin_vote(&mut self, id: &str) -> bool {
-    self.voting.insert(id.into())
+    let Some(was) = self.find(id).map(|p| p.voted) else { return false };
+    if self.voting.contains_key(id) {
+      return false;
+    }
+    self.voting.insert(id.into(), was);
+    self.voted(id, !was, None);
+    true
   }
 
-  pub fn end_vote(&mut self, id: &str) {
-    self.voting.remove(id);
+  // the answer is in (or never came): what your vote was before the press, for a rollback
+  pub fn end_vote(&mut self, id: &str) -> Option<bool> {
+    self.voting.remove(id)
+  }
+
+  // a post is gone (you deleted it): out of the list, the inline copies and the open thread. true = the
+  // visible rows changed
+  pub fn remove(&mut self, id: &str) -> bool {
+    let parent = self.find(id).and_then(|p| p.reply_to.clone());
+    let had = self.find(id).is_some();
+    self.posts.retain(|p| &*p.id != id);
+    self.inline.retain(|p| &*p.id != id);
+    if let Some(t) = &mut self.thread {
+      t.replies.retain(|p| &*p.id != id);
+      if &*t.id == id {
+        t.op = None;
+        t.error = true;
+      }
+    }
+    if let Some(parent) = parent {
+      self.each_copy(&parent, |x| x.replies = x.replies.saturating_sub(1));
+    }
+    had
+  }
+
+  // your edit landed: the new words on every copy
+  pub fn edited(&mut self, id: &str, text: &str) {
+    self.each_copy(id, |x| {
+      x.text = text.into();
+      x.edited = true;
+    });
+  }
+
+  // the thread an `/re` answers: the newest [OP] shown in chat, as its root post (an OP's own reply
+  // answers the thread it is in)
+  pub fn last_op(&self) -> Option<Box<str>> {
+    let p = self.inline.iter().rev().find(|p| p.is_op || p.thread_op)?;
+    Some(p.reply_to.clone().unwrap_or_else(|| p.id.clone()))
+  }
+
+  // the ids to ask the server about: every post on screen not known yet
+  pub fn marks_wanted(&mut self) -> Vec<Box<str>> {
+    let t = self.thread.as_ref();
+    let open = t.into_iter().flat_map(|t| t.op.iter().chain(t.replies.iter()));
+    let ids: Vec<Box<str>> = open.chain(self.posts.iter()).map(|p| p.id.clone()).collect();
+    self.marks.ask_about(ids.iter().map(|i| &**i))
   }
 
   pub fn open(&mut self, id: &str, focus: Option<&str>) {
@@ -341,13 +396,84 @@ mod tests {
     let mut f = Feed::default();
     f.apply(page(1, vec![post("a", 100, None)], false), 1);
     f.open("a", None);
+    f.thread_loaded("a", Ok((post("a", 100, None), vec![])));
     assert!(f.begin_vote("a"));
+    assert!(f.posts[0].voted, "the press shows at once");
     assert!(!f.begin_vote("a"));
     f.voted("a", true, Some(40));
-    f.end_vote("a");
-    assert!(f.begin_vote("a"));
+    assert_eq!(f.end_vote("a"), Some(false));
     assert!(f.posts[0].voted && f.posts[0].heat == 40);
     assert!(f.thread.as_ref().unwrap().op.as_ref().unwrap().voted);
+    assert!(f.begin_vote("a"));
+    assert!(!f.posts[0].voted, "a second press takes it back");
+    assert!(!f.begin_vote("nope"), "a post that is not here has no vote");
+  }
+
+  #[test]
+  fn a_refused_vote_goes_back_to_what_it_was() {
+    let mut f = Feed::default();
+    f.apply(page(1, vec![post("a", 100, None)], false), 1);
+    assert!(f.begin_vote("a"));
+    let prior = f.end_vote("a").unwrap();
+    f.voted("a", prior, None);
+    assert!(!f.posts[0].voted && f.posts[0].heat == 3);
+    f.voted("a", true, None);
+    assert!(f.begin_vote("a"));
+    let prior = f.end_vote("a").unwrap();
+    f.voted("a", prior, None);
+    assert!(f.posts[0].voted, "a refused un-vote keeps the vote");
+  }
+
+  #[test]
+  fn a_deleted_post_leaves_every_list() {
+    let mut f = Feed::default();
+    f.apply(page(1, vec![post("a", 100, None)], false), 1);
+    f.open("a", None);
+    f.thread_loaded("a", Ok((post("a", 100, None), vec![post("r", 200, Some("a"))])));
+    f.posts[0].replies = 1;
+    assert!(f.heard(&post("r", 200, Some("a"))));
+    assert!(f.remove("r"));
+    assert!(f.thread.as_ref().unwrap().replies.is_empty() && f.find("r").is_none());
+    assert_eq!(f.posts[0].replies, 0);
+    assert!(!f.remove("r"), "twice is nothing");
+    assert!(f.remove("a"));
+    assert!(f.posts.is_empty() && f.thread.as_ref().unwrap().op.is_none() && f.thread.as_ref().unwrap().error);
+  }
+
+  #[test]
+  fn an_edit_changes_every_copy() {
+    let mut f = Feed::default();
+    f.apply(page(1, vec![post("a", 100, None)], false), 1);
+    f.open("a", None);
+    f.thread_loaded("a", Ok((post("a", 100, None), vec![])));
+    f.edited("a", "new words");
+    let t = f.thread.as_ref().unwrap().op.as_ref().unwrap();
+    assert!(f.posts[0].edited && &*f.posts[0].text == "new words" && &*t.text == "new words");
+    let m = f.rows(None, false);
+    assert_eq!(&*m[0].body, "new words (edited)");
+  }
+
+  #[test]
+  fn re_answers_the_newest_op_in_chat_by_its_root() {
+    let mut f = Feed::default();
+    assert_eq!(f.last_op(), None);
+    assert!(f.heard(&post("a", 1, None)));
+    assert!(f.heard(&post("b", 2, Some("a"))));
+    assert_eq!(f.last_op().as_deref(), Some("a"), "a plain reply is not an [OP]");
+    let mut own = post("c", 3, Some("a"));
+    own.thread_op = true;
+    assert!(f.heard(&own));
+    assert_eq!(f.last_op().as_deref(), Some("a"), "the thread author's reply answers its thread");
+    assert!(f.heard(&post("d", 4, None)));
+    assert_eq!(f.last_op().as_deref(), Some("d"));
+  }
+
+  #[test]
+  fn bookmarks_are_asked_for_what_is_on_screen_once() {
+    let mut f = Feed::default();
+    f.apply(page(1, vec![post("a", 100, None), post("b", 90, None)], false), 1);
+    assert_eq!(f.marks_wanted(), vec![Box::<str>::from("a"), "b".into()]);
+    assert!(f.marks_wanted().is_empty());
   }
 
   #[test]

@@ -19,6 +19,7 @@ mod chips;
 mod clip;
 mod complete;
 mod emote;
+mod engage;
 mod feed;
 mod filters;
 mod find;
@@ -272,6 +273,9 @@ pub struct App {
   // the feed tab's posts and open thread; the text of a post in flight (put back if it fails)
   feed: Feed,
   pending_post: Option<String>,
+  // your own post being edited (its words are in the box), and the post a delete menu is asking about
+  edit: Option<engage::Edit>,
+  pending_delete: Option<Box<str>>,
 }
 
 impl App {
@@ -426,6 +430,8 @@ impl App {
       whisper_epoch: 0,
       feed: Feed::default(),
       pending_post: None,
+      edit: None,
+      pending_delete: None,
     }
   }
 
@@ -716,6 +722,9 @@ impl App {
     if self.logs.is_some() {
       return self.say("you're reading chat logs: esc goes back");
     }
+    if self.edit.is_some() {
+      return self.edit_send();
+    }
     if let Some(cmd) = local_cmd(&self.line.text) {
       self.line.take();
       self.local(cmd);
@@ -739,6 +748,11 @@ impl App {
     if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
       self.line.take();
       self.mod_slash(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::postcmd::command(&self.line.text) {
+      self.line.take();
+      self.post_slash(cmd);
       return self.after_send();
     }
     if self.feedish() && !self.line.text.trim().is_empty() {
@@ -802,6 +816,8 @@ impl App {
       self.find_clear();
       self.hide_tip();
       self.rover = None;
+      // an edit belongs to the tab it was started in
+      self.edit_end();
       self.active = i;
       // a card or menu belongs to the tab it was opened in
       self.card = None;
@@ -1056,6 +1072,7 @@ impl App {
         target: tag,
         hint: &hint,
         reply,
+        edit: self.edit.is_some() && self.prompt.is_none(),
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
         picker_on: self.picker.is_some() || self.btn_hover,
@@ -1345,11 +1362,13 @@ impl App {
         let empty = l.text.is_empty();
         if empty {
           self.reply = None;
+          self.edit_end();
         }
         return self.leave_insert();
       }
       Key::Named(NamedKey::Escape) => {
         self.reply = None;
+        self.edit_end();
         self.find_clear();
       }
       Key::Named(NamedKey::Enter) => self.send(),
@@ -1497,6 +1516,7 @@ impl App {
       Action::Leave => {
         if !self.find_clear() {
           self.reply = None;
+          self.edit_end();
         }
       }
     }
@@ -2028,6 +2048,10 @@ impl App {
       NetEvent::Seen { surface, at } => self.on_seen(surface, at),
       NetEvent::Voted { id, res } => self.on_voted(id, res),
       NetEvent::Posted { res } => self.on_posted(res),
+      NetEvent::Bookmarked { id, on, res } => self.on_bookmarked(id, on, res),
+      NetEvent::Marks { ids, res } => self.on_marks(ids, res),
+      NetEvent::Edited { id, res } => self.on_edited(id, res),
+      NetEvent::Deleted { id, res } => self.on_deleted(id, res),
       NetEvent::Logs { epoch, res } => self.on_logs(epoch, res),
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
@@ -3619,5 +3643,213 @@ mod live {
     app.hide_tip();
     assert!(app.name_press(), "the mention answers a click");
     assert!(app.card.is_some() && asked.try_recv().is_err());
+  }
+
+  // feed engagement offline: upvote and bookmark show at once and roll back on a refusal, your own post
+  // edits in the box and deletes only after a yes, /op posts, logged out shows no post rows (scratch HOME as above):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_feed_engage -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_feed_engage() {
+    use crate::app::pop::Act;
+    use crate::model::post::parse;
+    use crate::net::social::{self, Page};
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.set = Settings::default();
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let now = crate::util::time::now_ms();
+    let post = |id: &str, user: &str, at: i64| {
+      let mut p =
+        parse(&serde_json::json!({"base36_id": id, "username": user, "user_id": "9", "content": "hello feed"}))
+          .unwrap();
+      p.ts = at;
+      p
+    };
+    let (theirs, mine, old) = (
+      post("00004a", "bob", now - 5000),
+      post("00004b", "mellen", now - 60_000),
+      post("00004c", "mellen", now - 3_600_000),
+    );
+    let cmds = |asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      std::iter::from_fn(|| asked.try_recv().ok()).collect::<Vec<_>>()
+    };
+    let feed = app.tabs.iter().position(|t| t.kind == Kind::Feed).expect("a feed tab");
+    app.select(feed);
+    let load = |app: &mut App| {
+      let posts = vec![theirs.clone(), mine.clone(), old.clone()];
+      app.on_net(NetEvent::Feed(Page { page: 1, posts, hot: false, cold: false, more: false }));
+      app.redraw();
+    };
+    let pick = |app: &mut App, id: &str| {
+      let h = app.chat_area().h;
+      let res = &mut app.res;
+      assert!(app.tabs[feed].view.select_id(id, res, h), "{id} is on screen");
+    };
+    let rows = |app: &mut App, id: &str| {
+      pick(app, id);
+      app.line_menu_key();
+      app.pop.as_ref().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>()).unwrap_or_default()
+    };
+    // logged out: the menu opens (copies) but has no post rows, and nothing is asked about bookmarks
+    load(&mut app);
+    assert!(
+      !cmds(&mut asked).iter().any(|c| matches!(c, Cmd::Social(social::Cmd::BookmarkCheck { .. }))),
+      "no check logged out"
+    );
+    let r = rows(&mut app, "00004a");
+    assert!(
+      r.contains(&"copy message".to_owned()) && !r.iter().any(|l| l.contains("upvote") || l.contains("bookmark"))
+    );
+    app.pop = None;
+    // log in as mellen
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: None,
+      twitch_id: None,
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    app.feed = Feed::default();
+    load(&mut app);
+    let checks: Vec<_> = cmds(&mut asked)
+      .into_iter()
+      .filter_map(|c| if let Cmd::Social(social::Cmd::BookmarkCheck { ids }) = c { Some(ids) } else { None })
+      .collect();
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].len(), 3, "one check for the page");
+    app.on_net(NetEvent::Marks { ids: checks[0].clone(), res: Ok(vec![("00004a".into(), true)]) });
+    // someone else's post: upvote + bookmark (already saved: remove)
+    let r = rows(&mut app, "00004a");
+    assert!(r.contains(&"upvote".to_owned()) && r.contains(&"remove bookmark".to_owned()), "{r:?}");
+    assert!(!r.iter().any(|l| l.starts_with("edit") || l == "delete"));
+    app.pop = None;
+    // upvote: shows at once, a refusal puts it back
+    pick(&mut app, "00004a");
+    app.act(Act::Upvote, None, None);
+    assert!(app.feed.find("00004a").unwrap().voted, "the ▲ lights at once");
+    assert!(cmds(&mut asked).iter().any(|c| matches!(c, Cmd::Social(social::Cmd::Vote { id }) if &**id == "00004a")));
+    app.on_net(NetEvent::Voted { id: "00004a".into(), res: Err(500) });
+    assert!(!app.feed.find("00004a").unwrap().voted, "rolled back");
+    app.act(Act::Upvote, None, None);
+    app.on_net(NetEvent::Voted { id: "00004a".into(), res: Ok((true, Some(7))) });
+    let p = app.feed.find("00004a").unwrap();
+    assert!(p.voted && p.heat == 7);
+    assert!(rows(&mut app, "00004a").contains(&"remove upvote".to_owned()));
+    app.pop = None;
+    // bookmark off: the request says off, a refusal keeps it
+    pick(&mut app, "00004a");
+    app.act(Act::Bookmark, None, None);
+    assert!(!app.feed.marks.get("00004a"));
+    assert!(
+      cmds(&mut asked)
+        .iter()
+        .any(|c| matches!(c, Cmd::Social(social::Cmd::Bookmark { id, on: false }) if &**id == "00004a"))
+    );
+    app.on_net(NetEvent::Bookmarked { id: "00004a".into(), on: false, res: Err(500) });
+    assert!(app.feed.marks.get("00004a"), "rolled back");
+    // your own post: no upvote, edit with a clock, delete
+    let r = rows(&mut app, "00004b");
+    assert!(!r.iter().any(|l| l.contains("upvote")));
+    assert!(r.iter().any(|l| l.starts_with("edit (")) && r.last().map(String::as_str) == Some("delete"), "{r:?}");
+    app.pop = None;
+    let r = rows(&mut app, "00004c");
+    assert!(r.contains(&"edit (expired)".to_owned()));
+    app.pop = None;
+    // edit: the words come into the box, the draft waits, enter saves, a refusal keeps the words
+    pick(&mut app, "00004c");
+    app.act(Act::Edit, None, None);
+    assert!(app.edit.is_none() && app.line.text.is_empty(), "past the window: no edit mode");
+    app.line.insert("my draft");
+    pick(&mut app, "00004b");
+    app.act(Act::Edit, None, None);
+    assert!(app.edit.is_some());
+    assert_eq!(app.line.text, "hello feed");
+    app.line.insert(" fixed");
+    app.send();
+    let sent = cmds(&mut asked);
+    assert!(sent.iter().any(
+      |c| matches!(c, Cmd::Social(social::Cmd::Edit { id, text }) if &**id == "00004b" && text == "hello feed fixed")
+    ));
+    app.on_net(NetEvent::Edited { id: "00004b".into(), res: Err(403) });
+    assert!(app.edit.is_some() && app.line.text == "hello feed fixed", "a refused edit keeps the words");
+    app.send();
+    app.on_net(NetEvent::Edited { id: "00004b".into(), res: Ok("hello feed fixed".into()) });
+    assert!(app.edit.is_none());
+    assert_eq!(app.line.text, "my draft", "the draft is back");
+    let p = app.feed.find("00004b").unwrap();
+    assert!(p.edited && &*p.text == "hello feed fixed");
+    // esc drops an edit and gives the draft back
+    pick(&mut app, "00004b");
+    app.act(Act::Edit, None, None);
+    app.key_insert(Key::Named(NamedKey::Escape), None);
+    assert!(app.edit.is_none() && app.line.text == "my draft");
+    while asked.try_recv().is_ok() {}
+    // delete asks first: cancel sends nothing, yes sends it, the post leaves on the answer
+    pick(&mut app, "00004b");
+    app.act(Act::Delete, None, None);
+    let p = app.pop.as_ref().expect("delete asks");
+    assert_eq!(p.menu.items.iter().map(|r| r.1.as_str()).collect::<Vec<_>>(), ["yes, delete", "cancel"]);
+    assert!(cmds(&mut asked).is_empty(), "nothing sent before the yes");
+    app.pop.as_mut().unwrap().menu.at = 1;
+    app.pop_key(Key::Named(NamedKey::Enter));
+    assert!(cmds(&mut asked).is_empty() && app.feed.find("00004b").is_some(), "cancel keeps it");
+    app.act(Act::Delete, None, None);
+    app.pop_key(Key::Named(NamedKey::Enter));
+    assert!(cmds(&mut asked).iter().any(|c| matches!(c, Cmd::Social(social::Cmd::Delete { id }) if &**id == "00004b")));
+    app.on_net(NetEvent::Deleted { id: "00004b".into(), res: Err(500) });
+    assert!(app.feed.find("00004b").is_some(), "a refused delete keeps it");
+    app.on_net(NetEvent::Deleted { id: "00004b".into(), res: Ok(()) });
+    assert!(app.feed.find("00004b").is_none());
+    // /op posts a thread from any tab; /re answers the last [OP] heard in chat
+    app.line.take();
+    app.line.insert("/op hi there");
+    app.send();
+    assert!(
+      cmds(&mut asked)
+        .iter()
+        .any(|c| matches!(c, Cmd::Social(social::Cmd::Post { text, reply_to: None }) if text == "hi there"))
+    );
+    app.line.insert("/re yes");
+    app.send();
+    assert!(cmds(&mut asked).is_empty(), "no [OP] in chat yet: nothing sent");
+    assert_eq!(app.line.text, "", "the say line took it");
+    app.on_feed_live(theirs.clone());
+    app.set.inline_op = true;
+    app.on_feed_live(post("00004d", "bob", now));
+    app.line.insert("/re yes");
+    app.send();
+    assert!(cmds(&mut asked).iter().any(
+      |c| matches!(c, Cmd::Social(social::Cmd::Post { text, reply_to: Some(r) }) if text == "yes" && &**r == "00004d")
+    ));
+    // a failed /op comes back into the box with its command
+    app.on_net(NetEvent::Posted { res: Err(500) });
+    assert_eq!(app.line.text, "/re yes");
+    // op to feed on a chat line: the box gets /op @name: words
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    app.line.take();
+    let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+    m.kind = crate::model::message::Kind::Chat;
+    m.id = "abc".into();
+    m.nick = "Carol".into();
+    m.login = "carol".into();
+    m.body = "this is   news".into();
+    app.on_chat("forsen", Chat::Msg(m));
+    app.redraw();
+    app.tabs[app.active].view.select_start(&mut app.res, 300);
+    app.open_line_menu((10, 10));
+    let labels: Vec<_> = app.pop.as_ref().unwrap().menu.items.iter().map(|r| r.1.clone()).collect();
+    assert!(labels.contains(&"op to feed".to_owned()), "{labels:?}");
+    app.act(Act::OpToFeed, None, None);
+    assert_eq!(app.line.text, "/op @Carol: this is news");
   }
 }

@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
+use crate::model::engage;
 use crate::model::logs;
 use crate::model::message::Platform;
 use crate::model::post::{self, Post};
@@ -32,6 +33,13 @@ pub enum Cmd {
   // a held post's withheld files (the viewer pressed show)
   Media { id: Box<str> },
   Vote { id: Box<str> },
+  // `on` = the state wanted: true bookmarks, false takes it off
+  Bookmark { id: Box<str>, on: bool },
+  // which of these (at most 100) posts you bookmarked
+  BookmarkCheck { ids: Vec<Box<str>> },
+  // your own post, new words (the server keeps the ten minute window)
+  Edit { id: Box<str>, text: String },
+  Delete { id: Box<str> },
   // reply_to None = a top-level post
   Post { text: String, reply_to: Option<Box<str>> },
   WhisperHistory { me: u64, epoch: u32 },
@@ -55,6 +63,10 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::Thread { id } => thread(&http, token.as_deref(), id, &out).await,
     Cmd::Media { id } => media(&http, token.as_deref(), id, &out).await,
     Cmd::Vote { id } => vote(&http, token.as_deref(), id, &out).await,
+    Cmd::Bookmark { id, on } => bookmark(&http, token.as_deref(), id, on, &out).await,
+    Cmd::BookmarkCheck { ids } => bookmark_check(&http, token.as_deref(), ids, &out).await,
+    Cmd::Edit { id, text } => edit(&http, token.as_deref(), id, text, &out).await,
+    Cmd::Delete { id } => delete(&http, token.as_deref(), id, &out).await,
     Cmd::Post { text, reply_to } => publish(&http, token.as_deref(), text, reply_to, &out).await,
     Cmd::WhisperHistory { me, epoch } => {
       if let Some(t) = token {
@@ -279,6 +291,46 @@ async fn vote(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &O
     Err(status)
   };
   void(out.send(NetEvent::Voted { id, res }))
+}
+
+// POST adds a bookmark, DELETE takes it off (ext feedBookmarkToggle); 2xx = settled
+async fn bookmark(http: &reqwest::Client, token: Option<&str>, id: Box<str>, on: bool, out: &Out) {
+  let Some(t) = token else { return void(out.send(NetEvent::Bookmarked { id, on, res: Err(401) })) };
+  let url = format!("{ORIGIN}/api/bookmarks/{}", crate::util::path_seg(&id));
+  let req = if on { http.post(url) } else { http.delete(url) }.bearer_auth(t);
+  let (status, _) = call(req).await;
+  let res = if (200..300).contains(&status) { Ok(()) } else { Err(status) };
+  void(out.send(NetEvent::Bookmarked { id, on, res }))
+}
+
+async fn bookmark_check(http: &reqwest::Client, token: Option<&str>, ids: Vec<Box<str>>, out: &Out) {
+  let Some(t) = token.filter(|_| !ids.is_empty()) else { return };
+  let ids: Vec<Box<str>> = ids.into_iter().take(engage::CHECK_CHUNK).collect();
+  let (status, v) = call(authed(http, t, "/api/bookmarks/check", json!({ "message_ids": &ids }).to_string())).await;
+  let res = if status == 200 { engage::parse_checked(&v, &ids).ok_or(500) } else { Err(status) };
+  void(out.send(NetEvent::Marks { ids, res }))
+}
+
+// PATCH /api/messages/:id { content }: the saved words come back
+async fn edit(http: &reqwest::Client, token: Option<&str>, id: Box<str>, text: String, out: &Out) {
+  let Some(t) = token else { return void(out.send(NetEvent::Edited { id, res: Err(401) })) };
+  let url = format!("{ORIGIN}/api/messages/{}", crate::util::path_seg(&id));
+  let req = http.patch(url).bearer_auth(t).header("content-type", "application/json");
+  let (status, v) = call(req.body(json!({ "content": text }).to_string())).await;
+  let res = match engage::parse_edit(&v) {
+    Some(saved) if (200..300).contains(&status) => Ok(saved),
+    _ => Err(if (200..300).contains(&status) { 500 } else { status }),
+  };
+  void(out.send(NetEvent::Edited { id, res }))
+}
+
+// DELETE /api/messages/:id: a soft delete. already gone (410) is as good as done
+async fn delete(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {
+  let Some(t) = token else { return void(out.send(NetEvent::Deleted { id, res: Err(401) })) };
+  let (status, _) =
+    call(http.delete(format!("{ORIGIN}/api/messages/{}", crate::util::path_seg(&id))).bearer_auth(t)).await;
+  let res = if (200..300).contains(&status) || status == 410 { Ok(()) } else { Err(status) };
+  void(out.send(NetEvent::Deleted { id, res }))
 }
 
 async fn publish(http: &reqwest::Client, token: Option<&str>, text: String, reply_to: Option<Box<str>>, out: &Out) {

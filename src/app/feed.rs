@@ -2,7 +2,9 @@
 // enter (or a click on its >>id) opens a thread, u upvotes, r replies, typing posts (a reply while a thread is open), esc or h goes back.
 // logged out it still reads: the hot posts, with the nudge to log in
 use super::App;
+use crate::model::engage;
 use crate::model::feed::{Feed, MORE_ID};
+use crate::model::message::Message;
 use crate::model::post::{self, Post};
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
@@ -14,15 +16,15 @@ use crate::util::time::now_ms;
 // a thread's rows at most (the OP and its replies)
 const THREAD_ROWS: usize = 1000;
 
-const LOGIN_FIRST: &str = "log in at heatsync.org first";
-const TRY_AGAIN: &str = "that didn’t work — try again";
+pub(super) const LOGIN_FIRST: &str = "log in at heatsync.org first";
+pub(super) const TRY_AGAIN: &str = "that didn’t work — try again";
 
 impl App {
   fn feed_tab(&self) -> Option<usize> {
     self.tab_of(Kind::Feed)
   }
 
-  fn my_name(&self) -> Option<Box<str>> {
+  pub(super) fn my_name(&self) -> Option<Box<str>> {
     self.me.as_ref().map(|m| m.username.clone())
   }
 
@@ -83,6 +85,7 @@ impl App {
   // a different login reads a different (following) feed
   pub(super) fn feed_reset(&mut self) {
     self.takeover_close();
+    self.edit_end();
     self.feed = Feed::default();
     self.feed_show();
     if self.kind() == Kind::Feed {
@@ -93,6 +96,7 @@ impl App {
   pub(super) fn on_feed(&mut self, p: Page) {
     self.feed.apply(p, now_ms());
     self.feed_show();
+    self.marks_load();
   }
 
   pub(super) fn on_feed_failed(&mut self, status: u16) {
@@ -100,23 +104,36 @@ impl App {
     self.feed_show();
   }
 
-  // a feed post as a line in every chat tab (ext injectInlineNotif): the >>id opens its thread right
-  // there. `force` = your own post, shown whatever the switches say (a receipt, not news)
-  fn feed_inline(&mut self, p: &Post, force: bool) {
-    let (on, edge) = if p.thread_op {
-      (self.set.inline_mop, theme::MAGENTA)
+  // a feed post as a chat line: its kind's edge (ext injectInlineNotif), no ▲
+  pub(super) fn inline_line(&self, p: &Post) -> Message {
+    let edge = if p.thread_op {
+      theme::MAGENTA
     } else if p.is_op {
-      (self.set.inline_op, theme::RED)
+      theme::RED
     } else {
-      (self.set.inline_re, theme::CYAN)
+      theme::CYAN
     };
-    if p.anon || !(on || force) || !self.feed.heard(p) {
-      return;
-    }
     let mut m = post::message(p, self.my_name().as_deref(), false);
     if let Some(x) = &mut m.x {
       x.edge = edge;
     }
+    m
+  }
+
+  // a feed post as a line in every chat tab (ext injectInlineNotif): the >>id opens its thread right
+  // there. `force` = your own post, shown whatever the switches say (a receipt, not news)
+  fn feed_inline(&mut self, p: &Post, force: bool) {
+    let on = if p.thread_op {
+      self.set.inline_mop
+    } else if p.is_op {
+      self.set.inline_op
+    } else {
+      self.set.inline_re
+    };
+    if p.anon || !(on || force) || !self.feed.heard(p) {
+      return;
+    }
+    let m = self.inline_line(p);
     for i in 0..self.tabs.len() {
       if self.tabs[i].kind == Kind::Chat && !self.tabs[i].sources.is_empty() {
         self.tabs[i].chat().push(m.clone());
@@ -144,6 +161,7 @@ impl App {
       return;
     }
     self.feed_show();
+    self.marks_load();
     let Some(focus) = self.feed.thread.as_mut().and_then(|t| t.focus.take()) else { return };
     let (Some(i), h) = (self.thread_tab(), self.chat_area().h) else { return };
     let res = &mut self.res;
@@ -152,15 +170,19 @@ impl App {
   }
 
   pub(super) fn on_voted(&mut self, id: Box<str>, res: Result<(bool, Option<u32>), u16>) {
-    self.feed.end_vote(&id);
+    let prior = self.feed.end_vote(&id);
     match res {
-      Ok((voted, heat)) => {
-        self.feed.voted(&id, voted, heat);
-        self.feed_show();
+      Ok((voted, heat)) => self.feed.voted(&id, voted, heat),
+      Err(status) => {
+        // the press showed at once: a refusal puts your vote back
+        if let Some(was) = prior {
+          self.feed.voted(&id, was, None);
+        }
+        self.say(if status == 401 { LOGIN_FIRST } else { TRY_AGAIN });
       }
-      Err(401) => self.say(LOGIN_FIRST),
-      Err(_) => self.say(TRY_AGAIN),
     }
+    self.refresh_inline(&id);
+    self.feed_show();
   }
 
   pub(super) fn on_posted(&mut self, res: Result<Post, u16>) {
@@ -322,16 +344,19 @@ impl App {
     true
   }
 
+  // u, the ▲, or the menu: flip your vote now; the answer settles it
   pub(super) fn feed_vote(&mut self) {
-    let Some(id) = self.selected_post_id().filter(|i| &**i != MORE_ID) else { return };
+    let Some(id) = self.selected_row_post_id() else { return };
     if self.me.is_none() {
       return self.say(LOGIN_FIRST);
     }
-    let own = self.feed.find(&id).zip(self.my_name()).is_some_and(|(p, n)| n.eq_ignore_ascii_case(&p.user));
+    let own = self.feed.find(&id).is_some_and(|p| self.my_name().is_some_and(|n| n.eq_ignore_ascii_case(&p.user)));
     if own || !self.feed.begin_vote(&id) {
       return;
     }
-    self.net.send(Cmd::Social(social::Cmd::Vote { id }));
+    self.net.send(Cmd::Social(social::Cmd::Vote { id: id.clone() }));
+    self.refresh_inline(&id);
+    self.feed_show();
   }
 
   // esc / h / the `← back` tab: out of the thread, back to where it was opened. false = nothing to leave
@@ -345,12 +370,25 @@ impl App {
   // a typed line in the feed tab: a new post, or a reply to the open thread
   pub(super) fn feed_post(&mut self) {
     let Some(text) = self.line.take() else { return };
-    if self.me.is_none() {
-      self.line.set_text(text);
-      return self.say(LOGIN_FIRST);
-    }
     let reply_to = self.feed.thread.as_ref().map(|t| t.id.clone());
-    self.pending_post = Some(text.clone());
+    self.publish(text.clone(), reply_to, text);
+  }
+
+  // send a post. `restore` is what goes back in the box if it can't go (logged out, too long) or fails
+  pub(super) fn publish(&mut self, text: String, reply_to: Option<Box<str>>, restore: String) {
+    let why = if self.me.is_none() {
+      Some(LOGIN_FIRST)
+    } else if engage::too_long(&text) {
+      Some("posts are 500 characters at most")
+    } else {
+      None
+    };
+    if let Some(why) = why {
+      self.line.load(restore);
+      self.input_dirty = true;
+      return self.say(why);
+    }
+    self.pending_post = Some(restore);
     self.net.send(Cmd::Social(social::Cmd::Post { text, reply_to }));
   }
 

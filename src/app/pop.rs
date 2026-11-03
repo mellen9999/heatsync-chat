@@ -3,6 +3,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use super::engage::{PostCtx, engage_rows, own_rows};
 use crate::cosmetics::id::PaintId;
 use crate::model::filter::{self, DEFAULT_MUTE_MS};
 use crate::model::message::{Kind as MsgKind, Platform};
@@ -52,6 +53,14 @@ pub enum Act {
   Unmute,
   Block,
   Unblock,
+  // feed posts: your vote, your bookmark, your own post's edit and delete (asked first), and a chat
+  // line quoted into a new post
+  Upvote,
+  Bookmark,
+  Edit,
+  Delete,
+  DeletePost,
+  OpToFeed,
 }
 
 // the person a line menu acts on, from the line it was opened on
@@ -88,6 +97,11 @@ impl Pop {
   pub fn confirm(head: String, at: (i32, i32), todo: Todo) -> Self {
     let rows = vec![(Act::Yes, "yes, ban".to_owned()), (Act::No, "cancel".to_owned())];
     Pop { menu: Menu::new(rows, at).titled(head), subject: None, todo: Some(todo) }
+  }
+
+  // a question with its own rows (delete post?)
+  pub fn ask(head: String, at: (i32, i32), rows: Vec<(Act, String)>) -> Self {
+    Pop { menu: Menu::new(rows, at).titled(head), subject: None, todo: None }
   }
 }
 
@@ -142,10 +156,15 @@ pub struct Ctx {
   pub chat_tab: bool,
   // their paint: None = none, Some(hidden)
   pub paint: Option<bool>,
+  // the line is a feed post and you are signed in: its rows
+  pub post: Option<PostCtx>,
+  // a chat line you could post to the feed
+  pub op: bool,
 }
 
-// the ext's order: card, reply, the copies, the person (filters, mod), then note, paint, twitch's viewer
-// card, filter to
+// the ext's order: card, reply, op to feed, the copies, the person (filters, mod), then note, a post's
+// upvote and bookmark, paint, twitch's viewer card, filter to, chat logs, and last your own post's
+// edit and delete
 pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   let mut rows: Vec<(Act, String)> = Vec::new();
   if c.who.is_some() {
@@ -154,12 +173,23 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   if c.can_reply {
     rows.push((Act::Reply, "reply".into()));
   }
+  if c.op {
+    rows.push((Act::OpToFeed, "op to feed".into()));
+  }
   rows.push((Act::CopyName, "copy name".into()));
   rows.push((Act::CopyMessage, "copy message".into()));
   rows.push((Act::Quote, "copy \u{2192} input".into()));
   rows.extend(person);
-  let Some(w) = &c.who else { return rows };
+  let post = |rows: &mut Vec<(Act, String)>, f: fn(&PostCtx) -> Vec<(Act, String)>| {
+    rows.extend(c.post.iter().flat_map(f));
+  };
+  let Some(w) = &c.who else {
+    post(&mut rows, engage_rows);
+    post(&mut rows, own_rows);
+    return rows;
+  };
   rows.push((Act::Note, if w.noted { "edit note" } else { "add note" }.into()));
+  post(&mut rows, engage_rows);
   if let Some(hidden) = c.paint {
     let verb = if hidden { "show" } else { "hide" };
     rows.push((Act::Paint, format!("{verb} {}\u{2019}s paint", w.nick)));
@@ -171,6 +201,7 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
     rows.push((Act::FilterTo, format!("filter to {}", w.nick)));
   }
   rows.push((Act::Logs, "chat logs".into()));
+  post(&mut rows, own_rows);
   rows
 }
 
@@ -228,7 +259,14 @@ impl App {
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
       (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
       (Act::No, ..) => self.say("cancelled"),
+      (Act::Reply, ..) if self.feedish() && self.selected_row_post_id().is_some() => self.feed_reply(),
       (Act::Reply, ..) => self.reply_selected(),
+      (Act::Upvote, ..) => self.feed_vote(),
+      (Act::Bookmark, ..) => self.feed_bookmark(),
+      (Act::Edit, ..) => self.edit_begin(),
+      (Act::Delete, ..) => self.delete_ask(),
+      (Act::DeletePost, ..) => self.delete_go(),
+      (Act::OpToFeed, ..) => self.op_to_feed(),
       (Act::CopyName, ..) => self.copy_name(),
       (Act::CopyMessage, ..) => self.copy_selected(),
       (Act::Quote, ..) => self.quote_selected(),
@@ -327,10 +365,22 @@ impl App {
     if self.logs.is_some() {
       return;
     }
-    let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions)) else { return };
+    let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions | Kind::Feed))
+    else {
+      return;
+    };
     let Some(m) = t.view.selected().filter(|m| m.kind != MsgKind::System) else { return };
-    let (chat_tab, can_reply, head) =
-      (t.kind == Kind::Chat, !m.id.is_empty() && t.kind == Kind::Chat, m.nick.to_string());
+    let (chat_tab, head) = (t.kind == Kind::Chat, m.nick.to_string());
+    // a feed post: its rows, and (in the feed, a thread) the reply that answers the thread. in a chat
+    // tab its id is no platform message id, so there is no reply to send
+    let post = self.row_post(m);
+    let signed_in = self.me.is_some();
+    let can_reply = match post {
+      Some(_) => self.feedish() && signed_in,
+      None => !m.id.is_empty() && t.kind == Kind::Chat,
+    };
+    let op = post.is_none() && signed_in && !m.body.is_empty();
+    let post = post.and_then(|p| self.post_ctx(p));
     let who = self.subject_of(m);
     let person = who.as_ref().map(|w| self.person_rows(w)).unwrap_or_default();
     let paint = who.as_ref().and_then(|w| w.paint.as_ref()).and_then(|id| {
@@ -348,6 +398,8 @@ impl App {
       can_reply,
       chat_tab,
       paint,
+      post,
+      op,
     };
     let rows = line_rows(&ctx, person);
     self.pop = Some(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None });
@@ -480,7 +532,14 @@ mod tests {
 
   #[test]
   fn a_twitch_line_in_a_channel_tab_has_every_row_in_the_exts_order() {
-    let c = Ctx { who: who(Platform::Twitch, false, false), can_reply: true, chat_tab: true, paint: Some(false) };
+    let c = Ctx {
+      who: who(Platform::Twitch, false, false),
+      can_reply: true,
+      chat_tab: true,
+      paint: Some(false),
+      post: None,
+      op: false,
+    };
     assert_eq!(
       rows(&c),
       [
@@ -502,7 +561,14 @@ mod tests {
 
   #[test]
   fn kick_has_no_twitch_viewer_card_and_mentions_has_no_filter() {
-    let c = Ctx { who: who(Platform::Kick, false, true), can_reply: false, chat_tab: false, paint: Some(true) };
+    let c = Ctx {
+      who: who(Platform::Kick, false, true),
+      can_reply: false,
+      chat_tab: false,
+      paint: Some(true),
+      post: None,
+      op: false,
+    };
     let r = rows(&c);
     assert!(r.contains(&"edit note".to_owned()) && r.contains(&"show Bob\u{2019}s paint".to_owned()));
     assert!(!r.iter().any(|l| l.starts_with("report") || l.starts_with("filter") || l == "reply"));
@@ -510,7 +576,14 @@ mod tests {
 
   #[test]
   fn no_paint_no_paint_row_and_own_lines_keep_the_copies_and_the_note() {
-    let c = Ctx { who: who(Platform::Twitch, true, false), can_reply: true, chat_tab: true, paint: None };
+    let c = Ctx {
+      who: who(Platform::Twitch, true, false),
+      can_reply: true,
+      chat_tab: true,
+      paint: None,
+      post: None,
+      op: false,
+    };
     let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
     assert_eq!(
       r,
@@ -529,12 +602,67 @@ mod tests {
 
   #[test]
   fn a_line_with_no_person_still_copies() {
-    let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None };
+    let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None, post: None, op: false };
     assert_eq!(
       rows(&c),
       ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"],
       "no person, no logs"
     );
+  }
+
+  fn post(own: bool, voted: bool, marked: bool, left: Option<i64>) -> Option<PostCtx> {
+    Some(PostCtx { own, voted, marked, left })
+  }
+
+  #[test]
+  fn a_post_of_someone_else_offers_upvote_and_bookmark_in_the_exts_words() {
+    let c = Ctx {
+      who: None,
+      can_reply: true,
+      chat_tab: false,
+      paint: None,
+      post: post(false, false, false, None),
+      op: false,
+    };
+    assert_eq!(rows_of(&c), ["reply", "copy name", "copy message", "copy \u{2192} input", "upvote", "bookmark"]);
+    let c = Ctx { post: post(false, true, true, None), ..c };
+    let r = rows_of(&c);
+    assert_eq!(&r[r.len() - 2..], ["remove upvote", "remove bookmark"]);
+  }
+
+  #[test]
+  fn your_own_post_has_no_upvote_but_edit_with_its_clock_and_delete_last() {
+    let who = who(Platform::Twitch, true, false);
+    let c = Ctx {
+      who,
+      can_reply: true,
+      chat_tab: false,
+      paint: None,
+      post: post(true, false, false, Some(412_000)),
+      op: false,
+    };
+    let r = rows_of(&c);
+    assert!(!r.iter().any(|l| l.contains("upvote")));
+    assert_eq!(r[r.len() - 3..], ["chat logs", "edit (6:52)", "delete"]);
+    assert!(r.contains(&"bookmark".to_owned()), "you can bookmark your own");
+    let c = Ctx { post: post(true, false, false, None), ..c };
+    assert!(rows_of(&c).contains(&"edit (expired)".to_owned()));
+  }
+
+  #[test]
+  fn logged_out_a_post_has_no_post_rows_and_a_chat_line_no_op_to_feed() {
+    let c = Ctx { who: None, can_reply: false, chat_tab: false, paint: None, post: None, op: false };
+    assert_eq!(rows_of(&c), ["copy name", "copy message", "copy \u{2192} input"]);
+  }
+
+  #[test]
+  fn a_chat_line_offers_op_to_feed_after_reply() {
+    let c = Ctx { who: None, can_reply: true, chat_tab: true, paint: None, post: None, op: true };
+    assert_eq!(rows_of(&c)[..2], ["reply", "op to feed"]);
+  }
+
+  fn rows_of(c: &Ctx) -> Vec<String> {
+    line_rows(c, Vec::new()).into_iter().map(|r| r.1).collect()
   }
 
   #[test]

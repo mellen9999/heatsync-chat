@@ -90,6 +90,12 @@ pub enum NetEvent {
   // the install finished (restart now) or said why not
   Updated(Result<(), String>),
   Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
+  // a bookmark settled (`on` = what was asked), the check of which posts are bookmarked, an edit and a
+  // delete of your own post settling
+  Bookmarked { id: Box<str>, on: bool, res: Result<(), u16> },
+  Marks { ids: Vec<Box<str>>, res: Result<Vec<(Box<str>, bool)>, u16> },
+  Edited { id: Box<str>, res: Result<Box<str>, u16> },
+  Deleted { id: Box<str>, res: Result<(), u16> },
   // you last looked at a tab at `at` (here at login, or on another client since)
   Seen { surface: crate::model::unseen::Surface, at: i64 },
   Posted { res: Result<crate::model::post::Post, u16> },

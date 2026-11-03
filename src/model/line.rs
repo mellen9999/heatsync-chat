@@ -150,6 +150,18 @@ impl Line {
     self.browsing = None;
   }
 
+  // swap in a whole text with the cursor at its end and a fresh undo history, never into the sent history
+  // (a post being edited, or the draft that was set aside for it)
+  pub fn load(&mut self, text: String) {
+    self.cursor = text.len();
+    self.text = text;
+    self.chips.clear();
+    self.overlays.clear();
+    self.undo.clear();
+    self.redo.clear();
+    self.browsing = None;
+  }
+
   fn prev(&self, i: usize) -> usize {
     breaks(&self.text).take_while(|&b| b < i).last().unwrap_or(0)
   }

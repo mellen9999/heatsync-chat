@@ -45,7 +45,7 @@ pub static KEYS: [Group; 12] = [
     rows: &[
       ("j k", "move the pick"),
       ("r", "reply to it"),
-      ("m", "line menu: copy, note, mute, block, hide"),
+      ("m", "line menu: copy, note, mute, block, hide; a post: upvote, bookmark, edit, delete; op to feed"),
       ("c", "user card"),
       ("o", "open its first link (a video plays)"),
       ("ctrl-c", "copy the line"),

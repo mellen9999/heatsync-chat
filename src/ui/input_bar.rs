@@ -35,6 +35,8 @@ pub struct Bar<'a> {
   pub hint: &'a str,
   // replying to @nick: shown dim before the text
   pub reply: Option<&'a str>,
+  // editing your own post: shown dim before its words
+  pub edit: bool,
   // uncommitted input-method text, drawn underlined at the cursor, and its caret (byte offset)
   pub preedit: &'a str,
   pub preedit_caret: usize,
@@ -97,7 +99,7 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
 
 // an empty box shows the dim hint in place of text
 fn hinting(b: &Bar) -> bool {
-  b.line.text.is_empty() && b.preedit.is_empty() && !b.hint.is_empty() && b.reply.is_none()
+  b.line.text.is_empty() && b.preedit.is_empty() && !b.hint.is_empty() && b.reply.is_none() && !b.edit
 }
 
 fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
@@ -106,6 +108,11 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   if let Some((tag, ink)) = b.target {
     s.push_str(tag);
     spans.push(Span { range: 0..tag.len().saturating_sub(1), ink: Ink(ink), bold: true });
+  }
+  if b.edit {
+    let a = s.len();
+    s.push_str("\u{270e} editing ");
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
   }
   if let Some(nick) = b.reply {
     let a = s.len();

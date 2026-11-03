@@ -12,7 +12,9 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 27] = [
+const FIXED: [Slash; 29] = [
+  s("/op", "<text>", "post a thread to your heatsync feed"),
+  s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
   s("/w", "<user> [text]", "whisper someone"),
   s("/r", "<text>", "answer the last whisper"),
@@ -68,7 +70,7 @@ mod tests {
     for c in &all {
       assert!(c.name.starts_with('/') && !c.desc.is_empty() && c.desc == c.desc.to_lowercase(), "{}", c.name);
     }
-    for c in ["/vi", "/zoom", "/glow", "/ban", "/mute", "/w", "/join", "/keys"] {
+    for c in ["/vi", "/zoom", "/glow", "/ban", "/mute", "/op", "/re", "/w", "/join", "/keys"] {
       assert!(names.contains(&c), "{c}");
     }
   }
