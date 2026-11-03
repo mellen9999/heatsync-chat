@@ -1321,15 +1321,24 @@ impl App {
       eprintln!("resize: {e}");
       return;
     }
-    self.canvas.resize(w as i32, h as i32);
+    self.resized(w as i32, h as i32);
+  }
+
+  // the canvas at its new size, and everything on it due to paint again
+  fn resized(&mut self, w: i32, h: i32) {
+    self.canvas.resize(w, h);
     self.damage_hist = [None; 2];
     // softbuffer keeps a resized buffer's age though its pixels are new (zeroed): send it all
     self.expose = true;
     self.input_dirty = true;
+    // the canvas came back zeroed: everything paints again, not only what changed width (a height-only
+    // resize, e.g. a new window tiling beside this one, left the chat black but for its animations)
     let bw = self.body().w;
     for v in self.tabs.iter_mut().flat_map(Tab::views) {
       v.resize(bw);
+      v.invalidate();
     }
+    self.pin_sig = Default::default();
     self.bar_dirty = true;
     self.wake();
   }
@@ -2727,6 +2736,34 @@ mod live {
   // `:smi` lists emotes first, then emoji (glyph and :shortcode:); picking puts the glyph in the box;
   // a typed :shortcode: becomes the glyph on send. HSC_DUMP=$d/x.ppm (the list) ... cargo test -j2
   // --release headless_picker_emoji -- --ignored  (scratch HOME as above)
+  #[test]
+  fn a_height_only_resize_paints_the_chat_again() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.resized(420, 300);
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    for n in 0..40 {
+      app.tabs[chat].chat().push(Message::system(now_ms(), Platform::Twitch, format!("line {n} with some words")));
+    }
+    app.redraw();
+    let lit = |app: &App| {
+      let a = app.chat_area();
+      (a.y..a.bottom())
+        .flat_map(|y| (a.x..a.right()).map(move |x| (x, y)))
+        .filter(|&(x, y)| app.canvas.px[(y * app.canvas.w + x) as usize] != 0)
+        .count()
+    };
+    let before = lit(&app);
+    assert!(before > 500, "the chat drew ({before} px)");
+    // a new window tiles beside this one: same width, shorter
+    app.resized(420, 240);
+    app.redraw();
+    assert!(lit(&app) > 300, "the chat paints again after a height-only resize, not only its animations");
+  }
+
   #[test]
   #[ignore]
   fn headless_picker_emoji() {
