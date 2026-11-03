@@ -42,6 +42,7 @@ mod pronouns;
 mod rover;
 mod screen;
 mod stats;
+mod status;
 mod stream;
 mod suggest;
 mod tabs;
@@ -155,6 +156,9 @@ pub struct App {
   rooms: Vec<(Box<str>, Box<str>)>,
   // twitch channels where our badges say we moderate (or own) the room
   mod_in: std::collections::HashSet<Box<str>>,
+  // each twitch room's chat modes as its ROOMSTATE says, and a mode change on its way
+  modes: std::collections::HashMap<Box<str>, crate::model::modes::Modes>,
+  modes_busy: bool,
   // when the soonest timed mute ends
   mute_due: Option<Instant>,
   next_anim: Option<Instant>,
@@ -373,6 +377,8 @@ impl App {
       prof: std::env::var_os("HSC_PROF").is_some(),
       rooms: Vec::new(),
       mod_in: Default::default(),
+      modes: Default::default(),
+      modes_busy: false,
       mute_due,
       next_anim: None,
       tip: None,
@@ -753,6 +759,7 @@ impl App {
       Local::Keys => self.open_screen(screen::Page::Keys),
       Local::Blocked => self.blocked_here(),
       Local::Summary => self.summary_here(),
+      Local::Status => self.status_here(),
     }
   }
 
@@ -781,6 +788,11 @@ impl App {
     if let Some(cmd) = crate::model::notes::command(&self.line.text) {
       self.line.take();
       self.note_cmd(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::modes::command(&self.line.text) {
+      self.line.take();
+      self.modes_slash(cmd);
       return self.after_send();
     }
     if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
@@ -1041,7 +1053,8 @@ impl App {
         tab.push(Message::system(now_ms(), Platform::Twitch, format!("{login} was {what}")));
       }
       Chat::ClearAll => tab.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
-      Chat::Room { id } => {
+      Chat::Room { id, modes } => {
+        self.modes_seen(ch, modes);
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
           self.rooms.push((ch.into(), id.clone()));
           self.net.send(Cmd::Room(ch.into(), id));
@@ -2111,6 +2124,8 @@ impl App {
       NetEvent::HeldWatched { chan, res } => self.on_held_watched(chan, res),
       NetEvent::HeldActed { chan, id, allow, res } => self.on_held_acted(chan, id, allow, res),
       NetEvent::Blocked { room, res } => self.on_blocked(room, res),
+      NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
+      NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
       NetEvent::TagCard(tag, res) => self.on_tag_card(tag, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state

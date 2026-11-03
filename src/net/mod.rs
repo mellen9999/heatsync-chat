@@ -9,6 +9,7 @@ pub mod hs_ws;
 pub mod irc;
 mod links;
 pub mod modact;
+pub mod modes;
 pub mod mutes;
 pub mod pin;
 mod recent;
@@ -139,6 +140,10 @@ pub enum NetEvent {
   TagCard(Box<str>, Result<Option<crate::model::tagcard::Card>, ()>),
   // a room's blocked terms answered (by twitch room id)
   Blocked { room: Box<str>, res: Result<blocked::Got, blocked::Fail> },
+  // a chat mode change settled (twitch login)
+  ModesDone { chan: Box<str>, set: crate::model::modes::Set, res: Result<(), modact::Fail> },
+  // a twitch channel's stream for /status (None = no answer)
+  StreamInfo { chan: Box<str>, info: Option<crate::model::status::Info> },
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -213,6 +218,10 @@ pub enum Cmd {
   TagCard(Box<str>),
   // a room's blocked terms (by twitch room id): list, add, remove
   Blocked(Box<str>, blocked::Op),
+  // set a twitch room's chat mode (by login)
+  Modes(Box<str>, crate::model::modes::Set),
+  // a twitch channel's stream, for /status
+  StreamInfo(Box<str>),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -589,6 +598,12 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Blocked(room, op) => {
         let _ = sess_tx.send(session::Cmd::Blocked(room, op));
+      }
+      Cmd::Modes(chan, set) => {
+        let _ = sess_tx.send(session::Cmd::Modes(chan, set));
+      }
+      Cmd::StreamInfo(chan) => {
+        let _ = sess_tx.send(session::Cmd::StreamInfo(chan));
       }
       Cmd::Relink(pack) => {
         let _ = sess_tx.send(session::Cmd::Login(auth::Provider::Twitch, pack));

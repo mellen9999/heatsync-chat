@@ -119,7 +119,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
 }
 
 // status + json body, the body capped. a network failure is status 0
-async fn call(req: reqwest::RequestBuilder) -> (u16, Value) {
+pub(super) async fn call(req: reqwest::RequestBuilder) -> (u16, Value) {
   let Ok(mut r) = req.send().await else { return (0, Value::Null) };
   let status = r.status().as_u16();
   if r.content_length().is_some_and(|n| n > MAX_BODY as u64) {

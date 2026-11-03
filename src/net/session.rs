@@ -39,6 +39,8 @@ pub enum Cmd {
   Mod(super::modact::Req),
   Held(super::held::Cmd),
   Blocked(Box<str>, super::blocked::Op),
+  Modes(Box<str>, crate::model::modes::Set),
+  StreamInfo(Box<str>),
   TagCard(Box<str>),
   Mute(super::mutes::Op),
 }
@@ -130,6 +132,12 @@ pub async fn run(
         }
         Some(Cmd::Blocked(room, op)) => {
           tokio::spawn(super::blocked::run(st.http.clone(), st.token.clone(), room, op, st.out.clone()));
+        }
+        Some(Cmd::Modes(chan, set)) => {
+          tokio::spawn(super::modes::run(st.http.clone(), st.token.clone(), chan, set, st.out.clone()));
+        }
+        Some(Cmd::StreamInfo(chan)) => {
+          tokio::spawn(super::modes::info(st.http.clone(), chan, st.out.clone()));
         }
         Some(Cmd::Social(c)) => {
           tokio::spawn(super::social::run(st.http.clone(), st.token.clone(), c, st.out.clone()));

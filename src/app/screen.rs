@@ -21,6 +21,8 @@ pub enum Page {
   Blocked,
   // a tab's stream stats (app::stats)
   Summary,
+  // a twitch channel's stream and chat modes (app::status)
+  Status,
 }
 
 pub struct Screen {
@@ -35,6 +37,9 @@ pub struct Screen {
   pub(super) of: Box<str>,
   pub(super) title: String,
   pub(super) shown: Vec<L>,
+  // the status screen: what its rows stand for, and the stream (None = still asking, Some(None) = no answer)
+  pub(super) marks: Vec<Target>,
+  pub(super) info: Option<Option<crate::model::status::Info>>,
 }
 
 // what a row stands for
@@ -46,6 +51,10 @@ pub(super) enum Target {
   Term(usize),
   Allow,
   Retry,
+  // the status screen: a chat mode, the stream summary, blocked terms
+  Mode(crate::model::modes::Mode),
+  Summary,
+  BlockedTerms,
   None,
 }
 
@@ -72,6 +81,8 @@ impl Screen {
       of: "".into(),
       title: String::new(),
       shown: Vec::new(),
+      marks: Vec::new(),
+      info: None,
     }
   }
 
@@ -97,6 +108,7 @@ impl Screen {
       Page::Settings => settings_lines(self.q.text.trim(), set),
       Page::Blocked => self.bt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |b| b.lines(&self.q.text)),
       Page::Summary => (self.shown.clone(), vec![Target::None; self.shown.len()]),
+      Page::Status => (self.shown.clone(), self.marks.clone()),
     }
   }
 
@@ -405,6 +417,7 @@ impl App {
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
       (Some(t @ (Target::Term(_) | Target::Allow | Target::Retry)), None) => self.blocked_pick(t),
+      (Some(t @ (Target::Mode(_) | Target::Summary | Target::BlockedTerms)), _) => self.status_pick(t, adjust),
       _ => {}
     }
   }
@@ -440,6 +453,7 @@ impl App {
 
   pub(super) fn draw_screen(&mut self) -> Option<Rect> {
     self.summary_refresh();
+    self.status_refresh();
     let area = self.chat_area();
     let s = self.screen.as_mut()?;
     let (lines, targets) = s.lines(&self.set);
@@ -478,6 +492,10 @@ impl App {
         },
       ),
       (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
+      (Page::Status, _) if s.marks.iter().any(|t| matches!(t, Target::BlockedTerms)) => {
+        (s.title.as_str(), None, "j k move · enter flips · h l wait · esc closes")
+      }
+      (Page::Status, _) => (s.title.as_str(), None, "j k move · enter opens · esc closes"),
       _ => ("keys", None, "j k scroll · ? settings · esc closes"),
     };
     let tip = match s.bt.as_deref() {

@@ -282,7 +282,7 @@ mod tests {
   #[test]
   fn a_room_you_moderate_is_watched_and_its_holds_are_allowed_from_the_row() {
     let (mut app, mut asked, tab) = app(&["base", "automod"]);
-    app.on_chat("forsen", Chat::Room { id: "22484632".into() });
+    app.on_chat("forsen", Chat::Room { id: "22484632".into(), modes: Vec::new() });
     assert!(watches(&mut asked).is_empty(), "not a mod there (yet)");
     app.on_chat("forsen", Chat::Mod(true));
     assert_eq!(watches(&mut asked), vec![("forsen".into(), "22484632".into())]);
@@ -321,7 +321,7 @@ mod tests {
   #[test]
   fn a_failed_press_says_why_and_offers_the_buttons_again_and_an_hour_lapses_it() {
     let (mut app, _asked, tab) = app(&["base", "automod"]);
-    app.on_chat("forsen", Chat::Room { id: "22484632".into() });
+    app.on_chat("forsen", Chat::Room { id: "22484632".into(), modes: Vec::new() });
     app.on_chat("forsen", Chat::Mod(true));
     app.on_net(NetEvent::Held(Box::new(hold("bbb-2", "forsen", held::EXPIRE_MS - 1000))));
     app.held_act("bbb-2", false);
@@ -345,7 +345,7 @@ mod tests {
   #[test]
   fn without_the_permission_nothing_is_asked_and_you_are_told_how_once() {
     let (mut app, mut asked, tab) = app(&["base"]);
-    app.on_chat("forsen", Chat::Room { id: "22484632".into() });
+    app.on_chat("forsen", Chat::Room { id: "22484632".into(), modes: Vec::new() });
     app.on_chat("forsen", Chat::Mod(true));
     app.held_sweep();
     assert!(watches(&mut asked).is_empty());

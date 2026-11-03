@@ -331,7 +331,7 @@ mod tests {
       youtube: None,
       packs: vec![],
     });
-    app.on_chat("forsen", Chat::Room { id: "22484632".into() });
+    app.on_chat("forsen", Chat::Room { id: "22484632".into(), modes: Vec::new() });
     app.blocked_here();
     assert!(app.screen.is_none(), "not a mod: nothing opens");
     app.on_chat("forsen", Chat::Mod(true));

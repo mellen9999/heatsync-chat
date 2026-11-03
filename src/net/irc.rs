@@ -139,16 +139,10 @@ fn badges(tag: &str) -> Vec<(Box<str>, Box<str>)> {
 pub enum Chat {
   Msg(Message),
   ClearMsg(Box<str>),
-  ClearUser {
-    login: Box<str>,
-    secs: Option<u32>,
-  },
+  ClearUser { login: Box<str>, secs: Option<u32> },
   ClearAll,
-  // room id keys the channel's 7tv/bttv/ffz sets (m2b)
-  #[allow(dead_code)]
-  Room {
-    id: Box<str>,
-  },
+  // room id keys the channel's 7tv/bttv/ffz sets (m2b); the chat modes it carries
+  Room { id: Box<str>, modes: Vec<crate::model::modes::Set> },
   // our own badges here say we moderate (or own) the channel
   Mod(bool),
 }
@@ -245,7 +239,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       },
       None => Chat::ClearAll,
     },
-    "ROOMSTATE" => Chat::Room { id: l.tag("room-id")?.into() },
+    "ROOMSTATE" => Chat::Room { id: l.tag("room-id")?.into(), modes: crate::model::modes::roomstate(|k| l.tag(k)) },
     "USERSTATE" => Chat::Mod(can_mod(l)),
     _ => return None,
   };

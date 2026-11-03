@@ -25,6 +25,8 @@ pub enum TabAct {
   Watch(usize),
   // its stream stats (/summary)
   Summary,
+  // its twitch channel's stream and chat modes (/status)
+  Status,
 }
 
 pub struct TabMenu {
@@ -442,6 +444,9 @@ impl App {
           1 => vec![(TabAct::Watch(0), "watch".into())],
           _ => src.iter().enumerate().map(|(n, (p, _))| (TabAct::Watch(n), format!("watch {}", p.name()))).collect(),
         };
+        if src.iter().any(|s| s.0 == Platform::Twitch) {
+          v.push((TabAct::Status, "status".into()));
+        }
         v.extend([
           (TabAct::Summary, "summary".into()),
           (TabAct::Edit, "edit".into()),
@@ -490,6 +495,12 @@ impl App {
       Some(TabAct::Summary) => {
         let name = self.tabs[m.tab].name.clone();
         self.summary_open(name);
+      }
+      Some(TabAct::Status) => {
+        let chan = self.tabs[m.tab].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
+        if let Some(c) = chan {
+          self.status_open(c);
+        }
       }
       Some(TabAct::Remove) => self.remove_tab(m.tab),
       Some(TabAct::Watch(n)) => self.watch(m.tab, n),
