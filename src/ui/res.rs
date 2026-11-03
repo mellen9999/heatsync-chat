@@ -33,6 +33,8 @@ pub struct Look {
   pub tags: bool,
   // times the base emote size
   pub emote_mul: u16,
+  // times the font size for unicode emoji in a line's words
+  pub emoji_mul: u16,
   // times the base line height
   pub spacing: f32,
   pub animate_emotes: bool,
@@ -48,6 +50,7 @@ impl Look {
       readable: s.readable,
       tags: s.platform_tags,
       emote_mul: s.emote_size.mul(),
+      emoji_mul: s.emoji_size.mul(),
       spacing: s.line_height.ratio(),
       animate_emotes: s.animate_emotes == Animate::Always,
       dim_timeouts: s.dim_timeouts,

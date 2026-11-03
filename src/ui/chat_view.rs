@@ -382,7 +382,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut pics = Vec::new();
   let mut plays = Vec::new();
   // where the words sit in the text, for search hits
-  let mut words = 0..0;
+  let mut words_at = 0..0;
   if m.kind == Kind::System {
     // stream lines carry their color (red live, yellow game switch); notices stay dim
     if m.color == 0 {
@@ -440,7 +440,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     if let Some(c) = ink {
       spans.push(Span { range: b0..s.len(), ink: Ink(c), bold: false });
     }
-    words = b0..s.len();
+    words_at = b0..s.len();
     refs = post_refs(&s, b0);
     for (r, _) in &refs {
       spans.push(Span { range: r.clone(), ink: Ink(theme::YELLOW), bold: false });
@@ -492,11 +492,12 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   if let Some(f) = find {
     // a painted name is drawn from its own bitmap: leave it be
     let name = if painted.is_some() { 0..0 } else { nick.clone() };
-    let words = if m.kind == Kind::System { 0..s.len() } else { words };
+    let words = if m.kind == Kind::System { 0..s.len() } else { words_at.clone() };
     hits(f, &s, &name, words, &mut spans);
   }
   let line = (res.text.line_px * res.look.spacing).round();
-  let layout = res.text.layout_at(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X, line);
+  let emoji = (words_at.clone(), res.look.emoji_mul);
+  let layout = res.text.layout_at(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X, line, emoji);
   let mut names = Vec::new();
   if let Some((uid, paint)) = painted
     && let Some((x, w, baseline)) = painted_run(&layout, &nick)

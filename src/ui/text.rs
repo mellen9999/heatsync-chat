@@ -96,11 +96,20 @@ impl Text {
   }
 
   pub fn layout(&mut self, text: &str, spans: &[Span], boxes: &[InlineBox], width: f32) -> TextLayout {
-    self.layout_at(text, spans, boxes, width, self.line_px)
+    self.layout_at(text, spans, boxes, width, self.line_px, (0..0, 1))
   }
 
   // the same with each line `line` px tall (chat rows: the line-height setting)
-  pub fn layout_at(&mut self, text: &str, spans: &[Span], boxes: &[InlineBox], width: f32, line: f32) -> TextLayout {
+  // `emoji` = (range, k): emoji inside the range draw k× the font size and their line grows to fit
+  pub fn layout_at(
+    &mut self,
+    text: &str,
+    spans: &[Span],
+    boxes: &[InlineBox],
+    width: f32,
+    line: f32,
+    emoji: (Range<usize>, u16),
+  ) -> TextLayout {
     let mut b = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
     b.push_default(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Monospace)));
     b.push_default(StyleProperty::FontSize(self.font_px));
@@ -114,6 +123,15 @@ impl Text {
     }
     for r in emoji_forced(text) {
       b.push(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Emoji)), r);
+    }
+    if emoji.1 > 1 {
+      let big = self.font_px * emoji.1 as f32;
+      let (lo, hi) = (emoji.0.start.min(text.len()), emoji.0.end.min(text.len()));
+      for r in emoji_runs(&text[lo..hi]) {
+        let r = lo + r.start..lo + r.end;
+        b.push(StyleProperty::FontSize(big), r.clone());
+        b.push(StyleProperty::LineHeight(LineHeight::Absolute(line.max((big * 1.2).ceil()))), r);
+      }
     }
     for ib in boxes {
       b.push_inline_box(ib.clone());
@@ -249,9 +267,129 @@ fn emoji_forced(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
   })
 }
 
+// every emoji cluster in `text`, for scaling (a superset of `emoji_forced`): pictographs, flags (a
+// regional indicator pair), keycaps, and what joins on (selectors, skin tones, zwj + next, tags). a
+// bmp symbol (❤ ✔ ☺) counts only with U+FE0F or when it is emoji by default; digits # * only as keycaps
+fn emoji_runs(text: &str) -> Vec<Range<usize>> {
+  let ri = |c: char| matches!(c, '\u{1f1e6}'..='\u{1f1ff}');
+  let pict = |c: char| matches!(c, '\u{1f300}'..='\u{1faff}' | '\u{1f004}' | '\u{1f0cf}' | '\u{1f18e}' | '\u{1f191}'..='\u{1f19a}' | '\u{1f201}' | '\u{1f21a}' | '\u{1f22f}' | '\u{1f232}'..='\u{1f23a}' | '\u{1f250}' | '\u{1f251}');
+  let by_default = |c: char| {
+    matches!(c, '\u{231a}' | '\u{231b}' | '\u{23e9}'..='\u{23ec}' | '\u{23f0}' | '\u{23f3}' | '\u{25fd}' | '\u{25fe}'
+      | '\u{2614}' | '\u{2615}' | '\u{2648}'..='\u{2653}' | '\u{267f}' | '\u{2693}' | '\u{26a1}' | '\u{26aa}' | '\u{26ab}'
+      | '\u{26bd}' | '\u{26be}' | '\u{26c4}' | '\u{26c5}' | '\u{26ce}' | '\u{26d4}' | '\u{26ea}' | '\u{26f2}' | '\u{26f3}'
+      | '\u{26f5}' | '\u{26fa}' | '\u{26fd}' | '\u{2705}' | '\u{270a}' | '\u{270b}' | '\u{2728}' | '\u{274c}' | '\u{274e}'
+      | '\u{2753}'..='\u{2755}' | '\u{2757}' | '\u{2795}'..='\u{2797}' | '\u{27b0}' | '\u{27bf}' | '\u{2b1b}' | '\u{2b1c}'
+      | '\u{2b50}' | '\u{2b55}')
+  };
+  // a symbol that wants U+FE0F to be emoji: the bmp misc/dingbat/arrow blocks and © ® ™ ‼ ⁉ ℹ Ⓜ ▪ ▫ ▶ ◀ ◻-◾ ⤴ ⤵ ⬅-⬇ 〰 〽 ㊗ ㊙
+  let symbol = |c: char| {
+    matches!(c, '\u{a9}' | '\u{ae}' | '\u{203c}' | '\u{2049}' | '\u{2122}' | '\u{2139}' | '\u{2194}'..='\u{21aa}' | '\u{231a}'..='\u{23ff}'
+      | '\u{24c2}' | '\u{25aa}'..='\u{25fe}' | '\u{2600}'..='\u{27bf}' | '\u{2934}' | '\u{2935}' | '\u{2b05}'..='\u{2b55}'
+      | '\u{3030}' | '\u{303d}' | '\u{3297}' | '\u{3299}')
+  };
+  let joins = |c: char| matches!(c, '\u{fe0f}' | '\u{20e3}' | '\u{1f3fb}'..='\u{1f3ff}' | '\u{e0020}'..='\u{e007f}');
+  let mut out = Vec::new();
+  if text.is_ascii() {
+    return out;
+  }
+  let mut it = text.char_indices().peekable();
+  while let Some((start, c)) = it.next() {
+    let mut end = start + c.len_utf8();
+    let vs = |it: &mut std::iter::Peekable<std::str::CharIndices>| it.peek().is_some_and(|&(_, n)| n == '\u{fe0f}');
+    let ok = if ri(c) {
+      if let Some(&(i, n)) = it.peek().filter(|&&(_, n)| ri(n)) {
+        end = i + n.len_utf8();
+        it.next();
+      }
+      true
+    } else if matches!(c, '0'..='9' | '#' | '*') {
+      // keycap: base, optional U+FE0F, U+20E3
+      let mut cl = it.clone();
+      let mut e = start + 1;
+      let mut cap = false;
+      for (i, n) in cl.by_ref() {
+        if n == '\u{fe0f}' && !cap {
+          e = i + 3;
+        } else {
+          cap = n == '\u{20e3}';
+          if cap {
+            e = i + 3;
+          }
+          break;
+        }
+      }
+      if cap {
+        end = e;
+        while it.peek().is_some_and(|&(i, _)| i < e) {
+          it.next();
+        }
+      }
+      cap
+    } else {
+      pict(c) || by_default(c) || (symbol(c) && vs(&mut it))
+    };
+    if !ok {
+      continue;
+    }
+    loop {
+      match it.peek() {
+        Some(&(i, n)) if joins(n) => {
+          end = i + n.len_utf8();
+          it.next();
+        }
+        Some(&(i, '\u{200d}')) => {
+          // zwj takes the next char too
+          let mut cl = it.clone();
+          cl.next();
+          match cl.next() {
+            Some((j, n)) if pict(n) || symbol(n) || by_default(n) || ri(n) => {
+              end = j + n.len_utf8();
+              it = cl;
+            }
+            _ => {
+              end = i + 3;
+              it.next();
+              break;
+            }
+          }
+        }
+        _ => break,
+      }
+    }
+    out.push(start..end);
+  }
+  out
+}
+
 #[cfg(test)]
 mod tests {
-  use super::emoji_forced;
+  use super::{emoji_forced, emoji_runs};
+
+  fn scaled(s: &str) -> Vec<&str> {
+    emoji_runs(s).into_iter().map(|r| &s[r]).collect()
+  }
+
+  #[test]
+  fn emoji_clusters_scale_and_text_does_not() {
+    for e in [
+      "🌇",
+      "👍🏽",
+      "🇯🇵",
+      "👨\u{200d}👩\u{200d}👧",
+      "❤\u{fe0f}",
+      "1\u{fe0f}\u{20e3}",
+      "#\u{20e3}",
+      "✅",
+      "🏳\u{fe0f}\u{200d}🌈",
+    ] {
+      assert_eq!(scaled(&format!("a {e} b")), [e], "{e}");
+    }
+    assert_eq!(scaled("😂😂"), ["😂", "😂"]);
+    assert_eq!(scaled("🇯🇵🇺🇸"), ["🇯🇵", "🇺🇸"]);
+    for t in ["1", "#", "*", "12 #1", "❤", "✔ ☺", "漢字かな", "مرحبا", "plain text"] {
+      assert!(scaled(t).is_empty(), "{t}");
+    }
+  }
 
   fn runs(s: &str) -> Vec<&str> {
     emoji_forced(s).map(|r| &s[r]).collect()

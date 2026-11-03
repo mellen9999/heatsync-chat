@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 47] = [
+pub static DEFS: [Def; 48] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -223,6 +223,18 @@ pub static DEFS: [Def; 47] = [
     tip: "1x default, 2x retina, 4x huge. /emotesize 2x",
     alias: "hs_emote_size scale",
     ctl: pick!(emote_size, EmoteSize),
+    fx: Fx::Look,
+    wire: Wire::None,
+  },
+  Def {
+    id: "emoji_size",
+    cmd: Some("/emojisize"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "emoji size",
+    tip: "1x native, 2x default, 4x scale unicode emoji. /emojisize 2x",
+    alias: "hs_emoji_size",
+    ctl: pick!(emoji_size, EmoteSize),
     fx: Fx::Look,
     wire: Wire::None,
   },

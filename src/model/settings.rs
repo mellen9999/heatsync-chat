@@ -162,6 +162,8 @@ pub struct Settings {
   // [T] [K] [Y] on merged and non-twitch tabs (ext showPlatformBadges). default on
   pub platform_tags: bool,
   pub emote_size: EmoteSize,
+  // unicode emoji in chat bodies, same steps (ext hs_emoji_size). default 2x
+  pub emoji_size: EmoteSize,
   pub line_height: LineHeight,
   pub animate_emotes: Animate,
   // a timed-out or banned person's lines go dim (ext hs_dim_timeouts). default on
@@ -228,6 +230,7 @@ impl Default for Settings {
       readable: true,
       platform_tags: true,
       emote_size: EmoteSize::X1,
+      emoji_size: EmoteSize::X2,
       line_height: LineHeight::L20,
       animate_emotes: Animate::Always,
       dim_timeouts: true,
@@ -440,6 +443,7 @@ mod tests {
         readable: true,
         platform_tags: true,
         emote_size: EmoteSize::X1,
+        emoji_size: EmoteSize::X2,
         line_height: LineHeight::L20,
         animate_emotes: Animate::Always,
         dim_timeouts: true,
