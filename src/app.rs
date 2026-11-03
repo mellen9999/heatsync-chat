@@ -24,6 +24,7 @@ mod filters;
 mod find;
 mod img_view;
 mod link;
+mod logs;
 mod media_peek;
 mod mentions;
 mod mods;
@@ -210,6 +211,8 @@ pub struct App {
   cursor: winit::window::CursorIcon,
   // a picture filling the chat area
   img_view: Option<img_view::ImgView>,
+  // one person's archived lines over the active tab (the tab's own lines wait in `Tab::under`)
+  logs: Option<crate::model::logs::Logs>,
   // tab mode's cursor on the tab bar (space t)
   rover: Option<rover::Rover>,
   tab_menu: Option<tabs::TabMenu>,
@@ -382,6 +385,7 @@ impl App {
       form_hover: None,
       cursor: winit::window::CursorIcon::Default,
       img_view: None,
+      logs: None,
       rover: None,
       tab_menu: None,
       pop: None,
@@ -605,6 +609,9 @@ impl App {
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
     }
+    if let Some(l) = &self.logs {
+      return l.hint();
+    }
     if self.feedish() {
       return self.feed_hint();
     }
@@ -706,6 +713,9 @@ impl App {
   }
 
   fn send(&mut self) {
+    if self.logs.is_some() {
+      return self.say("you're reading chat logs: esc goes back");
+    }
     if let Some(cmd) = local_cmd(&self.line.text) {
       self.line.take();
       self.local(cmd);
@@ -782,6 +792,7 @@ impl App {
     if let Some(t) = self.tabs.get_mut(self.active) {
       t.view.scroll_by(px, res);
     }
+    self.logs_edge();
     self.wake();
   }
 
@@ -883,6 +894,11 @@ impl App {
     if msgs.is_empty() {
       return;
     }
+    if !history {
+      for m in &msgs {
+        self.logs_live(p, key, m);
+      }
+    }
     for i in self.tabs_with(p, key) {
       let v = self.tabs[i].chat();
       if history {
@@ -942,6 +958,7 @@ impl App {
           }
         }
         self.scan_mention(Platform::Twitch, ch, &mut m);
+        self.logs_live(Platform::Twitch, ch, &m);
         Chat::Msg(m)
       }
       ev => ev,
@@ -1019,6 +1036,7 @@ impl App {
       let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
       let hint = match &self.prompt {
+        Some(_) if self.finding && self.logs.is_some() => "type a search · enter finds it · esc cancels".to_owned(),
         Some(_) if self.finding => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
         Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
         None if show_hint => self.hint(),
@@ -1880,6 +1898,9 @@ impl ApplicationHandler<NetEvent> for App {
         if self.menu.is_some() {
           return self.menu_key(k);
         }
+        if self.logs.is_some() && self.logs_key(k.clone()) {
+          return;
+        }
         match self.mode {
           Mode::Insert => self.key_insert(k, t),
           Mode::Normal => self.key_normal(k),
@@ -2007,6 +2028,7 @@ impl App {
       NetEvent::Seen { surface, at } => self.on_seen(surface, at),
       NetEvent::Voted { id, res } => self.on_voted(id, res),
       NetEvent::Posted { res } => self.on_posted(res),
+      NetEvent::Logs { epoch, res } => self.on_logs(epoch, res),
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
@@ -2923,6 +2945,146 @@ mod live {
     app.bar_click();
     assert!(app.tabs[chat].under.is_none() && app.feed.thread.is_none());
     assert_eq!(app.tabs[chat].view.len(), rows + 2, "chat that landed meanwhile is there");
+  }
+
+  // right-click a line → chat logs: one person's archive over the tab, drawn as chat, older pages at
+  // the top, a to swap scope, / to search, esc back (scratch HOME as above):
+  //   HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_chat_logs -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_chat_logs() {
+    use crate::model::logs::{self, Who};
+    use crate::net::social;
+    use serde_json::json;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    app.res.look.timestamps = false;
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let line = |who: &str, t: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, t);
+      m.kind = crate::model::message::Kind::Chat;
+      m.nick = who.into();
+      m.login = who.into();
+      m.id = format!("live-{t}").into();
+      m
+    };
+    app.on_chat("forsen", Chat::Msg(line("bob", "hello chat")));
+    let before = app.tabs[chat].view.len();
+    // the line menu has the row; picking it opens the view
+    app.tabs[chat].view.select_start(&mut app.res, 300);
+    app.open_line_menu((20, 20));
+    let rows = app.pop.as_ref().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>()).unwrap();
+    assert_eq!(rows.last().map(String::as_str), Some("chat logs"), "after filter to, like the ext");
+    app.pop_key(Key::Named(NamedKey::Escape));
+    let m = app.tabs[chat].view.selected().cloned().unwrap();
+    let who = app.subject_of(&m).unwrap();
+    app.act(pop::Act::Logs, Some(who), None);
+    assert!(app.logs.is_some() && app.tabs[chat].under.is_some(), "the chat tab is taken over");
+    assert!(!app.feedish(), "not a feed thread: no votes, no posting");
+    let asks = |asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      std::iter::from_fn(|| asked.try_recv().ok())
+        .filter_map(|c| match c {
+          Cmd::Social(social::Cmd::Logs(r)) => Some(r),
+          _ => None,
+        })
+        .collect::<Vec<_>>()
+    };
+    let first = asks(&mut asked);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].path(), "/api/archive/user/twitch/bob/messages?limit=100&channel=forsen");
+    let w = Who { platform: Platform::Twitch, login: "bob".into(), nick: "bob".into(), user_id: "".into() };
+    let row = |n: i64, ch: &str, html: &str| {
+      json!({"message": format!("archived {n}"), "message_id": format!("m{n}"), "channel": ch,
+        "timestamp": format!("2026-10-3{}T23:59:5{}.000Z", n % 2, n % 10), "color": "#00FF00", "display_name": "Bob",
+        "message_html": html})
+    };
+    let page = |from: i64, n: i64, cursor: Option<&str>| {
+      let rows: Vec<_> = (from..from + n).rev().map(|i| row(i, "forsen", "")).collect();
+      logs::parse_page(&json!({"results": rows, "next_cursor": cursor}), &w)
+    };
+    // a stale answer (from before something else) is ignored
+    app.on_net(NetEvent::Logs { epoch: first[0].epoch + 1000, res: Ok(page(0, 3, None)) });
+    assert!(app.tabs[chat].view.len() == 0, "nothing from a stale answer");
+    app.on_net(NetEvent::Logs { epoch: first[0].epoch, res: Ok(page(10, 40, Some("2026-10-30|1"))) });
+    assert_eq!(app.tabs[chat].view.len(), 41, "forty lines and the dim line at the top");
+    app.redraw();
+    crate::bench::dump(&app.canvas);
+    // keys: j picks the newest, y finds its public link, g goes to the top and asks for older
+    assert!(app.logs_key(Key::Character("j")));
+    let picked = app.tabs[chat].view.selected().cloned().unwrap();
+    assert_eq!(&*picked.id, "m49");
+    assert_eq!(
+      app.logs.as_ref().unwrap().link_of(&picked).as_deref(),
+      Some("https://heatsync.org/search/logs/twitch/forsen/2026-10-31?m=m49")
+    );
+    assert!(app.logs_key(Key::Character("g")));
+    let older = asks(&mut asked);
+    assert_eq!(older.len(), 1, "the top asks for the next page");
+    assert_eq!(older[0].cursor.as_deref(), Some("2026-10-30|1"));
+    app.on_net(NetEvent::Logs { epoch: older[0].epoch, res: Ok(page(0, 10, None)) });
+    assert_eq!(app.tabs[chat].view.len(), 51, "ten older lines in front");
+    assert!(app.logs.as_ref().unwrap().done, "no cursor left");
+    // a: every channel. the old answer is dropped, a fresh ask has no channel filter
+    assert!(app.logs_key(Key::Character("a")));
+    let all = asks(&mut asked);
+    assert_eq!(all.len(), 1);
+    assert!(all[0].channel.is_none());
+    let html = "hi <img class=\"hs-archive-emote\" src=\"/e/7tv/01ABC\" alt=\"LUL\">";
+    let mut rows: Vec<_> = (0..6).rev().map(|i| row(i, if i % 2 == 0 { "forsen" } else { "xqc" }, "")).collect();
+    rows.push(json!({"message": "hi LUL", "message_html": html, "channel": "xqc", "message_id": "e1",
+      "timestamp": "2026-10-31T00:00:00Z"}));
+    rows.rotate_right(1);
+    let p = logs::parse_page(&json!({"results": rows}), &w);
+    app.on_net(NetEvent::Logs { epoch: all[0].epoch, res: Ok(p) });
+    assert_eq!(app.tabs[chat].view.len(), 7 + 1);
+    // live: bob in another room joins the bottom of the every-channel view, alice never does
+    app.on_chat("forsen", Chat::Msg(line("alice", "not bob")));
+    app.on_chat("forsen", Chat::Msg(line("bob", "live line")));
+    assert_eq!(app.tabs[chat].view.len(), 9);
+    assert_eq!(app.tabs[chat].under.as_ref().unwrap().len(), before + 2, "chat keeps landing underneath");
+    app.redraw();
+    crate::bench::dump(&app.canvas);
+    // / searches the archive on enter; esc clears it, then esc leaves
+    assert!(app.logs_key(Key::Character("/")));
+    assert!(app.finding && app.prompt.is_some());
+    for c in "lul".chars() {
+      let t = c.to_string();
+      app.find_key(Key::Character(&t), Some(&t));
+    }
+    app.find_key(Key::Named(NamedKey::Enter), None);
+    let s = asks(&mut asked);
+    assert_eq!(s.len(), 1);
+    assert_eq!(s[0].query.as_deref(), Some("lul"));
+    app.on_net(NetEvent::Logs { epoch: s[0].epoch, res: Ok(logs::parse_page(&json!({"results": []}), &w)) });
+    assert_eq!(app.tabs[chat].view.len(), 0, "an empty search says so");
+    assert!(app.logs_key(Key::Named(NamedKey::Escape)));
+    assert!(app.logs.as_ref().unwrap().query.is_none(), "esc clears the search first");
+    assert_eq!(asks(&mut asked).len(), 1, "and the timeline is asked for again");
+    assert!(app.logs_key(Key::Named(NamedKey::Escape)));
+    assert!(app.logs.is_none() && app.tabs[chat].under.is_none(), "esc leaves");
+    assert_eq!(app.tabs[chat].view.len(), before + 2, "the chat is back with what landed meanwhile");
+    // a failure never crashes and a late answer for a closed view is dropped
+    app.on_net(NetEvent::Logs { epoch: s[0].epoch, res: Err(503) });
+    // the ← back tab closes it too
+    let who = app.subject_of(&m).unwrap();
+    app.act(pop::Act::Logs, Some(who), None);
+    assert!(app.logs.is_some());
+    let first = asks(&mut asked).pop().unwrap();
+    app.on_net(NetEvent::Logs { epoch: first.epoch, res: Err(503) });
+    assert!(app.logs.as_ref().unwrap().failed && !app.logs.as_ref().unwrap().done);
+    app.redraw();
+    let p = app.bar_map.iter().position(|&i| i == chat).unwrap();
+    let r = app.bar_hits[p];
+    app.pointer = (r.x + 2, r.y + 2);
+    app.bar_click();
+    assert!(app.logs.is_none() && app.tabs[chat].under.is_none());
   }
 
   // tabs on each side: the bar sits there, the chat and input take the rest, a click on a tab picks it.

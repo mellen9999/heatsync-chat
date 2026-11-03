@@ -3,6 +3,7 @@
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
+use crate::model::logs;
 use crate::model::message::Platform;
 use crate::model::post::{self, Post};
 use crate::model::unseen::{self, Surface};
@@ -44,6 +45,8 @@ pub enum Cmd {
   SeenGet,
   // you looked at one just now (`at`); the server tells your other clients
   SeenBump { surface: Surface, at: i64 },
+  // one page of a person's archived lines (the chat-log viewer)
+  Logs(logs::Req),
 }
 
 pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Out) {
@@ -69,6 +72,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         call(authed(&http, &t, "/api/user/seen-state", body)).await;
       }
     }
+    Cmd::Logs(req) => archive(&http, req, &out).await,
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
     Cmd::PutNote { platform, login, profile_id, text } => {
       let ok = match token {
@@ -156,6 +160,14 @@ async fn feed(http: &reqwest::Client, token: Option<&str>, page: u32, out: &Out)
 }
 
 fn void(_: bool) {}
+
+// the archive is public (no login): a page of one person's lines, or the status that said why not
+async fn archive(http: &reqwest::Client, req: logs::Req, out: &Out) {
+  let r = http.get(format!("{ORIGIN}{}", req.path())).timeout(std::time::Duration::from_secs(12));
+  let (status, v) = call(r).await;
+  let res = if status == 200 { Ok(logs::parse_page(&v, &req.who)) } else { Err(status) };
+  void(out.send(NetEvent::Logs { epoch: req.epoch, res }))
+}
 
 // POST /api/card: profile, followage, archive counts in one trip (works logged out; a login adds how you relate)
 async fn card(

@@ -42,6 +42,8 @@ pub enum Act {
   Viewer,
   // this tab shows only their lines
   FilterTo,
+  // their archived lines, over this tab
+  Logs,
   // the person's card, and the things a card (or a line menu) does to them
   Card,
   Mention,
@@ -168,6 +170,7 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   if c.chat_tab {
     rows.push((Act::FilterTo, format!("filter to {}", w.nick)));
   }
+  rows.push((Act::Logs, "chat logs".into()));
   rows
 }
 
@@ -236,6 +239,7 @@ impl App {
       (Act::Paint, Some(who), _) => self.paint_toggle(&who),
       (Act::Viewer, Some(who), _) => self.viewer_card(&who),
       (Act::FilterTo, Some(who), _) => self.find_for(&who.login),
+      (Act::Logs, Some(who), _) => self.logs_open(&who),
       (Act::Card, Some(who), _) => self.open_card(who),
       (Act::Mention, Some(who), _) => self.type_into_line(&format!("@{} ", who.nick)),
       (Act::Whisper, Some(who), _) => self.type_into_line(&format!("/w {} ", who.login)),
@@ -319,6 +323,10 @@ impl App {
 
   // the menu for the selected line: its own actions, then mod actions when we moderate the room
   pub(super) fn open_line_menu(&mut self, at: (i32, i32)) {
+    // a line in the chat logs has no reply and no mod rows: they would act on an old line
+    if self.logs.is_some() {
+      return;
+    }
     let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions)) else { return };
     let Some(m) = t.view.selected().filter(|m| m.kind != MsgKind::System) else { return };
     let (chat_tab, can_reply, head) =
@@ -486,7 +494,8 @@ mod tests {
         "add note",
         "hide Bob\u{2019}s paint",
         "report / gift sub",
-        "filter to Bob"
+        "filter to Bob",
+        "chat logs"
       ]
     );
   }
@@ -505,14 +514,27 @@ mod tests {
     let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
     assert_eq!(
       r,
-      ["user card", "reply", "copy name", "copy message", "copy \u{2192} input", "add note", "filter to Bob"]
+      [
+        "user card",
+        "reply",
+        "copy name",
+        "copy message",
+        "copy \u{2192} input",
+        "add note",
+        "filter to Bob",
+        "chat logs"
+      ]
     );
   }
 
   #[test]
   fn a_line_with_no_person_still_copies() {
     let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None };
-    assert_eq!(rows(&c), ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"]);
+    assert_eq!(
+      rows(&c),
+      ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"],
+      "no person, no logs"
+    );
   }
 
   #[test]

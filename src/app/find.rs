@@ -14,7 +14,7 @@ impl App {
   }
 
   pub(super) fn find_open(&mut self) {
-    if self.kind() != Kind::Chat {
+    if self.kind() != Kind::Chat && self.logs.is_none() {
       return self.say("search works in channel tabs");
     }
     if self.picker.is_some() {
@@ -22,7 +22,8 @@ impl App {
     }
     // asking again edits what you asked before
     let mut l = Line::default();
-    l.insert(&self.find_q);
+    // in the chat logs the search is the archive's: it starts from the one in effect
+    l.insert(self.logs_query().unwrap_or(&self.find_q));
     self.prompt = Some(l);
     self.finding = true;
     self.input_dirty = true;
@@ -52,6 +53,10 @@ impl App {
 
   // the prompt's text is the search, live
   pub(super) fn find_live(&mut self) {
+    // the archive is asked once, on enter, not on every key
+    if self.logs.is_some() {
+      return;
+    }
     if let Some(q) = self.prompt.as_ref().map(|l| l.text.clone()) {
       self.find_set(&q);
     }
@@ -92,6 +97,12 @@ impl App {
         return;
       }
       // keep the filter, give the box back
+      Key::Named(NamedKey::Enter) if self.logs.is_some() => {
+        let q = l.text.clone();
+        self.close_prompt();
+        self.logs_search(&q);
+        return;
+      }
       Key::Named(NamedKey::Enter) => {
         self.find_q = l.text.clone();
         self.close_prompt();

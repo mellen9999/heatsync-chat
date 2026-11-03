@@ -26,14 +26,19 @@ impl App {
     self.me.as_ref().map(|m| m.username.clone())
   }
 
+  // the tab something (a thread, the chat logs) has taken over, if one is open
+  pub(super) fn takeover_tab(&self) -> Option<usize> {
+    self.tabs.iter().position(|t| t.under.is_some())
+  }
+
   // the tab a thread has taken over (the one it was opened from), if one is open
   pub(super) fn thread_tab(&self) -> Option<usize> {
-    self.tabs.iter().position(|t| t.under.is_some())
+    self.takeover_tab().filter(|_| self.logs.is_none())
   }
 
   // the active tab reads the feed: the feed tab, or any tab a thread has taken over
   pub(super) fn feedish(&self) -> bool {
-    self.kind() == Kind::Feed || self.tabs.get(self.active).is_some_and(|t| t.under.is_some())
+    self.kind() == Kind::Feed || (self.logs.is_none() && self.tabs.get(self.active).is_some_and(|t| t.under.is_some()))
   }
 
   // redraw the list and the open thread from the state, keeping scroll and selection
@@ -197,6 +202,9 @@ impl App {
   // a reply opens its parent's thread, picked out once it lands (ext openThread's highlightId). it
   // takes over the tab it was opened from, which reads `← back` until it closes
   pub(super) fn feed_open(&mut self, id: &str) {
+    if self.logs.is_some() {
+      return;
+    }
     let root = self.feed_root(id);
     if self.thread_tab().is_some_and(|i| i != self.active) {
       self.takeover_close();
@@ -225,7 +233,8 @@ impl App {
 
   // back out of whatever took the active tab over: its own lines return as they were left
   pub(super) fn takeover_close(&mut self) -> bool {
-    let Some(i) = self.thread_tab() else { return false };
+    let Some(i) = self.takeover_tab() else { return false };
+    self.logs = None;
     let t = &mut self.tabs[i];
     let Some(under) = t.under.take() else { return false };
     t.view = under;

@@ -6,7 +6,7 @@ pub struct Group {
   pub rows: &'static [(&'static str, &'static str)],
 }
 
-pub static KEYS: [Group; 11] = [
+pub static KEYS: [Group; 12] = [
   Group {
     name: "anywhere",
     rows: &[
@@ -53,6 +53,19 @@ pub static KEYS: [Group; 11] = [
       ("u", "upvote (feed)"),
       ("h", "back out of a thread, like the ← back tab"),
       ("v esc", "let go"),
+    ],
+  },
+  Group {
+    name: "chat logs (line menu or card → chat logs)",
+    rows: &[
+      ("j k  click", "pick a line, older / newer"),
+      ("g G  wheel pageup", "oldest, newest; the top loads older lines"),
+      ("/", "search their lines (enter finds, esc clears)"),
+      ("a", "swap this channel and every channel"),
+      ("y", "copy the picked line's public link"),
+      ("r", "reload"),
+      ("c", "user card"),
+      ("esc q h", "back (esc clears a search first)"),
     ],
   },
   Group {

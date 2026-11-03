@@ -66,7 +66,9 @@ impl App {
         Load::Loading
       }
     };
-    let rows = self.person_rows(&who);
+    // the ext's card has its logs cell first
+    let mut rows = vec![(Act::Logs, "chat logs".to_owned())];
+    rows.extend(self.person_rows(&who));
     let menu = Menu::new(rows, (0, 0));
     self.hide_peek();
     self.card = Some(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) });

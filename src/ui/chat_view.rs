@@ -1730,6 +1730,12 @@ impl ChatView {
     self.stale = true;
   }
 
+  // the oldest line is on screen (or every line fits): a log view asks for older ones now
+  pub fn at_oldest(&mut self, res: &mut Res, view_h: i32) -> bool {
+    let max = self.content_height(res);
+    self.scroll + view_h >= max
+  }
+
   fn content_height(&mut self, res: &mut Res) -> i32 {
     let (w, o) = (self.width, opts!(self));
     let mut total = 0;

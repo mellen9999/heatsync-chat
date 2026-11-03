@@ -168,6 +168,9 @@ impl App {
     if i >= self.tabs.len() {
       return;
     }
+    if self.tabs[i].under.is_some() {
+      self.logs = None;
+    }
     let t = self.tabs.remove(i);
     for (p, key) in t.sources {
       self.leave(p, key);
