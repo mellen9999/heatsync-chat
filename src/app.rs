@@ -151,6 +151,9 @@ pub struct App {
   tip_next: Option<Instant>,
   // heat counts fall with the clock: the tab bar repaints each second while one shows
   heat_due: Option<Instant>,
+  // youtube lines waiting their turn, and when the next one is due
+  pacer: crate::model::pace::Pacer,
+  pace_due: Option<Instant>,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
   // the open `:` `@` `/` list, the text and cursor it was made for, its rows on screen (index, rect)
@@ -335,6 +338,8 @@ impl App {
       tip: None,
       tip_next: None,
       heat_due: None,
+      pacer: Default::default(),
+      pace_due: None,
       input_next: None,
       input_hit: None,
       over_input: false,
@@ -542,6 +547,18 @@ impl App {
       self.bar_dirty = true;
       self.wake();
     }
+  }
+
+  fn pace_next(&mut self) {
+    let now = now_ms();
+    self.pace_due = self.pacer.next().map(|t| Instant::now() + Duration::from_millis((t - now).max(0) as u64));
+  }
+
+  fn pace_tick(&mut self) {
+    for (key, msgs) in self.pacer.due(now_ms()) {
+      self.relay_show(Platform::Youtube, &key, msgs, false);
+    }
+    self.pace_next();
   }
 
   // a chat message landed in tab `i`: its counter moves (the bar repaints when the number shown does)
@@ -825,6 +842,19 @@ impl App {
       }
       self.res.chatters.heard(m);
       self.scan_mention(p, key, m);
+    }
+    // youtube's batches drip out at their real pace (model::pace); the rest waits for pace_due
+    if p == Platform::Youtube && !history {
+      msgs = self.pacer.push(key, msgs, now_ms());
+      self.pace_next();
+    }
+    self.relay_show(p, key, msgs, history);
+  }
+
+  // lines for every tab carrying that channel: history at the top, live at the bottom
+  fn relay_show(&mut self, p: Platform, key: &str, msgs: Vec<Message>, history: bool) {
+    if msgs.is_empty() {
+      return;
     }
     for i in self.tabs_with(p, key) {
       let v = self.tabs[i].chat();
@@ -1858,15 +1888,19 @@ impl ApplicationHandler<NetEvent> for App {
     if self.update_due.is_some_and(|t| t <= now) {
       self.update_check();
     }
+    if self.pace_due.is_some_and(|t| t <= now) {
+      self.pace_tick();
+    }
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
       self.bar_dirty = true;
       self.wake();
     }
-    let wake = [self.flood, anim, self.trim_at, self.mute_due, self.peek_due, self.update_due, self.heat_due]
-      .into_iter()
-      .flatten()
-      .min();
+    let wake =
+      [self.flood, anim, self.trim_at, self.mute_due, self.peek_due, self.update_due, self.heat_due, self.pace_due]
+        .into_iter()
+        .flatten()
+        .min();
     el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
   }
 }
@@ -2063,6 +2097,9 @@ impl App {
       }
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::RelayClear { platform, key, login } => {
+        // a removal must find every line: what is still waiting shows first
+        let waiting = self.pacer.flush(&key);
+        self.relay_show(platform, &key, waiting, false);
         for i in self.tabs_with(platform, &key) {
           self.tabs[i].chat().clear_user(&login);
           self.touched(i);

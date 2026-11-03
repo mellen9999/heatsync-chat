@@ -150,6 +150,7 @@ impl App {
       return;
     }
     self.pins.forget(p, &key);
+    self.pacer.flush(&key);
     match p {
       Platform::Twitch => {
         self.res.emotes.drop_channel(&key);
