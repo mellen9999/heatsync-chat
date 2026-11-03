@@ -83,7 +83,7 @@ fn rows(chan: &str, info: Option<&Option<Info>>, modes: Option<&Modes>, can: boo
 
 impl App {
   // the active tab's twitch channel
-  fn twitch_here(&self) -> Option<Box<str>> {
+  pub(super) fn twitch_here(&self) -> Option<Box<str>> {
     self.tabs.get(self.active)?.sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone())
   }
 

@@ -23,6 +23,7 @@ pub mod mention;
 pub mod message;
 pub mod modcmd;
 pub mod modes;
+pub mod modsuite;
 pub mod notes;
 pub mod pace;
 pub mod pathcomp;

@@ -10,6 +10,7 @@ pub mod irc;
 mod links;
 pub mod modact;
 pub mod modes;
+pub mod modsuite;
 pub mod mutes;
 pub mod pin;
 mod recent;
@@ -144,6 +145,8 @@ pub enum NetEvent {
   ModesDone { chan: Box<str>, set: crate::model::modes::Set, res: Result<(), modact::Fail> },
   // a twitch channel's stream for /status (None = no answer)
   StreamInfo { chan: Box<str>, info: Option<crate::model::status::Info> },
+  // a /warn, /shoutout or /shield settled (Ok(Some(on)) = shield mode now)
+  Suite { chan: Box<str>, cmd: crate::model::modsuite::Cmd, res: Result<Option<bool>, blocked::Fail> },
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -222,6 +225,8 @@ pub enum Cmd {
   Modes(Box<str>, crate::model::modes::Set),
   // a twitch channel's stream, for /status
   StreamInfo(Box<str>),
+  // twitch's mod suite in a room (by login): warn, shoutout, shield mode
+  Suite(Box<str>, crate::model::modsuite::Cmd),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -604,6 +609,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::StreamInfo(chan) => {
         let _ = sess_tx.send(session::Cmd::StreamInfo(chan));
+      }
+      Cmd::Suite(chan, c) => {
+        let _ = sess_tx.send(session::Cmd::Suite(chan, c));
       }
       Cmd::Relink(pack) => {
         let _ = sess_tx.send(session::Cmd::Login(auth::Provider::Twitch, pack));

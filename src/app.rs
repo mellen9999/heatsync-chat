@@ -33,6 +33,7 @@ mod logs;
 mod media_peek;
 mod mentions;
 mod mods;
+mod modsuite;
 mod notes;
 mod peek;
 mod picker;
@@ -793,6 +794,11 @@ impl App {
     if let Some(cmd) = crate::model::modes::command(&self.line.text) {
       self.line.take();
       self.modes_slash(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::modsuite::command(&self.line.text) {
+      self.line.take();
+      self.suite_slash(cmd);
       return self.after_send();
     }
     if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
@@ -2126,6 +2132,7 @@ impl App {
       NetEvent::Blocked { room, res } => self.on_blocked(room, res),
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
       NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
+      NetEvent::Suite { chan, cmd, res } => self.on_suite(chan, cmd, res),
       NetEvent::TagCard(tag, res) => self.on_tag_card(tag, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state

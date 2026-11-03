@@ -29,6 +29,9 @@ pub enum Act {
   Held(bool),
   // the room's twitch blocked terms (mods)
   BlockedTerms,
+  // /warn typed for them (the reason goes after), and a twitch shoutout
+  Warn,
+  Shoutout,
   // a mod action on the person the menu was opened for
   Do(Verb),
   // the answers to "ban bob?"
@@ -270,6 +273,8 @@ impl App {
         self.net.send(Cmd::Relink("automod"));
       }
       (Act::BlockedTerms, Some(who), _) => self.blocked_open(who.chan),
+      (Act::Warn, Some(who), _) => self.type_into_line(&format!("/warn {} ", who.login)),
+      (Act::Shoutout, Some(who), _) => self.suite_run(who.chan, crate::model::modsuite::Cmd::Shoutout(who.login)),
       (Act::Held(allow), ..) => {
         if let Some(id) = self.held_selected() {
           self.held_act(&id, allow);
@@ -375,6 +380,10 @@ impl App {
       rows.push((Act::Do(Verb::Purge), "purge".into()));
       rows.push((Act::Do(Verb::Ban), "ban".into()));
       rows.push((Act::Do(Verb::Unban), "unban".into()));
+      if w.platform == Platform::Twitch {
+        rows.push((Act::Warn, "warn".into()));
+        rows.push((Act::Shoutout, "shoutout".into()));
+      }
       rows.push((Act::BlockedTerms, "blocked terms".into()));
     }
     rows
