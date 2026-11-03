@@ -39,6 +39,8 @@ pub struct Look {
   pub spacing: f32,
   pub animate_emotes: bool,
   pub dim_timeouts: bool,
+  pub ffz_badges: bool,
+  pub chatterino_badges: bool,
 }
 
 impl Look {
@@ -54,6 +56,8 @@ impl Look {
       spacing: s.line_height.ratio(),
       animate_emotes: s.animate_emotes == Animate::Always,
       dim_timeouts: s.dim_timeouts,
+      ffz_badges: s.ffz_badges,
+      chatterino_badges: s.chatterino_badges,
     }
   }
 

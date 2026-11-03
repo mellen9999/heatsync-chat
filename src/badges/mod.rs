@@ -70,8 +70,9 @@ impl Badges {
     }
   }
 
-  // display order: twitch's own (tag order), then chatterino, then ffz
-  pub fn for_message<'a>(&'a self, channel: &str, m: &Message) -> Vec<&'a Badge> {
+  // display order: twitch's own (tag order), then chatterino, then ffz; each third-party set behind its
+  // switch (`ffz`, `chatterino`)
+  pub fn for_message<'a>(&'a self, channel: &str, m: &Message, ffz: bool, chatterino: bool) -> Vec<&'a Badge> {
     let ch = self.channels.get(channel);
     let room = self.ffz_room.get(channel);
     let mut out: Vec<&Badge> = m
@@ -83,7 +84,7 @@ impl Badges {
       })
       .collect();
     if let Ok(uid) = m.user_id.parse::<u64>() {
-      for ub in [&self.chatterino, &self.ffz] {
+      for ub in [(chatterino, &self.chatterino), (ffz, &self.ffz)].into_iter().filter(|s| s.0).map(|s| s.1) {
         if let Some(ix) = ub.users.get(&uid) {
           out.extend(ix.iter().filter_map(|&i| ub.list.get(i as usize)));
         }
@@ -113,11 +114,13 @@ mod tests {
     m.user_id = "42".into();
     m.badges =
       vec![("moderator".into(), "1".into()), ("subscriber".into(), "0".into()), ("nope".into(), "1".into())].into();
-    let urls: Vec<&str> = bs.for_message("c", &m).iter().map(|b| &*b.url).collect();
+    let urls: Vec<&str> = bs.for_message("c", &m, true, true).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["g-mod", "c-sub", "ffz"]);
     bs.set_ffz_room("c", [(key("moderator", "1"), b("ffz-mod"))].into());
-    let urls: Vec<&str> = bs.for_message("c", &m).iter().map(|b| &*b.url).collect();
+    let urls: Vec<&str> = bs.for_message("c", &m, true, true).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["ffz-mod", "c-sub", "ffz"], "the channel's ffz mod art wins");
-    assert_eq!(&*bs.for_message("other", &m)[0].url, "g-mod", "only in its own channel");
+    assert_eq!(&*bs.for_message("other", &m, true, true)[0].url, "g-mod", "only in its own channel");
+    let urls: Vec<&str> = bs.for_message("c", &m, false, true).iter().map(|b| &*b.url).collect();
+    assert_eq!(urls, ["ffz-mod", "c-sub"], "ffz badges off: the channel's own ffz mod art stays");
   }
 }

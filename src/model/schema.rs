@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 48] = [
+pub static DEFS: [Def; 50] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -249,6 +249,30 @@ pub static DEFS: [Def; 48] = [
     ctl: pill!(paints),
     fx: Fx::Paints,
     wire: Wire::Bool("sevenTvPaints"),
+  },
+  Def {
+    id: "ffz_badges",
+    cmd: Some("/ffzbadges"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "ffz badges",
+    tip: "frankerfacez badges on chatters",
+    alias: "ffzBadges frankerfacez",
+    ctl: pill!(ffz_badges),
+    fx: Fx::Look,
+    wire: Wire::Bool("ffzBadges"),
+  },
+  Def {
+    id: "chatterino_badges",
+    cmd: Some("/chatterinobadges"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "chatterino badges",
+    tip: "chatterino badges on chatters",
+    alias: "chatterinoBadges",
+    ctl: pill!(chatterino_badges),
+    fx: Fx::Look,
+    wire: Wire::Bool("chatterinoBadges"),
   },
   Def {
     id: "paint_motion",

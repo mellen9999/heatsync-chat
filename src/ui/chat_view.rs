@@ -842,8 +842,12 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
 }
 
 fn badges(res: &mut Res, chan: &str, m: &Message, s: &str, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
-  let mut found: Vec<(Box<str>, Option<u32>)> =
-    res.badges.for_message(chan, m).into_iter().map(|b| (b.url.clone(), b.bg)).collect();
+  let mut found: Vec<(Box<str>, Option<u32>)> = res
+    .badges
+    .for_message(chan, m, res.look.ffz_badges, res.look.chatterino_badges)
+    .into_iter()
+    .map(|b| (b.url.clone(), b.bg))
+    .collect();
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
   // asks heatsync for their cosmetics: batched, cached, answered into the same slot
   if let Some(uid) = PaintId::of_message(m)

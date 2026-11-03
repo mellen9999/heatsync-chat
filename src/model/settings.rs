@@ -172,6 +172,10 @@ pub struct Settings {
   pub first_glow: bool,
   // 7tv paints on names and 7tv badges. default on, like the ext (sevenTvPaints)
   pub paints: bool,
+  // the per-chatter badge sets from ffz and chatterino, each on its own switch like the ext (ffzBadges,
+  // chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
+  pub ffz_badges: bool,
+  pub chatterino_badges: bool,
   // name paints move (scenes + effects). off freezes each to its first frame, like the ext's animatePaints
   pub paint_motion: bool,
   // stream lines: went live (on), went offline (off), game switch (on), chat-spike line (on)
@@ -236,6 +240,8 @@ impl Default for Settings {
       dim_timeouts: true,
       first_glow: true,
       paints: true,
+      ffz_badges: true,
+      chatterino_badges: true,
       paint_motion: true,
       ev_online: true,
       ev_offline: false,
@@ -449,6 +455,8 @@ mod tests {
         dim_timeouts: true,
         first_glow: true,
         paints: true,
+        ffz_badges: true,
+        chatterino_badges: true,
         paint_motion: true,
         ev_online: true,
         ev_offline: false,

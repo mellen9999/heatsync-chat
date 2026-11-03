@@ -40,6 +40,16 @@
   "default": "[]",
   "maxLen": 524288
  },
+ "chatterinoBadges": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "ffzBadges": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "firstChatterGlow": {
   "type": "bool",
   "scope": "sync",
