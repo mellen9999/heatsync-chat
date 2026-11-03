@@ -706,7 +706,7 @@ fn picture(
   if !res.media || m.has(flag::CLEARED) {
     return (None, None);
   }
-  let Some(e) = embed::find(&m.body) else { return (None, None) };
+  let Some(e) = embed::find(&m.body, res.partial_links) else { return (None, None) };
   let avail = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
   let id = res.images.id_fit(&e.display, EMBED_PX, avail.max(1.0) as u32);
   if res.images.failed(id) {

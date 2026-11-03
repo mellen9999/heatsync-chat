@@ -80,7 +80,22 @@ fn authority_ok(u: &str) -> bool {
     && !tld.bytes().all(|b| b.is_ascii_digit())
 }
 
-pub fn find(body: &str) -> Option<Embed> {
+// the first http(s) link when it embeds; else (partial links on, ext extractChatEmbed) the first youtube
+// video named without its scheme or host: `youtube.com/watch?v=…`, `watch?v=…`, `shorts/…`
+pub fn find(body: &str, partial: bool) -> Option<Embed> {
+  full(body).or_else(|| {
+    let links = if partial { crate::model::links::find(body, true) } else { Vec::new() };
+    links.into_iter().find_map(|l| crate::model::video::yt_id(&l.url).map(|id| yt(id, &l.url)))
+  })
+}
+
+// a youtube video's still (through the proxy, ext feed-embed.js); the link stays readable
+fn yt(id: &str, url: &str) -> Embed {
+  let still = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
+  Embed { display: format!("{PROXY}{}", escape(&still)).into(), word: None, play: Some(url.into()) }
+}
+
+fn full(body: &str) -> Option<Embed> {
   let lower = body.to_ascii_lowercase();
   let at = lower.find("http://").into_iter().chain(lower.find("https://")).min()?;
   let tail = &body[at..];
@@ -89,10 +104,8 @@ pub fn find(body: &str) -> Option<Embed> {
   if url.len() > MAX_LINK || !authority_ok(url) {
     return None;
   }
-  // ext feed-embed.js: the still comes through the proxy too, the link stays readable
   if let Some(id) = crate::model::video::yt_id(url) {
-    let still = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
-    return Some(Embed { display: format!("{PROXY}{}", escape(&still)).into(), word: None, play: Some(url.into()) });
+    return Some(yt(id, url));
   }
   if !is_image(url) {
     return None;
@@ -119,58 +132,71 @@ mod tests {
 
   #[test]
   fn direct_images_only() {
-    let e = find("look https://i.imgur.com/ab.PNG?x=1&y=2 lol").unwrap();
+    let e = full("look https://i.imgur.com/ab.PNG?x=1&y=2 lol").unwrap();
     assert_eq!(&*e.display, "https://heatsync.org/api/img?url=https%3A%2F%2Fi.imgur.com%2Fab.PNG%3Fx%3D1%26y%3D2");
     assert_eq!(e.word, Some(5..39));
-    assert!(find("https://example.com/page").is_none());
-    assert!(find("https://example.com/a.png.exe").is_none());
-    assert!(find("no link here").is_none());
+    assert!(full("https://example.com/page").is_none());
+    assert!(full("https://example.com/a.png.exe").is_none());
+    assert!(full("no link here").is_none());
     // the first link decides, like the ext
-    assert!(find("https://example.com/page https://i.imgur.com/a.png").is_none());
+    assert!(full("https://example.com/page https://i.imgur.com/a.png").is_none());
   }
 
   #[test]
   fn a_youtube_link_shows_its_still_and_plays() {
-    let e = find("watch https://youtu.be/dQw4w9WgXcQ?t=5 lol").unwrap();
+    let e = full("watch https://youtu.be/dQw4w9WgXcQ?t=5 lol").unwrap();
     assert_eq!(
       &*e.display,
       "https://heatsync.org/api/img?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2FdQw4w9WgXcQ%2Fmqdefault.jpg"
     );
     assert_eq!((e.word, e.play.as_deref()), (None, Some("https://youtu.be/dQw4w9WgXcQ?t=5")));
-    assert!(find("https://www.youtube.com/@someone").is_none());
+    assert!(full("https://www.youtube.com/@someone").is_none());
+  }
+
+  #[test]
+  fn a_youtube_link_without_its_host_embeds_when_partial_links_are_on() {
+    for t in ["watch?v=dQw4w9WgXcQ lol", "lol youtube.com/watch?v=dQw4w9WgXcQ", "see shorts/dQw4w9WgXcQ"] {
+      let e = find(t, true).unwrap_or_else(|| panic!("{t}"));
+      assert!(e.display.contains("dQw4w9WgXcQ"), "{t}");
+      assert!(e.play.as_deref().is_some_and(|p| p.starts_with("https://") && p.contains("youtube.com/")), "{t}");
+      assert!(find(t, false).is_none(), "{t}: partial links off");
+    }
+    // a real link that embeds wins over a fragment
+    assert!(find("https://a.com/b.gif watch?v=dQw4w9WgXcQ", true).unwrap().play.is_none());
+    assert!(find("https://example.com/page", true).is_none());
   }
 
   #[test]
   fn direct_hosts_stay_direct_and_avif_becomes_webp() {
-    let e = find("https://cdn.7tv.app/emote/abc/4x.avif").unwrap();
+    let e = full("https://cdn.7tv.app/emote/abc/4x.avif").unwrap();
     assert_eq!(&*e.display, "https://cdn.7tv.app/emote/abc/4x.webp");
-    assert_eq!(&*find("https://files.kick.com/images/a.webp").unwrap().display, "https://files.kick.com/images/a.webp");
+    assert_eq!(&*full("https://files.kick.com/images/a.webp").unwrap().display, "https://files.kick.com/images/a.webp");
     // a direct host over plain http goes through the proxy
-    assert!(find("http://files.kick.com/a.webp").unwrap().display.starts_with(PROXY));
+    assert!(full("http://files.kick.com/a.webp").unwrap().display.starts_with(PROXY));
   }
 
   #[test]
   fn hostile_links_are_refused() {
-    assert!(find("https://user@evil.com/a.png").is_none());
-    assert!(find("https://evil.com:8080/a.png").is_none());
-    assert!(find("https://localhost/a.png").is_none());
-    assert!(find(&format!("https://a.com/{}.png", "x".repeat(MAX_LINK))).is_none());
-    assert!(find("https:///a.png").is_none());
-    assert!(find("https://127.0.0.1/a.png").is_none());
+    assert!(full("https://user@evil.com/a.png").is_none());
+    assert!(full("https://evil.com:8080/a.png").is_none());
+    assert!(full("https://localhost/a.png").is_none());
+    assert!(full(&format!("https://a.com/{}.png", "x".repeat(MAX_LINK))).is_none());
+    assert!(full("https:///a.png").is_none());
+    assert!(full("https://127.0.0.1/a.png").is_none());
     // a worst case escape still fits the url cap
     let long = format!("https://a.com/{}.png", "é".repeat(250));
-    assert!(find(&long).is_none_or(|e| e.display.len() <= 2048));
+    assert!(full(&long).is_none_or(|e| e.display.len() <= 2048));
   }
 
   #[test]
   fn trailing_punctuation_and_folding() {
-    let e = find("https://a.com/b.gif!").unwrap();
+    let e = full("https://a.com/b.gif!").unwrap();
     assert!(e.display.ends_with("b.gif"));
     // trailing junk stuck to the word: keep the text, fold nothing
     assert_eq!(e.word, None);
-    let e = find("(https://a.com/b.gif)").unwrap();
+    let e = full("(https://a.com/b.gif)").unwrap();
     assert!(e.display.ends_with("b.gif"));
     assert_eq!(e.word, None);
-    assert_eq!(find("https://a.com/b.gif").unwrap().word, Some(0..19));
+    assert_eq!(full("https://a.com/b.gif").unwrap().word, Some(0..19));
   }
 }
