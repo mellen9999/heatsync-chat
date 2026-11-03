@@ -27,6 +27,16 @@ impl App {
     p == Platform::Twitch && self.me.is_some() && self.mod_in.contains(chan)
   }
 
+  // one line in the mod log tab: the room, then what happened
+  pub(super) fn mod_log(&mut self, p: Platform, chan: &str, what: String) {
+    let Some(i) = self.tab_of(crate::model::tabs::Kind::ModLog) else { return };
+    self.tabs[i].chat().push(Message::system(now_ms(), p, format!("{chan} · {what}")));
+    if i != self.active {
+      self.tabs[i].unread = true;
+      self.bar_dirty = true;
+    }
+  }
+
   fn room_id(&self, chan: &str) -> Option<Box<str>> {
     self.rooms.iter().find(|r| &*r.0 == chan).map(|r| r.1.clone())
   }
@@ -182,6 +192,10 @@ impl App {
             v.push(Message::system(now_ms(), platform, n.as_str()));
           }
           self.touched(i);
+        }
+        // twitch's own echo logs a ban, timeout or delete; an unban and anything on kick only show here
+        if let Some(n) = note {
+          self.mod_log(platform, &chan, n);
         }
       }
       Err(Fail::Auth) => self.say("log in first (ctrl-l)"),

@@ -1054,11 +1054,16 @@ impl App {
         tab.push(m);
         self.bump_count(i);
       }
-      Chat::ClearMsg(id) => tab.clear_msg(&id),
+      Chat::ClearMsg(id, login) => {
+        tab.clear_msg(&id);
+        let who = if login.is_empty() { "a message".to_owned() } else { format!("{login}'s message") };
+        self.mod_log(Platform::Twitch, ch, format!("deleted {who}"));
+      }
       Chat::ClearUser { login, secs } => {
         tab.clear_user(&login);
         let what = secs.map_or_else(|| "banned".to_owned(), |s| format!("timed out for {s}s"));
         tab.push(Message::system(now_ms(), Platform::Twitch, format!("{login} was {what}")));
+        self.mod_log(Platform::Twitch, ch, format!("{login} was {what}"));
       }
       Chat::ClearAll => tab.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
       Chat::Room { id, modes } => {
@@ -2331,6 +2336,7 @@ impl App {
           self.tabs[i].chat().clear_user(&login);
           self.touched(i);
         }
+        self.mod_log(platform, &key, format!("{login} was removed"));
       }
       NetEvent::YtStatus { key, status } => {
         let line = match &*status {

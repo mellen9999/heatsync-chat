@@ -1,4 +1,4 @@
-// the built-in tabs, in the ext's order (tab-registry.js): feed, whispers, mentions, then your channels.
+// the built-in tabs, in the ext's order (tab-registry.js): feed, whispers, mentions, mod log, then your channels.
 // the names are the reserved ids a channel may never take
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -6,9 +6,11 @@ pub enum Kind {
   Feed,
   Whispers,
   Mentions,
+  // every mod action seen in your channels (ext modlog)
+  ModLog,
 }
 
-pub const BUILTIN: [Kind; 3] = [Kind::Feed, Kind::Whispers, Kind::Mentions];
+pub const BUILTIN: [Kind; 4] = [Kind::Feed, Kind::Whispers, Kind::Mentions, Kind::ModLog];
 
 impl Kind {
   pub fn name(self) -> &'static str {
@@ -17,6 +19,7 @@ impl Kind {
       Kind::Feed => "feed",
       Kind::Whispers => "whispers",
       Kind::Mentions => "mentions",
+      Kind::ModLog => "modlog",
     }
   }
 

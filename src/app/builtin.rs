@@ -1,4 +1,4 @@
-// the built-in tabs (feed, whispers, mentions): created once at boot in the ext's order, shown or
+// the built-in tabs (feed, whispers, mentions, mod log): created once at boot in the ext's order, shown or
 // hidden with /show and /hide, and the helpers that keep every tab-stepping key off hidden ones
 use super::{App, SCROLLBACK, Tab};
 use crate::model::tabs::{BUILTIN, Kind};
@@ -8,6 +8,8 @@ use crate::ui::chat_view::ChatView;
 const MENTIONS: usize = 500;
 const POSTS: usize = 150;
 const WHISPERS: usize = 500;
+// the ext keeps 300 mod actions
+const MOD_LOG: usize = 300;
 
 pub(super) fn make_all() -> Vec<Tab> {
   BUILTIN.into_iter().map(make).collect()
@@ -19,6 +21,7 @@ fn make(kind: Kind) -> Tab {
     Kind::Feed => POSTS,
     Kind::Whispers => WHISPERS,
     Kind::Mentions => MENTIONS,
+    Kind::ModLog => MOD_LOG,
     Kind::Chat => SCROLLBACK,
   };
   let mut view = ChatView::new(cap, name.into());
@@ -29,6 +32,7 @@ fn make(kind: Kind) -> Tab {
   view.tags = kind == Kind::Mentions;
   view.set_empty(match kind {
     Kind::Mentions => "no mentions yet. lines that @ you or reply to you, in any joined channel, land here",
+    Kind::ModLog => "no mod actions yet. bans, timeouts, unbans and deletes in your channels land here",
     Kind::Whispers => "log in to read and send twitch whispers (ctrl-l)",
     Kind::Feed => "loading...",
     Kind::Chat => "",
@@ -112,8 +116,24 @@ mod tests {
   fn builtins_are_in_the_ext_order_and_sized_like_it() {
     let tabs = make_all();
     let names: Vec<&str> = tabs.iter().map(|t| &*t.name).collect();
-    assert_eq!(names, ["feed", "whispers", "mentions"]);
+    assert_eq!(names, ["feed", "whispers", "mentions", "modlog"]);
     assert!(tabs[0].view.top && !tabs[1].view.top && !tabs[2].view.top);
     assert!(tabs.iter().all(|t| t.sources.is_empty() && !t.view.glow));
+  }
+
+  #[test]
+  fn bans_timeouts_and_deletes_land_in_the_mod_log() {
+    use crate::net::Net;
+    use crate::net::irc::Chat;
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    assert!(!app.set.shown(Kind::ModLog), "hidden until shown, like the ext");
+    app.on_chat("forsen", Chat::ClearUser { login: "bob".into(), secs: Some(600) });
+    app.on_chat("forsen", Chat::ClearMsg("m1".into(), "amy".into()));
+    let i = app.tab_of(Kind::ModLog).unwrap();
+    let v = &app.tabs[i].view;
+    assert_eq!(v.len(), 2);
+    assert_eq!(&*v.last_msg().unwrap().body, "forsen · deleted amy's message");
+    assert!(app.tabs[i].unread);
   }
 }

@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 52] = [
+pub static DEFS: [Def; 53] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -753,6 +753,18 @@ pub static DEFS: [Def; 52] = [
     ctl: pill!(tab_mentions),
     fx: Fx::Tab(Kind::Mentions),
     wire: Wire::Hidden("hiddenTabs", "mentions"),
+  },
+  Def {
+    id: "tab_modlog",
+    cmd: None,
+    cat: Cat::System,
+    section: "tabs",
+    label: "mod log tab",
+    tip: "every ban, timeout, unban and delete seen in your channels. /show modlog, /hide modlog",
+    alias: "visible tabs hiddenTabs moderation",
+    ctl: pill!(tab_modlog),
+    fx: Fx::Tab(Kind::ModLog),
+    wire: Wire::Hidden("hiddenTabs", "modlog"),
   },
 ];
 

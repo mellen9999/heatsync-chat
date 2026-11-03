@@ -138,7 +138,8 @@ fn badges(tag: &str) -> Vec<(Box<str>, Box<str>)> {
 #[derive(Debug)]
 pub enum Chat {
   Msg(Message),
-  ClearMsg(Box<str>),
+  // (message id, whose line)
+  ClearMsg(Box<str>, Box<str>),
   ClearUser { login: Box<str>, secs: Option<u32> },
   ClearAll,
   // room id keys the channel's 7tv/bttv/ffz sets (m2b); the chat modes it carries
@@ -231,7 +232,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       Chat::Msg(m)
     }
     "NOTICE" => Chat::Msg(Message::system(ts_of(l), Platform::Twitch, clamp(l.trailing()?, MAX_BODY))),
-    "CLEARMSG" => Chat::ClearMsg(l.tag("target-msg-id")?.into()),
+    "CLEARMSG" => Chat::ClearMsg(l.tag("target-msg-id")?.into(), l.tag("login").unwrap_or_default().into()),
     "CLEARCHAT" => match l.trailing() {
       Some(u) => Chat::ClearUser {
         login: u.to_ascii_lowercase().into(),
@@ -566,7 +567,7 @@ mod tests {
     let l = parse(":tmi.twitch.tv CLEARCHAT #c").unwrap();
     assert!(matches!(to_chat(&l), Some((_, Chat::ClearAll))));
     let l = parse("@login=x;target-msg-id=abc :tmi.twitch.tv CLEARMSG #c :bad").unwrap();
-    assert!(matches!(to_chat(&l), Some((_, Chat::ClearMsg(id))) if &*id == "abc"));
+    assert!(matches!(to_chat(&l), Some((_, Chat::ClearMsg(id, _))) if &*id == "abc"));
   }
 
   #[test]
