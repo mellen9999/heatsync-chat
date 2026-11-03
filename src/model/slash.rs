@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 26] = [
+const FIXED: [Slash; 27] = [
   s("/me", "<text>", "say it as an action"),
   s("/w", "<user> [text]", "whisper someone"),
   s("/r", "<text>", "answer the last whisper"),
@@ -31,6 +31,7 @@ const FIXED: [Slash; 26] = [
   s("/hide", "<user|tab>", "hide someone here, or a tab"),
   s("/unhide", "<user>", "bring them back"),
   s("/show", "<tab>", "show a hidden tab"),
+  s("/note", "<user> [text]", "a private note on someone; no text deletes it"),
   s("/hideword", "[term]", "hide lines with a term; alone, list them"),
   s("/unhideword", "<term>", "stop hiding a term"),
   s("/highlight", "[term]", "light up lines with a word; alone, list them"),

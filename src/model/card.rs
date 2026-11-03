@@ -21,6 +21,10 @@ pub struct Info {
   pub twitch_id: Option<u64>,
   // their picture (ext card-model avatarUrl): heatsync's copy, else twitch's own, asked by the net layer
   pub avatar: Option<Box<str>>,
+  // their heatsync user id (only a real account's: what a server note hangs off) and the note the
+  // server holds for you on them (signed in; may be empty)
+  pub profile_id: Option<Box<str>>,
+  pub note: Option<String>,
 }
 
 // "4y 3mo", "2mo 5d", "3d", "5h", "just now"
@@ -160,7 +164,9 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .and_then(|p| ["/twitch_profile_pic", "/kick_profile_pic", "/profile_image_url"].iter().find_map(|k| text(p, k)))
     .or_else(|| text(v, "/chatter/avatarUrl"))
     .and_then(avatar_url);
-  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_name, twitch_id, avatar }
+  let profile_id = real.and_then(|p| text(p, "/id")).filter(|id| crate::model::notes::server_id(id)).map(Into::into);
+  let note = text(v, "/note").map(|n| n.chars().take(crate::model::notes::MAX_CHARS * 2).collect());
+  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_name, twitch_id, avatar, profile_id, note }
 }
 
 // a picture url we will fetch: an allowlisted image host, bounded
@@ -222,6 +228,16 @@ mod tests {
     assert_eq!(get("ch follow").as_deref(), Some("2y"));
     assert_eq!(get("seen").as_deref(), Some("420 msgs over 1y 10mo"));
     assert_eq!((i.color, i.twitch_id), (None, None));
+  }
+
+  #[test]
+  fn the_profile_id_and_server_note_come_through_but_shadow_ids_do_not() {
+    let i = parse(&json!({ "profile": { "id": "u42" }, "note": "likes cats" }), NOW);
+    assert_eq!((i.profile_id.as_deref(), i.note.as_deref()), (Some("u42"), Some("likes cats")));
+    for id in ["kick_9", "yt_UCx", ""] {
+      assert_eq!(parse(&json!({ "profile": { "id": id } }), NOW).profile_id, None);
+    }
+    assert_eq!(parse(&json!({ "profile": {}, "note": "" }), NOW).note, None);
   }
 
   #[test]

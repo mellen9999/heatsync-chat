@@ -9,6 +9,8 @@ use super::theme;
 const PAD: i32 = 8;
 const LABEL_W: usize = 10;
 const RECENT_MAX: usize = 140;
+// a note is up to 2000 chars; the card shows the first of it (it wraps)
+const NOTE_SHOWN: usize = 600;
 
 pub struct View<'a> {
   pub nick: &'a str,
@@ -20,6 +22,8 @@ pub struct View<'a> {
   pub rows: &'a [(&'static str, String)],
   // loading / failed / not on heatsync
   pub note: Option<&'a str>,
+  // your private note on them (ext card notes section)
+  pub mine: Option<&'a str>,
   // (time, text), oldest first
   pub recent: &'a [(String, &'a str)],
 }
@@ -53,6 +57,15 @@ pub fn head(v: &View) -> (String, Vec<Span>) {
   }
   if let Some(n) = v.note {
     put(&mut s, n, theme::DIM, false);
+    s.push('\n');
+  }
+  if let Some(n) = v.mine {
+    put(&mut s, &format!("{:<LABEL_W$}", "note"), theme::DIM, false);
+    let shown: String = n.chars().take(NOTE_SHOWN).collect();
+    put(&mut s, &shown, theme::WHITE, false);
+    if shown.len() < n.len() {
+      put(&mut s, "…", theme::DIM, false);
+    }
     s.push('\n');
   }
   (s, spans)
@@ -101,6 +114,23 @@ mod tests {
   use super::*;
 
   #[test]
+  fn your_note_is_a_line_of_the_card() {
+    let v = View {
+      hint: "",
+      nick: "bob",
+      color: 0,
+      tag: ("[T] ", theme::TWITCH),
+      rows: &[],
+      note: None,
+      mine: Some("likes cats"),
+      recent: &[],
+    };
+    assert!(head(&v).0.contains("note      likes cats\n"));
+    let none = View { mine: None, ..v };
+    assert!(!head(&none).0.contains("note"));
+  }
+
+  #[test]
   fn the_card_draws_a_square_box_with_clickable_rows() {
     let mut text = Text::new(1.0);
     let mut c = Canvas::new(800, 600);
@@ -114,6 +144,7 @@ mod tests {
       tag: ("[T] ", theme::TWITCH),
       rows: &rows,
       note: None,
+      mine: Some("likes cats"),
       recent: &recent,
     };
     let mut menu = Menu::new(vec![(1, "mention"), (2, "mute")], (0, 0));

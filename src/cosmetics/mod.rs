@@ -3,6 +3,7 @@
 pub mod fill;
 pub mod fx;
 mod fx_tints;
+pub mod hidden;
 pub mod id;
 pub mod paint;
 
@@ -79,11 +80,13 @@ pub struct Cosmetics {
   wanted: Vec<PaintId>,
   // the ext setting sevenTvPaints (default on) gates paints and badges alike
   pub on: bool,
+  // paints the user chose not to see: the name wears its plain color
+  pub hidden: hidden::Hidden,
 }
 
 impl Default for Cosmetics {
   fn default() -> Self {
-    Cosmetics { map: HashMap::new(), wanted: Vec::new(), on: true }
+    Cosmetics { map: HashMap::new(), wanted: Vec::new(), on: true, hidden: hidden::Hidden::default() }
   }
 }
 
@@ -107,6 +110,19 @@ impl Cosmetics {
       self.wanted.push(uid.clone());
     }
     e.c.as_ref()
+  }
+
+  // the paint a name is drawn with: none while its wearer is hidden. the one read the renderer makes
+  pub fn paint(&mut self, uid: &PaintId) -> Option<Arc<Paint>> {
+    if self.hidden.has(uid) {
+      return None;
+    }
+    self.get(uid)?.paint.clone()
+  }
+
+  // whether they have a paint at all, hidden or not (what the menu offers hide / show for)
+  pub fn has_paint(&mut self, uid: &PaintId) -> bool {
+    self.get(uid).is_some_and(|c| c.paint.is_some())
   }
 
   // a chatter whose cosmetics are already known (the synthetic flood): never fetched

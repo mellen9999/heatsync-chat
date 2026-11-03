@@ -100,6 +100,8 @@ pub enum NetEvent {
   MuteSync(mutes::Sync),
   // a user card's facts (or why not: http status, 0 = no answer)
   Card { platform: Platform, login: Box<str>, res: Result<crate::model::card::Info, u16> },
+  // a note upload to heatsync settled: the text sent, and whether it took
+  NoteSaved { platform: Platform, login: Box<str>, text: String, ok: bool },
   // a mod action settled
   ModDone(Box<modact::Done>),
   // a link's preview (None: nothing to show)

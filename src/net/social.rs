@@ -38,6 +38,8 @@ pub enum Cmd {
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
   // the user card's facts: who, on which platform, and the channel it was opened from
   Card { platform: Platform, login: Box<str>, channel: Option<Box<str>> },
+  // your private note on a heatsync account (empty text clears it)
+  PutNote { platform: Platform, login: Box<str>, profile_id: Box<str>, text: String },
   // when you last looked at the mentions, whispers and feed tabs, on any client
   SeenGet,
   // you looked at one just now (`at`); the server tells your other clients
@@ -68,6 +70,18 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
       }
     }
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
+    Cmd::PutNote { platform, login, profile_id, text } => {
+      let ok = match token {
+        Some(t) => {
+          let body = json!({ "note": &text }).to_string();
+          let url = format!("{ORIGIN}/api/user-notes/{}", crate::util::path_seg(&profile_id));
+          let req = http.put(url).bearer_auth(t).header("content-type", "application/json").body(body);
+          call(req).await.0 == 200
+        }
+        None => false,
+      };
+      void(out.send(NetEvent::NoteSaved { platform, login, text, ok }))
+    }
     Cmd::WhisperSend { key, login, id, text } => {
       let res = match token {
         Some(t) => send(&http, &t, &login, id, &text).await,

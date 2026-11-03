@@ -22,6 +22,11 @@ pub fn line_text(m: &Message) -> String {
   format!("{}: {}", m.nick, m.body)
 }
 
+// what copy → input puts in the box: the words, one line, and a space to keep typing after (ext mcQuoteToInput)
+pub fn quote_text(m: &Message) -> String {
+  format!("{} ", flat(m.body.trim()))
+}
+
 pub fn is_paste(key: &Key<&str>, ctrl: bool, shift: bool) -> bool {
   match key {
     Key::Character("v" | "V") => ctrl,
@@ -63,7 +68,25 @@ impl App {
     let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.selected()) else { return };
     let s = line_text(m);
     if self.copy(&s) {
-      self.say("copied");
+      self.say("message copied");
+    }
+  }
+
+  // copy name: the selected line's sender
+  pub(super) fn copy_name(&mut self) {
+    let Some(n) = self.tabs.get(self.active).and_then(|t| t.view.selected()).map(|m| m.nick.to_string()) else {
+      return;
+    };
+    if self.copy(&n) {
+      self.say("name copied");
+    }
+  }
+
+  // copy → input: the selected line's words into the message box
+  pub(super) fn quote_selected(&mut self) {
+    let Some(q) = self.tabs.get(self.active).and_then(|t| t.view.selected()).map(quote_text) else { return };
+    if !q.trim().is_empty() {
+      self.type_into_line(&q);
     }
   }
 
@@ -172,5 +195,12 @@ mod tests {
     m.nick = "bob".into();
     m.body = "hi there".into();
     assert_eq!(line_text(&m), "bob: hi there");
+  }
+
+  #[test]
+  fn quoting_a_line_is_its_words_flat_with_a_space_after() {
+    let mut m = Message::system(0, crate::model::message::Platform::Twitch, "");
+    m.body = " hi\nthere  ".into();
+    assert_eq!(quote_text(&m), "hi there ");
   }
 }

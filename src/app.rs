@@ -27,6 +27,7 @@ mod link;
 mod media_peek;
 mod mentions;
 mod mods;
+mod notes;
 mod peek;
 mod picker;
 mod pin;
@@ -169,6 +170,7 @@ pub struct App {
   media_peek: Option<media_peek::MediaPeek>,
   peek_due: Option<Instant>,
   cards: peek::Cards,
+  notes: crate::model::notes::Notes,
   occluded: bool,
   // the window was resized or shown again (after a fullscreen app, a hidden tag): the buffer or the
   // compositor's copy of it may hold nothing, so the next present sends the whole frame
@@ -311,6 +313,7 @@ impl App {
     tabs.splice(0..0, builtin::make_all());
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
+    res.cosmetics.hidden = crate::cosmetics::hidden::Hidden::load();
     for t in &tabs {
       tabs::seat_hosts(&mut res.chatters, &t.sources);
     }
@@ -354,6 +357,7 @@ impl App {
       media_peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
+      notes: crate::model::notes::Notes::load(),
       occluded: false,
       expose: false,
       damage_hist: [None; 2],
@@ -715,6 +719,11 @@ impl App {
     if let Some(cmd) = crate::model::filtercmd::command(&self.line.text) {
       self.line.take();
       self.filter_cmd(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::notes::command(&self.line.text) {
+      self.line.take();
+      self.note_cmd(cmd);
       return self.after_send();
     }
     if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
@@ -1975,6 +1984,7 @@ impl App {
       }
       NetEvent::ModDone(d) => self.on_mod_done(*d),
       NetEvent::Card { platform, login, res } => self.on_card(platform, &login, res),
+      NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
       NetEvent::Lists(l) => self.on_lists(l),
@@ -2435,6 +2445,63 @@ mod live {
     assert_eq!(app.line.cursor, 3, "on the stack, not inside it");
     app.key_normal(Key::Character("x"));
     assert_eq!(app.line.text, "hi  yo");
+  }
+
+  // the line menu like the ext's, and private notes end to end (own HOME: it writes the notes file)
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_line_menu -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_line_menu() {
+    use crate::app::pop::Act;
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+    m.kind = crate::model::message::Kind::Chat;
+    m.id = "1".into();
+    m.login = "bob".into();
+    m.nick = "Bob".into();
+    m.color = 0x00ff00;
+    m.body = "hello\tthere".into();
+    app.on_chat("forsen", Chat::Msg(m));
+    app.redraw();
+    let labels = |app: &App| app.pop.as_ref().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>());
+    let open = |app: &mut App| {
+      app.tabs[app.active].view.select_start(&mut app.res, 300);
+      app.open_line_menu((10, 10));
+      labels(app).expect("a menu")
+    };
+    let rows = open(&mut app);
+    for want in ["copy name", "copy message", "copy \u{2192} input", "hide in tab", "add note", "filter to Bob"] {
+      assert!(rows.contains(&want.to_owned()), "{want} in {rows:?}");
+    }
+    // copy → input: the words, flat, a space after
+    app.act(Act::Quote, None, None);
+    assert_eq!(app.line.text, "hello there ");
+    app.line.take();
+    // /note: set, show, edit text comes back into the box, delete
+    app.note_cmd(crate::model::notes::command("/note BOB likes cats").unwrap());
+    assert_eq!(app.notes.text(Platform::Twitch, "bob"), "likes cats");
+    assert!(open(&mut app).contains(&"edit note".to_owned()));
+    app.act(Act::Note, app.pop.as_ref().and_then(|p| p.subject.clone()), None);
+    assert_eq!(app.line.text, "/note bob likes cats");
+    app.line.take();
+    app.note_cmd(crate::model::notes::command("/note bob").unwrap());
+    assert_eq!(app.notes.text(Platform::Twitch, "bob"), "");
+    // hide in tab flips the row
+    let who = app.pop.as_ref().and_then(|p| p.subject.clone());
+    app.act(Act::HideInTab(true), who, None);
+    assert!(app.tabs[app.active].view.hidden_user("bob"));
+    // filter to opens the search on @bob, applied
+    app.find_for("Bob");
+    assert!(app.finding && app.prompt.as_ref().is_some_and(|l| l.text == "@bob"));
   }
 
   // vi has two modes: normal edits the box, and once a line is picked r/m/c act on it; space leads chat
@@ -3360,6 +3427,7 @@ mod live {
       twitch_name: None,
       avatar: Some("https://static-cdn.jtvnw.net/jtv_user_pictures/a-70x70.png".into()),
       twitch_id: None,
+      ..Default::default()
     };
     app.on_net(NetEvent::Card { platform: Platform::Twitch, login: "alice".into(), res: Ok(info) });
     app.redraw();

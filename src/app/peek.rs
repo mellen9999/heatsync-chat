@@ -221,6 +221,7 @@ impl App {
       tag: tag(p.platform),
       rows,
       note,
+      mine: None,
       recent: &[],
     };
     let crate::ui::res::Res { text, images, .. } = &mut self.res;

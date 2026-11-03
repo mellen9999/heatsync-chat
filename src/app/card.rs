@@ -75,6 +75,9 @@ impl App {
   }
 
   pub(super) fn on_card(&mut self, platform: Platform, login: &str, res: Result<Info, u16>) {
+    if let Ok(i) = &res {
+      self.note_sync(platform, login, i);
+    }
     self.learn_card(platform, login, res);
     let Some(c) = self.card.as_mut().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
     c.info = match self.cards.get(platform, login) {
@@ -85,7 +88,7 @@ impl App {
     self.card_changed();
   }
 
-  fn card_changed(&mut self) {
+  pub(super) fn card_changed(&mut self) {
     if let Some(t) = self.tabs.get_mut(self.active) {
       t.view.invalidate();
     }
@@ -177,6 +180,7 @@ impl App {
 
   pub(super) fn draw_card(&mut self) -> Option<Rect> {
     let area = self.chat_area();
+    let mine = self.card.as_ref().and_then(|c| self.note_of(c.who.platform, &c.who.login));
     let c = self.card.as_mut()?;
     let note = note_of(&c.info);
     let rows: &[(&'static str, String)] = match &c.info {
@@ -191,6 +195,7 @@ impl App {
       tag: tag(c.who.platform),
       rows,
       note,
+      mine: mine.as_deref(),
       recent: &recent,
     };
     let r = view::draw(&mut self.canvas, &mut self.res.text, area, &v, &mut c.menu);

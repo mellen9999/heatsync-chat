@@ -3,6 +3,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use crate::cosmetics::id::PaintId;
 use crate::model::filter::{self, DEFAULT_MUTE_MS};
 use crate::model::message::{Kind as MsgKind, Platform};
 use crate::model::modcmd::{DURATIONS, Verb};
@@ -27,7 +28,20 @@ pub enum Act {
   Yes,
   No,
   Reply,
-  CopyLine,
+  CopyName,
+  CopyMessage,
+  // the message's words into the box
+  Quote,
+  // true = hide them in this tab, false = bring them back
+  HideInTab(bool),
+  // type /note for them, to edit
+  Note,
+  // flip hiding their heatsync paint
+  Paint,
+  // twitch's viewer card popout: report, gift a sub
+  Viewer,
+  // this tab shows only their lines
+  FilterTo,
   // the person's card, and the things a card (or a line menu) does to them
   Card,
   Mention,
@@ -51,6 +65,8 @@ pub struct Subject {
   pub color: u32,
   // one of our own accounts: no mod rows
   pub own: bool,
+  // the paint their name wears (may be hidden): what the hide / show paint row flips
+  pub paint: Option<PaintId>,
 }
 
 // a mod action waiting for "yes"
@@ -61,8 +77,8 @@ pub struct Todo {
 }
 
 pub struct Pop {
-  menu: Menu<Act>,
-  subject: Option<Subject>,
+  pub(super) menu: Menu<Act>,
+  pub(super) subject: Option<Subject>,
   todo: Option<Todo>,
 }
 
@@ -104,6 +120,61 @@ fn account_rows(me: &Me) -> Vec<(Act, String)> {
   }
   rows.push((Act::Logout, "log out".to_owned()));
   rows
+}
+
+// what the line menu's rows depend on, so the order and the gates are one tested function
+pub struct Who {
+  pub platform: Platform,
+  pub own: bool,
+  // the room is known
+  pub chan: bool,
+  pub nick: String,
+  pub noted: bool,
+}
+
+pub struct Ctx {
+  // None: the line has no person we can act on
+  pub who: Option<Who>,
+  pub can_reply: bool,
+  // a channel tab (not mentions)
+  pub chat_tab: bool,
+  // their paint: None = none, Some(hidden)
+  pub paint: Option<bool>,
+}
+
+// the ext's order: card, reply, the copies, the person (filters, mod), then note, paint, twitch's viewer
+// card, filter to
+pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
+  let mut rows: Vec<(Act, String)> = Vec::new();
+  if c.who.is_some() {
+    rows.push((Act::Card, "user card".into()));
+  }
+  if c.can_reply {
+    rows.push((Act::Reply, "reply".into()));
+  }
+  rows.push((Act::CopyName, "copy name".into()));
+  rows.push((Act::CopyMessage, "copy message".into()));
+  rows.push((Act::Quote, "copy \u{2192} input".into()));
+  rows.extend(person);
+  let Some(w) = &c.who else { return rows };
+  rows.push((Act::Note, if w.noted { "edit note" } else { "add note" }.into()));
+  if let Some(hidden) = c.paint {
+    let verb = if hidden { "show" } else { "hide" };
+    rows.push((Act::Paint, format!("{verb} {}\u{2019}s paint", w.nick)));
+  }
+  if w.platform == Platform::Twitch && w.chan && !w.own {
+    rows.push((Act::Viewer, "report / gift sub".into()));
+  }
+  if c.chat_tab {
+    rows.push((Act::FilterTo, format!("filter to {}", w.nick)));
+  }
+  rows
+}
+
+// the twitch viewer card popout for a person in a room (ext: report, gift sub)
+pub fn viewer_url(chan: &str, login: &str) -> String {
+  let seg = |s: &str| crate::util::path_seg(&s.to_ascii_lowercase());
+  format!("https://www.twitch.tv/popout/{}/viewercard/{}", seg(chan), seg(login))
 }
 
 impl App {
@@ -155,7 +226,16 @@ impl App {
       (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
       (Act::No, ..) => self.say("cancelled"),
       (Act::Reply, ..) => self.reply_selected(),
-      (Act::CopyLine, ..) => self.copy_selected(),
+      (Act::CopyName, ..) => self.copy_name(),
+      (Act::CopyMessage, ..) => self.copy_selected(),
+      (Act::Quote, ..) => self.quote_selected(),
+      (Act::HideInTab(hide), Some(who), _) => {
+        self.filter_cmd(crate::model::filtercmd::Cmd::Hide(who.login.to_string(), hide))
+      }
+      (Act::Note, Some(who), _) => self.note_to_line(who.platform, &who.login),
+      (Act::Paint, Some(who), _) => self.paint_toggle(&who),
+      (Act::Viewer, Some(who), _) => self.viewer_card(&who),
+      (Act::FilterTo, Some(who), _) => self.find_for(&who.login),
       (Act::Card, Some(who), _) => self.open_card(who),
       (Act::Mention, Some(who), _) => self.type_into_line(&format!("@{} ", who.nick)),
       (Act::Whisper, Some(who), _) => self.type_into_line(&format!("/w {} ", who.login)),
@@ -164,6 +244,31 @@ impl App {
       (Act::Block, Some(who), _) => self.block(&who.login),
       (Act::Unblock, Some(who), _) => self.unblock(&who.login),
       _ => {}
+    }
+  }
+
+  // hide or show their heatsync paint everywhere: the name wears its plain color while hidden
+  fn paint_toggle(&mut self, who: &Subject) {
+    let Some(id) = &who.paint else { return };
+    let cos = &mut self.res.cosmetics;
+    let was = cos.hidden.has(id);
+    if cos.hidden.toggle(id) == was {
+      return self.say("too many hidden paints");
+    }
+    cos.hidden.save();
+    self.relayout_where(None);
+    self.say(if was {
+      format!("{}\u{2019}s paint is back", who.nick)
+    } else {
+      format!("{}\u{2019}s paint hidden", who.nick)
+    });
+  }
+
+  // twitch's viewer card (report, gift a sub) in the browser, where twitch's own login lives
+  fn viewer_card(&mut self, who: &Subject) {
+    let url = viewer_url(&who.chan, &who.login);
+    if let Err(e) = crate::util::open::open_url(&url) {
+      self.say(format!("couldn't open the browser: {e}"));
     }
   }
 
@@ -190,6 +295,14 @@ impl App {
     let (muted, blocked) = filter::with(|f| (f.muted(&key, now_ms()), f.blocked(&key)));
     rows.push(if muted { (Act::Unmute, "unmute".into()) } else { (Act::Mute, "mute".into()) });
     rows.push(if blocked { (Act::Unblock, "unblock".into()) } else { (Act::Block, "block".into()) });
+    if self.kind() == Kind::Chat {
+      let hidden = self.tabs.get(self.active).is_some_and(|t| t.view.hidden_user(&w.login));
+      rows.push(if hidden {
+        (Act::HideInTab(false), "unhide in tab".into())
+      } else {
+        (Act::HideInTab(true), "hide in tab".into())
+      });
+    }
     if self.can_mod(w.platform, &w.chan) {
       if !w.msg_id.is_empty() {
         rows.push((Act::Do(Verb::Delete), "delete message".into()));
@@ -208,19 +321,27 @@ impl App {
   pub(super) fn open_line_menu(&mut self, at: (i32, i32)) {
     let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions)) else { return };
     let Some(m) = t.view.selected().filter(|m| m.kind != MsgKind::System) else { return };
+    let (chat_tab, can_reply, head) =
+      (t.kind == Kind::Chat, !m.id.is_empty() && t.kind == Kind::Chat, m.nick.to_string());
     let who = self.subject_of(m);
-    let mut rows: Vec<(Act, String)> = Vec::new();
-    if who.is_some() {
-      rows.push((Act::Card, "user card".into()));
-    }
-    if !m.id.is_empty() && t.kind == Kind::Chat {
-      rows.push((Act::Reply, "reply".into()));
-    }
-    rows.push((Act::CopyLine, "copy line".into()));
-    if let Some(w) = &who {
-      rows.extend(self.person_rows(w));
-    }
-    let head = m.nick.to_string();
+    let person = who.as_ref().map(|w| self.person_rows(w)).unwrap_or_default();
+    let paint = who.as_ref().and_then(|w| w.paint.as_ref()).and_then(|id| {
+      let hidden = self.res.cosmetics.hidden.has(id);
+      self.res.cosmetics.has_paint(id).then_some(hidden)
+    });
+    let ctx = Ctx {
+      who: who.as_ref().map(|w| Who {
+        platform: w.platform,
+        own: w.own,
+        chan: !w.chan.is_empty(),
+        nick: w.nick.to_string(),
+        noted: self.notes.get(w.platform, &w.login).is_some(),
+      }),
+      can_reply,
+      chat_tab,
+      paint,
+    };
+    let rows = line_rows(&ctx, person);
     self.pop = Some(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None });
     self.pop_changed();
   }
@@ -338,5 +459,65 @@ mod tests {
   #[test]
   fn head_without_a_known_platform() {
     assert_eq!(account_head(&me("", true, false, false)), "logged in as mellen");
+  }
+
+  fn who(platform: Platform, own: bool, noted: bool) -> Option<Who> {
+    Some(Who { platform, own, chan: true, nick: "Bob".into(), noted })
+  }
+
+  fn rows(c: &Ctx) -> Vec<String> {
+    let person = vec![(Act::Mute, "mute".into()), (Act::HideInTab(true), "hide in tab".into())];
+    line_rows(c, person).into_iter().map(|r| r.1).collect()
+  }
+
+  #[test]
+  fn a_twitch_line_in_a_channel_tab_has_every_row_in_the_exts_order() {
+    let c = Ctx { who: who(Platform::Twitch, false, false), can_reply: true, chat_tab: true, paint: Some(false) };
+    assert_eq!(
+      rows(&c),
+      [
+        "user card",
+        "reply",
+        "copy name",
+        "copy message",
+        "copy \u{2192} input",
+        "mute",
+        "hide in tab",
+        "add note",
+        "hide Bob\u{2019}s paint",
+        "report / gift sub",
+        "filter to Bob"
+      ]
+    );
+  }
+
+  #[test]
+  fn kick_has_no_twitch_viewer_card_and_mentions_has_no_filter() {
+    let c = Ctx { who: who(Platform::Kick, false, true), can_reply: false, chat_tab: false, paint: Some(true) };
+    let r = rows(&c);
+    assert!(r.contains(&"edit note".to_owned()) && r.contains(&"show Bob\u{2019}s paint".to_owned()));
+    assert!(!r.iter().any(|l| l.starts_with("report") || l.starts_with("filter") || l == "reply"));
+  }
+
+  #[test]
+  fn no_paint_no_paint_row_and_own_lines_keep_the_copies_and_the_note() {
+    let c = Ctx { who: who(Platform::Twitch, true, false), can_reply: true, chat_tab: true, paint: None };
+    let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
+    assert_eq!(
+      r,
+      ["user card", "reply", "copy name", "copy message", "copy \u{2192} input", "add note", "filter to Bob"]
+    );
+  }
+
+  #[test]
+  fn a_line_with_no_person_still_copies() {
+    let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None };
+    assert_eq!(rows(&c), ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"]);
+  }
+
+  #[test]
+  fn the_viewer_card_url_is_lowercase_and_encoded() {
+    assert_eq!(viewer_url("SomeChan", "Bob_1"), "https://www.twitch.tv/popout/somechan/viewercard/bob_1");
+    assert_eq!(viewer_url("a/b", "x?y"), "https://www.twitch.tv/popout/a%2Fb/viewercard/x%3Fy");
   }
 }

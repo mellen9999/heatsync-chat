@@ -68,6 +68,7 @@ mod tests {
       tag: ("[T] ", theme::TWITCH),
       rows: &rows,
       note: None,
+      mine: None,
       recent: &[],
     };
     // near the right edge: pulled back in

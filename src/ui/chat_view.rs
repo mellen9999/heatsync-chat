@@ -406,7 +406,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     nick = n0..s.len();
     // a painted name's glyphs are drawn from the shaded bitmap instead (paints: names only)
     painted = PaintId::of_message(m).and_then(|uid| {
-      let paint = res.cosmetics.get(&uid)?.paint.clone()?;
+      let paint = res.cosmetics.paint(&uid)?;
       Some((uid, paint))
     });
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
@@ -453,7 +453,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     }
     for n in &mut mentions {
       n.color = res.look.ink(n.color);
-      n.art = n.paint.as_ref().and_then(|id| res.cosmetics.get(id)?.paint.clone());
+      n.art = n.paint.as_ref().and_then(|id| res.cosmetics.paint(id));
       let tag = if n.art.is_some() { Ink::PAINTED } else { 0 };
       spans.push(Span { range: n.range.clone(), ink: Ink(n.color | tag), bold: true });
     }
@@ -1186,6 +1186,10 @@ impl ChatView {
   }
 
   // /hide name and /unhide name: this tab only
+  pub fn hidden_user(&self, who: &str) -> bool {
+    self.tab_hidden.contains(&filter::key(who))
+  }
+
   pub fn hide_user(&mut self, who: &str, hide: bool) -> bool {
     let k = filter::key(who);
     let changed = if hide { self.tab_hidden.insert(k) } else { self.tab_hidden.remove(&k) };

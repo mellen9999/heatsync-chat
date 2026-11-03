@@ -29,6 +29,13 @@ impl App {
     self.wake();
   }
 
+  // filter to one person: the tab search open on `@login`, already applied (enter keeps it, esc clears)
+  pub(super) fn find_for(&mut self, login: &str) {
+    self.find_q = format!("@{}", login.to_ascii_lowercase());
+    self.find_open();
+    self.find_live();
+  }
+
   fn find_set(&mut self, q: &str) {
     let (h, res) = (self.chat_area().h, &mut self.res);
     let Some(t) = self.tabs.get_mut(self.active) else { return };

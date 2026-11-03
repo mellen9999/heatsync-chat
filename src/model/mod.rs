@@ -15,6 +15,7 @@ pub mod links;
 pub mod mention;
 pub mod message;
 pub mod modcmd;
+pub mod notes;
 pub mod pace;
 pub mod pathcomp;
 pub mod picker;

@@ -3,6 +3,7 @@
 // heatsync's server does the twitch and kick calls (POST /api/mod/action)
 use super::App;
 use super::pop::{Pop, Subject, Todo};
+use crate::cosmetics::id::PaintId;
 use crate::model::message::{Message, Platform};
 use crate::model::modcmd::{Cmd as Slash, Verb};
 use crate::net::Cmd;
@@ -63,6 +64,7 @@ impl App {
       msg_id: msg_id.into(),
       color: crate::model::color::readable(color),
       own,
+      paint: (login == &*m.login).then(|| PaintId::of_message(m)).flatten(),
     })
   }
 
@@ -128,7 +130,17 @@ impl App {
         let id = (platform == Platform::Twitch).then(|| t.view.user_id_of(&name)).flatten().unwrap_or_default();
         let (login, msg_id) =
           if verb == Verb::Delete { ("".into(), name.as_str().into()) } else { (name.as_str().into(), "".into()) };
-        Subject { platform, chan, login, nick: name.as_str().into(), user_id: id, msg_id, color: 0, own: false }
+        Subject {
+          platform,
+          chan,
+          login,
+          nick: name.as_str().into(),
+          user_id: id,
+          msg_id,
+          color: 0,
+          own: false,
+          paint: None,
+        }
       })
       .collect();
     if verb == Verb::Delete {
