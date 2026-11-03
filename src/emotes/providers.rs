@@ -15,6 +15,16 @@ fn put(set: &mut Set, name: &str, e: Emote) {
   }
 }
 
+// `more` under `set`: a name already there keeps its emote, and the whole stays within MAX_SET
+pub fn merge(set: &mut Set, more: Set) {
+  for (n, e) in more {
+    if set.len() >= MAX_SET {
+      break;
+    }
+    set.entry(n).or_insert(e);
+  }
+}
+
 pub async fn fetch(http: &reqwest::Client, url: &str) -> Result<Value, String> {
   let r = http.get(url).send().await.map_err(|e| e.to_string())?;
   if r.status() == reqwest::StatusCode::NOT_FOUND {
@@ -195,6 +205,7 @@ pub fn ffz_global(v: &Value) -> Set {
 }
 
 pub const HEATSYNC_GLOBAL: &str = "https://heatsync.org/api/emotes";
+pub const TWITCH_GLOBAL: &str = "https://heatsync.org/api/emotes/twitch/global";
 pub const SEVENTV_GLOBAL: &str = "https://7tv.io/v3/emote-sets/global";
 pub const BTTV_GLOBAL: &str = "https://api.betterttv.net/3/cached/emotes/global";
 pub const FFZ_GLOBAL: &str = "https://api.frankerfacez.com/v1/set/global";
@@ -235,6 +246,15 @@ mod tests {
     // the live catalog wraps the rows: `{"emotes": [...]}`
     let wrapped = json!({"emotes": [{"name": "Kappa", "provider": "twitch", "url": "https://static-cdn.jtvnw.net/emoticons/v2/25/static/light/1.0"}]});
     assert!(twitch_global(&wrapped)["Kappa"].url.ends_with("/dark/1.0"));
+  }
+  #[test]
+  fn twitch_globals_merge_first_wins() {
+    let row = |n: &str, id: &str| serde_json::json!({ "name": n, "provider": "twitch", "url": format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/default/dark/1.0") });
+    let mut set = twitch_global(&serde_json::json!({ "emotes": [row("LUL", "425618"), row("Kappa", "25")] }));
+    merge(&mut set, twitch_global(&serde_json::json!({ "emotes": [row("Kappa", "999"), row("PrideFloat", "1")] })));
+    assert_eq!(set.len(), 3);
+    assert!(set["Kappa"].url.contains("/25/"), "the ext's list wins a name both have");
+    assert!(set.contains_key("LUL") && set.contains_key("PrideFloat"));
   }
 
   #[test]

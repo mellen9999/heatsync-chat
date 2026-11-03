@@ -372,8 +372,17 @@ async fn channel_badges(http: reqwest::Client, ch: Box<str>, out: Out) {
 
 async fn global_emotes(http: reqwest::Client, out: Out) {
   type Parse = fn(&serde_json::Value) -> Set;
-  let sets: [(Provider, &str, Parse); 4] = [
-    (Provider::Twitch, providers::HEATSYNC_GLOBAL, providers::twitch_global),
+  // twitch's: the ext's list (every helix global: LUL, :P) laid over the catalog's twitch rows (the
+  // event unlocks, which that list lacks). either alone is short; one failing still leaves the other
+  let mut twitch = Set::new();
+  for u in [providers::TWITCH_GLOBAL, providers::HEATSYNC_GLOBAL] {
+    match providers::fetch(&http, u).await {
+      Ok(v) => providers::merge(&mut twitch, providers::twitch_global(&v)),
+      Err(e) => out.status(format!("global twitch emotes: {e}")),
+    }
+  }
+  out.send(NetEvent::Emotes(None, Provider::Twitch, twitch));
+  let sets: [(Provider, &str, Parse); 3] = [
     (Provider::SevenTv, providers::SEVENTV_GLOBAL, providers::seventv),
     (Provider::Bttv, providers::BTTV_GLOBAL, providers::bttv_global),
     (Provider::Ffz, providers::FFZ_GLOBAL, providers::ffz_global),
