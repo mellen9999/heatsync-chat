@@ -1,5 +1,5 @@
 // a twitch room's blocked terms, for its moderators (ext blocked-terms.js): a list screen over the chat
-// from /blocked or a line's menu. j/k move, d deletes the picked term (y yes, n no), a adds, / filters,
+// from /blocked or a line's menu. j/k move, x deletes the picked term (y yes, n no), a adds, / filters,
 // esc closes. without the twitch permission it offers to ask for it
 use winit::keyboard::{Key, NamedKey};
 
@@ -267,7 +267,7 @@ impl App {
       return true;
     }
     match key {
-      Key::Character("d" | "x") if !ctrl => {}
+      Key::Character("x") if !ctrl => {}
       Key::Named(NamedKey::Delete) => {}
       Key::Character("a") if !ctrl => {
         (bt.adding, s.typing) = (true, true);
@@ -353,13 +353,15 @@ mod tests {
     assert_eq!(rows(&app), ["bad", "spam link", "other"]);
     assert_eq!(app.screen.as_ref().unwrap().bt.as_ref().unwrap().msg, "blocked \"bad\"");
     app.on_key(Key::Named(NamedKey::Escape), None);
-    // j, d asks first, n keeps it, d y deletes
+    // j, x asks first, n keeps it, x y deletes; d does nothing
     app.on_key(Key::Character("j"), Some("j"));
     app.on_key(Key::Character("d"), Some("d"));
+    assert!(rows(&app).iter().all(|r| !r.starts_with("delete")), "d is not delete");
+    app.on_key(Key::Character("x"), Some("x"));
     assert_eq!(rows(&app)[1], "delete \"spam link\"?  y yes · n no");
     app.on_key(Key::Character("n"), Some("n"));
     assert_eq!(rows(&app)[1], "spam link");
-    app.on_key(Key::Character("d"), Some("d"));
+    app.on_key(Key::Character("x"), Some("x"));
     app.on_key(Key::Character("y"), Some("y"));
     assert_eq!(asked(&mut rx), ["22484632 remove 1"]);
     // twitch says it was already gone: that is the state wanted

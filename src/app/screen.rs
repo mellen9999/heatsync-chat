@@ -465,7 +465,7 @@ impl App {
         } else if b.confirm.is_some() {
           "y deletes · n keeps"
         } else {
-          "j k move · d delete · a add · / filter · esc closes"
+          "j k move · x delete · a add · / filter · esc closes"
         },
       ),
       (Page::Settings, _) => (
