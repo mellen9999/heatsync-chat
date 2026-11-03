@@ -3,6 +3,7 @@
 pub mod auth;
 mod cosmetics;
 pub mod emote_ops;
+pub mod held;
 pub mod hs_ws;
 pub mod irc;
 mod links;
@@ -126,6 +127,13 @@ pub enum NetEvent {
   Preview(Box<str>, Option<crate::model::preview::Preview>),
   // someone's pronouns (by twitch id): Ok(words or none set), Err = no answer
   Pronouns(u64, Result<Option<Box<str>>, ()>),
+  // automod held a message in a room you moderate / a hold settled (any mod, or twitch's hour ran out)
+  Held(Box<crate::model::held::Hold>),
+  HeldEnd { chan: Box<str>, id: Box<str>, end: crate::model::held::End },
+  // the room's automod watch answered: what twitch still holds there
+  HeldWatched { chan: Box<str>, res: Result<Vec<crate::model::held::Hold>, held::Fail> },
+  // an allow / deny settled
+  HeldActed { chan: Box<str>, id: Box<str>, allow: bool, res: Result<(), held::Fail> },
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -194,6 +202,8 @@ pub enum Cmd {
   Preview(Box<str>),
   // someone's pronouns from pronoundb, by twitch user id
   Pronouns(u64),
+  // automod holds: watch a room you moderate, allow / deny one
+  Held(held::Cmd),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -535,6 +545,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Mod(r) => {
         let _ = sess_tx.send(session::Cmd::Mod(r));
+      }
+      Cmd::Held(c) => {
+        let _ = sess_tx.send(session::Cmd::Held(c));
       }
       Cmd::Relink(pack) => {
         let _ = sess_tx.send(session::Cmd::Login(auth::Provider::Twitch, pack));

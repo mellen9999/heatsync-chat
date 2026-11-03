@@ -22,7 +22,11 @@ pub enum Act {
   Link(Provider),
   // ask youtube for the extra permission to post chat as the user (opt-in, never at sign-in)
   AllowYoutubePosting,
+  // ask twitch for the automod permission (the hold queue in rooms you moderate)
+  AllowAutomod,
   Logout,
+  // allow (true) / deny the selected automod hold
+  Held(bool),
   // a mod action on the person the menu was opened for
   Do(Verb),
   // the answers to "ban bob?"
@@ -122,8 +126,9 @@ fn account_head(me: &Me) -> String {
   }
 }
 
-// the signed-in menu: a link row for each platform not linked yet, the youtube posting opt-in once youtube is linked, then log out
-fn account_rows(me: &Me) -> Vec<(Act, String)> {
+// the signed-in menu: a link row for each platform not linked yet, the youtube posting opt-in once
+// youtube is linked, the automod permission while you moderate a room without it, then log out
+fn account_rows(me: &Me, mods: bool) -> Vec<(Act, String)> {
   let linked = [
     (Provider::Twitch, me.twitch.is_some()),
     (Provider::Kick, me.kick.is_some()),
@@ -133,6 +138,9 @@ fn account_rows(me: &Me) -> Vec<(Act, String)> {
     linked.into_iter().filter(|(_, on)| !on).map(|(p, _)| (Act::Link(p), format!("link {}", p.name()))).collect();
   if me.youtube.is_some() {
     rows.push((Act::AllowYoutubePosting, "allow youtube posting".to_owned()));
+  }
+  if mods && me.twitch.is_some() && !me.has_pack("automod") {
+    rows.push((Act::AllowAutomod, "allow automod holds".to_owned()));
   }
   rows.push((Act::Logout, "log out".to_owned()));
   rows
@@ -217,7 +225,7 @@ impl App {
     let b = self.body();
     let at = (b.x + b.w / 2 - 80, b.y);
     let menu = match &self.me {
-      Some(me) => Menu::new(account_rows(me), at).titled(account_head(me)),
+      Some(me) => Menu::new(account_rows(me, !self.mod_in.is_empty()), at).titled(account_head(me)),
       None => Menu::new(login_rows(), at).titled("log in with"),
     };
     self.pop = Some(Pop { menu, subject: None, todo: None });
@@ -254,6 +262,15 @@ impl App {
       (Act::AllowYoutubePosting, ..) => {
         self.say("finish allowing youtube posting in your browser…");
         self.net.send(Cmd::AllowYoutubePosting);
+      }
+      (Act::AllowAutomod, ..) => {
+        self.say("finish allowing automod holds in your browser…");
+        self.net.send(Cmd::Relink("automod"));
+      }
+      (Act::Held(allow), ..) => {
+        if let Some(id) = self.held_selected() {
+          self.held_act(&id, allow);
+        }
       }
       (Act::Logout, ..) => self.net.send(Cmd::Logout),
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
@@ -401,7 +418,11 @@ impl App {
       post,
       op,
     };
-    let rows = line_rows(&ctx, person);
+    let mut rows = line_rows(&ctx, person);
+    // an automod hold: allow / deny first
+    if self.held_selected().is_some() {
+      rows.splice(0..0, [(Act::Held(true), "allow".to_owned()), (Act::Held(false), "deny".to_owned())]);
+    }
     self.pop = Some(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None });
     self.pop_changed();
   }
@@ -491,7 +512,7 @@ mod tests {
   }
 
   fn labels(m: &Me) -> Vec<String> {
-    account_rows(m).into_iter().map(|r| r.1).collect()
+    account_rows(m, false).into_iter().map(|r| r.1).collect()
   }
 
   #[test]
@@ -499,7 +520,7 @@ mod tests {
     let m = me("kick", false, true, false);
     assert_eq!(account_head(&m), "logged in as mellen (kick)");
     assert_eq!(labels(&m), ["link twitch", "link youtube", "log out"]);
-    assert_eq!(account_rows(&m)[0].0, Act::Link(Provider::Twitch));
+    assert_eq!(account_rows(&m, false)[0].0, Act::Link(Provider::Twitch));
   }
 
   #[test]
@@ -513,7 +534,7 @@ mod tests {
     assert_eq!(labels(&me("kick", false, true, false)), ["link twitch", "link youtube", "log out"]);
     let m = me("youtube", false, false, true);
     assert_eq!(labels(&m), ["link twitch", "link kick", "allow youtube posting", "log out"]);
-    assert_eq!(account_rows(&m)[2].0, Act::AllowYoutubePosting);
+    assert_eq!(account_rows(&m, false)[2].0, Act::AllowYoutubePosting);
   }
 
   #[test]

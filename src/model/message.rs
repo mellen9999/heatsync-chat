@@ -66,6 +66,8 @@ pub struct Extra {
   pub pic: Option<Box<Pic>>,
   // a stream line whose name color the frame didn't give: it follows what the app learns of them later
   pub late: bool,
+  // an automod hold's row: its allow / deny, or how it ended
+  pub held: Option<Box<crate::model::held::Row>>,
 }
 
 // one picture (a video's still) and the video it plays

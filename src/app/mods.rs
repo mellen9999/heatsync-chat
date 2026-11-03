@@ -15,6 +15,7 @@ impl App {
     let had = self.mod_in.contains(ch);
     if on && !had {
       self.mod_in.insert(ch.into());
+      self.held_sweep();
     } else if !on && had {
       self.mod_in.remove(ch);
     }

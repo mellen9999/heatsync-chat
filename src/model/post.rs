@@ -338,6 +338,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     paint: p.paint.clone(),
     pic: pic(p, false, None).map(Box::new),
     late: false,
+    held: None,
   }));
   m
 }

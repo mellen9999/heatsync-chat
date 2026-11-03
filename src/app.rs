@@ -25,6 +25,7 @@ mod feed;
 mod filters;
 mod find;
 mod gifs;
+mod held;
 mod img_view;
 mod link;
 mod logs;
@@ -176,6 +177,8 @@ pub struct App {
   peek_due: Option<Instant>,
   cards: peek::Cards,
   pronouns: crate::model::pronouns::Pronouns,
+  // automod holds in rooms we moderate
+  held: held::Queue,
   notes: crate::model::notes::Notes,
   occluded: bool,
   // the window was resized or shown again (after a fullscreen app, a hidden tag): the buffer or the
@@ -378,6 +381,7 @@ impl App {
       peek_due: None,
       cards: peek::Cards::default(),
       pronouns: Default::default(),
+      held: Default::default(),
       notes: crate::model::notes::Notes::load(),
       occluded: false,
       expose: false,
@@ -1022,6 +1026,7 @@ impl App {
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
           self.rooms.push((ch.into(), id.clone()));
           self.net.send(Cmd::Room(ch.into(), id));
+          self.held_sweep();
         }
         return;
       }
@@ -1716,6 +1721,7 @@ impl App {
       return;
     }
     if self.vote_press()
+      || self.held_press()
       || self.img_press()
       || self.reveal_press()
       || self.thread_press()
@@ -2004,6 +2010,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.flash_due.is_some_and(|t| t <= now) {
       self.flash_tick();
     }
+    if self.held.due().is_some_and(|t| t <= now) {
+      self.held_tick();
+    }
     self.ui_state_tick();
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
@@ -2021,6 +2030,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.heat_due,
       self.pace_due,
       self.flash_due,
+      self.held.due(),
       self.ui_state_due(),
     ]
     .into_iter()
@@ -2069,6 +2079,10 @@ impl App {
       NetEvent::ModDone(d) => self.on_mod_done(*d),
       NetEvent::Card { platform, login, res } => self.on_card(platform, &login, res),
       NetEvent::Pronouns(uid, res) => self.on_pronouns(uid, res),
+      NetEvent::Held(h) => self.on_held(*h),
+      NetEvent::HeldEnd { chan, id, end } => self.on_held_end(chan, id, end),
+      NetEvent::HeldWatched { chan, res } => self.on_held_watched(chan, res),
+      NetEvent::HeldActed { chan, id, allow, res } => self.on_held_acted(chan, id, allow, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
@@ -2097,6 +2111,7 @@ impl App {
         self.hs_authed = on;
         if on {
           self.ui_state_fetch();
+          self.held_reconnected();
         }
       }
       NetEvent::Voted { id, res } => self.on_voted(id, res),
@@ -2186,9 +2201,13 @@ impl App {
           self.feed_reset();
           self.res.blocked.clear_server();
           self.mod_in.clear();
+          self.held = Default::default();
           self.relayout_where(None);
         }
         self.me = me;
+        // a relink may have brought the automod permission
+        self.held.reset();
+        self.held_sweep();
         if self.me.is_some() {
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
           self.ui_state_fetch();

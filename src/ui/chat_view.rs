@@ -92,6 +92,9 @@ struct Laid {
   // a feed post's media: its `[img]` tag, the held box's button, and the frames drawn around them
   media: std::ops::Range<usize>,
   reveal: std::ops::Range<usize>,
+  // an automod hold's allow and deny buttons
+  allow: std::ops::Range<usize>,
+  deny: std::ops::Range<usize>,
   // `>>id` written in the words: where, and the post (server id) it names
   refs: Vec<(std::ops::Range<usize>, Box<str>)>,
   frames: Vec<(std::ops::Range<usize>, Frame)>,
@@ -117,6 +120,8 @@ enum Frame {
   Held,
   // its button: 1px white
   Button,
+  // an automod hold's allow / deny: 1px yellow (ext .hs-mc-automod-btn)
+  Hold,
 }
 
 struct Row {
@@ -377,6 +382,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut thread = 0..0;
   let mut media = 0..0;
   let mut reveal = 0..0;
+  let (mut allow, mut deny) = (0..0, 0..0);
   let mut refs = Vec::new();
   let mut frames = Vec::new();
   let mut pics = Vec::new();
@@ -488,6 +494,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     if let Some(c) = &preview {
       card(res, c, width, &mut s, &mut spans, &mut ib, &mut boxes, &mut frames, (&mut links, &mut link_runs));
     }
+    if let Some(h) = x.and_then(|x| x.held.as_deref()) {
+      (allow, deny) = held_row(h, &mut s, &mut spans, &mut frames);
+    }
   }
   if let Some(f) = find {
     // a painted name is drawn from its own bitmap: leave it be
@@ -519,6 +528,8 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     thread,
     media,
     reveal,
+    allow,
+    deny,
     refs,
     frames,
     pics,
@@ -549,6 +560,44 @@ fn post_refs(s: &str, from: usize) -> Vec<(std::ops::Range<usize>, Box<str>)> {
     at = end.max(a + 2);
   }
   out
+}
+
+// an automod hold's last line: allow / deny (after why the last try failed), or where it stands
+fn held_row(
+  h: &crate::model::held::Row,
+  s: &mut String,
+  spans: &mut Vec<Span>,
+  frames: &mut Vec<(std::ops::Range<usize>, Frame)>,
+) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+  use crate::model::held::State;
+  let mut text = |s: &mut String, t: &str, ink: u32| {
+    let a = s.len();
+    s.push_str(t);
+    spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
+    a..s.len()
+  };
+  s.push('\n');
+  match &h.state {
+    State::Busy => {
+      text(s, "resolving…", theme::YELLOW);
+    }
+    State::Ended(e) => {
+      text(s, &e.text(), theme::YELLOW);
+    }
+    State::Open | State::Failed(_) => {
+      if let State::Failed(why) = &h.state {
+        text(s, why, theme::RED);
+        s.push(' ');
+      }
+      let allow = text(s, " allow ", theme::WHITE);
+      s.push(' ');
+      let deny = text(s, " deny ", theme::WHITE);
+      frames.push((allow.clone(), Frame::Hold));
+      frames.push((deny.clone(), Frame::Hold));
+      return (allow, deny);
+    }
+  }
+  (0..0, 0..0)
 }
 
 type Spots<'a> = (
@@ -1224,6 +1273,22 @@ impl ChatView {
     true
   }
 
+  // an automod hold's row moved on (asked, settled, lapsed): every row of it, in place
+  pub fn set_held(&mut self, id: &str, state: &crate::model::held::State) -> bool {
+    let mut hit = false;
+    for r in &mut self.rows {
+      if let Some(h) = r.msg.x.as_mut().and_then(|x| x.held.as_mut()).filter(|h| &*h.id == id)
+        && h.state != *state
+      {
+        h.state = state.clone();
+        Self::touch(r);
+        hit = true;
+      }
+    }
+    self.stale |= hit;
+    hit
+  }
+
   // swap the whole list for a new one (a list that changes under the reader): the scroll stays and
   // the selection follows its line by id
   pub fn reload(&mut self, msgs: Vec<Message>) {
@@ -1654,10 +1719,29 @@ impl ChatView {
   fn spot_at(
     &mut self,
     area: Rect,
-    (x, y): (i32, i32),
+    at: (i32, i32),
     res: &mut Res,
     spot: fn(&Laid) -> &std::ops::Range<usize>,
   ) -> Option<Box<str>> {
+    self.text_at(area, at, res, |m, laid, i| spot(laid).contains(&i).then(|| m.id.clone()))
+  }
+
+  // the automod hold whose allow (true) or deny (false) is under (x, y)
+  pub fn held_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(Box<str>, bool)> {
+    self.text_at(area, (x, y), res, |m, laid, i| {
+      let id = m.x.as_ref()?.held.as_ref()?.id.clone();
+      [(true, &laid.allow), (false, &laid.deny)].into_iter().find(|(_, r)| r.contains(&i)).map(|(a, _)| (id, a))
+    })
+  }
+
+  // ask `f` about the line under (x, y) and where in its laid-out text the pointer is
+  fn text_at<T>(
+    &mut self,
+    area: Rect,
+    (x, y): (i32, i32),
+    res: &mut Res,
+    f: impl FnOnce(&Message, &Laid, usize) -> Option<T>,
+  ) -> Option<T> {
     let mut bottom = self.edge(area, res);
     for i in (0..self.rows.len()).rev() {
       if bottom <= area.y {
@@ -1667,13 +1751,9 @@ impl ChatView {
       if y >= top && y < bottom {
         let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
         let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
-        let r = spot(&laid);
-        if r.is_empty() {
-          return None;
-        }
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let at = Cluster::from_point(&laid.layout, lx, ly)?.0.text_range();
-        return r.contains(&at.start).then(|| m.id.clone());
+        return f(m, &laid, at.start);
       }
       bottom = top;
     }
@@ -1897,6 +1977,7 @@ impl ChatView {
             match f {
               Frame::Held => c.dashed(r, clip, theme::CYAN),
               Frame::Button => c.outline(r, clip, theme::WHITE),
+              Frame::Hold => c.outline(r, clip, theme::YELLOW),
             }
           }
           let anims = &mut self.anims;
@@ -2850,6 +2931,7 @@ mod tests {
       paint: None,
       pic: None,
       late: false,
+      held: None,
     }));
     let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
     let n = l.layout.lines().count();

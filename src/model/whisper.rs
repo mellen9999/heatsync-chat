@@ -292,6 +292,7 @@ pub fn message(w: &Whisper) -> Message {
     paint: None,
     pic: None,
     late: false,
+    held: None,
   }));
   m
 }

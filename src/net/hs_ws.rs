@@ -396,6 +396,15 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Moment { platform, key, text })
     }
     "pin:set" | "pin:clear" => pin::frame(v, ty == "pin:set").and_then(send),
+    // pushed only to the moderator's own sockets
+    "automod:hold" => {
+      let h = crate::model::held::hold(v, crate::util::time::now_ms())?;
+      send(NetEvent::Held(Box::new(h)))
+    }
+    "automod:update" => {
+      let (chan, id, end) = crate::model::held::update(v)?;
+      send(NetEvent::HeldEnd { chan, id, end })
+    }
     "new-message" => {
       let p = crate::model::post::parse(v.get("data")?)?;
       send(NetEvent::FeedLive(p))
