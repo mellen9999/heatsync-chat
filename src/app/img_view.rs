@@ -22,14 +22,18 @@ pub(super) struct ImgView {
 }
 
 impl App {
-  // a click on a picture in the chat opens it. true when it did
+  // a click on a picture in the chat opens it (a video's still plays the video). true when it did
   pub(super) fn img_press(&mut self) -> bool {
     let (x, y) = self.pointer;
     let chat = self.chat_area();
     let res = &mut self.res;
-    let Some(small) = self.tabs.get_mut(self.active).and_then(|t| t.view.pic_at(chat, x, y, res)) else {
+    let Some((small, play)) = self.tabs.get_mut(self.active).and_then(|t| t.view.pic_at(chat, x, y, res)) else {
       return false;
     };
+    if let Some(url) = play {
+      self.play(&url);
+      return true;
+    }
     let Some(url) = self.res.images.url(small).map(Box::<str>::from) else { return false };
     let id = self.res.images.id_fit(&url, VIEW_PX, u32::from(u16::MAX));
     self.img_view = Some(ImgView { id, zoom: 0, pan: (0, 0) });

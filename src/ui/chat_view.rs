@@ -94,6 +94,8 @@ struct Laid {
   frames: Vec<(std::ops::Range<usize>, Frame)>,
   // the post's pictures, asked for at draw time like `embed`
   pics: Vec<ImgId>,
+  // the pictures that are a video's still (a ▶ over them), and what a click plays
+  plays: Vec<(ImgId, Box<str>)>,
   boxes: Vec<EmoteBox>,
   // names wearing a paint: the sender's and any mentioned in the words
   names: Vec<PaintedName>,
@@ -372,6 +374,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut refs = Vec::new();
   let mut frames = Vec::new();
   let mut pics = Vec::new();
+  let mut plays = Vec::new();
   // where the words sit in the text, for search hits
   let mut words = 0..0;
   if m.kind == Kind::System {
@@ -413,7 +416,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     }
     s.push(' ');
     // a muted sender's words and pictures are stripped; the name and time stay
-    let (pic, fold) = if muted { (None, None) } else { picture(res, m, width) };
+    let (pic, fold) = if muted { (None, None) } else { picture(res, m, width, &mut plays) };
     let b0 = s.len();
     if !muted {
       (links, link_runs, mentions) = body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
@@ -453,7 +456,16 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       spans.push(Span { range: a..s.len(), ink: Ink(theme::CYAN), bold: false });
       media = a..s.len();
       if p.inline {
-        post_media(res, p, width, &mut s, &mut spans, &mut ib, &mut boxes, (&mut reveal, &mut frames, &mut pics));
+        post_media(
+          res,
+          p,
+          width,
+          &mut s,
+          &mut spans,
+          &mut ib,
+          &mut boxes,
+          (&mut reveal, &mut frames, &mut pics, &mut plays),
+        );
       }
     }
     // the picture sits on its own line under the text once its size is known
@@ -497,6 +509,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     refs,
     frames,
     pics,
+    plays,
     boxes,
     names,
     mentions,
@@ -525,7 +538,12 @@ fn post_refs(s: &str, from: usize) -> Vec<(std::ops::Range<usize>, Box<str>)> {
   out
 }
 
-type Spots<'a> = (&'a mut std::ops::Range<usize>, &'a mut Vec<(std::ops::Range<usize>, Frame)>, &'a mut Vec<ImgId>);
+type Spots<'a> = (
+  &'a mut std::ops::Range<usize>,
+  &'a mut Vec<(std::ops::Range<usize>, Frame)>,
+  &'a mut Vec<ImgId>,
+  &'a mut Vec<(ImgId, Box<str>)>,
+);
 
 // an open thread's media under the words: the held box and its button, or the pictures (each on the
 // row's width, wrapping) with a hide over them once a held one is shown
@@ -538,7 +556,7 @@ fn post_media(
   spans: &mut Vec<Span>,
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
-  (reveal, frames, pics): Spots,
+  (reveal, frames, pics, plays): Spots,
 ) {
   let button = |s: &mut String, spans: &mut Vec<Span>, frames: &mut Vec<_>, b: &str| {
     let a = s.len();
@@ -573,12 +591,15 @@ fn post_media(
   let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
   let px = if p.items.len() > 1 { MEDIA_MULTI_PX } else { MEDIA_PX };
   let mut first = true;
-  for (url, _) in &p.items {
+  for (url, video) in &p.items {
     let id = res.images.id_fit(url, px, avail);
     if res.images.failed(id) {
       continue;
     }
     pics.push(id);
+    if let Some(v) = video {
+      plays.push((id, v.clone()));
+    }
     let Some((w, h)) = res.images.dims(id) else { continue };
     if first {
       s.push('\n');
@@ -588,6 +609,22 @@ fn post_media(
     }
     ib.push(inline(boxes.len(), s.len(), w, h));
     boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
+  }
+}
+
+// a ▶ in the middle of a video's still: white on a black square with a white edge
+fn play_mark(c: &mut Canvas, r: Rect, clip: Rect) {
+  let side = (r.w.min(r.h) / 3).clamp(12, 48);
+  let sq = Rect::new(r.x + (r.w - side) / 2, r.y + (r.h - side) / 2, side, side);
+  c.fill(sq.intersect(clip), theme::BLACK);
+  c.outline(sq, clip, theme::WHITE);
+  // a right-pointing triangle, half the square tall, drawn one row at a time
+  let th = side / 2;
+  let tw = th * 7 / 8;
+  let (x0, y0) = (sq.x + (side - tw) / 2 + 1, sq.y + (side - th) / 2);
+  for i in 0..th {
+    let len = tw * (th - (2 * i - th + 1).abs()) / th;
+    c.fill(Rect::new(x0, y0 + i, len.max(1), 1).intersect(clip), theme::WHITE);
   }
 }
 
@@ -660,7 +697,12 @@ fn hits(f: &Find, s: &str, nick: &std::ops::Range<usize>, words: std::ops::Range
 }
 
 // the line's inline picture: its slot, and the link word to fold away once the picture is on screen
-fn picture(res: &mut Res, m: &Message, width: i32) -> (Option<ImgId>, Option<std::ops::Range<usize>>) {
+fn picture(
+  res: &mut Res,
+  m: &Message,
+  width: i32,
+  plays: &mut Vec<(ImgId, Box<str>)>,
+) -> (Option<ImgId>, Option<std::ops::Range<usize>>) {
   if !res.media || m.has(flag::CLEARED) {
     return (None, None);
   }
@@ -671,6 +713,9 @@ fn picture(res: &mut Res, m: &Message, width: i32) -> (Option<ImgId>, Option<std
     return (None, None);
   }
   let loaded = res.images.dims(id).is_some();
+  if let Some(p) = e.play {
+    plays.push((id, p));
+  }
   (Some(id), e.word.filter(|_| loaded))
 }
 
@@ -1409,8 +1454,9 @@ impl ChatView {
     self.spot_at(area, (x, y), res, |l| &l.reveal)
   }
 
-  // the picture under (x, y): a line's inline picture or a feed post's, never an emote or badge
-  pub fn pic_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<ImgId> {
+  // the picture under (x, y): a line's inline picture or a feed post's, never an emote or badge; and
+  // the video it plays, when it is a still
+  pub fn pic_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(ImgId, Option<Box<str>>)> {
     let (i, top) = self.row_at(area, y, res)?;
     let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
     let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
@@ -1423,7 +1469,8 @@ impl ChatView {
       }
       _ => None,
     })?;
-    (laid.embed == Some(img) || laid.pics.contains(&img)).then_some(img)
+    let play = laid.plays.into_iter().find(|p| p.0 == img).map(|p| p.1);
+    (laid.embed == Some(img) || laid.pics.contains(&img)).then_some((img, play))
   }
 
   // the feed post whose `[img]` tag is under (x, y)
@@ -1701,12 +1748,16 @@ impl ChatView {
           let name_anims = &mut self.name_anims;
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
           text.stripe = stripe;
+          let mut stills = Vec::new();
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
             let Some(eb) = laid.boxes.get(b.id as usize) else {
               return;
             };
             let rect =
               Rect::new(b.x.round() as i32, b.y.round() as i32, b.width.round() as i32, b.height.round() as i32);
+            if laid.plays.iter().any(|p| p.0 == eb.img) {
+              stills.push(rect);
+            }
             if eb.blocked {
               c.dashed(rect, clip, theme::WHITE);
               return;
@@ -1723,6 +1774,9 @@ impl ChatView {
               anims.push(Anim { rect: rect.intersect(area), bg, imgs });
             }
           });
+          for r in stills {
+            play_mark(c, r, clip);
+          }
           for n in &laid.names {
             let key = ArtKey {
               uid: n.uid.clone(),

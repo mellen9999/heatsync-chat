@@ -1570,6 +1570,7 @@ impl App {
       "]" => self.select(self.step_tab(self.active, false)),
       "[" => self.select(self.step_tab(self.active, true)),
       "x" => self.pin_hide(),
+      "w" => self.watch_here(),
       "g" => {
         let res = &mut self.res;
         if let Some(t) = self.tabs.get_mut(self.active) {
@@ -2795,6 +2796,67 @@ mod live {
     app.pointer = (r.x + 2, r.y + 2);
     app.click();
     assert!(app.img_view.is_none() && app.active == chat, "← back closes it, the tab stays");
+  }
+
+  // a youtube link: its still under the line with a ▶, a hand over it, a click plays it (never the
+  // picture view). HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_video_still -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_video_still() {
+    use crate::images::decode::{Decoded, Frame};
+    use winit::window::CursorIcon;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(640, 400);
+    app.relayout_body();
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let link = "https://youtu.be/dQw4w9WgXcQ";
+    let mut m = Message::system(0, Platform::Twitch, format!("watch {link}"));
+    m.kind = crate::model::message::Kind::Chat;
+    m.nick = "bob".into();
+    m.login = "bob".into();
+    app.on_chat("forsen", Chat::Msg(m));
+    for _ in 0..3 {
+      app.redraw();
+      let wanted: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+        .filter_map(|c| if let Cmd::Image(id, url, target) = c { Some((id, url, target)) } else { None })
+        .collect();
+      for (id, url, target) in wanted {
+        assert!(url.contains("i.ytimg.com%2Fvi%2FdQw4w9WgXcQ"), "the still, through the proxy: {url}");
+        let rgba = [0, 0, 255, 255].repeat(320 * 180).into();
+        app.res.images.loaded(id, target, Ok(Decoded { w: 320, h: 180, frames: vec![Frame { rgba, delay_ms: 0 }] }));
+      }
+      for t in &mut app.tabs {
+        t.view.relayout();
+      }
+    }
+    app.redraw();
+    crate::bench::dump(&app.canvas);
+    let area = app.chat_area();
+    let blue = app.canvas.px.iter().filter(|&&p| p == 0x0000ff).count();
+    assert!(blue > 20_000, "the still is drawn ({blue})");
+    let at = (area.y..area.bottom())
+      .step_by(4)
+      .find_map(|y| {
+        (area.x..area.right())
+          .step_by(4)
+          .find(|&x| app.canvas.px[(y * app.canvas.w + x) as usize] == 0x0000ff)
+          .map(|x| (x, y))
+      })
+      .expect("the still is on screen");
+    app.pointer = (at.0 + 8, at.1 + 8);
+    app.cursor_sync();
+    assert_eq!(app.cursor, CursorIcon::Pointer, "a hand over a video, not the magnifier");
+    while asked.try_recv().is_ok() {}
+    app.click();
+    assert!(app.img_view.is_none(), "a video never opens the picture view");
+    let played: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+      .filter_map(|c| if let Cmd::Play(u) = c { Some(u) } else { None })
+      .collect();
+    assert_eq!(played, vec![Box::<str>::from(link)]);
   }
 
   // feed media, offline: a held post's box and show, the withheld files fetched, a picture under a reply,

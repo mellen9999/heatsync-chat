@@ -164,6 +164,8 @@ pub enum Cmd {
   // link youtube again, this time also asking to post chat as the user (the opt-in)
   AllowYoutubePosting,
   Logout,
+  // a video or a stream to mpv (or the browser); mpv's failure comes back as a status line
+  Play(Box<str>),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -470,6 +472,12 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Update(c) => {
         tokio::spawn(update::run(http.clone(), c, out.clone()));
+      }
+      Cmd::Play(url) => {
+        let o = out.clone();
+        if let Err(e) = crate::util::open::play(&url, move |s| o.status(s)) {
+          out.status(e);
+        }
       }
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);

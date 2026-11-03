@@ -1,5 +1,5 @@
 // inline pictures in chat (ext feed-embed.js extractChatEmbed): the FIRST link of a line, when it is a
-// direct image, shows under the text. other hosts go through heatsync's `/api/img` proxy so the image
+// direct image, shows under the text; a youtube video shows its still with a ▶ (a click plays it). other hosts go through heatsync's `/api/img` proxy so the image
 // host never sees our ip (the ext's hsProxyImg); the few hosts the ext fetches direct stay direct.
 // the link is hostile text: bounded, scheme + host checked, nothing else is ever fetched
 use std::ops::Range;
@@ -28,6 +28,8 @@ pub struct Embed {
   pub display: Box<str>,
   // the word that is exactly this link, so the text can fold it away once the picture is up
   pub word: Option<Range<usize>>,
+  // a video's link: the picture is its still, and a click plays this
+  pub play: Option<Box<str>>,
 }
 
 // encodeURIComponent
@@ -84,7 +86,15 @@ pub fn find(body: &str) -> Option<Embed> {
   let tail = &body[at..];
   let end = tail.find(|c: char| c.is_whitespace() || c.is_control() || "<>\"'".contains(c)).unwrap_or(tail.len());
   let url = trim(&tail[..end]);
-  if url.len() > MAX_LINK || !authority_ok(url) || !is_image(url) {
+  if url.len() > MAX_LINK || !authority_ok(url) {
+    return None;
+  }
+  // ext feed-embed.js: the still comes through the proxy too, the link stays readable
+  if let Some(id) = crate::model::video::yt_id(url) {
+    let still = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
+    return Some(Embed { display: format!("{PROXY}{}", escape(&still)).into(), word: None, play: Some(url.into()) });
+  }
+  if !is_image(url) {
     return None;
   }
   let display: Box<str> = match host(url).map(str::to_ascii_lowercase) {
@@ -100,7 +110,7 @@ pub fn find(body: &str) -> Option<Embed> {
   // the line is split on single spaces, same as the renderer; fold only a word that is the whole link
   let start = body[..at].rfind(' ').map_or(0, |i| i + 1);
   let whole = start == at && url.len() == end && (body[at + end..].is_empty() || body[at + end..].starts_with(' '));
-  Some(Embed { display, word: whole.then_some(at..at + end) })
+  Some(Embed { display, word: whole.then_some(at..at + end), play: None })
 }
 
 #[cfg(test)]
@@ -117,6 +127,17 @@ mod tests {
     assert!(find("no link here").is_none());
     // the first link decides, like the ext
     assert!(find("https://example.com/page https://i.imgur.com/a.png").is_none());
+  }
+
+  #[test]
+  fn a_youtube_link_shows_its_still_and_plays() {
+    let e = find("watch https://youtu.be/dQw4w9WgXcQ?t=5 lol").unwrap();
+    assert_eq!(
+      &*e.display,
+      "https://heatsync.org/api/img?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2FdQw4w9WgXcQ%2Fmqdefault.jpg"
+    );
+    assert_eq!((e.word, e.play.as_deref()), (None, Some("https://youtu.be/dQw4w9WgXcQ?t=5")));
+    assert!(find("https://www.youtube.com/@someone").is_none());
   }
 
   #[test]

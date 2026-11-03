@@ -28,4 +28,5 @@ pub mod suggest;
 pub mod tabs;
 pub mod unseen;
 pub mod vi;
+pub mod video;
 pub mod whisper;

@@ -1,9 +1,11 @@
-// links in chat: a click opens it in the browser, `o` on a picked line opens its first one,
-// the pointer turns into a hand over one. failures land on the status line
+// links in chat: a click opens it in the browser (a video plays: mpv when it is installed), `o` on a
+// picked line opens its first one, the pointer turns into a hand over one. failures land in the chat.
+// a tab's stream plays the same way (its menu's watch, /watch, space w)
 use winit::window::{Cursor, CursorIcon};
 
 use super::App;
-use crate::model::links;
+use crate::model::{links, video};
+use crate::net::Cmd;
 
 impl App {
   fn link_under_pointer(&mut self) -> Option<String> {
@@ -17,8 +19,32 @@ impl App {
   }
 
   fn open_link(&mut self, url: &str) {
+    if video::playable(url) {
+      return self.play(url);
+    }
     if let Err(e) = crate::util::open::open_url(url) {
       self.say(e);
+    }
+  }
+
+  pub(super) fn play(&mut self, url: &str) {
+    self.net.send(Cmd::Play(url.into()));
+  }
+
+  // the stream of tab `tab`'s nth channel
+  pub(super) fn watch(&mut self, tab: usize, n: usize) {
+    let url = self.tabs.get(tab).and_then(|t| t.sources.get(n)).and_then(|(p, k)| video::stream(*p, k));
+    match url {
+      Some(u) => self.play(&u),
+      None => self.say("no channel to watch here"),
+    }
+  }
+
+  // space w: the channel this tab sends to
+  pub(super) fn watch_here(&mut self) {
+    match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()).map(|t| t.target) {
+      Some(n) => self.watch(self.active, n),
+      None => self.say("no channel to watch here"),
     }
   }
 
@@ -68,8 +94,8 @@ impl App {
     let in_chat = self.chat_area().contains(x, y);
     let icon = if self.img_view.is_some() && in_chat {
       CursorIcon::ZoomOut
-    } else if free && in_chat && self.pic_under_pointer() {
-      CursorIcon::ZoomIn
+    } else if let Some(still) = (free && in_chat).then(|| self.pic_under_pointer()).flatten() {
+      if still { CursorIcon::Pointer } else { CursorIcon::ZoomIn }
     } else if free && self.link_under_pointer().is_some() {
       CursorIcon::Pointer
     } else {
@@ -83,9 +109,10 @@ impl App {
     }
   }
 
-  fn pic_under_pointer(&mut self) -> bool {
+  // a picture under the pointer: Some(true) when it is a video's still
+  fn pic_under_pointer(&mut self) -> Option<bool> {
     let ((x, y), chat) = (self.pointer, self.chat_area());
     let res = &mut self.res;
-    self.tabs.get_mut(self.active).is_some_and(|t| t.view.pic_at(chat, x, y, res).is_some())
+    self.tabs.get_mut(self.active)?.view.pic_at(chat, x, y, res).map(|(_, play)| play.is_some())
   }
 }

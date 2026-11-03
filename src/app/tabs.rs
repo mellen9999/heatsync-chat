@@ -21,6 +21,8 @@ pub enum TabAct {
   Remove,
   // a built-in tab leaves the bar
   Hide,
+  // play the stream of the tab's nth channel
+  Watch(usize),
 }
 
 pub struct TabMenu {
@@ -225,6 +227,10 @@ impl App {
         self.remove_tab(self.active)
       }
       ChanCmd::Part => self.say("no channel to leave"),
+      ChanCmd::Watch => match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()) {
+        Some(t) => self.watch(self.active, t.target),
+        None => self.say("no channel to watch here"),
+      },
     }
   }
 
@@ -413,8 +419,16 @@ impl App {
     let at = self.off_bar(self.bar_hits[p]);
     let items = match self.tabs[i].kind {
       Kind::Chat if self.tabs[i].sources.is_empty() => return,
-      Kind::Chat => vec![(TabAct::Edit, "edit"), (TabAct::Remove, "remove")],
-      _ => vec![(TabAct::Hide, "hide")],
+      Kind::Chat => {
+        let src = &self.tabs[i].sources;
+        let mut v: Vec<(TabAct, String)> = match src.len() {
+          1 => vec![(TabAct::Watch(0), "watch".into())],
+          _ => src.iter().enumerate().map(|(n, (p, _))| (TabAct::Watch(n), format!("watch {}", p.name()))).collect(),
+        };
+        v.extend([(TabAct::Edit, "edit".into()), (TabAct::Remove, "remove".into())]);
+        v
+      }
+      _ => vec![(TabAct::Hide, "hide".into())],
     };
     self.tab_menu = Some(TabMenu { menu: Menu::new(items, at), tab: i });
     self.tab_menu_changed();
@@ -453,6 +467,7 @@ impl App {
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
       Some(TabAct::Remove) => self.remove_tab(m.tab),
+      Some(TabAct::Watch(n)) => self.watch(m.tab, n),
       Some(TabAct::Hide) => {
         if let Some(k) = self.tabs.get(m.tab).map(|t| t.kind) {
           self.set_shown(k, false);

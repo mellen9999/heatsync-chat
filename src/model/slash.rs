@@ -12,12 +12,13 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 25] = [
+const FIXED: [Slash; 26] = [
   s("/me", "<text>", "say it as an action"),
   s("/w", "<user> [text]", "whisper someone"),
   s("/r", "<text>", "answer the last whisper"),
   s("/join", "<channel>", "open a channel tab"),
   s("/part", "", "close this tab"),
+  s("/watch", "", "watch this channel's stream (mpv, else the browser)"),
   s("/ban", "<user> [reason]", "ban"),
   s("/timeout", "<user> [seconds] [reason]", "time out"),
   s("/unban", "<user>", "lift a ban or timeout"),

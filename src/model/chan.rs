@@ -189,12 +189,14 @@ impl Spec {
   }
 }
 
-// `/join [feeds…]` and `/part`
+// `/join [feeds…]`, `/part`, `/watch`
 #[derive(Debug, PartialEq, Eq)]
 pub enum Cmd {
   // None = open the form
   Join(Option<String>),
   Part,
+  // this tab's stream, in mpv or the browser
+  Watch,
 }
 
 pub fn command(text: &str) -> Option<Cmd> {
@@ -203,6 +205,7 @@ pub fn command(text: &str) -> Option<Cmd> {
   match head.to_ascii_lowercase().as_str() {
     "/join" => Some(Cmd::Join((!rest.trim().is_empty()).then(|| rest.trim().to_owned()))),
     "/part" if rest.trim().is_empty() => Some(Cmd::Part),
+    "/watch" if rest.trim().is_empty() => Some(Cmd::Watch),
     _ => None,
   }
 }
@@ -320,6 +323,7 @@ mod tests {
     assert_eq!(command("/join"), Some(Cmd::Join(None)));
     assert_eq!(command(" /JOIN  forsen kick:x "), Some(Cmd::Join(Some("forsen kick:x".into()))));
     assert_eq!(command("/part"), Some(Cmd::Part));
+    assert_eq!(command("/watch"), Some(Cmd::Watch));
     assert_eq!(command("/part now"), None);
     assert_eq!(command("/joined"), None);
     assert_eq!(command("hello /join"), None);
