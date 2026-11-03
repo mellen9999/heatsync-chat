@@ -19,6 +19,7 @@ pub mod pathcomp;
 pub mod picker;
 pub mod pin;
 pub mod post;
+pub mod preview;
 pub mod schema;
 pub mod seen;
 pub mod settings;

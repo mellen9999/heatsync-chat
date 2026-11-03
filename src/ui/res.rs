@@ -18,6 +18,8 @@ pub const EMBED_PX: u16 = 220;
 // a feed thread's picture, and each of several in a grid (ext .hs-feed-media, .hs-feed-media-multi)
 pub const MEDIA_PX: u16 = 320;
 pub const MEDIA_MULTI_PX: u16 = 180;
+// a link preview card's still
+pub const CARD_PX: u16 = 64;
 
 pub struct Res {
   pub text: Text,
@@ -31,6 +33,8 @@ pub struct Res {
   // who the names in message text mean (their color, paint)
   pub chatters: Chatters,
   pub logo: Logo,
+  // link previews under chat lines, per link
+  pub previews: crate::model::preview::Previews,
   // inline pictures under chat lines (ext mediaEmbedsEnabled)
   pub media: bool,
   // host-less and defanged links count as links (ext partialLinksEnabled)
@@ -51,6 +55,7 @@ impl Res {
       arts: NameArts::default(),
       blocked: Blocked::load(),
       chatters: Chatters::default(),
+      previews: Default::default(),
       media: true,
       partial_links: true,
     }

@@ -8,18 +8,21 @@ use super::canvas::{Canvas, Rect};
 use super::embed;
 use super::name_art::anim::AnimArt;
 use super::name_art::{self, ArtKey, PAINT_IMG_PX};
-use super::res::{BADGE_PX, EMBED_PX, EMOTE_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
+use super::res::{BADGE_PX, CARD_PX, EMBED_PX, EMOTE_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
 use crate::cosmetics::id::PaintId;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
+use crate::heatsync::content;
 use crate::images::{Images, ImgId};
 use crate::model::filter;
 use crate::model::find::Find;
 use crate::model::links::Link;
 use crate::model::message::{Kind, Message, Platform, Seg, flag};
+use crate::model::preview::{Kind as PreviewKind, Preview};
 use crate::model::seen::Seen;
+use crate::model::video;
 use crate::util::time::{hhmm, now_ms};
 
 // one emote slot in a line; zero-width overlays stack on the base image
@@ -416,7 +419,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     }
     s.push(' ');
     // a muted sender's words and pictures are stripped; the name and time stay
-    let (pic, fold) = if muted { (None, None) } else { picture(res, m, width, &mut plays) };
+    let (pic, fold, preview) = if muted { (None, None, None) } else { picture(res, m, width, &mut plays) };
     let b0 = s.len();
     if !muted {
       (links, link_runs, mentions) = body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
@@ -476,6 +479,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
         ib.push(inline(boxes.len(), s.len(), w, h));
         boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
       }
+    }
+    if let Some(c) = &preview {
+      card(res, c, width, &mut s, &mut spans, &mut ib, &mut boxes, &mut frames, (&mut links, &mut link_runs));
     }
   }
   if let Some(f) = find {
@@ -696,27 +702,114 @@ fn hits(f: &Find, s: &str, nick: &std::ops::Range<usize>, words: std::ops::Range
   }
 }
 
-// the line's inline picture: its slot, and the link word to fold away once the picture is on screen
+// a preview's card under a line (rich and audio answers, a video with no still, a held one): who
+// asked the resolver, and what the card says
+struct Card {
+  url: Box<str>,
+  p: Arc<Preview>,
+  // the box's words when the media is held (`[media hidden — nsfw]`)
+  held: Option<Box<str>>,
+}
+
+// the line's inline picture: its slot, the link word to fold away once the picture is on screen, and
+// a preview's card when the line's link is one
 fn picture(
   res: &mut Res,
   m: &Message,
   width: i32,
   plays: &mut Vec<(ImgId, Box<str>)>,
-) -> (Option<ImgId>, Option<std::ops::Range<usize>>) {
+) -> (Option<ImgId>, Option<std::ops::Range<usize>>, Option<Card>) {
   if !res.media || m.has(flag::CLEARED) {
-    return (None, None);
+    return (None, None, None);
   }
-  let Some(e) = embed::find(&m.body, res.partial_links) else { return (None, None) };
-  let avail = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
-  let id = res.images.id_fit(&e.display, EMBED_PX, avail.max(1.0) as u32);
+  let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
+  let e = match embed::find(&m.body, res.partial_links) {
+    None => return (None, None, None),
+    Some(embed::Found::Pic(e)) => e,
+    Some(embed::Found::Preview(url)) => {
+      let Some(p) = res.previews.get(&url) else { return (None, None, None) };
+      let held = content::held(p.flagged.iter().map(|c| &**c)).map(|h| format!("[media hidden — {}]", h.label).into());
+      // the picture itself, or a video's still that plays it (the file when mpv can take it straight)
+      let pic = match p.kind {
+        _ if held.is_some() => None,
+        PreviewKind::Image => p.media.as_deref().map(|u| (u, None)),
+        PreviewKind::Video => p.thumb.as_deref().map(|t| {
+          let file = p.media.as_deref().filter(|u| video::file(u));
+          (t, Some(file.map_or_else(|| url.clone(), Into::into)))
+        }),
+        _ => None,
+      };
+      let Some((u, play)) = pic else { return (None, None, Some(Card { url, p, held })) };
+      let id = res.images.id_fit(&embed::proxied(u), EMBED_PX, avail);
+      if res.images.failed(id) {
+        return (None, None, Some(Card { url, p, held: None }));
+      }
+      if let Some(v) = play {
+        plays.push((id, v));
+      }
+      return (Some(id), None, None);
+    }
+  };
+  let id = res.images.id_fit(&e.display, EMBED_PX, avail);
   if res.images.failed(id) {
-    return (None, None);
+    return (None, None, None);
   }
   let loaded = res.images.dims(id).is_some();
   if let Some(p) = e.play {
     plays.push((id, p));
   }
-  (Some(id), e.word.filter(|_| loaded))
+  (Some(id), e.word.filter(|_| loaded), None)
+}
+
+// a preview's card on its own line: the still (small), `[site]` cyan, the title white, the author dim; or
+// the held box. the whole of it is one link (a click opens it, or plays it)
+#[allow(clippy::too_many_arguments)]
+fn card(
+  res: &mut Res,
+  c: &Card,
+  width: i32,
+  s: &mut String,
+  spans: &mut Vec<Span>,
+  ib: &mut Vec<InlineBox>,
+  boxes: &mut Vec<EmoteBox>,
+  frames: &mut Vec<(std::ops::Range<usize>, Frame)>,
+  (links, link_runs): (&mut Vec<Link>, &mut Vec<(std::ops::Range<usize>, usize)>),
+) {
+  s.push('\n');
+  if let Some(h) = &c.held {
+    let a = s.len();
+    s.push(' ');
+    s.push_str(h);
+    s.push(' ');
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::WHITE), bold: false });
+    frames.push((a..s.len(), Frame::Held));
+    s.push(' ');
+  } else if let Some(t) = &c.p.thumb {
+    let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
+    let id = res.images.id_fit(&embed::proxied(t), CARD_PX, avail / 3);
+    if !res.images.failed(id)
+      && let Some((w, h)) = res.images.dims(id)
+    {
+      ib.push(inline(boxes.len(), s.len(), w, h));
+      boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
+      s.push(' ');
+    }
+  }
+  let a = s.len();
+  let mut part = |s: &mut String, t: &str, ink: u32| {
+    let b = s.len();
+    s.push_str(t);
+    spans.push(Span { range: b..s.len(), ink: Ink(ink), bold: false });
+  };
+  part(s, &format!("[{}]", c.p.site), theme::CYAN);
+  if !c.p.title.is_empty() {
+    part(s, &format!(" {}", c.p.title), theme::WHITE);
+  }
+  if !c.p.author.is_empty() {
+    part(s, &format!(" · {}", c.p.author), theme::DIM);
+  }
+  links.push(Link { range: 0..0, url: c.url.to_string() });
+  link_runs.push((a..s.len(), links.len() - 1));
 }
 
 fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {

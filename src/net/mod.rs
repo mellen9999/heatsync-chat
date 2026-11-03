@@ -102,6 +102,8 @@ pub enum NetEvent {
   Card { platform: Platform, login: Box<str>, res: Result<crate::model::card::Info, u16> },
   // a mod action settled
   ModDone(Box<modact::Done>),
+  // a link's preview (None: nothing to show)
+  Preview(Box<str>, Option<crate::model::preview::Preview>),
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -166,6 +168,8 @@ pub enum Cmd {
   Logout,
   // a video or a stream to mpv (or the browser); mpv's failure comes back as a status line
   Play(Box<str>),
+  // a link's preview, from heatsync's resolver
+  Preview(Box<str>),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -192,6 +196,7 @@ pub enum Cmd {
 const IMAGE_FETCHES: usize = 6;
 const DISK_CACHE_MAX: u64 = 256 << 20;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
+const MAX_PREVIEW: usize = 64 << 10;
 
 struct DecodeJob {
   id: ImgId,
@@ -246,6 +251,22 @@ async fn image(
     }
     Err(e) => fail(e),
   }
+}
+
+// ask heatsync's resolver what a link is (ext fetch_embed_resolve: no login, 6s, a small answer)
+async fn preview(http: reqwest::Client, url: Box<str>, out: Out) {
+  let ask = format!("https://heatsync.org/api/embed/resolve?url={}", crate::ui::embed::escape(&url));
+  let res = http.get(ask).timeout(Duration::from_secs(6)).send().await;
+  let p = match res {
+    Ok(r) if r.status().is_success() && r.content_length().is_none_or(|n| n <= MAX_PREVIEW as u64) => {
+      capped(Ok(r)).await.ok().filter(|b| b.len() <= MAX_PREVIEW)
+    }
+    _ => None,
+  };
+  let p = p
+    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    .and_then(|v| crate::model::preview::parse(&url, &v));
+  out.send(NetEvent::Preview(url, p));
 }
 
 // the body, abandoned as soon as it passes the cap (a hostile host can't make us buffer it all)
@@ -472,6 +493,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Update(c) => {
         tokio::spawn(update::run(http.clone(), c, out.clone()));
+      }
+      Cmd::Preview(url) => {
+        tokio::spawn(preview(http.clone(), url, out.clone()));
       }
       Cmd::Play(url) => {
         let o = out.clone();

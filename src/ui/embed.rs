@@ -5,6 +5,7 @@
 use std::ops::Range;
 
 use crate::images::url::host;
+use crate::model::preview;
 
 // ext HS_IMG_DIRECT_HOSTS, https only
 const DIRECT: [&str; 8] = [
@@ -33,7 +34,7 @@ pub struct Embed {
 }
 
 // encodeURIComponent
-fn escape(s: &str) -> String {
+pub fn escape(s: &str) -> String {
   let mut out = String::with_capacity(s.len() * 2);
   for b in s.bytes() {
     if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
@@ -80,22 +81,49 @@ fn authority_ok(u: &str) -> bool {
     && !tld.bytes().all(|b| b.is_ascii_digit())
 }
 
+// what a line embeds under it
+#[derive(Debug, PartialEq, Eq)]
+pub enum Found {
+  Pic(Embed),
+  // a link heatsync's resolver previews (model::preview)
+  Preview(Box<str>),
+}
+
 // the first http(s) link when it embeds; else (partial links on, ext extractChatEmbed) the first youtube
-// video named without its scheme or host: `youtube.com/watch?v=…`, `watch?v=…`, `shorts/…`
-pub fn find(body: &str, partial: bool) -> Option<Embed> {
+// video, tweet or reddit post named without its scheme or host: `watch?v=…`, `name/status/…`, `r/x/comments/…`
+pub fn find(body: &str, partial: bool) -> Option<Found> {
   full(body).or_else(|| {
     let links = if partial { crate::model::links::find(body, true) } else { Vec::new() };
-    links.into_iter().find_map(|l| crate::model::video::yt_id(&l.url).map(|id| yt(id, &l.url)))
+    links.into_iter().find_map(|l| match crate::model::video::yt_id(&l.url) {
+      Some(id) => Some(Found::Pic(yt(id, &l.url))),
+      // a bare `r/sub` is only a link: a post (`…/comments/…`) previews
+      None => (preview::site(&l.url).is_some() && (!l.url.contains("reddit.com/") || l.url.contains("/comments/")))
+        .then(|| Found::Preview(l.url.into())),
+    })
   })
 }
 
 // a youtube video's still (through the proxy, ext feed-embed.js); the link stays readable
 fn yt(id: &str, url: &str) -> Embed {
-  let still = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
-  Embed { display: format!("{PROXY}{}", escape(&still)).into(), word: None, play: Some(url.into()) }
+  Embed { display: proxied(&format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg")), word: None, play: Some(url.into()) }
 }
 
-fn full(body: &str) -> Option<Embed> {
+// a picture from anywhere, as we fetch it: the ext's few direct hosts as they are, the rest through
+// heatsync's proxy
+pub fn proxied(url: &str) -> Box<str> {
+  match host(url).map(str::to_ascii_lowercase) {
+    Some(h) if DIRECT.contains(&h.as_str()) => {
+      // 7tv serves avif by name; we decode webp
+      match url.strip_suffix(".avif").filter(|_| h == "cdn.7tv.app") {
+        Some(stem) => format!("{stem}.webp").into(),
+        None => url.into(),
+      }
+    }
+    _ => format!("{PROXY}{}", escape(url)).into(),
+  }
+}
+
+fn full(body: &str) -> Option<Found> {
   let lower = body.to_ascii_lowercase();
   let at = lower.find("http://").into_iter().chain(lower.find("https://")).min()?;
   let tail = &body[at..];
@@ -105,98 +133,113 @@ fn full(body: &str) -> Option<Embed> {
     return None;
   }
   if let Some(id) = crate::model::video::yt_id(url) {
-    return Some(yt(id, url));
+    return Some(Found::Pic(yt(id, url)));
+  }
+  if preview::site(url).is_some() {
+    return Some(Found::Preview(url.into()));
   }
   if !is_image(url) {
     return None;
   }
-  let display: Box<str> = match host(url).map(str::to_ascii_lowercase) {
-    Some(h) if DIRECT.contains(&h.as_str()) => {
-      // 7tv serves avif by name; we decode webp
-      match url.strip_suffix(".avif").filter(|_| h == "cdn.7tv.app") {
-        Some(stem) => format!("{stem}.webp").into(),
-        None => url.into(),
-      }
-    }
-    _ => format!("{PROXY}{}", escape(url)).into(),
-  };
   // the line is split on single spaces, same as the renderer; fold only a word that is the whole link
   let start = body[..at].rfind(' ').map_or(0, |i| i + 1);
   let whole = start == at && url.len() == end && (body[at + end..].is_empty() || body[at + end..].starts_with(' '));
-  Some(Embed { display, word: whole.then_some(at..at + end), play: None })
+  Some(Found::Pic(Embed { display: proxied(url), word: whole.then_some(at..at + end), play: None }))
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
 
+  fn pic(body: &str) -> Option<Embed> {
+    match full(body) {
+      Some(Found::Pic(e)) => Some(e),
+      _ => None,
+    }
+  }
+
   #[test]
   fn direct_images_only() {
-    let e = full("look https://i.imgur.com/ab.PNG?x=1&y=2 lol").unwrap();
+    let e = pic("look https://i.imgur.com/ab.PNG?x=1&y=2 lol").unwrap();
     assert_eq!(&*e.display, "https://heatsync.org/api/img?url=https%3A%2F%2Fi.imgur.com%2Fab.PNG%3Fx%3D1%26y%3D2");
     assert_eq!(e.word, Some(5..39));
-    assert!(full("https://example.com/page").is_none());
-    assert!(full("https://example.com/a.png.exe").is_none());
-    assert!(full("no link here").is_none());
+    assert!(pic("https://example.com/page").is_none());
+    assert!(pic("https://example.com/a.png.exe").is_none());
+    assert!(pic("no link here").is_none());
     // the first link decides, like the ext
-    assert!(full("https://example.com/page https://i.imgur.com/a.png").is_none());
+    assert!(pic("https://example.com/page https://i.imgur.com/a.png").is_none());
   }
 
   #[test]
   fn a_youtube_link_shows_its_still_and_plays() {
-    let e = full("watch https://youtu.be/dQw4w9WgXcQ?t=5 lol").unwrap();
+    let e = pic("watch https://youtu.be/dQw4w9WgXcQ?t=5 lol").unwrap();
     assert_eq!(
       &*e.display,
       "https://heatsync.org/api/img?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2FdQw4w9WgXcQ%2Fmqdefault.jpg"
     );
     assert_eq!((e.word, e.play.as_deref()), (None, Some("https://youtu.be/dQw4w9WgXcQ?t=5")));
-    assert!(full("https://www.youtube.com/@someone").is_none());
+    assert!(pic("https://www.youtube.com/@someone").is_none());
   }
 
   #[test]
   fn a_youtube_link_without_its_host_embeds_when_partial_links_are_on() {
     for t in ["watch?v=dQw4w9WgXcQ lol", "lol youtube.com/watch?v=dQw4w9WgXcQ", "see shorts/dQw4w9WgXcQ"] {
-      let e = find(t, true).unwrap_or_else(|| panic!("{t}"));
+      let Some(Found::Pic(e)) = find(t, true) else { panic!("{t}") };
       assert!(e.display.contains("dQw4w9WgXcQ"), "{t}");
       assert!(e.play.as_deref().is_some_and(|p| p.starts_with("https://") && p.contains("youtube.com/")), "{t}");
       assert!(find(t, false).is_none(), "{t}: partial links off");
     }
     // a real link that embeds wins over a fragment
-    assert!(find("https://a.com/b.gif watch?v=dQw4w9WgXcQ", true).unwrap().play.is_none());
+    assert!(matches!(
+      find("https://a.com/b.gif watch?v=dQw4w9WgXcQ", true),
+      Some(Found::Pic(Embed { play: None, .. }))
+    ));
     assert!(find("https://example.com/page", true).is_none());
   }
 
   #[test]
   fn direct_hosts_stay_direct_and_avif_becomes_webp() {
-    let e = full("https://cdn.7tv.app/emote/abc/4x.avif").unwrap();
+    let e = pic("https://cdn.7tv.app/emote/abc/4x.avif").unwrap();
     assert_eq!(&*e.display, "https://cdn.7tv.app/emote/abc/4x.webp");
-    assert_eq!(&*full("https://files.kick.com/images/a.webp").unwrap().display, "https://files.kick.com/images/a.webp");
+    assert_eq!(&*pic("https://files.kick.com/images/a.webp").unwrap().display, "https://files.kick.com/images/a.webp");
     // a direct host over plain http goes through the proxy
-    assert!(full("http://files.kick.com/a.webp").unwrap().display.starts_with(PROXY));
+    assert!(pic("http://files.kick.com/a.webp").unwrap().display.starts_with(PROXY));
   }
 
   #[test]
   fn hostile_links_are_refused() {
-    assert!(full("https://user@evil.com/a.png").is_none());
-    assert!(full("https://evil.com:8080/a.png").is_none());
-    assert!(full("https://localhost/a.png").is_none());
-    assert!(full(&format!("https://a.com/{}.png", "x".repeat(MAX_LINK))).is_none());
-    assert!(full("https:///a.png").is_none());
-    assert!(full("https://127.0.0.1/a.png").is_none());
+    assert!(pic("https://user@evil.com/a.png").is_none());
+    assert!(pic("https://evil.com:8080/a.png").is_none());
+    assert!(pic("https://localhost/a.png").is_none());
+    assert!(pic(&format!("https://a.com/{}.png", "x".repeat(MAX_LINK))).is_none());
+    assert!(pic("https:///a.png").is_none());
+    assert!(pic("https://127.0.0.1/a.png").is_none());
     // a worst case escape still fits the url cap
     let long = format!("https://a.com/{}.png", "é".repeat(250));
-    assert!(full(&long).is_none_or(|e| e.display.len() <= 2048));
+    assert!(pic(&long).is_none_or(|e| e.display.len() <= 2048));
   }
 
   #[test]
   fn trailing_punctuation_and_folding() {
-    let e = full("https://a.com/b.gif!").unwrap();
+    let e = pic("https://a.com/b.gif!").unwrap();
     assert!(e.display.ends_with("b.gif"));
     // trailing junk stuck to the word: keep the text, fold nothing
     assert_eq!(e.word, None);
-    let e = full("(https://a.com/b.gif)").unwrap();
+    let e = pic("(https://a.com/b.gif)").unwrap();
     assert!(e.display.ends_with("b.gif"));
     assert_eq!(e.word, None);
-    assert_eq!(full("https://a.com/b.gif").unwrap().word, Some(0..19));
+    assert_eq!(pic("https://a.com/b.gif").unwrap().word, Some(0..19));
+  }
+
+  #[test]
+  fn provider_links_ask_for_a_preview() {
+    let r = "https://www.reddit.com/r/rust/comments/1c0rgn3/x/";
+    assert_eq!(find(&format!("look {r}"), false), Some(Found::Preview(r.into())));
+    assert_eq!(
+      find("lol someone/status/1234567890", true),
+      Some(Found::Preview("https://x.com/someone/status/1234567890".into()))
+    );
+    assert_eq!(find("lol someone/status/1234567890", false), None);
+    assert_eq!(&*proxied("https://i.scdn.co/a"), "https://heatsync.org/api/img?url=https%3A%2F%2Fi.scdn.co%2Fa");
   }
 }

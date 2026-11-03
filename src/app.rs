@@ -1096,6 +1096,9 @@ impl App {
     for (id, url, h) in self.res.images.take_wanted() {
       self.net.send(Cmd::Image(id, url, h));
     }
+    for url in self.res.previews.take_wanted() {
+      self.net.send(Cmd::Preview(url));
+    }
     for id in self.res.senders.take_wanted() {
       self.net.send(Cmd::Sender(id, None));
     }
@@ -1868,6 +1871,14 @@ impl App {
         self.res.emotes.set(ch.as_deref(), p, set);
         self.trim_soon();
         self.relayout_where(ch.as_deref());
+      }
+      NetEvent::Preview(url, p) => {
+        if self.res.previews.answered(&url, p) {
+          for t in &mut self.tabs {
+            t.views().for_each(ChatView::relayout);
+          }
+          self.wake();
+        }
       }
       NetEvent::Image(id, h, res) => {
         // a chip's picture may be the one that arrived
@@ -2796,6 +2807,48 @@ mod live {
     app.pointer = (r.x + 2, r.y + 2);
     app.click();
     assert!(app.img_view.is_none() && app.active == chat, "← back closes it, the tab stays");
+  }
+
+  // a reddit link: the resolver is asked once, its answer draws as a card under the line, and the card
+  // is a link to the post. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_preview_card -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_preview_card() {
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(640, 400);
+    app.relayout_body();
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let link = "https://www.reddit.com/r/rust/comments/1c0rgn3/x/";
+    for _ in 0..2 {
+      let mut m = Message::system(0, Platform::Twitch, format!("lol {link}"));
+      m.kind = crate::model::message::Kind::Chat;
+      m.nick = "bob".into();
+      m.login = "bob".into();
+      app.on_chat("forsen", Chat::Msg(m));
+    }
+    app.redraw();
+    let wanted: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+      .filter_map(|c| if let Cmd::Preview(u) = c { Some(u) } else { None })
+      .collect();
+    assert_eq!(wanted, vec![Box::<str>::from(link)], "asked once for two lines");
+    let v = serde_json::json!({"type": "rich", "title": "a post title", "author": "r/rust"});
+    app.on_net(NetEvent::Preview(link.into(), crate::model::preview::parse(link, &v)));
+    app.redraw();
+    crate::bench::dump(&app.canvas);
+    let cyan = app.canvas.px.iter().filter(|&&p| p == 0x00ffff).count();
+    assert!(cyan > 40, "the [reddit] tag is drawn ({cyan})");
+    let area = app.chat_area();
+    let hit = (area.y..area.bottom()).rev().step_by(2).find_map(|y| {
+      let res = &mut app.res;
+      let x =
+        (area.x..area.right()).step_by(3).find(|&x| app.canvas.px[(y * app.canvas.w + x) as usize] == 0x00ffff)?;
+      app.tabs[chat].view.link_at(area, x, y, res)
+    });
+    assert_eq!(hit.as_deref(), Some(link), "the card opens the post");
   }
 
   // a youtube link: its still under the line with a ▶, a hand over it, a click plays it (never the
