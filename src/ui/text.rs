@@ -112,6 +112,9 @@ impl Text {
         b.push(StyleProperty::FontWeight(FontWeight::BOLD), s.range.clone());
       }
     }
+    for r in emoji_forced(text) {
+      b.push(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Emoji)), r);
+    }
     for ib in boxes {
       b.push_inline_box(ib.clone());
     }
@@ -215,5 +218,50 @@ impl Text {
         }
       }
     }
+  }
+}
+
+// a sequence asked to draw as emoji (❤️, ☺️, 1️⃣, 🏳️‍🌈: holds U+FE0F or a keycap) goes to the emoji
+// font. parley tries the monospace font first even for emoji clusters, and it has text-style ❤ ☺ 1,
+// so these came out mono. a sequence = a base char plus what joins onto it: selectors, keycaps, zwj
+// and the char after it, skin tones, flag tags
+fn emoji_forced(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+  let joins =
+    |c: char| matches!(c, '\u{fe0f}' | '\u{20e3}' | '\u{200d}' | '\u{1f3fb}'..='\u{1f3ff}' | '\u{e0020}'..='\u{e007f}');
+  let mut it = text.char_indices().peekable();
+  std::iter::from_fn(move || {
+    while let Some((start, c)) = it.next() {
+      let (mut end, mut asked, mut zwj) = (start + c.len_utf8(), false, false);
+      while let Some(&(i, n)) = it.peek() {
+        if !joins(n) && !zwj {
+          break;
+        }
+        asked |= matches!(n, '\u{fe0f}' | '\u{20e3}');
+        zwj = n == '\u{200d}';
+        end = i + n.len_utf8();
+        it.next();
+      }
+      if asked {
+        return Some(start..end);
+      }
+    }
+    None
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::emoji_forced;
+
+  fn runs(s: &str) -> Vec<&str> {
+    emoji_forced(s).map(|r| &s[r]).collect()
+  }
+
+  #[test]
+  fn selector_and_keycap_force_emoji() {
+    assert_eq!(runs("i ❤\u{fe0f} u"), ["❤\u{fe0f}"]);
+    assert_eq!(runs("1\u{fe0f}\u{20e3}#\u{20e3}"), ["1\u{fe0f}\u{20e3}", "#\u{20e3}"]);
+    assert_eq!(runs("🏳\u{fe0f}\u{200d}🌈!"), ["🏳\u{fe0f}\u{200d}🌈"]);
+    assert_eq!(runs("plain ❤ 🌇 text"), Vec::<&str>::new());
   }
 }

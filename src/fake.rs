@@ -13,7 +13,7 @@ const BODIES: &[&str] = &[
   "first time here, what game is this",
   "日本語のチャットも大丈夫かな 🔥",
   "مرحبا بالجميع في البث",
-  "emoji test 😂😂😂 👍🏽 🇯🇵",
+  "emoji test 😂😂😂 👍🏽 🇯🇵 🌇 🌆 ❤️ 1️⃣ 👨‍👩‍👧 🏳️‍🌈 ☺️ ✔️",
   "a much longer message that should wrap across multiple lines when the chat pane is narrow enough, which it usually is in a sidebar layout like this one",
   "@heatsync gg",
   "https://heatsync.org/thread/abc123",
