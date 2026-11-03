@@ -23,6 +23,7 @@ mod engage;
 mod feed;
 mod filters;
 mod find;
+mod gifs;
 mod img_view;
 mod link;
 mod logs;
@@ -241,6 +242,7 @@ pub struct App {
   dpi: f32,
   zoom_acc: f32,
   picker: Option<Picker>,
+  gifs: gifs::State,
   recents: Recents,
   // how often each emote gets picked: tab ranks by it
   frecency: Frecency,
@@ -408,6 +410,7 @@ impl App {
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
+      gifs: Default::default(),
       recents: Recents::load(),
       frecency: Frecency::load(Recents::load().names(), now_ms()),
       btn_hover: false,
@@ -779,6 +782,7 @@ impl App {
       if let Some(v) = self.view() {
         v.deselect();
       }
+      let text = crate::model::emoji::convert(&text).into_owned();
       self.net.send(Cmd::Send { platform, chan, text, reply });
       if let Some(v) = self.view() {
         v.scroll_to_bottom();
@@ -1955,6 +1959,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.peek_due.is_some_and(|t| t <= now) {
       self.peek_fire();
     }
+    if self.gifs.due().is_some_and(|t| t <= now) {
+      self.gifs_tick(now);
+    }
     if self.update_due.is_some_and(|t| t <= now) {
       self.update_check();
     }
@@ -1975,6 +1982,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.trim_at,
       self.mute_due,
       self.peek_due,
+      self.gifs.due(),
       self.update_due,
       self.heat_due,
       self.pace_due,
@@ -2053,6 +2061,7 @@ impl App {
       NetEvent::Edited { id, res } => self.on_edited(id, res),
       NetEvent::Deleted { id, res } => self.on_deleted(id, res),
       NetEvent::Logs { epoch, res } => self.on_logs(epoch, res),
+      NetEvent::Gifs { epoch, q, res } => self.on_gifs(epoch, q, res),
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
@@ -2628,7 +2637,10 @@ mod live {
     let open = |app: &mut App| {
       app.input_dirty = true;
       app.redraw();
-      app.suggest.as_ref().map(|s| (s.kind, s.items.iter().map(|p| p.name.to_string()).collect::<Vec<_>>()))
+      app
+        .suggest
+        .as_ref()
+        .map(|s| (s.kind, s.items.iter().filter(|p| p.code.is_none()).map(|p| p.name.to_string()).collect::<Vec<_>>()))
     };
     app.line.insert("so :ka");
     assert_eq!(open(&mut app), Some((S::Emote, vec!["Kappa".into(), "KappaPride".into()])));
@@ -2639,6 +2651,12 @@ mod live {
     assert_eq!(app.line.chip_ranges(), vec![3..13]);
     // the list carries on as the tab cycle
     key(&mut app, NamedKey::Tab);
+    assert!(
+      app.line.chip_ranges().is_empty() && app.line.text.starts_with("so "),
+      "next comes the emoji: text, no chip"
+    );
+    app.tab_complete(true);
+    app.tab_complete(true);
     assert_eq!(app.line.text, "so Kappa ");
     assert_eq!(app.line.chip_ranges(), vec![3..8]);
     app.line.take();
@@ -2663,6 +2681,215 @@ mod live {
     assert_eq!(app.line.text, "/ba");
     app.line.insert("n");
     assert!(open(&mut app).is_some(), "typing opens it again");
+  }
+
+  fn dump_frame(app: &App) {
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+  }
+
+  // `:smi` lists emotes first, then emoji (glyph and :shortcode:); picking puts the glyph in the box;
+  // a typed :shortcode: becomes the glyph on send. HSC_DUMP=$d/x.ppm (the list) ... cargo test -j2
+  // --release headless_picker_emoji -- --ignored  (scratch HOME as above)
+  #[test]
+  #[ignore]
+  fn headless_picker_emoji() {
+    use crate::emotes::{Emote, Provider};
+    use crate::model::suggest::Kind as S;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    let e = |url: &str| Emote { url: url.into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(None, Provider::SevenTv, [("smirkCat".into(), e("https://cdn.7tv.app/emote/a/1x.webp"))].into());
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    app.enter_insert();
+    let key = |app: &mut App, k: NamedKey| app.key_insert(Key::Named(k), None);
+    app.line.insert("so :smi");
+    app.input_dirty = true;
+    app.redraw();
+    let s = app.suggest.as_ref().expect("the list opens");
+    assert_eq!(s.kind, S::Emote);
+    assert_eq!(&*s.items[0].name, "smirkCat", "emotes first, like the ext");
+    let first_emoji = s.items.iter().position(|p| p.code.is_some()).expect("emoji follow");
+    assert!(first_emoji >= 1);
+    assert_eq!(s.items[first_emoji].code, Some("smile"), "shortest prefix first");
+    assert!(app.over_input && !app.suggest_rows.is_empty());
+    dump_frame(&app);
+    // the glyph is what goes in the box
+    app.suggest.as_mut().unwrap().sel = first_emoji;
+    key(&mut app, NamedKey::Enter);
+    assert_eq!(app.line.text, "so 😄 ");
+    assert!(app.line.chips.is_empty(), "an emoji is text, not a picture chip");
+    assert!(app.complete.as_ref().and_then(|c| c.tip()).unwrap().contains(":smile:"), "the tip names the code");
+    // tab with a bare :word cycles emoji too
+    app.line.take();
+    app.complete = None;
+    app.line.insert(":joy");
+    app.tab_complete(false);
+    assert!(app.line.text.starts_with('😂'), "{}", app.line.text);
+    // send turns shortcodes into glyphs
+    app.complete = None;
+    app.line.take();
+    app.line.insert("gg :fire: :100: :nope:");
+    while asked.try_recv().is_ok() {}
+    app.send();
+    let sent = std::iter::from_fn(|| asked.try_recv().ok()).find_map(|c| match c {
+      Cmd::Send { text, .. } => Some(text),
+      _ => None,
+    });
+    assert_eq!(sent.as_deref(), Some("gg 🔥 💯 :nope:"));
+  }
+
+  // the picker's gifs tab: ctrl-tab / [ ] switch, typing asks heatsync after a rest (old answers drop),
+  // an answer fills a grid of stills, the rested pick plays, enter inserts the link and keeps recents.
+  // HSC_DUMP=$d/x.ppm (the grid) ... cargo test -j2 --release headless_picker_gifs -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_picker_gifs() {
+    use crate::images::decode::{Decoded, Frame};
+    use crate::model::gifs;
+    use crate::model::picker::Tab;
+    use crate::net::social;
+    use serde_json::json;
+    crate::store::remove("recent-gifs");
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 400);
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    app.enter_insert();
+    let gif_asks = |asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      std::iter::from_fn(|| asked.try_recv().ok())
+        .filter_map(|c| match c {
+          Cmd::Social(social::Cmd::Gifs { q, epoch }) => Some((q, epoch)),
+          _ => None,
+        })
+        .collect::<Vec<_>>()
+    };
+    let page = |tag: &str, n: u32| {
+      let rows: Vec<_> = (0..n)
+        .map(|i| {
+          json!({"id": i, "provider": "giphy", "label": format!("{tag} {i}"),
+          "url": format!("https://media.giphy.com/media/{tag}{i}/giphy.gif"),
+          "preview": format!("https://media.giphy.com/media/{tag}{i}/200_s.gif"),
+          "animated": format!("https://media.giphy.com/media/{tag}{i}/200.gif")})
+        })
+        .collect();
+      gifs::parse(&json!({"gifs": rows, "library": {"state": "ready", "indexed": 9}}))
+    };
+    // every picture asked for lands as a flat tile, one color per url
+    let land = |app: &mut App, asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| -> Vec<String> {
+      let mut urls = Vec::new();
+      for _ in 0..3 {
+        app.redraw();
+        let wanted: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+          .filter_map(|c| if let Cmd::Image(id, url, target) = c { Some((id, url, target)) } else { None })
+          .collect();
+        if wanted.is_empty() {
+          break;
+        }
+        for (id, url, target) in wanted {
+          let tone = url.bytes().fold(60u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
+          let px = [(tone & 0xff) as u8 | 0x40, (tone >> 8 & 0xff) as u8 | 0x40, (tone >> 16 & 0xff) as u8 | 0x40, 255];
+          let d = Decoded { w: 80, h: 45, frames: vec![Frame { rgba: px.repeat(80 * 45).into(), delay_ms: 0 }] };
+          urls.push(url.to_string());
+          app.res.images.loaded(id, target, Ok(d));
+        }
+      }
+      urls
+    };
+    app.toggle_picker();
+    assert_eq!(app.picker.as_ref().unwrap().tab, Tab::Emotes);
+    // grid focus: ] goes to gifs; a cold box with no recents asks for the top list at once
+    app.picker.as_mut().unwrap().focus = Focus::Grid;
+    app.picker_key(Key::Character("]"), Some("]"));
+    assert_eq!(app.picker.as_ref().unwrap().tab, Tab::Gifs);
+    let top = gif_asks(&mut asked);
+    assert_eq!(top.len(), 1, "{top:?}");
+    assert_eq!(&*top[0].0, "");
+    app.redraw();
+    assert_eq!(app.picker.as_ref().unwrap().note, "searching…");
+    // a stale answer (older epoch) is dropped; the right one fills the grid
+    app.on_net(NetEvent::Gifs { epoch: top[0].1 + 7, q: "".into(), res: Ok(page("old", 3)) });
+    assert!(app.picker.as_ref().unwrap().selected_gif().is_none());
+    app.on_net(NetEvent::Gifs { epoch: top[0].1, q: "".into(), res: Ok(page("top", 24)) });
+    assert_eq!(app.picker.as_ref().unwrap().selected_gif().map(|g| &*g.label), Some("top 0"));
+    assert!(app.picker.as_ref().unwrap().note.is_empty());
+    // typing asks once after a rest, not per key; a bad answer says why
+    app.picker.as_mut().unwrap().focus = Focus::Search;
+    for c in ["c", "a", "t"] {
+      app.picker_key(Key::Character(c), Some(c));
+    }
+    assert!(gif_asks(&mut asked).is_empty(), "nothing before the rest is over");
+    app.gifs_tick(Instant::now() + Duration::from_secs(1));
+    let ask = gif_asks(&mut asked);
+    assert_eq!(ask.len(), 1);
+    assert_eq!(&*ask[0].0, "cat");
+    app.on_net(NetEvent::Gifs {
+      epoch: ask[0].1,
+      q: "cat".into(),
+      res: Err(gifs::Fail::of(429, &json!({"resetAt": now_ms() + 7_500}), now_ms())),
+    });
+    assert!(app.picker.as_ref().unwrap().note.contains("wait 8s"), "{}", app.picker.as_ref().unwrap().note);
+    // the same text tries again on the next change
+    app.picker_key(Key::Named(NamedKey::Backspace), None);
+    app.picker_key(Key::Character("t"), Some("t"));
+    app.gifs_tick(Instant::now() + Duration::from_secs(1));
+    let ask = gif_asks(&mut asked);
+    assert_eq!(ask.len(), 1);
+    app.on_net(NetEvent::Gifs { epoch: ask[0].1, q: "cat".into(), res: Ok(page("cat", 24)) });
+    // the grid paints stills for what is in view; the selected one has not started to play
+    let urls = land(&mut app, &mut asked);
+    assert!(!urls.is_empty() && urls.len() <= 24, "{}", urls.len());
+    assert!(
+      urls.iter().all(|u| u.starts_with("https://heatsync.org/api/img?url=") && u.contains("200_s.gif")),
+      "{urls:?}"
+    );
+    dump_frame(&app);
+    // a rested pick asks for its moving picture, once
+    app.picker_key(Key::Named(NamedKey::ArrowRight), None);
+    app.gifs_tick(Instant::now() + Duration::from_secs(1));
+    assert!(app.picker.as_ref().unwrap().hot);
+    let moving = land(&mut app, &mut asked);
+    assert_eq!(moving.len(), 1, "{moving:?}");
+    assert!(moving[0].contains("%2F200.gif"), "{moving:?}");
+    // the same search again comes from the cache, no request
+    app.picker.as_mut().unwrap().clear_query();
+    app.picker_changed();
+    app.gifs_tick(Instant::now() + Duration::from_secs(1));
+    assert_eq!(app.picker.as_ref().unwrap().selected_gif().map(|g| &*g.label), Some("top 0"), "the top list, cached");
+    app.picker.as_mut().unwrap().type_str("cat");
+    app.picker_changed();
+    app.gifs_tick(Instant::now() + Duration::from_secs(1));
+    assert!(gif_asks(&mut asked).is_empty());
+    assert_eq!(app.picker.as_ref().unwrap().selected_gif().map(|g| &*g.label), Some("cat 0"));
+    // enter puts the link in the box, closes, and remembers it
+    app.picker_key(Key::Named(NamedKey::ArrowRight), None);
+    app.picker_key(Key::Named(NamedKey::Enter), None);
+    assert!(app.picker.is_none());
+    assert_eq!(app.line.text, "https://media.giphy.com/media/cat1/giphy.gif ");
+    assert_eq!(app.gifs.recent.as_ref().map(|r| r.len()), Some(1));
+    // reopening: the box is on the gifs you sent, no request; ctrl-tab goes back to emotes
+    app.line.take();
+    app.toggle_picker();
+    app.picker_tab(Some(Tab::Gifs));
+    assert!(gif_asks(&mut asked).is_empty());
+    let g = app.picker.as_ref().unwrap().selected_gif().cloned().unwrap();
+    assert_eq!(&*g.url, "https://media.giphy.com/media/cat1/giphy.gif");
+    app.redraw();
+    app.picker_tab(None);
+    assert_eq!(app.picker.as_ref().unwrap().tab, Tab::Emotes);
+    app.close_picker();
+    assert!(app.gifs.due().is_none());
   }
 
   // a channel's went-live lands in every chat tab; only its own tab turns yellow (scratch HOME as below):

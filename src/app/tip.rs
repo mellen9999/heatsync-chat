@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::App;
 use crate::emotes::block::Scope;
-use crate::model::picker::Sec;
+use crate::model::picker::{Sec, Tab};
 use crate::ui::canvas::Rect;
 use crate::ui::chat_view::Layer;
 use crate::ui::tip::Tip;
@@ -34,7 +34,7 @@ impl App {
     let (x, y) = self.pointer;
     if self.picker.is_some() {
       let g = self.picker_geo();
-      let p = self.picker.as_ref()?;
+      let p = self.picker.as_ref().filter(|p| p.tab == Tab::Emotes)?;
       let it =
         g.grid.contains(x, y).then(|| p.cell_at(x - g.grid.x, y - g.grid.y, g.m)).flatten().and_then(|i| p.item(i))?;
       let mine = it.sec == Sec::Mine;

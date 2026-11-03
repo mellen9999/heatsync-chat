@@ -9,13 +9,16 @@ use super::res::{EMOTE_PX, Res};
 use super::text::{Ink, Span};
 use super::theme;
 use crate::images::{Images, ImgId};
-use crate::model::picker::{Focus, Metrics, Picker};
+use crate::model::picker::{Focus, Metrics, Picker, Tab};
 
 const GAP: i32 = 4;
 // the ext's `.hs-mc-picker-emote` clamp: 28px min width, 96px max (logical px)
 const MAX_W: u16 = 96;
 // repaint ceiling for animated cells, same as chat
 const ANIM_MIN_MS: u32 = 33;
+// a gif cell: a 16:9-ish box, bigger than an emote, still a dense grid (logical px)
+pub const GIF_PX: u16 = 64;
+const GIF_W: u16 = 112;
 
 pub struct Geo {
   pub search: Rect,
@@ -24,16 +27,26 @@ pub struct Geo {
   pub m: Metrics,
 }
 
-pub fn geo(area: Rect, line: i32, ih: i32, max_w: i32) -> Geo {
+pub fn geo(area: Rect, line: i32, ih: i32, min_w: i32, max_w: i32) -> Geo {
   let search = Rect::new(area.x, area.y, area.w, line);
   let foot = Rect::new(area.x, area.bottom() - line, area.w, line);
   let grid = Rect::new(area.x, search.bottom() + 1, area.w, (area.h - 2 * line - 1).max(0));
-  let m = Metrics { w: grid.w, head: line, ih, min_w: ih, max_w, gap: GAP };
+  let m = Metrics { w: grid.w, head: line, ih, min_w, max_w, gap: GAP };
   Geo { search, grid, foot, m }
 }
 
-pub fn geo_of(area: Rect, res: &Res) -> Geo {
-  geo(area, res.text.line_px as i32, res.images.px(EMOTE_PX) as i32, res.images.px(MAX_W) as i32)
+pub fn geo_of(area: Rect, res: &Res, tab: Tab) -> Geo {
+  let line = res.text.line_px as i32;
+  match tab {
+    Tab::Emotes => {
+      let ih = res.images.px(EMOTE_PX) as i32;
+      geo(area, line, ih, ih, res.images.px(MAX_W) as i32)
+    }
+    Tab::Gifs => {
+      let w = res.images.px(GIF_W) as i32;
+      geo(area, line, res.images.px(GIF_PX) as i32, w, w)
+    }
+  }
 }
 
 // an animated cell on screen: repainted alone when its frame flips
@@ -45,7 +58,7 @@ struct Anim {
 }
 
 // what the last full paint looked like; same key + a due animation = repaint only the anims
-type Key = (u64, usize, i32, Focus, usize, [i32; 4], usize, usize);
+type Key = (u64, usize, i32, Focus, usize, [i32; 4], usize, usize, u32);
 
 // per-picker paint memory
 #[derive(Default)]
@@ -55,6 +68,8 @@ pub struct View {
   // every image in view, touched each pass so the cache never evicts what's on screen
   visible: Vec<ImgId>,
   due: Option<Instant>,
+  // where the tab names were painted, for clicks
+  pub tabs: [Rect; 2],
 }
 
 impl View {
@@ -69,6 +84,20 @@ impl View {
   }
 }
 
+const TAB_PAD: i32 = 6;
+
+// the tab names, right-aligned in the filter row, each padded and square (reversed when current)
+fn tab_rects(text: &mut super::text::Text, row: Rect) -> [Rect; 2] {
+  let mut x = row.right();
+  let mut out = [Rect::new(0, 0, 0, 0); 2];
+  for (n, t) in Tab::ALL.into_iter().enumerate().rev() {
+    let w = text.layout(t.label(), &[], &[], 100_000.0).full_width().ceil() as i32 + 2 * TAB_PAD;
+    x -= w;
+    out[n] = Rect::new(x, row.y, w, row.h);
+  }
+  out
+}
+
 fn blit(c: &mut Canvas, images: &mut Images, a: &Anim) -> Option<u32> {
   c.fill(a.inner.intersect(a.clip), if a.on { theme::WHITE } else { theme::BLACK });
   let (f, w, h, ms) = images.frame(a.id)?;
@@ -79,7 +108,7 @@ fn blit(c: &mut Canvas, images: &mut Images, a: &Anim) -> Option<u32> {
 
 // paints the picker; returns the damaged rect (None = nothing changed this wake)
 pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: &str) -> Option<Rect> {
-  let g = geo_of(area, res);
+  let g = geo_of(area, res, p.tab);
   // images.bytes() moves when an emote loads or is evicted, which needs a full repaint
   let key: Key = (
     p.epoch(),
@@ -90,6 +119,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     [area.x, area.y, area.w, area.h],
     preedit.len(),
     res.images.bytes(),
+    p.rev(),
   );
   let now = Instant::now();
   if p.view.key == Some(key) && !p.view.anims.is_empty() {
@@ -112,6 +142,8 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     return dirty;
   }
   let Res { text, images, blocked, .. } = res;
+  let gifs = p.tab == Tab::Gifs;
+  let wpx = images.px(GIF_W);
   let (mut anims, mut visible) = (std::mem::take(&mut p.view.anims), std::mem::take(&mut p.view.visible));
   anims.clear();
   visible.clear();
@@ -123,20 +155,30 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
   let pre = s.len()..s.len() + preedit.len();
   s.push_str(preedit);
   let (shown, spans) = if s.is_empty() {
-    let hint = "type to filter";
+    let hint = if p.tab == Tab::Gifs { "search gifs" } else { "type to filter" };
     (hint.to_owned(), vec![Span { range: 0..hint.len(), ink: Ink(theme::DIM), bold: false }])
   } else {
     (s.clone(), Vec::new())
   };
   let l = text.layout(&shown, &spans, &[], 100_000.0);
   let (ox, oy) = (g.search.x as f32 + theme::PAD_X, g.search.y as f32);
-  text.draw(&l, c, ox, oy, g.search, |_, _| {});
+  // the tab names sit at the right end of the filter row; the text gives way to them
+  let tabs = tab_rects(text, g.search);
+  let room = Rect::new(g.search.x, g.search.y, (tabs[0].x - g.search.x - 4).max(0), g.search.h);
+  text.draw(&l, c, ox, oy, room, |_, _| {});
   if !s.is_empty() {
-    underline(c, &l, pre, ox, oy, g.search);
+    underline(c, &l, pre, ox, oy, room);
   }
   if p.focus == Focus::Search {
     let x = ox as i32 + if s.is_empty() { 0 } else { l.full_width().ceil() as i32 };
-    c.fill(Rect::new(x, g.search.y, 2, g.search.h).intersect(g.search), theme::WHITE);
+    c.fill(Rect::new(x, g.search.y, 2, g.search.h).intersect(room), theme::WHITE);
+  }
+  for (t, r) in Tab::ALL.into_iter().zip(tabs) {
+    let on = t == p.tab;
+    c.fill(r, if on { theme::WHITE } else { theme::BLACK });
+    let ink = Ink(if on { theme::BLACK } else { theme::DIM });
+    let tl = text.layout(t.label(), &[Span { range: 0..t.label().len(), ink, bold: on }], &[], 100_000.0);
+    text.draw(&tl, c, (r.x + TAB_PAD) as f32, r.y as f32, r, |_, _| {});
   }
   c.fill(Rect::new(g.search.x, g.search.bottom(), g.search.w, 1), theme::DIM);
 
@@ -173,13 +215,31 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
             c.fill(clip, theme::WHITE);
           }
           let inner = Rect::new(cell.x + GAP / 2, cell.y + GAP / 2, cell.w - GAP, cell.h - GAP);
-          if blocked.contains(&it.name, &it.url) {
+          if !gifs && blocked.contains(&it.name, &it.url) {
             c.dashed(inner, clip, if on { theme::BLACK } else { theme::WHITE });
             continue;
           }
-          let a = Anim { inner, clip, id: images.id(&it.url, EMOTE_PX), on };
-          visible.push(a.id);
-          if let Some((f, w, h, ms)) = images.frame(a.id) {
+          // a gif holds its first frame; only the picked one, once it has rested, plays
+          let (mut id, mut play) =
+            if gifs { (images.id_fit(&it.url, GIF_PX, wpx), false) } else { (images.id(&it.url, EMOTE_PX), true) };
+          visible.push(id);
+          if gifs
+            && on
+            && p.hot
+            && let Some(g) = p.gif(i)
+          {
+            let moving = images.id_fit(&crate::ui::embed::proxied(&g.animated), GIF_PX, wpx);
+            visible.push(moving);
+            if images.frame(moving).is_some() {
+              (id, play) = (moving, true);
+            }
+          }
+          if gifs && images.failed(id) {
+            c.dashed(inner, clip, if on { theme::BLACK } else { theme::WHITE });
+            continue;
+          }
+          let a = Anim { inner, clip, id, on };
+          if let Some((f, w, h, ms)) = images.frame_with(a.id, play) {
             let (w, h) = (w as i32, h as i32);
             c.rgba(inner.x + (inner.w - w) / 2, inner.y + (inner.h - h) / 2, w, h, &f.rgba, inner.intersect(clip));
             if let Some(ms) = ms {
@@ -192,7 +252,11 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     }
   }
   if empty {
-    let msg = "no emotes match";
+    let msg = match (gifs, p.note.is_empty()) {
+      (true, false) => &*p.note,
+      (true, true) => "type to search gifs",
+      _ => "no emotes match",
+    };
     let span = Span { range: 0..msg.len(), ink: Ink(theme::DIM), bold: false };
     let l = text.layout(msg, &[span], &[], 100_000.0);
     text.draw(&l, c, ox, g.grid.y as f32, g.grid, |_, _| {});
@@ -200,10 +264,10 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
 
   // hint row: what's selected, then the keys that work now
   let keys = match p.focus {
-    Focus::Search => "enter insert · tab hjkl · esc close",
-    Focus::Grid => "hjkl move · / filter · enter insert · esc close",
+    Focus::Search => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
+    Focus::Grid => "hjkl move · / filter · [ ] tabs · enter insert · esc close",
   };
-  let name = p.selected().map_or("", |i| &i.name);
+  let name = if p.note.is_empty() || empty { p.selected().map_or("", |i| &i.name) } else { &*p.note };
   let t = if name.is_empty() { keys.to_owned() } else { format!("{name}  {keys}") };
   let spans = [
     Span { range: 0..name.len(), ink: Ink(theme::WHITE), bold: true },
@@ -217,6 +281,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     anims,
     visible,
     due: next.map(|ms| now + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64)),
+    tabs,
   };
   Some(area)
 }
@@ -249,7 +314,7 @@ mod tests {
     assert!(first > 0 && first <= 12 * 10, "{first}");
     assert!(c.px.iter().any(|&p| p != theme::BLACK));
     // scrolled deep: a fresh window of cells, still bounded
-    let g = geo_of(area, &res);
+    let g = geo_of(area, &res, Tab::Emotes);
     p.scroll_by(10_000, g.m, g.grid.h);
     draw(&mut c, &mut res, area, &mut p, "");
     let second = res.images.take_wanted().len();

@@ -81,7 +81,7 @@ mod tests {
 
   #[test]
   fn steps_wrap() {
-    let p = |n: &str| Pick { name: n.into(), what: "", emote: true };
+    let p = |n: &str| Pick { name: n.into(), what: "", emote: true, code: None };
     let mut s = Suggest { kind: Kind::Emote, range: 0..0, items: vec![p("a"), p("b")], sel: 0 };
     s.step(false);
     assert_eq!(s.sel, 1);

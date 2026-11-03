@@ -14,6 +14,18 @@ pub struct Pick {
   pub name: Box<str>,
   pub what: &'static str,
   pub emote: bool,
+  // an emoji's shortcode (`name` is the glyph that goes in the box)
+  pub code: Option<&'static str>,
+}
+
+impl Pick {
+  // how a list row reads: the name, or an emoji with its shortcode
+  pub fn shown(&self) -> String {
+    match self.code {
+      Some(c) => format!("{} :{c}:", self.name),
+      None => self.name.to_string(),
+    }
+  }
 }
 
 pub struct Complete {
@@ -35,7 +47,7 @@ impl Complete {
   // the tooltip over the box: "2/14 PogU · channel · 7tv users"
   pub fn tip(&self) -> Option<String> {
     let m = self.matches.get(self.at)?;
-    Some(format!("{}/{} {} · {}", self.at + 1, self.matches.len(), m.name, m.what))
+    Some(format!("{}/{} {} · {}", self.at + 1, self.matches.len(), m.shown(), m.what))
   }
 }
 
@@ -74,6 +86,14 @@ fn hit(name: &str, low: &str) -> Option<(bool, bool)> {
   if n.starts_with(low) { Some((n.len() == low.len(), true)) } else { n.contains(low).then_some((false, false)) }
 }
 
+// emoji for `:smi`, after the emotes (the ext ranks them last: their tier is 9)
+pub fn emoji(query: &str) -> Vec<Pick> {
+  super::emoji::search(query, super::emoji::MAX)
+    .into_iter()
+    .map(|(code, glyph)| Pick { name: glyph.into(), what: "emoji", emote: false, code: Some(code) })
+    .collect()
+}
+
 // emote candidates, pools in tier order; a name a nearer pool has is skipped further out
 pub fn emotes<'a>(query: &str, pools: impl IntoIterator<Item = Cand<'a>>, score: impl Fn(&str) -> f64) -> Vec<Pick> {
   let low = query.to_lowercase();
@@ -89,7 +109,7 @@ pub fn emotes<'a>(query: &str, pools: impl IntoIterator<Item = Cand<'a>>, score:
     .collect();
   hits.sort_by(order);
   hits.truncate(MAX);
-  hits.into_iter().map(|h| Pick { name: h.c.name.into(), what: h.c.what, emote: true }).collect()
+  hits.into_iter().map(|h| Pick { name: h.c.name.into(), what: h.c.what, emote: true, code: None }).collect()
 }
 
 // people, `recent` in recency order (newest first) then everyone else: an exact name, then who spoke
@@ -124,7 +144,7 @@ pub fn commands(query: &str, groups: impl IntoIterator<Item = Vec<&'static str>>
   let mut out: Vec<Pick> = Vec::new();
   for c in groups.into_iter().flatten() {
     if c.starts_with(&low) && !out.iter().any(|o| *o.name == *c) {
-      out.push(Pick { name: c.into(), what: "command", emote: false });
+      out.push(Pick { name: c.into(), what: "command", emote: false, code: None });
     }
   }
   out
@@ -164,13 +184,25 @@ mod tests {
 
   #[test]
   fn tip_and_emote_pick() {
-    let p = |name: &str, emote| Pick { name: name.into(), what: "channel · 7tv users", emote };
+    let p = |name: &str, emote| Pick { name: name.into(), what: "channel · 7tv users", emote, code: None };
     let c = Complete { start: 0, end: 0, matches: vec![p("Kappa", true), p("alice", false)], at: 0, chipped: None };
     assert_eq!(c.emote(), Some("Kappa"));
     assert_eq!(c.tip().as_deref(), Some("1/2 Kappa · channel · 7tv users"));
     let c = Complete { at: 1, ..c };
     assert_eq!(c.emote(), None);
     assert_eq!(Complete { at: usize::MAX, ..c }.emote(), None);
+  }
+
+  #[test]
+  fn emoji_picks_carry_the_glyph_and_their_code() {
+    let r = emoji(":smil");
+    assert_eq!((&*r[0].name, r[0].code, r[0].emote), ("😄", Some("smile"), false));
+    assert_eq!(r[0].shown(), "😄 :smile:");
+    assert!(r.len() <= crate::model::emoji::MAX && r.iter().all(|p| p.what == "emoji"));
+    assert!(emoji("").is_empty() && emoji("zzzzzzzz").is_empty());
+    let c = Complete { start: 0, end: 0, matches: r, at: 0, chipped: None };
+    assert_eq!(c.tip().as_deref().map(|t| t.ends_with("😄 :smile: · emoji")), Some(true));
+    assert_eq!(c.emote(), None, "an emoji is text, never a chip");
   }
 
   #[test]

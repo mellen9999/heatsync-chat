@@ -55,6 +55,8 @@ pub enum Cmd {
   SeenBump { surface: Surface, at: i64 },
   // one page of a person's archived lines (the chat-log viewer)
   Logs(logs::Req),
+  // the gifs tab's search (empty = the top list); `epoch` names the ask
+  Gifs { q: Box<str>, epoch: u32 },
 }
 
 pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Out) {
@@ -85,6 +87,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
       }
     }
     Cmd::Logs(req) => archive(&http, req, &out).await,
+    Cmd::Gifs { q, epoch } => gifs(&http, q, epoch, &out).await,
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
     Cmd::PutNote { platform, login, profile_id, text } => {
       let ok = match token {
@@ -179,6 +182,18 @@ async fn archive(http: &reqwest::Client, req: logs::Req, out: &Out) {
   let (status, v) = call(r).await;
   let res = if status == 200 { Ok(logs::parse_page(&v, &req.who)) } else { Err(status) };
   void(out.send(NetEvent::Logs { epoch: req.epoch, res }))
+}
+
+// the gif corpus is public (no login, no cookies): one page, the status that said why not
+async fn gifs(http: &reqwest::Client, q: Box<str>, epoch: u32, out: &Out) {
+  let r = http.get(format!("{ORIGIN}{}", crate::model::gifs::path(&q))).timeout(std::time::Duration::from_secs(10));
+  let (status, v) = call(r).await;
+  let res = if status == 200 {
+    Ok(crate::model::gifs::parse(&v))
+  } else {
+    Err(crate::model::gifs::Fail::of(status, &v, crate::util::time::now_ms()))
+  };
+  void(out.send(NetEvent::Gifs { epoch, q, res }))
 }
 
 // POST /api/card: profile, followage, archive counts in one trip (works logged out; a login adds how you relate)

@@ -2,7 +2,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
-use crate::model::picker::{Focus, Item, Picker, Sec};
+use crate::model::picker::{Focus, Item, Picker, Sec, Tab};
 use crate::ui::picker::{Geo, draw, geo_of};
 use crate::util::time::now_ms;
 
@@ -36,6 +36,7 @@ impl App {
   pub fn close_picker(&mut self) {
     self.hide_tip();
     self.picker = None;
+    self.gifs_leave();
     self.ime.clear();
     if let Some(t) = self.tabs.get_mut(self.active) {
       t.view.invalidate();
@@ -46,12 +47,30 @@ impl App {
   }
 
   pub(super) fn picker_changed(&mut self) {
+    self.gifs_sync();
     self.input_dirty = true;
     self.wake();
   }
 
   pub(super) fn picker_geo(&self) -> Geo {
-    geo_of(self.chat_area(), &self.res)
+    geo_of(self.chat_area(), &self.res, self.picker.as_ref().map_or(Tab::Emotes, |p| p.tab))
+  }
+
+  // go to the other tab (or `to`): each keeps its own text and place
+  pub(super) fn picker_tab(&mut self, to: Option<Tab>) {
+    let Some(p) = &mut self.picker else { return };
+    let to = to.unwrap_or(p.tab.other());
+    if to == p.tab {
+      return;
+    }
+    p.switch(to);
+    if to == Tab::Gifs {
+      self.gifs_enter();
+    } else {
+      self.gifs_leave();
+    }
+    self.picker_reveal();
+    self.picker_changed();
   }
 
   pub fn picker_reveal(&mut self) {
@@ -64,6 +83,9 @@ impl App {
 
   // insert the selected emote; shift keeps the picker open for another
   fn picker_pick(&mut self, keep: bool) {
+    if self.picker.as_ref().is_some_and(|p| p.tab == Tab::Gifs) {
+      return self.gif_pick(keep);
+    }
     let Some(it) = self.picker.as_ref().and_then(|p| p.selected()) else { return };
     let (name, url) = (it.name.clone(), it.url.clone());
     if self.res.blocked.contains(&name, &url) {
@@ -100,6 +122,7 @@ impl App {
       && i != p.sel
     {
       p.sel = i;
+      self.gifs_sync();
       self.wake();
     }
   }
@@ -108,6 +131,10 @@ impl App {
   pub fn picker_click(&mut self) {
     let g = self.picker_geo();
     let (x, y) = self.pointer;
+    let tab = self.picker.as_ref().and_then(|p| Tab::ALL.into_iter().zip(p.view.tabs).find(|(_, r)| r.contains(x, y)));
+    if let Some((t, _)) = tab {
+      return self.picker_tab(Some(t));
+    }
     let hit = self
       .picker
       .as_ref()
@@ -142,6 +169,7 @@ impl App {
       Key::Named(NamedKey::ArrowDown) => p.step(0, 1, g.m),
       Key::Named(NamedKey::PageUp) => p.scroll_by(-half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::PageDown) => p.scroll_by(half * 2, g.m, g.grid.h),
+      Key::Named(NamedKey::Tab) if ctrl => return self.picker_tab(None),
       Key::Named(NamedKey::Tab) => p.focus = if focus == Focus::Search { Focus::Grid } else { Focus::Search },
       Key::Named(NamedKey::Escape) if focus == Focus::Search && !p.query.is_empty() => p.clear_query(),
       Key::Named(NamedKey::Escape) => return self.close_picker(),
@@ -160,6 +188,7 @@ impl App {
       Key::Character("l") if !ctrl => p.step(1, 0, g.m),
       Key::Character("k") if !ctrl => p.step(0, -1, g.m),
       Key::Character("j") if !ctrl => p.step(0, 1, g.m),
+      Key::Character("]" | "[") if !ctrl => return self.picker_tab(None),
       Key::Character("g") => p.home(),
       Key::Character("G") => p.end(),
       Key::Character("d") if ctrl => p.scroll_by(half, g.m, g.grid.h),

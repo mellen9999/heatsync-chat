@@ -2,7 +2,7 @@
 // cursor, the next ones cycle them in place, and a tooltip over the box names the shown one
 use super::App;
 use crate::emotes::Provider;
-use crate::model::complete::{Cand, Complete, MIN_WORD, Pick, commands, emotes, people};
+use crate::model::complete::{Cand, Complete, MIN_WORD, Pick, commands, emoji, emotes, people};
 use crate::model::slash;
 use crate::util::time::now_ms;
 
@@ -33,7 +33,7 @@ impl App {
 
   pub(super) fn candidates(&self, word: &str, slash: bool) -> Vec<Pick> {
     let tab = self.tabs.get(self.active);
-    let chat = |n: Box<str>| Pick { name: n, what: "chatter", emote: false };
+    let chat = |n: Box<str>| Pick { name: n, what: "chatter", emote: false, code: None };
     if slash {
       return commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
     }
@@ -43,7 +43,7 @@ impl App {
       let found = people(q, &recent, &all, false);
       return found.into_iter().map(|(n, _)| chat(format!("@{}", n.trim_start_matches('@')).into())).collect();
     }
-    // `:kek` searches emotes too (the ext's emoji shortcodes are not here)
+    // `:kek` searches emotes too, then emoji shortcodes (any length, like the ext)
     let q = word.strip_prefix(':').filter(|q| q.len() >= MIN_WORD).unwrap_or(word);
     let chan = tab.map_or("", |t| &*t.view.channel);
     let now = now_ms();
@@ -64,6 +64,9 @@ impl App {
       out.extend(people(q, &[], &all, true).into_iter().map(|(n, _)| chat(n)));
     }
     out.extend(found);
+    if let Some(e) = word.strip_prefix(':') {
+      out.extend(emoji(e));
+    }
     out
   }
 

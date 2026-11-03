@@ -101,6 +101,8 @@ pub enum NetEvent {
   Posted { res: Result<crate::model::post::Post, u16> },
   // a page of the chat-log viewer, or the http status that said why not (0 = no answer); `epoch` names the ask
   Logs { epoch: u32, res: Result<crate::model::logs::Page, u16> },
+  // the gifs tab's answer to the search `q` asked under `epoch`, or the http status that said why not
+  Gifs { epoch: u32, q: Box<str>, res: Result<crate::model::gifs::Page, crate::model::gifs::Fail> },
   FeedLive(crate::model::post::Post),
   // your mute / block lists on heatsync, read after a login
   Lists(mutes::Lists),

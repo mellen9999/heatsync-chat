@@ -90,7 +90,7 @@ impl App {
       return Some(ui::tip(&mut self.canvas, &mut self.res.text, input, &tip?));
     };
     let (kind, sel) = (s.kind, s.sel);
-    let names: Vec<Box<str>> = s.items.iter().map(|p| p.name.clone()).collect();
+    let names: Vec<Box<str>> = s.items.iter().map(|p| p.shown().into()).collect();
     let platform = self.target().map_or(Platform::Twitch, |t| t.0);
     let cmds = if kind == Kind::Command { slash::all() } else { Vec::new() };
     let mut rows = Vec::with_capacity(names.len());

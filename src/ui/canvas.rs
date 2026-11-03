@@ -1,6 +1,6 @@
 // cpu framebuffer: 0x00rrggbb, rects + alpha masks + rgba blits. square ui needs nothing more
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Rect {
   pub x: i32,
   pub y: i32,

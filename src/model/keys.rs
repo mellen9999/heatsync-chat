@@ -73,7 +73,8 @@ pub static KEYS: [Group; 12] = [
     rows: &[
       ("enter", "send"),
       ("tab  shift-tab", "complete emote, name, command; again to cycle"),
-      (":ka  @  /", "list emotes, people, commands"),
+      (":ka  @  /", "list emotes (then emoji), people, commands"),
+      (":fire:", "turns into the emoji when sent"),
       ("up down  tab enter", "move in the list, pick"),
       ("up down", "older, newer sent lines"),
       ("ctrl-z  ctrl-y", "undo, redo"),
@@ -108,6 +109,7 @@ pub static KEYS: [Group; 12] = [
       ("h j k l  arrows", "move"),
       ("enter", "pick (shift-enter keeps it open)"),
       ("/ i  tab", "search, switch search and grid"),
+      ("] [  ctrl-tab", "emotes and gifs tab (gifs: type to search, enter inserts the link)"),
       ("g G", "first, last"),
       ("ctrl-d ctrl-u", "page down, up"),
       ("esc q", "close"),

@@ -1,9 +1,12 @@
 // emote picker state + grid geometry, no drawing. sections in order: recent, your heatsync
 // emotes, this channel, globals. filter is a case-insensitive substring over names already
-// loaded locally — never a catalog search, so nothing here can reach the render path
+// loaded locally — never a catalog search, so nothing here can reach the render path.
+// a second tab holds gifs (model::gifs): the same grid, one section, filled by heatsync's search
+// instead of filtered, and picking inserts a link rather than an emote
 use std::cell::{Ref, RefCell};
 use std::ops::Range;
 
+use super::gifs::Gif;
 use crate::store;
 
 pub const RECENT_CAP: usize = 40;
@@ -16,6 +19,8 @@ pub enum Sec {
   Mine,
   Channel,
   Global,
+  // a gif search's results (a gif you sent lately sits under `Recent`)
+  Gif,
 }
 
 impl Sec {
@@ -25,6 +30,32 @@ impl Sec {
       Sec::Mine => "my emotes",
       Sec::Channel => "channel",
       Sec::Global => "global",
+      Sec::Gif => "gifs",
+    }
+  }
+}
+
+// the ext's picker tabs, in its order
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tab {
+  Emotes,
+  Gifs,
+}
+
+impl Tab {
+  pub const ALL: [Tab; 2] = [Tab::Emotes, Tab::Gifs];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      Tab::Emotes => "emotes",
+      Tab::Gifs => "gifs",
+    }
+  }
+
+  pub fn other(self) -> Tab {
+    match self {
+      Tab::Emotes => Tab::Gifs,
+      Tab::Gifs => Tab::Emotes,
     }
   }
 }
@@ -176,6 +207,18 @@ impl Layout {
 
 pub struct Picker {
   items: Vec<Item>,
+  // the gifs tab: the records, and a cell for each (same index) the grid lays out
+  gifs: Vec<Gif>,
+  gif_items: Vec<Item>,
+  pub tab: Tab,
+  // the other tab's filter text, selection and scroll, swapped in on a switch
+  away: (String, usize, i32),
+  // a line for the footer or the empty grid ("searching…", why it failed)
+  pub note: String,
+  // the picked gif has rested long enough to play
+  pub hot: bool,
+  // bumps on changes that repaint without moving `shown`
+  rev: u32,
   // indices into `items` that pass the filter, still in section order
   shown: Vec<u32>,
   // bumps whenever `shown` changes, to invalidate the cached layout
@@ -209,6 +252,13 @@ impl Picker {
     items.extend(global);
     let mut p = Self {
       items,
+      gifs: Vec::new(),
+      gif_items: Vec::new(),
+      tab: Tab::Emotes,
+      away: (String::new(), 0, 0),
+      note: String::new(),
+      hot: false,
+      rev: 0,
       shown: Vec::new(),
       epoch: 0,
       layout: RefCell::new(None),
@@ -222,17 +272,99 @@ impl Picker {
     p
   }
 
+  fn list(&self) -> &[Item] {
+    match self.tab {
+      Tab::Emotes => &self.items,
+      Tab::Gifs => &self.gif_items,
+    }
+  }
+
   fn refilter(&mut self) {
     self.epoch += 1;
     self.shown.clear();
-    let q = &self.query;
-    self.shown.extend(self.items.iter().enumerate().filter(|(_, i)| contains_ci(&i.name, q)).map(|(n, _)| n as u32));
+    match self.tab {
+      Tab::Emotes => {
+        let q = &self.query;
+        self
+          .shown
+          .extend(self.items.iter().enumerate().filter(|(_, i)| contains_ci(&i.name, q)).map(|(n, _)| n as u32));
+      }
+      // gifs are not filtered here: the text is the search, and what comes back replaces the list
+      Tab::Gifs => self.shown.extend(0..self.gif_items.len() as u32),
+    }
     self.sel = 0;
     self.scroll = 0;
+    self.hot = false;
+  }
+
+  // the filter text changed: emotes narrow now, gifs wait for the search to answer
+  fn edited(&mut self) {
+    match self.tab {
+      Tab::Emotes => self.refilter(),
+      Tab::Gifs => self.rev += 1,
+    }
   }
 
   pub fn epoch(&self) -> u64 {
     self.epoch
+  }
+
+  // changes that repaint without moving what's shown (the note, a gif starting to play, the text)
+  pub fn rev(&self) -> u32 {
+    self.rev
+  }
+
+  pub fn set_note(&mut self, note: String) {
+    if self.note != note {
+      self.note = note;
+      self.rev += 1;
+    }
+  }
+
+  pub fn set_hot(&mut self, on: bool) {
+    if self.hot != on {
+      self.hot = on;
+      self.rev += 1;
+    }
+  }
+
+  // go to a tab; each keeps its own text, selection and scroll
+  pub fn switch(&mut self, to: Tab) {
+    if to == self.tab {
+      return;
+    }
+    std::mem::swap(&mut self.query, &mut self.away.0);
+    let (sel, scroll) = (self.away.1, self.away.2);
+    self.away.1 = self.sel;
+    self.away.2 = self.scroll;
+    self.tab = to;
+    self.note.clear();
+    self.refilter();
+    self.sel = sel.min(self.shown.len().saturating_sub(1));
+    self.scroll = scroll;
+  }
+
+  // a search answered: its gifs become the grid. `recent` = they are the ones you sent lately
+  pub fn set_gifs(&mut self, gifs: Vec<Gif>, recent: bool) {
+    let sec = if recent { Sec::Recent } else { Sec::Gif };
+    self.gif_items = gifs
+      .iter()
+      .map(|g| Item { sec, name: g.label.clone(), url: crate::ui::embed::proxied(&g.preview), w: 0, h: 0 })
+      .collect();
+    self.gifs = gifs;
+    if self.tab == Tab::Gifs {
+      self.refilter();
+    }
+  }
+
+  // the gif under the selection (gifs tab only)
+  pub fn selected_gif(&self) -> Option<&Gif> {
+    (self.tab == Tab::Gifs).then(|| self.gifs.get(*self.shown.get(self.sel)? as usize)).flatten()
+  }
+
+  // the gif behind a shown cell
+  pub fn gif(&self, shown_idx: usize) -> Option<&Gif> {
+    self.gifs.get(*self.shown.get(shown_idx)? as usize)
   }
 
   #[cfg(test)]
@@ -241,7 +373,7 @@ impl Picker {
   }
 
   pub fn item(&self, shown_idx: usize) -> Option<&Item> {
-    self.items.get(*self.shown.get(shown_idx)? as usize)
+    self.list().get(*self.shown.get(shown_idx)? as usize)
   }
 
   pub fn selected(&self) -> Option<&Item> {
@@ -252,19 +384,19 @@ impl Picker {
   pub fn type_str(&mut self, s: &str) {
     let room = MAX_QUERY.saturating_sub(self.query.chars().count());
     self.query.extend(s.chars().filter(|c| !c.is_control()).take(room));
-    self.refilter();
+    self.edited();
   }
 
   pub fn backspace(&mut self) {
     if self.query.pop().is_some() {
-      self.refilter();
+      self.edited();
     }
   }
 
   pub fn clear_query(&mut self) {
     if !self.query.is_empty() {
       self.query.clear();
-      self.refilter();
+      self.edited();
     }
   }
 
@@ -272,7 +404,7 @@ impl Picker {
   fn ranges(&self) -> Vec<(Sec, Range<usize>)> {
     let mut v: Vec<(Sec, Range<usize>)> = Vec::with_capacity(4);
     for (n, &i) in self.shown.iter().enumerate() {
-      let sec = self.items[i as usize].sec;
+      let sec = self.list()[i as usize].sec;
       match v.last_mut() {
         Some((s, r)) if *s == sec => r.end = n + 1,
         _ => v.push((sec, n..n + 1)),
@@ -288,7 +420,7 @@ impl Picker {
     for (sec, range) in self.ranges() {
       let (mut x, mut starts) = (0, Vec::new());
       for n in range.clone() {
-        let it = &self.items[self.shown[n] as usize];
+        let it = &self.list()[self.shown[n] as usize];
         let cw = m.cell_w(it.w, it.h);
         if starts.is_empty() || x + cw > m.w {
           starts.push(n);
@@ -582,6 +714,58 @@ mod tests {
     assert_eq!(p.cell_at(32, 25, M), Some(1));
     assert_eq!(p.cell_at(91, 25, M), Some(1));
     assert_eq!(p.cell_at(92, 25, M), None);
+  }
+
+  fn gif(n: u32) -> Gif {
+    let u = |k: &str| format!("https://media.giphy.com/media/g{n}/{k}.gif").into();
+    Gif {
+      id: n.to_string().into(),
+      url: u("giphy"),
+      preview: u("200_s"),
+      animated: u("200"),
+      label: format!("gif {n}").into(),
+    }
+  }
+
+  #[test]
+  fn tabs_keep_their_own_text_and_place() {
+    let mut p = sample();
+    p.type_str("c");
+    p.step(1, 0, M);
+    assert_eq!((p.tab, p.query.as_str(), p.sel), (Tab::Emotes, "c", 1));
+    p.switch(Tab::Gifs);
+    // the gifs tab starts empty and clean; its text is a search, not a filter
+    assert_eq!((p.tab, p.query.as_str(), p.len()), (Tab::Gifs, "", 0));
+    p.set_gifs((0..30).map(gif).collect(), false);
+    assert_eq!(p.len(), 30);
+    p.type_str("zzz");
+    assert_eq!(p.len(), 30, "typing doesn't narrow gifs; the answer replaces them");
+    p.sel = 5;
+    assert_eq!(p.selected_gif().map(|g| &*g.label), Some("gif 5"));
+    assert_eq!(p.item(5).map(|i| i.sec), Some(Sec::Gif));
+    assert!(p.item(0).unwrap().url.starts_with("https://heatsync.org/api/img?url="), "stills come through the proxy");
+    // back: the emote filter and pick are where they were left, and no gif is "selected"
+    p.switch(Tab::Emotes);
+    assert_eq!((p.query.as_str(), p.sel), ("c", 1));
+    assert!(p.selected_gif().is_none());
+    // an answer landing while on emotes waits for the tab
+    p.set_gifs(vec![gif(1)], true);
+    assert_eq!(p.len(), 7);
+    p.switch(Tab::Gifs);
+    assert_eq!((p.query.as_str(), p.len(), p.item(0).map(|i| i.sec)), ("zzz", 1, Some(Sec::Recent)));
+    assert_eq!(Tab::Gifs.other(), Tab::Emotes);
+  }
+
+  #[test]
+  fn gif_cells_are_uniform_and_wrap() {
+    let mut p = sample();
+    p.switch(Tab::Gifs);
+    p.set_gifs((0..7).map(gif).collect(), false);
+    let m = Metrics { w: 400, head: 20, ih: 64, min_w: 112, max_w: 112, gap: 4 };
+    let l = p.layout(m);
+    // 116px cells: three to a 400px row
+    assert_eq!(l.bands[0].starts, vec![0, 3, 6]);
+    assert!(l.cells.iter().all(|c| c.1 == 116));
   }
 
   #[test]
