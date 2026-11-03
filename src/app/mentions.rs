@@ -1,7 +1,9 @@
 // the mentions tab (ext mentions.js): every live line that pings you, from every joined room, plus
 // replies to you. in the room's own tab the line gets a red edge (the ext tints the row dark red; a
-// fill behind text is off-palette here). click or Enter jumps to the line in its room's tab
+// fill behind text is off-palette here). click or Enter jumps to the line in its room's tab. while the
+// window is away a mention also pings (util::sound) and flashes the title with who it was, like the ext
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use super::App;
 use crate::model::message::{Extra, Message, Platform, flag};
@@ -9,6 +11,8 @@ use crate::model::tabs::Kind;
 
 // notification body cap (ext: 200 chars then "...")
 const BODY_MAX: usize = 200;
+pub(super) const TITLE: &str = "heatsync";
+const FLASH_EVERY: Duration = Duration::from_millis(1200);
 
 impl App {
   // names that ping you changed (login / logout)
@@ -36,8 +40,39 @@ impl App {
       self.tabs[i].chat().push(copy);
       self.unseen_note(crate::model::unseen::Surface::Mentions);
     }
-    if self.set.notify && !self.focused {
+    if self.focused {
+      return;
+    }
+    if self.set.notify {
       notify(&m.nick, room, &m.body);
+    }
+    crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
+    if self.set.title_flash {
+      // the latest name; an already running flash picks it up on its next turn
+      let shown = self.flash.as_ref().is_some_and(|f| f.1);
+      self.flash = Some((m.nick.chars().filter(|c| !c.is_control()).take(40).collect::<String>().into(), shown));
+      self.flash_due.get_or_insert_with(Instant::now);
+    }
+  }
+
+  pub(super) fn flash_tick(&mut self) {
+    let Some((name, shown)) = self.flash.as_mut().filter(|_| self.set.title_flash && !self.focused) else {
+      return self.flash_stop();
+    };
+    *shown = !*shown;
+    let title = if *shown { format!("@{name} ← {TITLE}") } else { TITLE.to_owned() };
+    if let Some(g) = &self.gfx {
+      g.window.set_title(&title);
+    }
+    self.flash_due = Some(Instant::now() + FLASH_EVERY);
+  }
+
+  pub(super) fn flash_stop(&mut self) {
+    self.flash_due = None;
+    if self.flash.take().is_some_and(|f| f.1)
+      && let Some(g) = &self.gfx
+    {
+      g.window.set_title(TITLE);
     }
   }
 

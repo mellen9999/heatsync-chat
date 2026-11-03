@@ -77,7 +77,7 @@ impl Counter {
   }
 }
 
-// a setting with a few named values (the first is the default), stepped with h / l and typed as
+// a setting with a few named values, stepped with h / l and typed as
 // `/cmd value`. one row in schema.rs reads it through `Ctl::Pick`; the file stores the value's name
 macro_rules! choice {
   ($(#[$doc:meta])* $name:ident { $fv:ident = $fs:literal $(, $v:ident = $s:literal)* $(,)? }) => {
@@ -93,11 +93,6 @@ macro_rules! choice {
       pub const CHOICE: Choice = Choice { names: &[$fs, $($s),*], usage: concat!("<", $fs, $("|", $s,)* ">") };
     }
 
-    impl Default for $name {
-      fn default() -> Self {
-        Self::ALL[0]
-      }
-    }
   };
 }
 
@@ -120,8 +115,18 @@ choice! {
   LineHeight { L20 = "20", L22 = "22", L26 = "26" }
 }
 choice! {
+  // the mention ping's volume, percent (ext mentionSoundVolume, 0.3 by default); 0 is silent
+  Volume { V0 = "0", V10 = "10", V20 = "20", V30 = "30", V50 = "50", V70 = "70", V100 = "100" }
+}
+choice! {
   // animated emotes: play, or hold their first frame (ext animateEmotes, minus its `hover`)
   Animate { Always = "always", Never = "never" }
+}
+
+impl Volume {
+  pub fn percent(self) -> u8 {
+    [0, 10, 20, 30, 50, 70, 100][self as usize]
+  }
 }
 
 impl EmoteSize {
@@ -188,6 +193,9 @@ pub struct Settings {
   // a desktop notification for an @mention while the window is not focused. default off, like the
   // ext's hs_notifications: nothing leaves the window unless asked
   pub notify: bool,
+  // the window title flashes `@name ← heatsync` while unfocused after an @mention. default on, like the ext
+  pub title_flash: bool,
+  pub mention_volume: Volume,
   // look for a newer release now and then (github sees the ask). default on
   pub updates: bool,
   // chat filters (ext hideBots, hideCommands, hideDuplicates): all off by default
@@ -237,6 +245,8 @@ impl Default for Settings {
       tab_whispers: true,
       tab_mentions: true,
       notify: false,
+      title_flash: true,
+      mention_volume: Volume::V30,
       updates: true,
       hide_bots: false,
       hide_cmds: false,
@@ -446,6 +456,8 @@ mod tests {
         tab_whispers: true,
         tab_mentions: true,
         notify: false,
+        title_flash: true,
+        mention_volume: Volume::V30,
         updates: true,
         hide_bots: false,
         hide_cmds: false,

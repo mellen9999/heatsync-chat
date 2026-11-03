@@ -1,5 +1,6 @@
 pub mod mem;
 pub mod open;
+pub mod sound;
 pub mod time;
 
 // at most `max` bytes of `s`, cut on a char boundary

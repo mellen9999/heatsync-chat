@@ -95,7 +95,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 42] = [
+pub static DEFS: [Def; 44] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -336,6 +336,28 @@ pub static DEFS: [Def; 42] = [
     tip: "show a desktop notification when someone @s you and the window is not focused",
     alias: "hs_notifications browser notification",
     ctl: pill!(notify),
+    fx: Fx::None,
+  },
+  Def {
+    id: "mention_volume",
+    cmd: Some("/mentionsound"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "mention sound volume",
+    tip: "a ping when someone @s you and the window is not focused. 0 = silent. /mentionsound 50",
+    alias: "mentionSoundVolume ping audio sound volume",
+    ctl: pick!(mention_volume, Volume),
+    fx: Fx::None,
+  },
+  Def {
+    id: "title_flash",
+    cmd: Some("/titleflash"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "title flash",
+    tip: "the window title flashes who @'d you until you come back to the window",
+    alias: "mentionTitleFlash tab title flash",
+    ctl: pill!(title_flash),
     fx: Fx::None,
   },
   Def {
@@ -744,11 +766,11 @@ mod tests {
     assert!(!d.pick(&mut s, "3x") && !d.choose(&mut s, 3));
     assert!(d.on(&s).is_none() && !d.put(&mut s, true));
     assert!(def("zebra").unwrap().picked(&s).is_none());
-    // every pick row's names are lowercase and its default is its first
+    // every pick row's names are lowercase
     for d in DEFS.iter().filter(|d| matches!(d.ctl, Ctl::Pick(..))) {
-      assert_eq!(d.at(&Settings::default()), Some(0), "{}", d.id);
-      assert!(d.picked(&s).is_some_and(|n| n == n.to_lowercase()));
+      assert!(d.picked(&s).is_some_and(|n| n == n.to_lowercase()), "{}", d.id);
     }
+    assert_eq!(def("mention_volume").unwrap().picked(&Settings::default()), Some("30"), "the ext's 0.3");
   }
 
   #[test]

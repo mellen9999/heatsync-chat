@@ -15,7 +15,7 @@ fn check(url: &str) -> Result<(), String> {
 }
 
 // an executable of that name on PATH (looked up each time: installing mpv works without a restart)
-fn installed(bin: &str) -> bool {
+pub fn installed(bin: &str) -> bool {
   use std::os::unix::fs::PermissionsExt;
   std::env::var_os("PATH").is_some_and(|p| {
     std::env::split_paths(&p)

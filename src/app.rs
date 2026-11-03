@@ -228,6 +228,9 @@ pub struct App {
   update: Option<crate::net::update::Release>,
   updating: bool,
   update_due: Option<Instant>,
+  // the title flashing who @'d you while the window is away: their name, and when it next turns
+  flash: Option<(Box<str>, bool)>,
+  flash_due: Option<Instant>,
   // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
   dpi: f32,
   zoom_acc: f32,
@@ -388,6 +391,8 @@ impl App {
       update: None,
       updating: false,
       update_due: Some(Instant::now() + update::FIRST_CHECK),
+      flash: None,
+      flash_due: None,
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
@@ -1704,7 +1709,7 @@ impl ApplicationHandler<NetEvent> for App {
     // x11 shows it; wayland compositors take their icon from the .desktop file instead
     let icon = crate::ui::logo::window_rgba().and_then(|(px, w)| winit::window::Icon::from_rgba(px, w, w).ok());
     let attrs = Window::default_attributes()
-      .with_title("heatsync")
+      .with_title(mentions::TITLE)
       .with_window_icon(icon)
       .with_inner_size(winit::dpi::LogicalSize::new(420, 800));
     // the app id (wayland) and WM_CLASS (x11): what the .desktop file's icon is matched on
@@ -1754,7 +1759,9 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
       WindowEvent::Focused(f) => {
         self.focused = f;
-        if !f {
+        if f {
+          self.flash_stop();
+        } else {
           self.hide_tip();
         }
       }
@@ -1904,16 +1911,28 @@ impl ApplicationHandler<NetEvent> for App {
     if self.pace_due.is_some_and(|t| t <= now) {
       self.pace_tick();
     }
+    if self.flash_due.is_some_and(|t| t <= now) {
+      self.flash_tick();
+    }
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
       self.bar_dirty = true;
       self.wake();
     }
-    let wake =
-      [self.flood, anim, self.trim_at, self.mute_due, self.peek_due, self.update_due, self.heat_due, self.pace_due]
-        .into_iter()
-        .flatten()
-        .min();
+    let wake = [
+      self.flood,
+      anim,
+      self.trim_at,
+      self.mute_due,
+      self.peek_due,
+      self.update_due,
+      self.heat_due,
+      self.pace_due,
+      self.flash_due,
+    ]
+    .into_iter()
+    .flatten()
+    .min();
     el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
   }
 }
@@ -2582,6 +2601,45 @@ mod live {
     let has = |rgb| app.canvas.px.contains(&rgb);
     assert!(has(0x00ff00) && has(crate::ui::theme::YELLOW), "the name in its color, the verb in yellow");
     crate::bench::dump(&app.canvas);
+  }
+
+  // an @mention while the window is away flashes the title with who it was, the latest name winning,
+  // until the window comes back; focused, nothing flashes (scratch HOME as below):
+  //   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_mention_flash -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_mention_flash() {
+    use crate::model::message::Kind;
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    // silent: a test never plays the ping
+    app.set.mention_volume = crate::model::settings::Volume::V0;
+    app.set.title_flash = true;
+    app.mentions.set(["mellen"]);
+    let line = |app: &mut App, who: &str| {
+      let mut m = Message::system(1, Platform::Twitch, "x");
+      (m.kind, m.login, m.nick, m.body) = (Kind::Chat, who.into(), who.into(), "hi @mellen".into());
+      app.scan_mention(Platform::Twitch, "forsen", &mut m);
+    };
+    line(&mut app, "bob");
+    assert!(app.flash.is_none(), "focused: you saw it");
+    app.focused = false;
+    line(&mut app, "bob");
+    line(&mut app, "eve\u{7}");
+    assert_eq!(app.flash.as_ref().map(|f| &*f.0), Some("eve"), "the latest, control bytes gone");
+    app.flash_tick();
+    assert!(app.flash.as_ref().is_some_and(|f| f.1) && app.flash_due.is_some(), "showing the name");
+    app.flash_tick();
+    assert!(app.flash.as_ref().is_some_and(|f| !f.1), "and back");
+    app.focused = true;
+    app.flash_stop();
+    assert!(app.flash.is_none() && app.flash_due.is_none());
+    // switched off mid-flash: the next turn stops it
+    app.focused = false;
+    line(&mut app, "bob");
+    app.set.title_flash = false;
+    app.flash_tick();
+    assert!(app.flash.is_none() && app.flash_due.is_none());
   }
 
   // a stream line turns an unwatched tab yellow, and right-click clears a red, cyan or yellow tab
