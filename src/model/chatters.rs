@@ -216,13 +216,33 @@ impl Chatters {
       Some(c) if at || ((c.spoke || c.host) && !stop(l)) => Some(Person { color: c.color, paint: c.paint.clone() }),
       Some(_) => None,
       None if at => {
-        if self.want.len() < WANT_MAX && !self.asked[k].contains(l) && !self.want.iter().any(|w| w.0 == p && *w.1 == *l)
-        {
-          self.want.push((p, l.into()));
-        }
+        self.ask(p, l);
         Some(Person { color: theme::WHITE, paint: None })
       }
       None => None,
+    }
+  }
+
+  fn ask(&mut self, p: Platform, l: &str) {
+    let k = slot(p);
+    if self.want.len() < WANT_MAX && !self.asked[k].contains(l) && !self.want.iter().any(|w| w.0 == p && *w.1 == *l) {
+      self.want.push((p, l.into()));
+    }
+  }
+
+  // who a login is if anything has said (a line, a lookup); else None, with the lookup queued
+  pub fn known(&mut self, p: Platform, name: &str) -> Option<Person> {
+    let mut buf = [0u8; NAME_MAX];
+    let l = lower(name, &mut buf)?;
+    match self.by[slot(p)].get(l) {
+      // a channel owner we only know by key is a white placeholder until their lookup lands
+      Some(c) if c.spoke || c.paint.is_some() || c.color != theme::WHITE => {
+        Some(Person { color: c.color, paint: c.paint.clone() })
+      }
+      _ => {
+        self.ask(p, l);
+        None
+      }
     }
   }
 

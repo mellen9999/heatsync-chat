@@ -269,6 +269,8 @@ pub struct App {
   pin_open: bool,
   pin_sig: (Option<Box<str>>, bool, i32, i32),
   moments: Moments,
+  // followed streamers' twitch colors (`follow:colors`), by lowercase login
+  follow_colors: std::collections::HashMap<Box<str>, u32>,
   // names that ping you, and whether the window has focus (notifications only fire when it does not)
   mentions: Mentions,
   focused: bool,
@@ -435,6 +437,7 @@ impl App {
       pin_open: false,
       pin_sig: (None, false, 0, 0),
       moments: Moments::default(),
+      follow_colors: Default::default(),
       mentions: Mentions::default(),
       focused: true,
       whispers: Timeline::default(),
@@ -2095,6 +2098,7 @@ impl App {
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
+      NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
       NetEvent::Emotes(ch, p, set) => {
         self.res.emotes.set(ch.as_deref(), p, set);
@@ -2736,6 +2740,49 @@ mod live {
   // `:smi` lists emotes first, then emoji (glyph and :shortcode:); picking puts the glyph in the box;
   // a typed :shortcode: becomes the glyph on send. HSC_DUMP=$d/x.ppm (the list) ... cargo test -j2
   // --release headless_picker_emoji -- --ignored  (scratch HOME as above)
+  // a stream line made before the streamer is known gets their color and twitch id when a lookup or the
+  // followed colors land; the frame's own color is never overruled; followed colors beat chat's
+  #[test]
+  fn stream_lines_resolve_late() {
+    use crate::model::card::Info;
+    use crate::model::color;
+    use crate::model::stream_events::{Line, Tone};
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let line = |ch: &str, color| Line {
+      platform: Platform::Twitch,
+      channel: ch.into(),
+      text: "x".into(),
+      tone: Tone::Switch,
+      name: ch.into(),
+      color,
+      verb: "◆ switched to ".into(),
+      game: "Chess".into(),
+    };
+    let ft = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    let last = |app: &App| app.tabs[ft].view.last_msg().map(|m| (m.color, m.user_id.to_string())).unwrap();
+    app.on_stream(line("knut", None));
+    app.on_stream(line("framed", Some(0x00ff00)));
+    let framed = last(&app);
+    assert_eq!(framed.0, color::readable(0x00ff00));
+    app.tabs[ft].view.restyle_late(|_, _| (1, None));
+    assert_eq!(last(&app), framed, "a frame's own color is not late");
+    // before: palette color, no id
+    app.on_stream(line("knut", None));
+    let before = last(&app);
+    assert_eq!(before, (color::readable(color::default_for("knut")), String::new()));
+    // a lookup lands: chat's color + the id for badges and paints
+    let info = Info { color: Some(0xff0000), twitch_id: Some(4242), ..Info::default() };
+    app.learn_card(Platform::Twitch, "knut", Ok(info));
+    assert_eq!(last(&app), (color::readable(0xff0000), "4242".to_string()));
+    // followed colors outrank it
+    app.on_follow_colors(vec![("knut".into(), 0x00ffff)]);
+    assert_eq!(last(&app), (color::readable(0x00ffff), "4242".to_string()));
+    // and a brand-new line follows the same chain
+    app.on_stream(line("knut", None));
+    assert_eq!(last(&app), (color::readable(0x00ffff), "4242".to_string()));
+  }
+
   #[test]
   fn a_height_only_resize_paints_the_chat_again() {
     let (net, _asked) = Net::tap();

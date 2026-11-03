@@ -57,6 +57,20 @@ pub struct Line {
   pub game: Box<str>,
 }
 
+// `follow:colors`: followed streamers' twitch colors, {login: "#hex"}. hostile: bounded count, valid
+// logins, real colors; anything else is skipped
+const MAX_COLORS: usize = 2000;
+
+pub fn follow_colors(v: &serde_json::Value) -> Vec<(Box<str>, u32)> {
+  let Some(map) = v.get("colors").and_then(serde_json::Value::as_object) else { return Vec::new() };
+  map
+    .iter()
+    .take(MAX_COLORS)
+    .filter(|(k, _)| (1..=25).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    .filter_map(|(k, c)| Some((k.to_ascii_lowercase().into(), crate::model::color::parse_hex(c.as_str()?)?)))
+    .collect()
+}
+
 pub fn clean(s: &str) -> Box<str> {
   s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_GAME).collect::<String>().trim().into()
 }
@@ -216,6 +230,23 @@ impl Moments {
 
 #[cfg(test)]
 mod tests {
+  #[test]
+  fn follow_colors_survive_hostile_frames() {
+    use serde_json::json;
+    let got = super::follow_colors(
+      &json!({"colors": {"Knut": "#ff0000", "bad name": "#00ff00", "x": "nope", "y": 5, "": "#fff", "ok_1": "#8888ff"}}),
+    );
+    let mut got: Vec<_> = got.into_iter().map(|(k, c)| (k.to_string(), c)).collect();
+    got.sort();
+    assert_eq!(got, vec![("knut".to_string(), 0xff0000), ("ok_1".to_string(), 0x8888ff)]);
+    for v in [json!({}), json!({"colors": []}), json!({"colors": "x"}), json!({"colors": null}), json!(7)] {
+      assert!(super::follow_colors(&v).is_empty());
+    }
+    let big: serde_json::Map<String, serde_json::Value> =
+      (0..5000).map(|i| (format!("u{i}"), json!("#ff0000"))).collect();
+    assert_eq!(super::follow_colors(&json!({"colors": big})).len(), 2000);
+  }
+
   use super::*;
 
   fn ev(kind: Kind, game: &str, prev: &str) -> Ev {

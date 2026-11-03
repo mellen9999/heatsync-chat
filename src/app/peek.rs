@@ -242,6 +242,7 @@ impl App {
       for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
         v.touch_person(platform, login);
       }
+      self.restyle_stream_lines();
     }
     self.cards.put(platform, login, res);
     self.peek_changed(platform, login);

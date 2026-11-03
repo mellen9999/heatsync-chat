@@ -64,6 +64,8 @@ pub struct Extra {
   pub paint: Option<crate::cosmetics::id::PaintId>,
   // a feed post's media (model::post::pic)
   pub pic: Option<Box<Pic>>,
+  // a stream line whose name color the frame didn't give: it follows what the app learns of them later
+  pub late: bool,
 }
 
 // one picture (a video's still) and the video it plays

@@ -1,7 +1,10 @@
 // stream lines (went live, switched game, went offline) of tabbed and followed channels in every chat tab
 // (ext stream-event + follow_stream_event handlers), and the chat-spike line in every tab (ext
 // handleMomentSpike: personal, so only for channels you have a tab for)
+use std::collections::HashMap;
+
 use super::App;
+use crate::model::chatters::Chatters;
 use crate::model::color;
 use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg};
 use crate::model::stream_events::{Line, Tone};
@@ -30,11 +33,44 @@ fn row(l: &Line, color: u32, user_id: Option<u64>) -> Message {
   if !l.game.is_empty() {
     tail.push(Seg { text: l.game.clone(), ink: theme::WHITE, bold: false });
   }
-  m.x = Some(Box::new(Extra { tail: tail.into(), edge: ink, ..Extra::default() }));
+  m.x = Some(Box::new(Extra { tail: tail.into(), edge: ink, late: l.color.is_none(), ..Extra::default() }));
   m
 }
 
+// a stream line's name without the frame's color: followed colors (twitch), else who chat or a lookup
+// says they are (the lookup is queued if no one has), else twitch's palette; plus the twitch id their
+// ffz badges and paints hang off
+fn hue(follow: &HashMap<Box<str>, u32>, chatters: &mut Chatters, p: Platform, login: &str) -> (u32, Option<u64>) {
+  let person = chatters.known(p, login);
+  let c = (p == Platform::Twitch)
+    .then(|| follow.get(login.to_ascii_lowercase().as_str()).copied())
+    .flatten()
+    .or(person.map(|x| x.color))
+    .unwrap_or_else(|| color::default_for(login));
+  (color::readable(c), (p == Platform::Twitch).then(|| chatters.twitch_id(login)).flatten())
+}
+
 impl App {
+  // every stream line still waiting on its streamer's color learns what is known now
+  pub(super) fn restyle_stream_lines(&mut self) {
+    let (follow, chatters) = (&self.follow_colors, &mut self.res.chatters);
+    for t in self.tabs.iter_mut() {
+      for v in t.views() {
+        v.restyle_late(|p, login| hue(follow, chatters, p, login));
+      }
+    }
+    self.wake();
+  }
+
+  pub(super) fn on_follow_colors(&mut self, colors: Vec<(Box<str>, u32)>) {
+    // the ext clears its map past 500; ours holds a frame's worth more
+    if self.follow_colors.len() > 2000 {
+      self.follow_colors.clear();
+    }
+    self.follow_colors.extend(colors);
+    self.restyle_stream_lines();
+  }
+
   // a stream line in one tab. news about other channels never lights a tab: only chat does (unread)
   // and the channel's own news (yellow)
   fn put_line(&mut self, tab: usize, m: Message) {
@@ -68,11 +104,17 @@ impl App {
     // in every chat tab (ext: wherever you are reading), followed channels too; only the channel's own
     // tab turns yellow
     let own = self.tabs_with(l.platform, &l.channel);
-    // their color: the frame's, else what chat has seen of them, else twitch's name palette
-    let known = self.res.chatters.person(l.platform, &l.channel, true);
-    let c = l.color.or(known.as_ref().map(|p| p.color)).unwrap_or_else(|| color::default_for(&l.channel));
-    let uid = (l.platform == Platform::Twitch).then(|| self.res.chatters.twitch_id(&l.channel)).flatten();
-    let m = row(&l, color::readable(c), uid);
+    // their color: the frame's, else the followed colors, else what chat has seen of them (a lookup is
+    // queued if nobody has), else twitch's name palette. a line without the frame's color follows the
+    // lookup when it lands (`restyle`)
+    let (c, uid) = match l.color {
+      Some(c) => (
+        color::readable(c),
+        (l.platform == Platform::Twitch).then(|| self.res.chatters.twitch_id(&l.channel)).flatten(),
+      ),
+      None => hue(&self.follow_colors, &mut self.res.chatters, l.platform, &l.channel),
+    };
+    let m = row(&l, c, uid);
     for i in 0..self.tabs.len() {
       if own.contains(&i) {
         self.say_line(i, m.clone(), l.tone);

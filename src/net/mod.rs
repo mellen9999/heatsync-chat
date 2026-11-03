@@ -110,6 +110,8 @@ pub enum NetEvent {
   // the gifs tab's answer to the search `q` asked under `epoch`, or the http status that said why not
   Gifs { epoch: u32, q: Box<str>, res: Result<crate::model::gifs::Page, crate::model::gifs::Fail> },
   FeedLive(crate::model::post::Post),
+  // followed streamers' twitch colors (lowercase login, rgb)
+  FollowColors(Vec<(Box<str>, u32)>),
   // your mute / block lists on heatsync, read after a login
   Lists(mutes::Lists),
   // a mute changed on another device

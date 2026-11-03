@@ -1342,6 +1342,22 @@ impl ChatView {
     }
   }
 
+  // stream lines whose name color the frame didn't give take what the app knows of them now:
+  // `f` says (color, twitch id) for a login. stream lines are rare; this runs on a lookup or a color
+  // frame, never per frame
+  pub fn restyle_late(&mut self, mut f: impl FnMut(Platform, &str) -> (u32, Option<u64>)) {
+    for r in self.rows.iter_mut().filter(|r| r.msg.x.as_ref().is_some_and(|x| x.late)) {
+      let (color, uid) = f(r.msg.platform, &r.msg.login);
+      let uid: Box<str> = uid.map(|n| n.to_string().into()).unwrap_or_else(|| r.msg.user_id.clone());
+      if r.msg.color != color || r.msg.user_id != uid {
+        r.msg.color = color;
+        r.msg.user_id = uid;
+        Self::touch(r);
+        self.stale = true;
+      }
+    }
+  }
+
   pub fn resize(&mut self, width: i32) {
     let width = width.max(MIN_W);
     if width != self.width {
@@ -1692,6 +1708,11 @@ impl ChatView {
       bottom = top;
     }
     None
+  }
+
+  #[cfg(test)]
+  pub fn last_msg(&self) -> Option<&Message> {
+    self.rows.back().map(|r| &r.msg)
   }
 
   pub fn message(&self, seq: i64) -> Option<&Message> {
@@ -2823,6 +2844,7 @@ mod tests {
       edge: 0,
       paint: None,
       pic: None,
+      late: false,
     }));
     let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
     let n = l.layout.lines().count();

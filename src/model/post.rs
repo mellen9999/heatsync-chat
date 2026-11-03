@@ -337,6 +337,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     edge: if p.heat > 0 { tier(p.heat).0 } else { 0 },
     paint: p.paint.clone(),
     pic: pic(p, false, None).map(Box::new),
+    late: false,
   }));
   m
 }

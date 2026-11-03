@@ -381,6 +381,10 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color };
       st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
     }
+    "follow:colors" => {
+      let colors = stream_events::follow_colors(v);
+      (!colors.is_empty()).then(|| send(NetEvent::FollowColors(colors))).flatten()
+    }
     "moment:spike" => {
       let platform = room_platform(v.get("platform").and_then(Value::as_str).unwrap_or("twitch"))?;
       let key: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
