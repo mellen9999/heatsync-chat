@@ -27,6 +27,8 @@ pub enum Act {
   Logout,
   // allow (true) / deny the selected automod hold
   Held(bool),
+  // the room's twitch blocked terms (mods)
+  BlockedTerms,
   // a mod action on the person the menu was opened for
   Do(Verb),
   // the answers to "ban bob?"
@@ -267,6 +269,7 @@ impl App {
         self.say("finish allowing automod holds in your browser…");
         self.net.send(Cmd::Relink("automod"));
       }
+      (Act::BlockedTerms, Some(who), _) => self.blocked_open(who.chan),
       (Act::Held(allow), ..) => {
         if let Some(id) = self.held_selected() {
           self.held_act(&id, allow);
@@ -372,6 +375,7 @@ impl App {
       rows.push((Act::Do(Verb::Purge), "purge".into()));
       rows.push((Act::Do(Verb::Ban), "ban".into()));
       rows.push((Act::Do(Verb::Unban), "unban".into()));
+      rows.push((Act::BlockedTerms, "blocked terms".into()));
     }
     rows
   }

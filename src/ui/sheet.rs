@@ -75,8 +75,9 @@ impl State {
 
 pub struct View<'a> {
   pub title: &'a str,
-  // the search box: typed text, whether it has the keys, and what it says when empty (None = no box)
-  pub search: Option<(&'a str, bool, &'a str)>,
+  // the search box: typed text, whether it has the keys, what it says when empty, and the mark before
+  // typed text (`/ `). None = no box
+  pub search: Option<(&'a str, bool, &'a str, &'a str)>,
   pub lines: &'a [L],
   // dim lines under the list: what the picked row does, and the keys
   pub tip: &'a str,
@@ -113,11 +114,11 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
   let top = Rect::new(area.x, area.y, area.w, line);
   let mut x = area.x + PAD;
   x += cx.put(v.title, x, top, theme::WHITE, true) + 2 * em;
-  if let Some((q, typing, hint)) = v.search {
+  if let Some((q, typing, hint, mark)) = v.search {
     if q.is_empty() && !typing {
       cx.put(hint, x, top, theme::DIM, false);
     } else {
-      x += cx.put("/ ", x, top, theme::DIM, false);
+      x += cx.put(mark, x, top, theme::DIM, false);
       x += cx.put(q, x, top, theme::WHITE, false);
       if typing {
         cx.put("█", x, top, theme::WHITE, false);
@@ -245,7 +246,7 @@ mod tests {
     s.settle(&l);
     let v = View {
       title: "settings",
-      search: Some(("", false, "/ search")),
+      search: Some(("", false, "/ search", "/ ")),
       lines: &l,
       tip: "a tip",
       keys: "esc closes",

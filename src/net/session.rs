@@ -38,6 +38,7 @@ pub enum Cmd {
   Social(super::social::Cmd),
   Mod(super::modact::Req),
   Held(super::held::Cmd),
+  Blocked(Box<str>, super::blocked::Op),
   Mute(super::mutes::Op),
 }
 
@@ -122,6 +123,9 @@ pub async fn run(
         }
         Some(Cmd::Held(c)) => {
           tokio::spawn(super::held::run(st.http.clone(), st.token.clone(), c, st.out.clone()));
+        }
+        Some(Cmd::Blocked(room, op)) => {
+          tokio::spawn(super::blocked::run(st.http.clone(), st.token.clone(), room, op, st.out.clone()));
         }
         Some(Cmd::Social(c)) => {
           tokio::spawn(super::social::run(st.http.clone(), st.token.clone(), c, st.out.clone()));

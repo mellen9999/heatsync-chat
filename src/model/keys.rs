@@ -133,6 +133,8 @@ pub static KEYS: [Group; 12] = [
       ("/ban /timeout /unban", "by name"),
       ("/delete /purge", "this line, a person's lines"),
       ("/confirmban", "ask before a ban"),
+      ("allow / deny", "an automod hold: click, or its line menu"),
+      ("/blocked", "blocked terms: j k move, d delete, a add, / filter"),
     ],
   },
   Group {

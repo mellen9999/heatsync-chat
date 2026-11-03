@@ -1,4 +1,5 @@
 pub mod automod;
+pub mod blocked;
 pub mod card;
 pub mod chan;
 pub mod chatters;

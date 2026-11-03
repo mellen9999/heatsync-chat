@@ -14,6 +14,7 @@ use winit::platform::x11::WindowAttributesExtX11;
 use winit::window::{Window, WindowId};
 
 mod acct;
+mod blocked;
 mod builtin;
 mod card;
 mod chips;
@@ -738,6 +739,7 @@ impl App {
       Local::Counter(None) => self.say("usage: /tabcounter unread, heat or off"),
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Keys => self.open_screen(screen::Page::Keys),
+      Local::Blocked => self.blocked_here(),
     }
   }
 
@@ -2083,6 +2085,7 @@ impl App {
       NetEvent::HeldEnd { chan, id, end } => self.on_held_end(chan, id, end),
       NetEvent::HeldWatched { chan, res } => self.on_held_watched(chan, res),
       NetEvent::HeldActed { chan, id, allow, res } => self.on_held_acted(chan, id, allow, res),
+      NetEvent::Blocked { room, res } => self.on_blocked(room, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}

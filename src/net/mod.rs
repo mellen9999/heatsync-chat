@@ -1,6 +1,7 @@
 // all network io lives on one background thread running a current-thread tokio runtime.
 // the ui talks to it through `Net` and hears back through winit user events
 pub mod auth;
+pub mod blocked;
 mod cosmetics;
 pub mod emote_ops;
 pub mod held;
@@ -134,6 +135,8 @@ pub enum NetEvent {
   HeldWatched { chan: Box<str>, res: Result<Vec<crate::model::held::Hold>, held::Fail> },
   // an allow / deny settled
   HeldActed { chan: Box<str>, id: Box<str>, allow: bool, res: Result<(), held::Fail> },
+  // a room's blocked terms answered (by twitch room id)
+  Blocked { room: Box<str>, res: Result<blocked::Got, blocked::Fail> },
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -204,6 +207,8 @@ pub enum Cmd {
   Pronouns(u64),
   // automod holds: watch a room you moderate, allow / deny one
   Held(held::Cmd),
+  // a room's blocked terms (by twitch room id): list, add, remove
+  Blocked(Box<str>, blocked::Op),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -548,6 +553,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Held(c) => {
         let _ = sess_tx.send(session::Cmd::Held(c));
+      }
+      Cmd::Blocked(room, op) => {
+        let _ = sess_tx.send(session::Cmd::Blocked(room, op));
       }
       Cmd::Relink(pack) => {
         let _ = sess_tx.send(session::Cmd::Login(auth::Provider::Twitch, pack));

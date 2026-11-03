@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 32] = [
+const FIXED: [Slash; 33] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -26,6 +26,7 @@ const FIXED: [Slash; 32] = [
   s("/unban", "<user>", "lift a ban or timeout"),
   s("/delete", "<message-id>", "delete a line (or select it, press m)"),
   s("/purge", "<user>", "clear someone's lines"),
+  s("/blocked", "", "this channel's twitch blocked terms (mods)"),
   s("/mute", "<user> [10m|2h|3d|perm]", "hide someone, a day by default"),
   s("/unmute", "<user>", "show them again"),
   s("/block", "<user>", "block, or unblock"),

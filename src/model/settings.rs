@@ -387,6 +387,8 @@ pub enum Local {
   // the settings screen, the key map
   Settings,
   Keys,
+  // /blocked: the twitch room's blocked terms
+  Blocked,
 }
 
 pub fn local_cmd(text: &str) -> Option<Local> {
@@ -429,6 +431,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
   match low.as_str() {
     "/settings" => Some(Local::Settings),
     "/keys" => Some(Local::Keys),
+    "/blocked" => Some(Local::Blocked),
     w => schema::switch_for(w).map(|d| Local::Toggle(d.id)),
   }
 }

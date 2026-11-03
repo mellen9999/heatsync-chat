@@ -17,22 +17,29 @@ use crate::ui::sheet::{self, L, State};
 pub enum Page {
   Settings,
   Keys,
+  // a twitch room's blocked terms (app::blocked)
+  Blocked,
 }
 
 pub struct Screen {
   page: Page,
   st: State,
-  q: Line,
-  typing: bool,
+  pub(super) q: Line,
+  pub(super) typing: bool,
   // the first g of gg
   chord: bool,
+  pub(super) bt: Option<Box<super::blocked::Bt>>,
 }
 
 // what a row stands for
 #[derive(Clone, Copy)]
-enum Target {
+pub(super) enum Target {
   Def(&'static Def),
   Preset(&'static Preset),
+  // blocked terms: a term (its place in the list), ask for the permission, ask again
+  Term(usize),
+  Allow,
+  Retry,
   None,
 }
 
@@ -49,22 +56,33 @@ enum Do {
 
 impl Screen {
   fn new(page: Page) -> Self {
-    Screen { page, st: State::default(), q: Line::default(), typing: false, chord: false }
+    Screen { page, st: State::default(), q: Line::default(), typing: false, chord: false, bt: None }
   }
 
   pub fn typing(&self) -> bool {
     self.typing
   }
 
+  // where typed text goes: the search, or the blocked term being added
   pub fn query_mut(&mut self) -> &mut Line {
-    &mut self.q
+    match self.bt.as_deref_mut() {
+      Some(bt) if bt.adding => &mut bt.add,
+      _ => &mut self.q,
+    }
   }
 
   fn lines(&self, set: &Settings) -> (Vec<L>, Vec<Target>) {
     match self.page {
       Page::Keys => keys_lines(),
       Page::Settings => settings_lines(self.q.text.trim(), set),
+      Page::Blocked => self.bt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |b| b.lines(&self.q.text)),
     }
+  }
+
+  // what the picked row stands for (settings aside: their rows need the settings to list)
+  pub(super) fn target(&self) -> Option<Target> {
+    let (_, t) = self.lines(&Settings::default());
+    t.get(self.st.at).copied()
   }
 }
 
@@ -259,6 +277,13 @@ impl App {
   // ---- keys and the mouse ----
 
   pub(super) fn screen_key(&mut self, key: Key<&str>, text: Option<&str>) {
+    if self.screen.as_ref().is_some_and(|s| s.page == Page::Blocked) && self.blocked_key(&key, text) {
+      if let Some(s) = self.screen.as_mut() {
+        let (lines, _) = s.lines(&self.set);
+        s.st.settle(&lines);
+      }
+      return self.screen_changed();
+    }
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     let accepts = self.ime.accepts_key_text();
     let Some(s) = self.screen.as_mut() else { return };
@@ -298,7 +323,7 @@ impl App {
         Key::Character("g") => s.chord = true,
         Key::Named(NamedKey::Home) => s.st.first(&lines),
         Key::Character("G") | Key::Named(NamedKey::End) => s.st.last(&lines),
-        Key::Character("/") if s.page == Page::Settings => s.typing = true,
+        Key::Character("/") if s.page != Page::Keys => s.typing = true,
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
         Key::Character("?") => act = Do::Settings,
         Key::Named(NamedKey::Enter | NamedKey::Space) if !ctrl => act = Do::Toggle,
@@ -358,6 +383,7 @@ impl App {
         Ctl::Words(_) | Ctl::Patterns | Ctl::Rules => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
+      (Some(t @ (Target::Term(_) | Target::Allow | Target::Retry)), None) => self.blocked_pick(t),
       _ => {}
     }
   }
@@ -401,17 +427,39 @@ impl App {
       Some(Target::Preset(p)) => p.tip,
       _ => "",
     };
-    let (title, search, keys) = match s.page {
-      Page::Settings => (
+    let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
+    let (title, search, keys) = match (s.page, s.bt.as_deref()) {
+      (Page::Blocked, Some(b)) => (
+        bt_title.as_str(),
+        Some(if b.adding {
+          (b.add.text.as_str(), true, "", "+ ")
+        } else {
+          (s.q.text.as_str(), s.typing, "/ filter · a add", "/ ")
+        }),
+        if b.adding {
+          "type a term · enter adds · esc stops"
+        } else if s.typing {
+          "type to filter · enter or esc stops"
+        } else if b.confirm.is_some() {
+          "y deletes · n keeps"
+        } else {
+          "j k move · d delete · a add · / filter · esc closes"
+        },
+      ),
+      (Page::Settings, _) => (
         "settings",
-        Some((s.q.text.as_str(), s.typing, "/ search")),
+        Some((s.q.text.as_str(), s.typing, "/ search", "/ ")),
         if s.typing {
           "type to filter · enter or esc stops · up down moves"
         } else {
           "j k move · space change · / search · ? keys · esc"
         },
       ),
-      Page::Keys => ("keys", None, "j k scroll · ? settings · esc closes"),
+      _ => ("keys", None, "j k scroll · ? settings · esc closes"),
+    };
+    let tip = match s.bt.as_deref() {
+      Some(b) if s.page == Page::Blocked => b.msg.as_str(),
+      _ => tip,
     };
     let v = sheet::View { title, search, lines: &lines, tip, keys, col: None };
     sheet::draw(&mut self.canvas, &mut self.res.text, area, &v, &mut s.st);
