@@ -135,6 +135,8 @@ pub enum NetEvent {
   HeldWatched { chan: Box<str>, res: Result<Vec<crate::model::held::Hold>, held::Fail> },
   // an allow / deny settled
   HeldActed { chan: Box<str>, id: Box<str>, allow: bool, res: Result<(), held::Fail> },
+  // a #tag's hover card: Ok(None) = heatsync doesn't know it, Err = no answer
+  TagCard(Box<str>, Result<Option<crate::model::tagcard::Card>, ()>),
   // a room's blocked terms answered (by twitch room id)
   Blocked { room: Box<str>, res: Result<blocked::Got, blocked::Fail> },
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
@@ -207,6 +209,8 @@ pub enum Cmd {
   Pronouns(u64),
   // automod holds: watch a room you moderate, allow / deny one
   Held(held::Cmd),
+  // a #tag's hover card (signed in: whether you follow it)
+  TagCard(Box<str>),
   // a room's blocked terms (by twitch room id): list, add, remove
   Blocked(Box<str>, blocked::Op),
   Emote(emote_ops::EmoteCmd),
@@ -304,6 +308,32 @@ async fn preview(http: reqwest::Client, url: Box<str>, out: Out) {
     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
     .and_then(|v| crate::model::preview::parse(&url, &v));
   out.send(NetEvent::Preview(url, p));
+}
+
+const MAX_TAG_CARD: usize = 4 * 1024;
+
+// a #tag's hover card (ext tag-card.js): GET /api/tags/:tag/card, with the token when signed in (the
+// answer then says whether you follow it). 404 = an unknown tag, an answer too
+pub(crate) async fn tag_card(http: reqwest::Client, token: Option<String>, tag: Box<str>, out: Out) {
+  let ok = (2..=30).contains(&tag.len()) && tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+  let res = if !ok {
+    Ok(None)
+  } else {
+    let mut req =
+      http.get(format!("{ORIGIN}/api/tags/{}/card", tag.to_ascii_lowercase())).timeout(Duration::from_secs(6));
+    if let Some(t) = &token {
+      req = req.bearer_auth(t);
+    }
+    match req.send().await {
+      Ok(r) if r.status().as_u16() == 404 => Ok(None),
+      r => capped(r, MAX_TAG_CARD)
+        .await
+        .map_err(drop)
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).map_err(drop))
+        .map(|v| crate::model::tagcard::card(&v, crate::util::time::now_ms())),
+    }
+  };
+  out.send(NetEvent::TagCard(tag, res));
 }
 
 // pronoundb (ext fetch_pronouns): public, by twitch id, no token ever goes there. 5s at most
@@ -553,6 +583,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Held(c) => {
         let _ = sess_tx.send(session::Cmd::Held(c));
+      }
+      Cmd::TagCard(tag) => {
+        let _ = sess_tx.send(session::Cmd::TagCard(tag));
       }
       Cmd::Blocked(room, op) => {
         let _ = sess_tx.send(session::Cmd::Blocked(room, op));

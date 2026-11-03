@@ -97,6 +97,8 @@ struct Laid {
   deny: std::ops::Range<usize>,
   // `>>id` written in the words: where, and the post (server id) it names
   refs: Vec<(std::ops::Range<usize>, Box<str>)>,
+  // `#tag` in the words: where, and the tag
+  tags: Vec<(std::ops::Range<usize>, Box<str>)>,
   frames: Vec<(std::ops::Range<usize>, Frame)>,
   // the post's pictures, asked for at draw time like `embed`
   pics: Vec<ImgId>,
@@ -384,6 +386,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   let mut reveal = 0..0;
   let (mut allow, mut deny) = (0..0, 0..0);
   let mut refs = Vec::new();
+  let mut tags = Vec::new();
   let mut frames = Vec::new();
   let mut pics = Vec::new();
   let mut plays = Vec::new();
@@ -450,6 +453,21 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     refs = post_refs(&s, b0);
     for (r, _) in &refs {
       spans.push(Span { range: r.clone(), ink: Ink(theme::YELLOW), bold: false });
+    }
+    // magenta #tags (ext .hs-hashtag), never inside a link or a person's name
+    if !cleared {
+      let taken = |r: &std::ops::Range<usize>| {
+        link_runs
+          .iter()
+          .map(|l| &l.0)
+          .chain(mentions.iter().map(|n| &n.range))
+          .any(|x| x.start < r.end && r.start < x.end)
+      };
+      tags = crate::model::tagcard::find(&s, b0);
+      tags.retain(|(r, _)| r.end <= words_at.end && !taken(r));
+      for (r, _) in &tags {
+        spans.push(Span { range: r.clone(), ink: Ink(theme::MAGENTA), bold: false });
+      }
     }
     mentions.splice(0..0, reply);
     // people named in the words wear their color, bold, over the line's ink; a painted one is drawn
@@ -531,6 +549,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     allow,
     deny,
     refs,
+    tags,
     frames,
     pics,
     plays,
@@ -1723,24 +1742,31 @@ impl ChatView {
     res: &mut Res,
     spot: fn(&Laid) -> &std::ops::Range<usize>,
   ) -> Option<Box<str>> {
-    self.text_at(area, at, res, |m, laid, i| spot(laid).contains(&i).then(|| m.id.clone()))
+    self.text_at(area, at, res, |m, laid, i, _| spot(laid).contains(&i).then(|| m.id.clone()))
   }
 
   // the automod hold whose allow (true) or deny (false) is under (x, y)
   pub fn held_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(Box<str>, bool)> {
-    self.text_at(area, (x, y), res, |m, laid, i| {
+    self.text_at(area, (x, y), res, |m, laid, i, _| {
       let id = m.x.as_ref()?.held.as_ref()?.id.clone();
       [(true, &laid.allow), (false, &laid.deny)].into_iter().find(|(_, r)| r.contains(&i)).map(|(a, _)| (id, a))
     })
   }
 
-  // ask `f` about the line under (x, y) and where in its laid-out text the pointer is
+  // the `#tag` under (x, y): the tag, and which line (seq) and where in it, so a second copy is a new spot
+  pub fn tag_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(Box<str>, (i64, usize))> {
+    self.text_at(area, (x, y), res, |_, laid, i, seq| {
+      laid.tags.iter().find(|(r, _)| r.contains(&i)).map(|(r, t)| (t.clone(), (seq, r.start)))
+    })
+  }
+
+  // ask `f` about the line under (x, y), where in its laid-out text the pointer is, and its seq
   fn text_at<T>(
     &mut self,
     area: Rect,
     (x, y): (i32, i32),
     res: &mut Res,
-    f: impl FnOnce(&Message, &Laid, usize) -> Option<T>,
+    f: impl FnOnce(&Message, &Laid, usize, i64) -> Option<T>,
   ) -> Option<T> {
     let mut bottom = self.edge(area, res);
     for i in (0..self.rows.len()).rev() {
@@ -1753,7 +1779,7 @@ impl ChatView {
         let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let at = Cluster::from_point(&laid.layout, lx, ly)?.0.text_range();
-        return f(m, &laid, at.start);
+        return f(m, &laid, at.start, self.rows[i].seq);
       }
       bottom = top;
     }

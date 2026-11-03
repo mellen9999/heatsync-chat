@@ -45,6 +45,7 @@ mod stats;
 mod stream;
 mod suggest;
 mod tabs;
+mod tagcard;
 mod tip;
 mod unseen;
 mod update;
@@ -181,6 +182,10 @@ pub struct App {
   peek_due: Option<Instant>,
   cards: peek::Cards,
   pronouns: crate::model::pronouns::Pronouns,
+  // #tag hover cards: what heatsync said, the open one, and when a resting pointer asks
+  tag_cards: crate::model::tagcard::Cards,
+  tag_peek: Option<tagcard::TagPeek>,
+  tag_due: Option<Instant>,
   // automod holds in rooms we moderate
   held: held::Queue,
   notes: crate::model::notes::Notes,
@@ -386,6 +391,9 @@ impl App {
       peek_due: None,
       cards: peek::Cards::default(),
       pronouns: Default::default(),
+      tag_cards: Default::default(),
+      tag_peek: None,
+      tag_due: None,
       held: Default::default(),
       notes: crate::model::notes::Notes::load(),
       occluded: false,
@@ -1271,6 +1279,9 @@ impl App {
     if let Some(r) = self.draw_peek() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
+    if let Some(r) = self.draw_tag_peek() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
     if let Some(r) = self.draw_media_peek() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
@@ -1737,6 +1748,7 @@ impl App {
       || self.reveal_press()
       || self.thread_press()
       || self.link_press()
+      || self.tag_press()
       || self.emote_press(false)
       || self.name_press()
     {
@@ -2006,6 +2018,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.mute_due.is_some_and(|t| t <= now) {
       self.mute_tick();
     }
+    if self.tag_due().is_some_and(|t| t <= now) {
+      self.tag_fire();
+    }
     if self.peek_due.is_some_and(|t| t <= now) {
       self.peek_fire();
     }
@@ -2036,6 +2051,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.trim_at,
       self.mute_due,
       self.peek_due,
+      self.tag_due(),
       self.gifs.due(),
       self.update_due,
       self.heat_due,
@@ -2095,6 +2111,7 @@ impl App {
       NetEvent::HeldWatched { chan, res } => self.on_held_watched(chan, res),
       NetEvent::HeldActed { chan, id, allow, res } => self.on_held_acted(chan, id, allow, res),
       NetEvent::Blocked { room, res } => self.on_blocked(room, res),
+      NetEvent::TagCard(tag, res) => self.on_tag_card(tag, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}

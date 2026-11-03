@@ -39,6 +39,7 @@ pub enum Cmd {
   Mod(super::modact::Req),
   Held(super::held::Cmd),
   Blocked(Box<str>, super::blocked::Op),
+  TagCard(Box<str>),
   Mute(super::mutes::Op),
 }
 
@@ -123,6 +124,9 @@ pub async fn run(
         }
         Some(Cmd::Held(c)) => {
           tokio::spawn(super::held::run(st.http.clone(), st.token.clone(), c, st.out.clone()));
+        }
+        Some(Cmd::TagCard(tag)) => {
+          tokio::spawn(super::tag_card(st.http.clone(), st.token.clone(), tag, st.out.clone()));
         }
         Some(Cmd::Blocked(room, op)) => {
           tokio::spawn(super::blocked::run(st.http.clone(), st.token.clone(), room, op, st.out.clone()));

@@ -18,7 +18,7 @@ impl App {
     self.tabs.get_mut(self.active)?.view.link_at(chat, x, y, res)
   }
 
-  fn open_link(&mut self, url: &str) {
+  pub(super) fn open_link(&mut self, url: &str) {
     if video::playable(url) {
       return self.play(url);
     }

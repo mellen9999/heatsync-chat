@@ -42,6 +42,7 @@ pub mod suggest;
 pub mod sync;
 pub mod tab_count;
 pub mod tabs;
+pub mod tagcard;
 pub mod unseen;
 pub mod vi;
 pub mod video;

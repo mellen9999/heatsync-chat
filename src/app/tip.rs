@@ -48,7 +48,7 @@ impl App {
   // the pointer moved: open, keep or close the popup
   pub(super) fn tip_hover(&mut self) {
     // a name outranks an emote beside it; a media tag sits apart from both
-    if self.media_hover() || self.peek_hover() {
+    if self.media_hover() || self.tag_hover() || self.peek_hover() {
       return;
     }
     let want = self.tip_target();
@@ -78,6 +78,7 @@ impl App {
 
   pub(super) fn hide_tip(&mut self) {
     self.hide_peek();
+    self.hide_tag_peek();
     self.hide_media_peek();
     if let Some(mut t) = self.tip.take() {
       t.release(&mut self.res);
