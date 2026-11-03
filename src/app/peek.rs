@@ -159,8 +159,8 @@ impl App {
     }
     let (platform, chan) = (m.platform, self.room_of(m).filter(|_| m.platform == Platform::Twitch));
     let (login, nick, color, mention) = match hit.mention {
-      Some(n) => (n.login.clone(), n.login, n.color, true),
-      None => (m.login.clone(), m.nick.clone(), m.color, false),
+      Some(n) => (n.login.clone(), n.login, color::readable(n.color), true),
+      None => (m.login.clone(), m.nick.clone(), color::readable(m.color), false),
     };
     if let Some(mut t) = self.tip.take() {
       t.release(&mut self.res);
@@ -199,7 +199,7 @@ impl App {
     if p.mention
       && let Some(c) = self.res.chatters.person(platform, login, true)
     {
-      p.color = c.color;
+      p.color = color::readable(c.color);
     }
     self.tip_repaint();
   }
@@ -237,7 +237,7 @@ impl App {
       let c = i.color.unwrap_or_else(|| color::default_for(login));
       let paint =
         (platform == Platform::Twitch).then(|| i.twitch_id.map(crate::cosmetics::id::PaintId::Twitch)).flatten();
-      self.res.chatters.learned(platform, login, color::readable(c), paint);
+      self.res.chatters.learned(platform, login, c, paint);
       for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
         v.touch_person(platform, login);
       }

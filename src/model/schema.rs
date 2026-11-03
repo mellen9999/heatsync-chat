@@ -1,7 +1,7 @@
 // the one table of every setting: the settings screen, the slash commands, the settings file and the
 // presets all read it. labels and tips are the ext's (settings-schema.js + locale strings), lowercase.
 // adding a switch = one Settings field and one row here
-use crate::model::settings::Settings;
+use crate::model::settings::{Choice, Settings};
 use crate::model::tabs::Kind;
 
 // the ext's settings categories, in its order
@@ -39,6 +39,9 @@ pub enum Fx {
   // paint motion flipped: every animated name is built again
   PaintMotion,
   Media,
+  // the chat look changed (clock, stripes, name colors, tags, emote size, spacing, animation, dimming):
+  // the look is rebuilt and every line laid out again
+  Look,
   // the partial-link rule flipped: lay every line out again
   Links,
   // the filter flags changed: judge every line again
@@ -59,6 +62,8 @@ pub enum Ctl {
   Side,
   // the tab counter's mode, stepped
   Counter,
+  // a few named values, stepped with h / l and typed as `/cmd value`: read the place, write it
+  Pick(&'static Choice, fn(&Settings) -> usize, fn(&mut Settings, usize)),
   // a list kept with slash commands (hidden words, highlight words); true = highlight
   Words(bool),
 }
@@ -84,7 +89,13 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 33] = [
+macro_rules! pick {
+  ($f:ident, $t:ident) => {
+    Ctl::Pick(&crate::model::settings::$t::CHOICE, |s| s.$f as usize, |s, i| s.$f = crate::model::settings::$t::ALL[i])
+  };
+}
+
+pub static DEFS: [Def; 42] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -106,6 +117,72 @@ pub static DEFS: [Def; 33] = [
     alias: "autohide",
     ctl: pill!(auto_hide),
     fx: Fx::None,
+  },
+  Def {
+    id: "timestamps",
+    cmd: Some("/timestamps"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "timestamps",
+    tip: "a time on each message",
+    alias: "timestamps clock time",
+    ctl: pill!(timestamps),
+    fx: Fx::Look,
+  },
+  Def {
+    id: "time_fmt",
+    cmd: Some("/timeformat"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "timestamp format",
+    tip: "clock format for chat row timestamps: 24h (16:05) or 12h (4:05pm). /timeformat 12h",
+    alias: "timestampFormat 12h 24h clock am pm",
+    ctl: pick!(time_fmt, TimeFmt),
+    fx: Fx::Look,
+  },
+  Def {
+    id: "zebra",
+    cmd: Some("/zebra"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "zebra striping",
+    tip: "alternating row shading",
+    alias: "zebra stripes rows",
+    ctl: pill!(zebra),
+    fx: Fx::Look,
+  },
+  Def {
+    id: "readable",
+    cmd: Some("/readable"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "fix dim usernames",
+    tip: "brighten dim username colors so they're readable on the black bg",
+    alias: "hs_readable_names readablenames contrast",
+    ctl: pill!(readable),
+    fx: Fx::Look,
+  },
+  Def {
+    id: "platform_tags",
+    cmd: Some("/platformtags"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "platform tags",
+    tip: "[T] [K] [Y] labels on messages in tabs that mix platforms",
+    alias: "showPlatformBadges platform badges",
+    ctl: pill!(platform_tags),
+    fx: Fx::Look,
+  },
+  Def {
+    id: "emote_size",
+    cmd: Some("/emotesize"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "emote size",
+    tip: "1x default, 2x retina, 4x huge. /emotesize 2x",
+    alias: "hs_emote_size scale",
+    ctl: pick!(emote_size, EmoteSize),
+    fx: Fx::Look,
   },
   Def {
     id: "paints",
@@ -130,6 +207,17 @@ pub static DEFS: [Def; 33] = [
     fx: Fx::PaintMotion,
   },
   Def {
+    id: "animate_emotes",
+    cmd: Some("/animateemotes"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "animate emotes",
+    tip: "always plays animated emotes. never holds each one on its first frame, a big cpu saver on busy channels. /animateemotes never",
+    alias: "animateEmotes gif motion static reduced",
+    ctl: pick!(animate_emotes, Animate),
+    fx: Fx::Look,
+  },
+  Def {
     id: "zoom",
     cmd: Some("/zoom"),
     cat: Cat::Display,
@@ -139,6 +227,17 @@ pub static DEFS: [Def; 33] = [
     alias: "size scale font",
     ctl: Ctl::Zoom,
     fx: Fx::None,
+  },
+  Def {
+    id: "line_height",
+    cmd: Some("/lineheight"),
+    cat: Cat::Display,
+    section: "density",
+    label: "line height",
+    tip: "chat row line height: 20 is tight, 22 and 26 add room between lines. /lineheight 22",
+    alias: "lineHeight line spacing",
+    ctl: pick!(line_height, LineHeight),
+    fx: Fx::Look,
   },
   Def {
     id: "tab_side",
@@ -205,6 +304,17 @@ pub static DEFS: [Def; 33] = [
     alias: "keywordhighlights words",
     ctl: Ctl::Words(true),
     fx: Fx::None,
+  },
+  Def {
+    id: "dim_timeouts",
+    cmd: Some("/dimtimeouts"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "dim timed-out messages",
+    tip: "a timed-out or banned person's lines go dim and lose their pictures. off leaves them as they were",
+    alias: "hs_dim_timeouts dimtimeouts timeout ban",
+    ctl: pill!(dim_timeouts),
+    fx: Fx::Look,
   },
   Def {
     id: "updates",
@@ -483,6 +593,41 @@ impl Def {
     }
   }
 
+  // a Pick row's value name now
+  pub fn picked(&self, s: &Settings) -> Option<&'static str> {
+    match self.ctl {
+      Ctl::Pick(c, get, _) => Some(c.names[get(s)]),
+      _ => None,
+    }
+  }
+
+  // a Pick row's value place now
+  pub fn at(&self, s: &Settings) -> Option<usize> {
+    match self.ctl {
+      Ctl::Pick(_, get, _) => Some(get(s)),
+      _ => None,
+    }
+  }
+
+  // set a Pick row to value `i`; false when it isn't one or `i` is past its names
+  pub fn choose(&self, s: &mut Settings, i: usize) -> bool {
+    match self.ctl {
+      Ctl::Pick(c, _, set) if i < c.names.len() => {
+        set(s, i);
+        true
+      }
+      _ => false,
+    }
+  }
+
+  // set a Pick row by the value's name (the settings file); false when it names nothing
+  pub fn pick(&self, s: &mut Settings, name: &str) -> bool {
+    match self.ctl {
+      Ctl::Pick(c, ..) => c.names.iter().position(|n| *n == name.trim()).is_some_and(|i| self.choose(s, i)),
+      _ => false,
+    }
+  }
+
   // every word of the query must appear in the label, tip, section, category, key or alias (the ext's search)
   pub fn matches(&self, query: &str) -> bool {
     let hay = format!("{} {} {} {} {} {}", self.label, self.tip, self.section, self.cat.name(), self.id, self.alias)
@@ -514,8 +659,10 @@ pub static PRESETS: [Preset; 3] = [
   },
   Preset {
     name: "minimal",
-    tip: "just chat: no glow, paints, pictures or extra tabs",
+    tip: "just chat: no glow, paints, pictures, stripes, platform tags or extra tabs",
     diff: &[
+      ("zebra", false),
+      ("platform_tags", false),
       ("first_glow", false),
       ("paints", false),
       ("media", false),
@@ -526,8 +673,8 @@ pub static PRESETS: [Preset; 3] = [
   },
   Preset {
     name: "power user",
-    tip: "every tab on, vi keys",
-    diff: &[("vi", true), ("tab_feed", true), ("tab_whispers", true), ("tab_mentions", true)],
+    tip: "every tab on, timestamps, vi keys",
+    diff: &[("vi", true), ("timestamps", true), ("tab_feed", true), ("tab_whispers", true), ("tab_mentions", true)],
   },
 ];
 
@@ -586,6 +733,22 @@ mod tests {
     assert!(vi.matches(""));
     assert!(def("paints").unwrap().matches("seventv"));
     assert!(def("hide_bots").unwrap().matches("filters bots"));
+  }
+
+  #[test]
+  fn pick_rows_read_write_and_name_their_values() {
+    let d = def("emote_size").unwrap();
+    let mut s = Settings::default();
+    assert_eq!((d.picked(&s), d.at(&s)), (Some("1x"), Some(0)));
+    assert!(d.pick(&mut s, " 4x ") && d.at(&s) == Some(2));
+    assert!(!d.pick(&mut s, "3x") && !d.choose(&mut s, 3));
+    assert!(d.on(&s).is_none() && !d.put(&mut s, true));
+    assert!(def("zebra").unwrap().picked(&s).is_none());
+    // every pick row's names are lowercase and its default is its first
+    for d in DEFS.iter().filter(|d| matches!(d.ctl, Ctl::Pick(..))) {
+      assert_eq!(d.at(&Settings::default()), Some(0), "{}", d.id);
+      assert!(d.picked(&s).is_some_and(|n| n == n.to_lowercase()));
+    }
   }
 
   #[test]

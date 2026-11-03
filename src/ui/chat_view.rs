@@ -8,7 +8,7 @@ use super::canvas::{Canvas, Rect};
 use super::embed;
 use super::name_art::anim::AnimArt;
 use super::name_art::{self, ArtKey, PAINT_IMG_PX};
-use super::res::{BADGE_PX, CARD_PX, EMBED_PX, EMOTE_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
+use super::res::{BADGE_PX, CARD_PX, EMBED_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
 use crate::cosmetics::id::PaintId;
@@ -23,7 +23,7 @@ use crate::model::message::{Kind, Message, Platform, Seg, flag};
 use crate::model::preview::{Kind as PreviewKind, Preview};
 use crate::model::seen::Seen;
 use crate::model::video;
-use crate::util::time::{hhmm, now_ms};
+use crate::util::time::{clock, now_ms};
 
 // one emote slot in a line; zero-width overlays stack on the base image
 struct EmoteBox {
@@ -299,6 +299,9 @@ fn one_line(res: &mut Res, head: &str, words: &str, w: f32) -> String {
 
 fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o: Opts) -> Laid {
   let Opts { ts, tags, find } = o;
+  let (ts, tags) = (ts && res.look.timestamps, tags && res.look.tags);
+  // a line from someone who was timed out or banned
+  let cleared = m.has(flag::CLEARED) && res.look.dim_timeouts;
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
   let mut reply = None;
@@ -344,7 +347,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     s.push('\n');
   }
   if ts {
-    dim(&mut s, &mut spans, &hhmm(m.ts));
+    dim(&mut s, &mut spans, &clock(m.ts, res.look.twelve));
     s.push(' ');
   }
   let mut ib = Vec::new();
@@ -407,7 +410,8 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       Some((uid, paint))
     });
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
-    spans.push(Span { range: n0..s.len(), ink: Ink(m.color | tag), bold: true });
+    let name_ink = res.look.ink(m.color);
+    spans.push(Span { range: n0..s.len(), ink: Ink(name_ink | tag), bold: true });
     for g in x.map_or(&[][..], |x| &x.tail) {
       seg(&mut s, &mut spans, g);
       if g.text.ends_with('▲') {
@@ -428,9 +432,9 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
         spans.push(Span { range: r.clone(), ink: Ink(theme::BLUE), bold: false });
       }
     }
-    let ink = match (m.has(flag::CLEARED), m.kind) {
+    let ink = match (cleared, m.kind) {
       (true, _) => Some(theme::DIM),
-      (_, Kind::Action) => Some(m.color),
+      (_, Kind::Action) => Some(name_ink),
       _ => None,
     };
     if let Some(c) = ink {
@@ -444,10 +448,11 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     mentions.splice(0..0, reply);
     // people named in the words wear their color, bold, over the line's ink; a painted one is drawn
     // from its own bitmap. a deleted line stays dim
-    if m.has(flag::CLEARED) {
+    if cleared {
       mentions.clear();
     }
     for n in &mut mentions {
+      n.color = res.look.ink(n.color);
       n.art = n.paint.as_ref().and_then(|id| res.cosmetics.get(id)?.paint.clone());
       let tag = if n.art.is_some() { Ink::PAINTED } else { 0 };
       spans.push(Span { range: n.range.clone(), ink: Ink(n.color | tag), bold: true });
@@ -490,12 +495,13 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
     let words = if m.kind == Kind::System { 0..s.len() } else { words };
     hits(f, &s, &name, words, &mut spans);
   }
-  let layout = res.text.layout(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X);
+  let line = (res.text.line_px * res.look.spacing).round();
+  let layout = res.text.layout_at(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X, line);
   let mut names = Vec::new();
   if let Some((uid, paint)) = painted
     && let Some((x, w, baseline)) = painted_run(&layout, &nick)
   {
-    names.push(PaintedName { uid, nick: m.nick.clone(), color: m.color, paint, x, w, baseline });
+    names.push(PaintedName { uid, nick: m.nick.clone(), color: res.look.ink(m.color), paint, x, w, baseline });
   }
   for n in &mentions {
     if let (Some(uid), Some(paint)) = (&n.paint, &n.art)
@@ -719,7 +725,7 @@ fn picture(
   width: i32,
   plays: &mut Vec<(ImgId, Box<str>)>,
 ) -> (Option<ImgId>, Option<std::ops::Range<usize>>, Option<Card>) {
-  if !res.media || m.has(flag::CLEARED) {
+  if !res.media || (m.has(flag::CLEARED) && res.look.dim_timeouts) {
     return (None, None, None);
   }
   let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
@@ -803,7 +809,7 @@ fn card(
   };
   if c.p.kind == PreviewKind::Line {
     // ext .hs-log-embed: where and when, dim; the speaker in their color; what they said
-    let when = if c.p.ts > 0 { format!(" {}", hhmm(c.p.ts)) } else { String::new() };
+    let when = if c.p.ts > 0 { format!(" {}", clock(c.p.ts, res.look.twelve)) } else { String::new() };
     part(s, &format!("{}{when} ", c.p.place), theme::DIM, false);
     let ink =
       if c.p.color == 0 { crate::model::color::default_for(&c.p.author.to_ascii_lowercase()) } else { c.p.color };
@@ -873,7 +879,8 @@ fn body(
   let links = crate::model::links::find(&m.body, res.partial_links);
   let mut runs = Vec::new();
   let mut people = Vec::new();
-  let h = res.images.px(EMOTE_PX);
+  let px = res.look.emote_px();
+  let h = res.images.px(px);
   let mut prev_emote = false;
   let mut first = true;
   let mut at = 0usize;
@@ -889,7 +896,7 @@ fn body(
       // a blocked overlay just vanishes; a blocked base keeps its slot
       Some((_, _, true, _)) if prev_emote && blocked => continue,
       Some((url, _, true, _)) if prev_emote => {
-        let img = res.images.id(&url, EMOTE_PX);
+        let img = res.images.id(&url, px);
         if let Some(last) = boxes.last_mut() {
           last.zw.push(img);
           last.zw_words.push((a as u32, b as u32));
@@ -900,7 +907,7 @@ fn body(
         if !first {
           s.push(' ');
         }
-        let img = res.images.id(&url, EMOTE_PX);
+        let img = res.images.id(&url, px);
         let w = res.images.width(img, dims);
         ib.push(inline(boxes.len(), s.len(), w, h));
         boxes.push(EmoteBox {
@@ -991,9 +998,17 @@ pub fn blit_layer(c: &mut Canvas, rgba: &[u8], src: (u32, u32), dst: (i32, i32),
   }
 }
 
-fn blit_emote(c: &mut Canvas, images: &mut Images, imgs: &[ImgId], rect: Rect, clip: Rect, next: &mut Option<u32>) {
+fn blit_emote(
+  c: &mut Canvas,
+  images: &mut Images,
+  play: bool,
+  imgs: &[ImgId],
+  rect: Rect,
+  clip: Rect,
+  next: &mut Option<u32>,
+) {
   for &id in imgs {
-    let Some((f, w, h, flip)) = images.frame(id) else {
+    let Some((f, w, h, flip)) = images.frame_with(id, play) else {
       continue;
     };
     blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, clip);
@@ -1781,7 +1796,7 @@ impl ChatView {
       res.text.draw(&l, c, (area.x + MARK_W) as f32 + theme::PAD_X, area.y as f32, clip, |_, _| {});
       return;
     }
-    let (w, zebra) = (self.width, self.zebra);
+    let (w, zebra) = (self.width, self.zebra && res.look.zebra);
     let mut bottom = self.edge(area, res);
     let o = opts!(self);
     let mut drawn_lo = self.rows.len();
@@ -1830,6 +1845,7 @@ impl ChatView {
           c.outline(Rect::new(area.x, top, area.w, r.height), clip, theme::WHITE);
         }
         if let Some(laid) = &r.laid {
+          let play = res.look.animate_emotes;
           let Res { text, images, arts, .. } = res;
           if let Some(id) = laid.embed {
             images.want(id);
@@ -1872,7 +1888,7 @@ impl ChatView {
               c.fill(rect.intersect(clip), bg);
             }
             let mut flip = None;
-            blit_emote(c, images, &imgs, rect, clip, &mut flip);
+            blit_emote(c, images, play, &imgs, rect, clip, &mut flip);
             if flip.is_some() {
               anims.push(Anim { rect: rect.intersect(area), bg, imgs });
             }
@@ -1962,7 +1978,7 @@ impl ChatView {
         continue;
       }
       c.fill(r, a.bg);
-      blit_emote(c, &mut res.images, &a.imgs, a.rect, r, &mut next);
+      blit_emote(c, &mut res.images, res.look.animate_emotes, &a.imgs, a.rect, r, &mut next);
       dirty = Some(dirty.map_or(r, |d| super::union(d, r)));
     }
     let t = name_art::clock();
@@ -1987,6 +2003,7 @@ impl ChatView {
 mod tests {
   use super::*;
   use crate::fake::Fake;
+  use crate::ui::res::Look;
 
   #[test]
   fn post_refs_are_whole_words() {
@@ -2217,6 +2234,7 @@ mod tests {
       "user_id": "37005319", "platform": "twitch", "content": "gg", "heat": 20, "reply_count": 2}))
     .unwrap();
     let mut res = Res::new(1.0);
+    res.look.timestamps = true;
     let mut v = ChatView::new(10, "feed".into());
     v.top = true;
     v.zebra = false;
@@ -2699,6 +2717,64 @@ mod tests {
     m.nick = "bob".into();
     m.body = body.into();
     m
+  }
+
+  // the chat look: the clock before a line, its format, platform tags, line spacing, emote size
+  #[test]
+  fn the_look_changes_what_a_row_is_made_of() {
+    let mut res = Res::new(1.0);
+    let mut m = plain("a", "hi");
+    m.ts = 1_700_000_000_000;
+    let at = |res: &mut Res, o: Opts| layout_row(res, "c", &m, false, 600, o).nick.start;
+    let on = Opts { ts: true, tags: true, find: None };
+    // off (the ext's default): no time column at all
+    assert_eq!(at(&mut res, on), 3, "just the tag: the clock is off");
+    res.look.tags = false;
+    assert_eq!(at(&mut res, on), 0, "no tags, no clock: the name leads");
+    res.look.timestamps = true;
+    assert_eq!(at(&mut res, on), "00:00 ".len(), "24h");
+    assert_eq!(at(&mut res, Opts { ts: false, ..on }), 0, "a view that never shows time still doesn't");
+    res.look.twelve = true;
+    let n = at(&mut res, on);
+    assert!(n == "4:05pm ".len() || n == "12:05pm ".len(), "12h with am/pm, no leading zero: {n}");
+    // line spacing: 22 and 26 are +10% and +30% of the 20px line
+    let h = |res: &mut Res| layout_row(res, "c", &m, false, 600, NO_OPTS).layout.height().round() as i32;
+    let tight = h(&mut res);
+    res.look.spacing = 1.3;
+    assert_eq!((tight, h(&mut res)), (20, 26));
+    // emote size multiplies the base box; badges and the rest keep theirs
+    assert_eq!([1u16, 2, 4].map(|k| Look { emote_mul: k, ..res.look }.emote_px()), [28, 56, 112]);
+  }
+
+  // readable names off keeps the platform's raw color; dim timeouts off leaves a timed-out line as it was
+  #[test]
+  fn the_look_picks_name_colors_and_dimming() {
+    let look = Look::default();
+    assert_ne!(look.ink(0x0000ff), 0x0000ff, "readable lifts dark blue");
+    assert_eq!(Look { readable: false, ..look }.ink(0x0000ff), 0x0000ff, "off: as sent");
+    let mut res = Res::new(1.0);
+    res.chatters.learned(Platform::Twitch, "carol", theme::CYAN, None);
+    let mut m = said("bob", "hi @carol");
+    m.flags |= flag::CLEARED;
+    let seen = |res: &mut Res| layout_row(res, "c", &m, false, 600, NO_OPTS).mentions.len();
+    assert_eq!(seen(&mut res), 0, "a timed-out line is dim: no colored names");
+    res.look.dim_timeouts = false;
+    assert_eq!(seen(&mut res), 1, "off: the line reads as normal");
+  }
+
+  // animate emotes never: an animated picture holds its first frame and asks for no ticks
+  #[test]
+  fn animate_never_holds_the_first_frame() {
+    use crate::images::decode::{Decoded, Frame};
+    let mut res = Res::new(1.0);
+    let id = res.images.id("https://x/a.gif", 28);
+    assert!(res.images.frame(id).is_none());
+    let (_, _, want) = res.images.take_wanted().remove(0);
+    let frame = |v: u8| Frame { rgba: vec![v; 4].into(), delay_ms: 50 };
+    res.images.loaded(id, want, Ok(Decoded { w: 1, h: 1, frames: vec![frame(1), frame(2)] }));
+    assert!(res.images.frame_with(id, true).is_some_and(|f| f.3.is_some()), "plays: a flip is due");
+    let still = res.images.frame_with(id, false).map(|f| (f.0.rgba[0], f.3));
+    assert_eq!(still, Some((1, None)), "never: frame one, no ticks");
   }
 
   #[test]

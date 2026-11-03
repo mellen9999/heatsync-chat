@@ -6,6 +6,8 @@ use crate::emotes::block::Blocked;
 use crate::heatsync::senders::Senders;
 use crate::images::Images;
 use crate::model::chatters::Chatters;
+use crate::model::color;
+use crate::model::settings::{Animate, Settings, TimeFmt};
 
 use super::logo::Logo;
 use super::name_art::NameArts;
@@ -21,6 +23,54 @@ pub const MEDIA_MULTI_PX: u16 = 180;
 // a link preview card's still
 pub const CARD_PX: u16 = 64;
 
+// how chat lines look, from the settings: one value, rebuilt whenever one of them moves
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Look {
+  pub timestamps: bool,
+  pub twelve: bool,
+  pub zebra: bool,
+  pub readable: bool,
+  pub tags: bool,
+  // times the base emote size
+  pub emote_mul: u16,
+  // times the base line height
+  pub spacing: f32,
+  pub animate_emotes: bool,
+  pub dim_timeouts: bool,
+}
+
+impl Look {
+  pub fn of(s: &Settings) -> Self {
+    Self {
+      timestamps: s.timestamps,
+      twelve: s.time_fmt == TimeFmt::H12,
+      zebra: s.zebra,
+      readable: s.readable,
+      tags: s.platform_tags,
+      emote_mul: s.emote_size.mul(),
+      spacing: s.line_height.ratio(),
+      animate_emotes: s.animate_emotes == Animate::Always,
+      dim_timeouts: s.dim_timeouts,
+    }
+  }
+
+  // the emote box height in chat, before the display scale
+  pub fn emote_px(&self) -> u16 {
+    EMOTE_PX * self.emote_mul
+  }
+
+  // a name's color as drawn: lifted until it reads on black, or as the platform sent it
+  pub fn ink(&self, rgb: u32) -> u32 {
+    if self.readable { color::readable(rgb) } else { rgb }
+  }
+}
+
+impl Default for Look {
+  fn default() -> Self {
+    Self::of(&Settings::default())
+  }
+}
+
 pub struct Res {
   pub text: Text,
   pub images: Images,
@@ -33,6 +83,7 @@ pub struct Res {
   // who the names in message text mean (their color, paint)
   pub chatters: Chatters,
   pub logo: Logo,
+  pub look: Look,
   // link previews under chat lines, per link
   pub previews: crate::model::preview::Previews,
   // inline pictures under chat lines (ext mediaEmbedsEnabled)
@@ -46,6 +97,7 @@ impl Res {
     let text = Text::new(scale);
     Self {
       logo: Logo::new(text.line_px as u32),
+      look: Look::default(),
       text,
       images: Images::new(scale),
       emotes: Emotes::default(),

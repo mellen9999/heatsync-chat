@@ -53,7 +53,7 @@ fn base(platform: Platform, id: &str, login: &str, nick: &str, color: Option<&st
     user_id: "".into(),
     nick: clamp(nick, MAX_NAME).into(),
     login,
-    color: color::readable(c),
+    color: c,
     body: body.into(),
     emotes: Box::new([]),
     hs: Box::new([]),

@@ -61,7 +61,7 @@ impl App {
       nick: nick.into(),
       user_id: user_id.into(),
       msg_id: msg_id.into(),
-      color,
+      color: crate::model::color::readable(color),
       own,
     })
   }

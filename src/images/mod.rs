@@ -178,6 +178,11 @@ impl Images {
 
   // frame to draw now, plus ms until it changes (None = static). queues a load if needed
   pub fn frame(&mut self, id: ImgId) -> Option<(&decode::Frame, u32, u32, Option<u32>)> {
+    self.frame_with(id, true)
+  }
+
+  // `play` false holds an animated image on its first frame (and asks for no ticks)
+  pub fn frame_with(&mut self, id: ImgId, play: bool) -> Option<(&decode::Frame, u32, u32, Option<u32>)> {
     let now = self.epoch.elapsed().as_millis() as u64;
     let h = self.target(self.slots.get(id as usize)?);
     let s = &mut self.slots[id as usize];
@@ -188,7 +193,7 @@ impl Images {
       self.wanted.push((id, s.url.clone(), h));
     }
     let State::Ready(d) = &s.state else { return None };
-    if d.frames.len() == 1 {
+    if d.frames.len() == 1 || !play {
       return Some((&d.frames[0], d.w, d.h, None));
     }
     let total: u64 = d.frames.iter().map(|f| f.delay_ms as u64).sum::<u64>().max(1);

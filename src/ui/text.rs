@@ -96,10 +96,15 @@ impl Text {
   }
 
   pub fn layout(&mut self, text: &str, spans: &[Span], boxes: &[InlineBox], width: f32) -> TextLayout {
+    self.layout_at(text, spans, boxes, width, self.line_px)
+  }
+
+  // the same with each line `line` px tall (chat rows: the line-height setting)
+  pub fn layout_at(&mut self, text: &str, spans: &[Span], boxes: &[InlineBox], width: f32, line: f32) -> TextLayout {
     let mut b = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
     b.push_default(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Monospace)));
     b.push_default(StyleProperty::FontSize(self.font_px));
-    b.push_default(StyleProperty::LineHeight(LineHeight::Absolute(self.line_px)));
+    b.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line)));
     b.push_default(StyleProperty::Brush(Ink::default()));
     for s in spans {
       b.push(StyleProperty::Brush(s.ink), s.range.clone());

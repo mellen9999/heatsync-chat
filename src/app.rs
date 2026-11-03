@@ -316,6 +316,7 @@ impl App {
       crate::fake::seed_paints(&mut res.cosmetics);
     }
     res.media = set.media;
+    res.look = crate::ui::res::Look::of(&set);
     res.partial_links = set.partial_links;
     Self {
       gfx: None,
@@ -676,6 +677,18 @@ impl App {
       Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.5 to 3)"),
       Local::Side(Some(side)) => self.side_to(side),
       Local::Side(None) => self.say("usage: /tabs top, bottom, left or right"),
+      Local::Pick(id, Some(i)) => {
+        if let Some(d) = crate::model::schema::def(id) {
+          self.pick_to(d, i);
+        }
+      }
+      Local::Pick(id, None) => {
+        if let Some(d) = crate::model::schema::def(id)
+          && let (Some(cmd), crate::model::schema::Ctl::Pick(c, ..)) = (d.cmd, d.ctl)
+        {
+          self.say(format!("usage: {cmd} {}", c.usage));
+        }
+      }
       Local::Counter(Some(c)) => self.counter_to(c),
       Local::Counter(None) => self.say("usage: /tabcounter unread, heat or off"),
       Local::Settings => self.open_screen(screen::Page::Settings),
@@ -2912,6 +2925,44 @@ mod live {
     app.pointer = (r.x + 2, r.y + 2);
     app.click();
     assert!(app.img_view.is_none() && app.active == chat, "← back closes it, the tab stays");
+  }
+
+  // the chat look switches take effect on lines already shown, and persist.
+  // cargo test -j2 --release headless_chat_look -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_chat_look() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["aaa".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(640, 300);
+    app.relayout_body();
+    let pos = app.tabs.iter().position(|t| &*t.name == "aaa").unwrap();
+    app.select(pos);
+    let mut m = Message::system(1_700_000_000_000, Platform::Twitch, "hi");
+    m.kind = crate::model::message::Kind::Chat;
+    m.nick = "bob".into();
+    m.login = "bob".into();
+    app.on_chat("aaa", Chat::Msg(m));
+    app.redraw();
+    // the ext's defaults: no clock, stripes on
+    assert!(!app.res.look.timestamps && app.res.look.zebra);
+    app.local(Local::Toggle("timestamps"));
+    app.local(Local::Pick("time_fmt", Some(1)));
+    app.local(Local::Pick("emote_size", Some(2)));
+    app.local(Local::Pick("line_height", Some(2)));
+    app.redraw();
+    assert!(app.res.look.timestamps && app.res.look.twelve && app.res.look.emote_mul == 4);
+    assert!((app.res.look.spacing - 1.3).abs() < 1e-6);
+    let saved = Settings::parse(&app.set.render());
+    assert!(saved.timestamps && saved.time_fmt == crate::model::settings::TimeFmt::H12);
+    assert_eq!(saved.emote_size.mul(), 4);
+    // a pick answers to its slash command both ways
+    app.local(Local::Pick("animate_emotes", Some(1)));
+    assert!(!app.res.look.animate_emotes);
+    app.local(Local::Pick("animate_emotes", Some(0)));
+    assert!(app.res.look.animate_emotes);
   }
 
   // the unread number after a channel's name, and tab mode: the cursor moves without switching, K

@@ -10,6 +10,7 @@ use crate::model::schema::{self, Ctl, DEFS, Def, Fx, PRESETS, Preset};
 use crate::model::settings::{Settings, ZOOM_MAX, ZOOM_STEP, clamp_zoom};
 use crate::model::vi::Mode;
 use crate::ui::canvas::Rect;
+use crate::ui::res::Look;
 use crate::ui::sheet::{self, L, State};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -109,6 +110,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       Ctl::Zoom => (format!("{}%", set.zoom), None),
       Ctl::Side => (set.tab_side.name().to_owned(), None),
       Ctl::Counter => (set.tab_counter.name().to_owned(), None),
+      Ctl::Pick(..) => (d.picked(set).unwrap_or_default().to_owned(), None),
       Ctl::Words(marks) => {
         let n = crate::model::filter::with(|f| f.words(marks).len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
@@ -142,6 +144,10 @@ impl App {
         self.res.arts.set_motion(self.set.paint_motion);
         self.relayout_where(None);
       }
+      Fx::Look => {
+        self.res.look = Look::of(&self.set);
+        self.relayout_where(None);
+      }
       Fx::Links => {
         self.res.partial_links = self.set.partial_links;
         self.relayout_where(None);
@@ -172,6 +178,14 @@ impl App {
     d.put(&mut self.set, on);
     self.applied(d.fx);
     self.set.save();
+  }
+
+  // a Pick row to value `i`: applied and saved when it moves
+  pub(super) fn pick_to(&mut self, d: &'static Def, i: usize) {
+    if d.at(&self.set) != Some(i) && d.choose(&mut self.set, i) {
+      self.applied(d.fx);
+      self.set.save();
+    }
   }
 
   fn set_switch(&mut self, d: &'static Def, on: bool) {
@@ -322,6 +336,10 @@ impl App {
         }
         Ctl::Side => self.side_to(self.set.tab_side.step(adjust.unwrap_or(true))),
         Ctl::Counter => self.counter_to(self.set.tab_counter.step(adjust.unwrap_or(true))),
+        Ctl::Pick(c, get, _) => {
+          let (n, at) = (c.names.len(), get(&self.set));
+          self.pick_to(d, (at + if adjust.unwrap_or(true) { 1 } else { n - 1 }) % n);
+        }
         // a list lives in slash commands: leave the screen with the command ready to finish
         Ctl::Words(_) if adjust.is_none() => {
           self.close_screen();

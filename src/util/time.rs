@@ -5,8 +5,8 @@ pub fn now_ms() -> i64 {
   SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-// "hh:mm" in local time
-pub fn hhmm(ms: i64) -> String {
+// the wall clock in local time: "16:05", or the ext's 12h form "4:05pm"
+pub fn clock(ms: i64, twelve: bool) -> String {
   let t: libc::time_t = (ms / 1000) as libc::time_t;
   // SAFETY: localtime_r writes only into the tm we hand it
   let mut tm: libc::tm = unsafe { std::mem::zeroed() };
@@ -14,7 +14,20 @@ pub fn hhmm(ms: i64) -> String {
   if !ok {
     return "--:--".into();
   }
-  format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+  hm(tm.tm_hour, tm.tm_min, twelve)
+}
+
+fn hm(h: i32, m: i32, twelve: bool) -> String {
+  if !twelve {
+    return format!("{h:02}:{m:02}");
+  }
+  let h12 = if h % 12 == 0 { 12 } else { h % 12 };
+  format!("{h12}:{m:02}{}", if h >= 12 { "pm" } else { "am" })
+}
+
+// "hh:mm" in local time
+pub fn hhmm(ms: i64) -> String {
+  clock(ms, false)
 }
 
 // "2026-10-30T22:26:51.099Z" → unix ms (utc only; that's all the archive emits)
@@ -53,6 +66,17 @@ pub fn span(s: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn twelve_hour_clock_is_the_exts() {
+    assert_eq!(hm(0, 5, true), "12:05am");
+    assert_eq!(hm(9, 30, true), "9:30am");
+    assert_eq!(hm(12, 0, true), "12:00pm");
+    assert_eq!(hm(16, 5, true), "4:05pm");
+    assert_eq!(hm(23, 59, true), "11:59pm");
+    assert_eq!(hm(16, 5, false), "16:05");
+    assert_eq!(hm(0, 5, false), "00:05");
+  }
 
   #[test]
   fn spans() {

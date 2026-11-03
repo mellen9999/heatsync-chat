@@ -166,8 +166,8 @@ fn ts_of(l: &Line) -> i64 {
 fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
   let login: Box<str> = l.tag("login").as_deref().or(l.nick).unwrap_or("").to_ascii_lowercase().into();
   let nick: Box<str> = l.tag("display-name").map_or_else(|| login.clone(), Into::into);
-  let color =
-    color::readable(l.tag("color").and_then(|c| color::parse_hex(&c)).unwrap_or_else(|| color::default_for(&login)));
+  // as sent: the view lifts it (or not) at draw time, so the setting works on lines already shown
+  let color = l.tag("color").and_then(|c| color::parse_hex(&c)).unwrap_or_else(|| color::default_for(&login));
   let body = clamp(body, MAX_BODY);
   let mut flags = 0;
   if l.tag("first-msg").as_deref() == Some("1") {
@@ -529,8 +529,8 @@ mod tests {
     let (r, url) = &m.emotes[0];
     assert_eq!(&m.body[r.start as usize..r.end as usize], "Kappa");
     assert!(url.contains("/v2/25/"));
-    // #0000ff is unreadable on black: lifted
-    assert_ne!(m.color, 0x0000ff);
+    // the color arrives as sent: the view lifts it (or not) when it draws
+    assert_eq!(m.color, 0x0000ff);
   }
 
   #[test]
