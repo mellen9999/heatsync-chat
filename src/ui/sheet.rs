@@ -7,6 +7,7 @@ use super::theme;
 
 const PAD: i32 = 6;
 
+#[derive(Clone)]
 pub enum L {
   Head(String),
   // a: the label (or the keys), b: the value (or what they do). pill: a switch and its state

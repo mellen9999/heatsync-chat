@@ -36,6 +36,7 @@ pub mod schema;
 pub mod seen;
 pub mod settings;
 pub mod slash;
+pub mod stats;
 pub mod stream_events;
 pub mod suggest;
 pub mod sync;

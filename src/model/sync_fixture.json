@@ -193,6 +193,36 @@
   "scope": "sync",
   "default": true
  },
+ "subsystems": {
+  "type": "boolmap",
+  "scope": "sync",
+  "default": {
+   "overlay-twitch": true,
+   "overlay-kick": true,
+   "overlay-youtube": true,
+   "irc-twitch": true,
+   "chat-kick": true,
+   "chat-youtube": true,
+   "cosmetics": true,
+   "feed": true,
+   "whispers": true,
+   "mentions": true,
+   "stream-stats": true
+  },
+  "options": [
+   "overlay-twitch",
+   "overlay-kick",
+   "overlay-youtube",
+   "irc-twitch",
+   "chat-kick",
+   "chat-youtube",
+   "cosmetics",
+   "feed",
+   "whispers",
+   "mentions",
+   "stream-stats"
+  ]
+ },
  "tabCounter": {
   "type": "enum",
   "scope": "sync",

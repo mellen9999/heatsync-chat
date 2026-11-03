@@ -179,6 +179,8 @@ pub struct Settings {
   // pronoundb pronouns beside a twitch name on the card and the name popup. default on, like the ext
   // (hs_show_pronouns). off, pronoundb is never asked
   pub pronouns: bool,
+  // count lines, chatters and emotes per channel tab for /summary (ext subsystems stream-stats)
+  pub stream_stats: bool,
   // name paints move (scenes + effects). off freezes each to its first frame, like the ext's animatePaints
   pub paint_motion: bool,
   // stream lines: went live (on), went offline (off), game switch (on), chat-spike line (on)
@@ -246,6 +248,7 @@ impl Default for Settings {
       ffz_badges: true,
       chatterino_badges: true,
       pronouns: true,
+      stream_stats: true,
       paint_motion: true,
       ev_online: true,
       ev_offline: false,
@@ -389,6 +392,8 @@ pub enum Local {
   Keys,
   // /blocked: the twitch room's blocked terms
   Blocked,
+  // /summary: the tab's stream stats
+  Summary,
 }
 
 pub fn local_cmd(text: &str) -> Option<Local> {
@@ -432,6 +437,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/settings" => Some(Local::Settings),
     "/keys" => Some(Local::Keys),
     "/blocked" => Some(Local::Blocked),
+    "/summary" => Some(Local::Summary),
     w => schema::switch_for(w).map(|d| Local::Toggle(d.id)),
   }
 }
@@ -465,6 +471,7 @@ mod tests {
         ffz_badges: true,
         chatterino_badges: true,
         pronouns: true,
+        stream_stats: true,
         paint_motion: true,
         ev_online: true,
         ev_offline: false,

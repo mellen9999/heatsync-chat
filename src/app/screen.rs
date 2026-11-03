@@ -19,6 +19,8 @@ pub enum Page {
   Keys,
   // a twitch room's blocked terms (app::blocked)
   Blocked,
+  // a tab's stream stats (app::stats)
+  Summary,
 }
 
 pub struct Screen {
@@ -29,6 +31,10 @@ pub struct Screen {
   // the first g of gg
   chord: bool,
   pub(super) bt: Option<Box<super::blocked::Bt>>,
+  // the summary: whose (tab name), and its title and lines as last read
+  pub(super) of: Box<str>,
+  pub(super) title: String,
+  pub(super) shown: Vec<L>,
 }
 
 // what a row stands for
@@ -56,7 +62,21 @@ enum Do {
 
 impl Screen {
   fn new(page: Page) -> Self {
-    Screen { page, st: State::default(), q: Line::default(), typing: false, chord: false, bt: None }
+    Screen {
+      page,
+      st: State::default(),
+      q: Line::default(),
+      typing: false,
+      chord: false,
+      bt: None,
+      of: "".into(),
+      title: String::new(),
+      shown: Vec::new(),
+    }
+  }
+
+  pub fn page(&self) -> Page {
+    self.page
   }
 
   pub fn typing(&self) -> bool {
@@ -76,6 +96,7 @@ impl Screen {
       Page::Keys => keys_lines(),
       Page::Settings => settings_lines(self.q.text.trim(), set),
       Page::Blocked => self.bt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |b| b.lines(&self.q.text)),
+      Page::Summary => (self.shown.clone(), vec![Target::None; self.shown.len()]),
     }
   }
 
@@ -323,7 +344,7 @@ impl App {
         Key::Character("g") => s.chord = true,
         Key::Named(NamedKey::Home) => s.st.first(&lines),
         Key::Character("G") | Key::Named(NamedKey::End) => s.st.last(&lines),
-        Key::Character("/") if s.page != Page::Keys => s.typing = true,
+        Key::Character("/") if matches!(s.page, Page::Settings | Page::Blocked) => s.typing = true,
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
         Key::Character("?") => act = Do::Settings,
         Key::Named(NamedKey::Enter | NamedKey::Space) if !ctrl => act = Do::Toggle,
@@ -418,6 +439,7 @@ impl App {
   }
 
   pub(super) fn draw_screen(&mut self) -> Option<Rect> {
+    self.summary_refresh();
     let area = self.chat_area();
     let s = self.screen.as_mut()?;
     let (lines, targets) = s.lines(&self.set);
@@ -455,6 +477,7 @@ impl App {
           "j k move · space change · / search · ? keys · esc"
         },
       ),
+      (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
       _ => ("keys", None, "j k scroll · ? settings · esc closes"),
     };
     let tip = match s.bt.as_deref() {

@@ -23,6 +23,8 @@ pub enum TabAct {
   Hide,
   // play the stream of the tab's nth channel
   Watch(usize),
+  // its stream stats (/summary)
+  Summary,
 }
 
 pub struct TabMenu {
@@ -88,6 +90,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
     target: 0,
     under: None,
     count: Default::default(),
+    stats: Default::default(),
   }
 }
 
@@ -439,7 +442,11 @@ impl App {
           1 => vec![(TabAct::Watch(0), "watch".into())],
           _ => src.iter().enumerate().map(|(n, (p, _))| (TabAct::Watch(n), format!("watch {}", p.name()))).collect(),
         };
-        v.extend([(TabAct::Edit, "edit".into()), (TabAct::Remove, "remove".into())]);
+        v.extend([
+          (TabAct::Summary, "summary".into()),
+          (TabAct::Edit, "edit".into()),
+          (TabAct::Remove, "remove".into()),
+        ]);
         v
       }
       _ => vec![(TabAct::Hide, "hide".into())],
@@ -480,6 +487,10 @@ impl App {
     self.tab_menu_changed();
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
+      Some(TabAct::Summary) => {
+        let name = self.tabs[m.tab].name.clone();
+        self.summary_open(name);
+      }
       Some(TabAct::Remove) => self.remove_tab(m.tab),
       Some(TabAct::Watch(n)) => self.watch(m.tab, n),
       Some(TabAct::Hide) => {

@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 51] = [
+pub static DEFS: [Def; 52] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -501,6 +501,18 @@ pub static DEFS: [Def; 51] = [
     ctl: pill!(ev_game),
     fx: Fx::None,
     wire: Wire::Flag("hermesEvents", "gameSwitch"),
+  },
+  Def {
+    id: "stream_stats",
+    cmd: Some("/streamstats"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "stream stats",
+    tip: "count each channel tab's lines, chatters and emotes for /summary",
+    alias: "summary subsystems",
+    ctl: pill!(stream_stats),
+    fx: Fx::None,
+    wire: Wire::Flag("subsystems", "stream-stats"),
   },
   Def {
     id: "inline_op",

@@ -41,6 +41,7 @@ mod pop;
 mod pronouns;
 mod rover;
 mod screen;
+mod stats;
 mod stream;
 mod suggest;
 mod tabs;
@@ -117,6 +118,8 @@ struct Tab {
   under: Option<ChatView>,
   // the number after its name (channel tabs)
   count: crate::model::tab_count::Count,
+  // its stream stats (/summary)
+  stats: stats::Count,
 }
 
 impl Tab {
@@ -318,6 +321,7 @@ impl App {
         target: 0,
         under: None,
         count: Default::default(),
+        stats: Default::default(),
       });
     }
     let set = Settings::load();
@@ -740,6 +744,7 @@ impl App {
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Keys => self.open_screen(screen::Page::Keys),
       Local::Blocked => self.blocked_here(),
+      Local::Summary => self.summary_here(),
     }
   }
 
@@ -952,7 +957,8 @@ impl App {
         for m in &msgs {
           v.push(m.clone());
         }
-        for _ in &msgs {
+        for m in &msgs {
+          self.tally(i, key, m);
           self.bump_count(i);
         }
         self.touched(i);
@@ -1011,6 +1017,9 @@ impl App {
       self.tabs_with(Platform::Twitch, ch).first().copied()
     };
     let Some(i) = i else { return };
+    if let Chat::Msg(m) = &ev {
+      self.tally(i, ch, m);
+    }
     let tab = self.tabs[i].chat();
     match ev {
       Chat::Msg(m) => {
