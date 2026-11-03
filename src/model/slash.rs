@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 47] = [
+const FIXED: [Slash; 55] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -60,6 +60,14 @@ const FIXED: [Slash; 47] = [
   s("/blocks", "", "who is blocked"),
   s("/settings", "", "open settings"),
   s("/keys", "", "every key"),
+  s("/help", "", "same as /keys"),
+  s("/set", "<setting> <value>", "change any setting: /set timestamps on"),
+  s("/tab", "<name>", "go to a tab: a channel, feed, mentions, whispers, modlog"),
+  s("/user", "<name>", "their card"),
+  s("/lclear", "", "empty this tab's lines (only here, not for anyone else)"),
+  s("/shrug", "[text]", "say it with ¯\\_(ツ)_/¯"),
+  s("/tableflip", "[text]", "say it with (╯°□°)╯︵ ┻━┻"),
+  s("/unflip", "[text]", "say it with ┬─┬ノ( ゜-゜ノ)"),
 ];
 
 pub fn all() -> Vec<Slash> {

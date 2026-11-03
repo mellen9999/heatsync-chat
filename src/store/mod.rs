@@ -1,12 +1,20 @@
 // small persisted state under $XDG_CONFIG_HOME/heatsync-chat, written atomically (tmp + rename)
 use std::path::PathBuf;
 
+#[cfg(not(test))]
 fn dir() -> Option<PathBuf> {
   let base = std::env::var_os("XDG_CONFIG_HOME")
     .map(PathBuf::from)
     .filter(|p| p.is_absolute())
     .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
   Some(base.join("heatsync-chat"))
+}
+
+// tests never touch the real config: each test thread gets its own scratch folder
+#[cfg(test)]
+fn dir() -> Option<PathBuf> {
+  let t = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
+  Some(std::env::temp_dir().join("hsc-test").join(format!("{}-{t}", std::process::id())).join("heatsync-chat"))
 }
 
 pub fn read(name: &str) -> Option<String> {

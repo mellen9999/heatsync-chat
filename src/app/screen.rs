@@ -257,7 +257,7 @@ impl App {
     }
   }
 
-  fn set_switch(&mut self, d: &'static Def, on: bool) {
+  pub(super) fn set_switch(&mut self, d: &'static Def, on: bool) {
     if d.on(&self.set).is_some_and(|v| v != on) {
       self.flip(d);
     }

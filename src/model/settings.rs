@@ -402,6 +402,14 @@ pub enum Local {
   Status,
   // /modtools: shield, automod, unban requests, chatters
   ModTools,
+  // /lclear: empty this tab's lines (here only)
+  Lclear,
+  // /user <name>: their card
+  User(String),
+  // /tab <name>: go to a tab
+  Goto(String),
+  // /set <setting> <value>
+  Set(String, String),
 }
 
 pub fn local_cmd(text: &str) -> Option<Local> {
@@ -441,9 +449,22 @@ pub fn local_cmd(text: &str) -> Option<Local> {
       return Some(Local::Tab(kind, on));
     }
   }
+  // the rest keep their case: names and values
+  let (head, tail) = text.trim().split_once(char::is_whitespace).unwrap_or((text.trim(), ""));
+  let tail = tail.trim();
+  match head.to_ascii_lowercase().as_str() {
+    "/user" => return Some(Local::User(tail.to_owned())),
+    "/tab" => return Some(Local::Goto(tail.to_owned())),
+    "/set" => {
+      let (k, v) = tail.split_once(char::is_whitespace).unwrap_or((tail, ""));
+      return Some(Local::Set(k.to_owned(), v.trim().to_owned()));
+    }
+    _ => {}
+  }
   match low.as_str() {
     "/settings" => Some(Local::Settings),
-    "/keys" => Some(Local::Keys),
+    "/keys" | "/help" => Some(Local::Keys),
+    "/lclear" => Some(Local::Lclear),
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
     "/status" | "/modes" => Some(Local::Status),

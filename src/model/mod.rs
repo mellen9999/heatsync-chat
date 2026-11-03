@@ -34,6 +34,7 @@ pub mod post;
 pub mod postcmd;
 pub mod preview;
 pub mod pronouns;
+pub mod quick;
 pub mod rules;
 pub mod schema;
 pub mod seen;

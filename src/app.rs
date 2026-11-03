@@ -41,6 +41,7 @@ mod picker;
 mod pin;
 mod pop;
 mod pronouns;
+mod quick;
 mod rover;
 mod screen;
 mod stats;
@@ -763,6 +764,10 @@ impl App {
       Local::Summary => self.summary_here(),
       Local::Status => self.status_here(),
       Local::ModTools => self.tools_here(),
+      Local::Lclear => self.lclear(),
+      Local::User(name) => self.user_cmd(&name),
+      Local::Goto(q) => self.goto_tab(&q),
+      Local::Set(k, v) => self.set_cmd(&k, &v),
     }
   }
 
@@ -773,6 +778,7 @@ impl App {
     if self.edit.is_some() {
       return self.edit_send();
     }
+    self.faces();
     if let Some(cmd) = local_cmd(&self.line.text) {
       self.line.take();
       self.local(cmd);

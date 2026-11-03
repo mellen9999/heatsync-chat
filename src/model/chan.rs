@@ -307,15 +307,11 @@ mod tests {
 
   #[test]
   fn saved_tabs_survive_a_restart() {
-    let dir = std::env::temp_dir().join(format!("hsc-tabs-{}", std::process::id()));
-    // SAFETY: only this test touches the process environment
-    unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
     let tabs = [sp("forsen", "forsen", "@fors"), sp("", "xqc", "")];
     let lines: Vec<Box<str>> = tabs.iter().map(|t| t.line().into()).collect();
     crate::store::save_tabs(&lines);
     let back: Vec<Spec> = crate::store::load_tabs().iter().filter_map(|l| Spec::from_line(l).ok()).collect();
     assert_eq!(back, tabs);
-    let _ = std::fs::remove_dir_all(dir);
   }
 
   #[test]
