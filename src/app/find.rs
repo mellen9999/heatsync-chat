@@ -14,7 +14,7 @@ impl App {
   }
 
   pub(super) fn find_open(&mut self) {
-    if self.kind() != Kind::Chat && self.logs.is_none() {
+    if self.kind() != Kind::Chat && self.logs_shown().is_none() {
       return self.say("search works in channel tabs");
     }
     if self.picker.is_some() {
@@ -54,7 +54,7 @@ impl App {
   // the prompt's text is the search, live
   pub(super) fn find_live(&mut self) {
     // the archive is asked once, on enter, not on every key
-    if self.logs.is_some() {
+    if self.logs_shown().is_some() {
       return;
     }
     if let Some(q) = self.prompt.as_ref().map(|l| l.text.clone()) {
@@ -90,6 +90,7 @@ impl App {
   pub(super) fn find_key(&mut self, key: Key<&str>, text: Option<&str>) {
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     let accepts = self.ime.accepts_key_text();
+    let logs = self.logs_shown().is_some();
     let Some(l) = self.prompt.as_mut() else { return };
     match key {
       Key::Named(NamedKey::Escape) => {
@@ -97,7 +98,7 @@ impl App {
         return;
       }
       // keep the filter, give the box back
-      Key::Named(NamedKey::Enter) if self.logs.is_some() => {
+      Key::Named(NamedKey::Enter) if logs => {
         let q = l.text.clone();
         self.close_prompt();
         self.logs_search(&q);

@@ -634,7 +634,7 @@ impl App {
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
     }
-    if let Some(l) = &self.logs {
+    if let Some(l) = self.logs_shown() {
       return l.hint();
     }
     if self.feedish() {
@@ -738,7 +738,7 @@ impl App {
   }
 
   fn send(&mut self) {
-    if self.logs.is_some() {
+    if self.logs_shown().is_some() {
       return self.say("you're reading chat logs: esc goes back");
     }
     if self.edit.is_some() {
@@ -1072,7 +1072,9 @@ impl App {
       let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
       let hint = match &self.prompt {
-        Some(_) if self.finding && self.logs.is_some() => "type a search · enter finds it · esc cancels".to_owned(),
+        Some(_) if self.finding && self.logs_shown().is_some() => {
+          "type a search · enter finds it · esc cancels".to_owned()
+        }
         Some(_) if self.finding => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
         Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
         None if show_hint => self.hint(),
@@ -1468,6 +1470,66 @@ impl App {
   }
 
   // vi normal mode: a picked line's keys first, then the space leader's chat commands, then vim on the box
+  // a key went down: the open layer first (form, screen, picture, prompt, picker, menus, the chat logs),
+  // then the box's mode
+  fn on_key(&mut self, k: Key<&str>, t: Option<&str>) {
+    if self.zoom_key(&k) {
+      return;
+    }
+    if self.form.is_some() {
+      if self.paste_key(&k) {
+        return;
+      }
+      return self.form_key(k, t);
+    }
+    if self.mods.control_key() && k == Key::Character(",") {
+      return self.toggle_screen(screen::Page::Settings);
+    }
+    if k == Key::Named(NamedKey::F1) {
+      return self.toggle_screen(screen::Page::Keys);
+    }
+    if self.screen.is_some() {
+      return self.screen_key(k, t);
+    }
+    if self.img_view.is_some() {
+      return self.img_key(k);
+    }
+    if self.mods.control_key() && k == Key::Character(";") {
+      return self.toggle_picker();
+    }
+    if self.paste_key(&k) {
+      return;
+    }
+    if self.prompt.is_some() {
+      return self.prompt_key(k, t);
+    }
+    if self.picker.is_some() {
+      return self.picker_key(k, t);
+    }
+    if self.pop.is_some() {
+      return self.pop_key(k);
+    }
+    if self.card.is_some() {
+      return self.card_key(k);
+    }
+    if self.tab_menu.is_some() {
+      return self.tab_menu_key(k);
+    }
+    if self.rover.is_some() {
+      return self.rover_key(k);
+    }
+    if self.menu.is_some() {
+      return self.menu_key(k);
+    }
+    if self.logs_key(k.clone()) {
+      return;
+    }
+    match self.mode {
+      Mode::Insert => self.key_insert(k, t),
+      Mode::Normal => self.key_normal(k),
+    }
+  }
+
   fn key_normal(&mut self, key: Key<&str>) {
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     if self.global_key(key.clone()) {
@@ -1899,61 +1961,7 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
         self.hide_tip();
         let (k, t) = (event.logical_key.as_ref(), event.text.as_deref());
-        if self.zoom_key(&k) {
-          return;
-        }
-        if self.form.is_some() {
-          if self.paste_key(&k) {
-            return;
-          }
-          return self.form_key(k, t);
-        }
-        if self.mods.control_key() && k == Key::Character(",") {
-          return self.toggle_screen(screen::Page::Settings);
-        }
-        if k == Key::Named(NamedKey::F1) {
-          return self.toggle_screen(screen::Page::Keys);
-        }
-        if self.screen.is_some() {
-          return self.screen_key(k, t);
-        }
-        if self.img_view.is_some() {
-          return self.img_key(k);
-        }
-        if self.mods.control_key() && k == Key::Character(";") {
-          return self.toggle_picker();
-        }
-        if self.paste_key(&k) {
-          return;
-        }
-        if self.prompt.is_some() {
-          return self.prompt_key(k, t);
-        }
-        if self.picker.is_some() {
-          return self.picker_key(k, t);
-        }
-        if self.pop.is_some() {
-          return self.pop_key(k);
-        }
-        if self.card.is_some() {
-          return self.card_key(k);
-        }
-        if self.tab_menu.is_some() {
-          return self.tab_menu_key(k);
-        }
-        if self.rover.is_some() {
-          return self.rover_key(k);
-        }
-        if self.menu.is_some() {
-          return self.menu_key(k);
-        }
-        if self.logs.is_some() && self.logs_key(k.clone()) {
-          return;
-        }
-        match self.mode {
-          Mode::Insert => self.key_insert(k, t),
-          Mode::Normal => self.key_normal(k),
-        }
+        self.on_key(k, t);
       }
       _ => {}
     }
@@ -2853,6 +2861,47 @@ mod live {
     assert_eq!(app.pronouns_of(app.card_twitch_id()), None);
     app.open_card(app.subject_of(&person("bob", "43")).unwrap());
     assert!(drain(&mut asked).is_empty(), "pronoundb never hears of bob");
+  }
+
+  #[test]
+  fn chat_logs_left_open_on_one_tab_keep_their_keys_to_that_tab() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+    (app.set.vi, app.mode) = (true, Mode::Normal);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.resized(720, 400);
+    let tab = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
+    let (a, b) = (tab(&app, "forsen"), tab(&app, "xqc"));
+    let line = |id: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "hello");
+      m.kind = crate::model::message::Kind::Chat;
+      (m.id, m.login, m.nick) = (id.into(), "bob".into(), "bob".into());
+      m
+    };
+    app.select(a);
+    app.tabs[a].chat().push(line("1"));
+    let who = app.subject_of(&line("1")).unwrap();
+    app.logs_open(&who);
+    assert!(app.logs_shown().is_some());
+    // off to another tab without closing them: its lines answer r and m as always
+    app.select(b);
+    app.tabs[b].chat().push(line("2"));
+    app.redraw();
+    assert!(app.logs_shown().is_none());
+    app.on_key(Key::Character("v"), Some("v"));
+    app.on_key(Key::Character("r"), Some("r"));
+    assert_eq!(app.reply.as_ref().map(|r| &*r.id), Some("2"), "r replies here, it doesn't refresh the hidden logs");
+    app.mode = Mode::Normal;
+    app.on_key(Key::Character("m"), Some("m"));
+    assert!(app.pop.is_some(), "the line menu opens");
+    app.pop = None;
+    assert!(!app.hint().contains("y copy link"), "the box speaks for this tab");
+    // back on their tab they are as left, and their keys work
+    app.select(a);
+    assert!(app.logs_shown().is_some());
+    app.on_key(Key::Character("q"), Some("q"));
+    assert!(app.logs.is_none() && app.tabs[a].under.is_none(), "q closes them");
   }
 
   #[test]

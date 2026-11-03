@@ -45,6 +45,13 @@ impl App {
     self.logs_fetch();
   }
 
+  // the logs while they are on screen. they belong to the tab they took over (it reads `← back` and
+  // keeps them while another tab is up), so nothing of theirs (keys, the line menu, the box's refusal)
+  // reaches another tab
+  pub(super) fn logs_shown(&self) -> Option<&Logs> {
+    self.logs.as_ref().filter(|_| self.takeover_tab() == Some(self.active))
+  }
+
   // esc / q / h / the `← back` tab: the tab's own lines return as they were left
   pub(super) fn logs_close(&mut self) {
     self.takeover_close();
@@ -184,7 +191,7 @@ impl App {
 
   // the view's own keys, ahead of the box's: it has no use for typing. false = not one of them
   pub(super) fn logs_key(&mut self, key: Key<&str>) -> bool {
-    if self.logs.is_none() || self.mods.control_key() || self.mods.alt_key() {
+    if self.logs_shown().is_none() || self.mods.control_key() || self.mods.alt_key() {
       return false;
     }
     match key {

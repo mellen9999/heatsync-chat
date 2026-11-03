@@ -224,11 +224,12 @@ impl App {
   // a reply opens its parent's thread, picked out once it lands (ext openThread's highlightId). it
   // takes over the tab it was opened from, which reads `← back` until it closes
   pub(super) fn feed_open(&mut self, id: &str) {
-    if self.logs.is_some() {
+    if self.logs_shown().is_some() {
       return;
     }
     let root = self.feed_root(id);
-    if self.thread_tab().is_some_and(|i| i != self.active) {
+    // one takeover at a time: a thread or the logs left on another tab go back first
+    if self.takeover_tab().is_some_and(|i| i != self.active) {
       self.takeover_close();
     }
     let w = self.body().w;

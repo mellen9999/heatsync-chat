@@ -362,7 +362,7 @@ impl App {
   // the menu for the selected line: its own actions, then mod actions when we moderate the room
   pub(super) fn open_line_menu(&mut self, at: (i32, i32)) {
     // a line in the chat logs has no reply and no mod rows: they would act on an old line
-    if self.logs.is_some() {
+    if self.logs_shown().is_some() {
       return;
     }
     let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions | Kind::Feed))
