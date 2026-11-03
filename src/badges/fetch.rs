@@ -59,6 +59,32 @@ pub async fn twitch_channel(http: &reqwest::Client, login: &str) -> Result<Twitc
   Ok(twitch_set(d.get("user").and_then(|u| u.get("broadcastBadges"))))
 }
 
+// a channel's own ffz mod and vip art (`/v1/room/id/{id}`), standing in for twitch's moderator/1 and
+// vip/1 there like the ext: 2x first, then 1x (mod also `moderator_badge`). glyphs on transparency, so
+// each sits on its tile: mod green, vip black
+pub fn ffz_room(v: &Value) -> TwitchSet {
+  let mut out = TwitchSet::new();
+  let Some(room) = v.get("room") else { return out };
+  let pick = |k: &str| room.get(k).and_then(|u| u.get("2").or_else(|| u.get("1"))).and_then(Value::as_str);
+  let rows = [
+    (
+      "moderator",
+      "moderator",
+      pick("mod_urls").or_else(|| room.get("moderator_badge").and_then(Value::as_str)),
+      crate::ui::theme::MOD_BADGE,
+    ),
+    ("vip", "vip", pick("vip_badge"), crate::ui::theme::BLACK),
+  ];
+  for (set, title, url, bg) in rows {
+    let Some(url) = url else { continue };
+    let url = url.strip_prefix("//").map_or_else(|| url.to_owned(), |r| format!("https://{r}"));
+    if url.len() <= 512 && allowed(&url) {
+      out.insert(key(set, "1"), Badge { url: url.into(), title: title.into(), bg: Some(bg) });
+    }
+  }
+  out
+}
+
 pub fn ffz(v: &Value) -> UserBadges {
   let mut out = UserBadges::default();
   let mut index = std::collections::HashMap::new();
@@ -140,5 +166,23 @@ mod tests {
     ));
     assert_eq!(s.len(), 1);
     assert_eq!(&*s[&key("moderator", "1")].title, "Moderator");
+  }
+
+  #[test]
+  fn ffz_room_mod_and_vip() {
+    let v = json!({"room": {
+      "mod_urls": {"1": "https://cdn.frankerfacez.com/room-badge/mod/id/1/v/a/1", "2": "https://cdn.frankerfacez.com/room-badge/mod/id/1/v/a/2"},
+      "vip_badge": {"1": "//cdn.frankerfacez.com/room-badge/vip/id/1/v/b/1"}
+    }});
+    let s = ffz_room(&v);
+    assert!(s[&key("moderator", "1")].url.ends_with("/2"), "2x first");
+    assert_eq!(s[&key("moderator", "1")].bg, Some(crate::ui::theme::MOD_BADGE));
+    assert_eq!(&*s[&key("vip", "1")].url, "https://cdn.frankerfacez.com/room-badge/vip/id/1/v/b/1");
+    let only_old =
+      json!({"room": {"mod_urls": null, "moderator_badge": "https://cdn.frankerfacez.com/room-badge/mod/id/1/v/a/1"}});
+    assert_eq!(ffz_room(&only_old).len(), 1);
+    let hostile = json!({"room": {"mod_urls": {"2": "https://evil.example/x"}, "vip_badge": {"1": 7}}});
+    assert!(ffz_room(&hostile).is_empty());
+    assert!(ffz_room(&json!({"room": null})).is_empty() && ffz_room(&json!(3)).is_empty());
   }
 }

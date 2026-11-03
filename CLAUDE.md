@@ -14,7 +14,7 @@ the heatsync browser extension's multichat overlay, as a standalone pure-rust wi
 - **cpu rendering only** (softbuffer + own blitter). no gpu context — that alone costs 30-80MB
 - **privacy invariant:** a word renders as a heatsync emote iff the SENDER's own inventory has it. catalog/search caches never feed the render path. one chokepoint
 - every server frame/response is hostile: bound sizes, validate urls against the image host allowlist (`docs/contract.md`)
-- palette: ansi 0-7 + `#444444` zebra, `#808080` dim (`#bcbcbc` on a zebra stripe), `#ff8700` heatsync, `#c8a8ff` twitch, `#5f0000`/`#870000` mention fill (ext's, plain/zebra row) — all in `src/ui/theme.rs`, nowhere else
+- palette: ansi 0-7 + `#444444` zebra, `#808080` dim (`#bcbcbc` on a zebra stripe), `#ff8700` heatsync, `#c8a8ff` twitch, `#00ad03` ffz mod badge tile, `#5f0000`/`#870000` mention fill (ext's, plain/zebra row) — all in `src/ui/theme.rs`, nowhere else
 - never a 🔥 on/next to a heat score
 - tokens never rendered or logged (streamer-safe)
 

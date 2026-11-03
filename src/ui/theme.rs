@@ -13,6 +13,8 @@ pub const DIM: u32 = 0x808080;
 pub const DIM_STRIPE: u32 = 0xbcbcbc;
 pub const HEATSYNC: u32 = 0xff8700;
 pub const TWITCH: u32 = 0xc8a8ff;
+// the tile behind a channel's own ffz mod badge (ext HS_MOD_GREEN): ffz's art is a glyph on transparency
+pub const MOD_BADGE: u32 = 0x00ad03;
 // a line that pings you (ext --hs-mention-bg); on a zebra row the lighter red, never the gray
 pub const MENTION_BG: u32 = 0x5f0000;
 pub const MENTION_STRIPE: u32 = 0x870000;

@@ -2116,6 +2116,13 @@ impl App {
         self.res.badges.set_twitch(ch.as_deref(), set);
         self.relayout_where(ch.as_deref());
       }
+      NetEvent::FfzRoomBadges(ch, set) => {
+        let had = !set.is_empty();
+        self.res.badges.set_ffz_room(&ch, set);
+        if had {
+          self.relayout_where(Some(&ch));
+        }
+      }
       NetEvent::UserBadges(src, set) => {
         self.res.badges.set_users(src, set);
         self.relayout_where(None);

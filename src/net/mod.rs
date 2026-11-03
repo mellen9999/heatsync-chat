@@ -44,6 +44,8 @@ pub enum NetEvent {
   Emotes(Option<Box<str>>, Provider, Set),
   Image(ImgId, u32, Result<decode::Decoded, String>),
   TwitchBadges(Option<Box<str>>, TwitchSet),
+  // a channel's own ffz mod / vip badge art
+  FfzRoomBadges(Box<str>, TwitchSet),
   // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
   Relay { platform: Platform, key: Box<str>, msgs: Vec<Message>, history: bool },
   RelayClear { platform: Platform, key: Box<str>, login: Box<str> },
@@ -337,6 +339,9 @@ async fn channel_emotes(
           // live edits for this channel's set; the broadcaster's own cosmetics too
           let user = providers::seventv_user_id(&v).zip(room.parse().ok());
           let _ = stv.send(seventv::Cmd::Watch { ch: ch.clone(), set, user });
+        }
+        if p == Provider::Ffz {
+          out.send(NetEvent::FfzRoomBadges(ch.clone(), badges::fetch::ffz_room(&v)));
         }
         out.send(NetEvent::Emotes(Some(ch.clone()), p, providers::parse_channel(p, &v)));
       }

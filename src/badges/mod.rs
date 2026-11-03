@@ -34,6 +34,8 @@ pub enum Source {
 pub struct Badges {
   global: TwitchSet,
   channels: HashMap<Box<str>, TwitchSet>,
+  // a channel's own ffz mod / vip art, over twitch's for those two (kept apart: either fetch can land first)
+  ffz_room: HashMap<Box<str>, TwitchSet>,
   ffz: UserBadges,
   chatterino: UserBadges,
 }
@@ -52,8 +54,13 @@ impl Badges {
     }
   }
 
+  pub fn set_ffz_room(&mut self, channel: &str, set: TwitchSet) {
+    self.ffz_room.insert(channel.into(), set);
+  }
+
   pub fn drop_channel(&mut self, channel: &str) {
     self.channels.remove(channel);
+    self.ffz_room.remove(channel);
   }
 
   pub fn set_users(&mut self, src: Source, b: UserBadges) {
@@ -66,12 +73,13 @@ impl Badges {
   // display order: twitch's own (tag order), then chatterino, then ffz
   pub fn for_message<'a>(&'a self, channel: &str, m: &Message) -> Vec<&'a Badge> {
     let ch = self.channels.get(channel);
+    let room = self.ffz_room.get(channel);
     let mut out: Vec<&Badge> = m
       .badges
       .iter()
       .filter_map(|(s, v)| {
         let k = key(s, v);
-        ch.and_then(|c| c.get(&k)).or_else(|| self.global.get(&k))
+        room.and_then(|r| r.get(&k)).or_else(|| ch.and_then(|c| c.get(&k))).or_else(|| self.global.get(&k))
       })
       .collect();
     if let Ok(uid) = m.user_id.parse::<u64>() {
@@ -107,5 +115,9 @@ mod tests {
       vec![("moderator".into(), "1".into()), ("subscriber".into(), "0".into()), ("nope".into(), "1".into())].into();
     let urls: Vec<&str> = bs.for_message("c", &m).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["g-mod", "c-sub", "ffz"]);
+    bs.set_ffz_room("c", [(key("moderator", "1"), b("ffz-mod"))].into());
+    let urls: Vec<&str> = bs.for_message("c", &m).iter().map(|b| &*b.url).collect();
+    assert_eq!(urls, ["ffz-mod", "c-sub", "ffz"], "the channel's ffz mod art wins");
+    assert_eq!(&*bs.for_message("other", &m)[0].url, "g-mod", "only in its own channel");
   }
 }
