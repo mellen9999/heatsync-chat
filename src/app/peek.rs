@@ -110,6 +110,8 @@ pub struct Peek {
   at: (i32, i32),
   // a mention's color may still arrive
   mention: bool,
+  // the line's own twitch id (a sender's name only): who pronoundb is asked about
+  uid: Box<str>,
 }
 
 impl App {
@@ -158,9 +160,9 @@ impl App {
       return false;
     }
     let (platform, chan) = (m.platform, self.room_of(m).filter(|_| m.platform == Platform::Twitch));
-    let (login, nick, color, mention) = match hit.mention {
-      Some(n) => (n.login.clone(), n.login, color::readable(n.color), true),
-      None => (m.login.clone(), m.nick.clone(), color::readable(m.color), false),
+    let (login, nick, color, mention, uid) = match hit.mention {
+      Some(n) => (n.login.clone(), n.login, color::readable(n.color), true, Box::default()),
+      None => (m.login.clone(), m.nick.clone(), color::readable(m.color), false, m.user_id.clone()),
     };
     if let Some(mut t) = self.tip.take() {
       t.release(&mut self.res);
@@ -171,9 +173,21 @@ impl App {
       Some(Load::Done(_) | Load::Loading) => None,
       _ => Some(Instant::now() + REST),
     };
-    self.peek = Some(Peek { platform, login, chan, nick, color, spot, at: self.pointer, mention });
+    self.peek = Some(Peek { platform, login, chan, nick, color, spot, at: self.pointer, mention, uid });
+    if self.peek_due.is_none() {
+      self.want_pronouns(self.peek_twitch_id());
+    }
     self.tip_repaint();
     true
+  }
+
+  pub(super) fn peek_twitch_id(&self) -> Option<u64> {
+    let p = self.peek.as_ref()?;
+    let info = match self.cards.get(p.platform, &p.login) {
+      Some(Load::Done(i)) => Some(i),
+      _ => None,
+    };
+    super::pronouns::twitch_id(p.platform, &p.uid, info)
   }
 
   // the pointer rested long enough: ask
@@ -184,6 +198,7 @@ impl App {
     if self.cards.want(platform, &login) {
       self.net.send(Cmd::Social(social::Cmd::Card { platform, login, channel }));
     }
+    self.want_pronouns(self.peek_twitch_id());
   }
 
   pub(super) fn hide_peek(&mut self) {
@@ -201,12 +216,14 @@ impl App {
     {
       p.color = color::readable(c.color);
     }
+    self.want_pronouns(self.peek_twitch_id());
     self.tip_repaint();
   }
 
   // painted over everything, with the emote popup
   pub(super) fn draw_peek(&mut self) -> Option<Rect> {
     let bounds = self.chat_area();
+    let pronouns = self.pronouns_of(self.peek_twitch_id()).map(str::to_owned);
     let p = self.peek.as_ref()?;
     let load = self.cards.get(p.platform, &p.login);
     let (rows, avatar): (&[(&'static str, String)], _) = match load {
@@ -218,6 +235,7 @@ impl App {
       hint: "",
       nick: &p.nick,
       color: if p.color == 0 { theme::WHITE } else { p.color },
+      pronouns: pronouns.as_deref(),
       tag: tag(p.platform),
       rows,
       note,

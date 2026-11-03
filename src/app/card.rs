@@ -41,6 +41,16 @@ pub struct Card {
   rect: Rect,
 }
 
+impl Card {
+  fn twitch_id(&self) -> Option<u64> {
+    let info = match &self.info {
+      Load::Done(i) => Some(i),
+      _ => None,
+    };
+    super::pronouns::twitch_id(self.who.platform, &self.who.user_id, info)
+  }
+}
+
 pub(super) fn tag(p: Platform) -> (&'static str, u32) {
   match p {
     Platform::Twitch => ("[T] ", crate::ui::theme::TWITCH),
@@ -73,7 +83,12 @@ impl App {
     self.hide_peek();
     self.card = Some(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) });
     self.pop = None;
+    self.want_pronouns(self.card_twitch_id());
     self.card_changed();
+  }
+
+  pub(super) fn card_twitch_id(&self) -> Option<u64> {
+    self.card.as_ref().and_then(Card::twitch_id)
   }
 
   pub(super) fn on_card(&mut self, platform: Platform, login: &str, res: Result<Info, u16>) {
@@ -87,6 +102,7 @@ impl App {
       Some(Load::Failed(why)) => Load::Failed(why),
       _ => Load::Loading,
     };
+    self.want_pronouns(self.card_twitch_id());
     self.card_changed();
   }
 
@@ -183,6 +199,7 @@ impl App {
   pub(super) fn draw_card(&mut self) -> Option<Rect> {
     let area = self.chat_area();
     let mine = self.card.as_ref().and_then(|c| self.note_of(c.who.platform, &c.who.login));
+    let pronouns = self.pronouns_of(self.card_twitch_id()).map(str::to_owned);
     let c = self.card.as_mut()?;
     let note = note_of(&c.info);
     let rows: &[(&'static str, String)] = match &c.info {
@@ -194,6 +211,7 @@ impl App {
       hint: "esc closes",
       nick: &c.who.nick,
       color: c.who.color,
+      pronouns: pronouns.as_deref(),
       tag: tag(c.who.platform),
       rows,
       note,

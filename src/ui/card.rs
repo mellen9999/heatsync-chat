@@ -15,6 +15,8 @@ const NOTE_SHOWN: usize = 600;
 pub struct View<'a> {
   pub nick: &'a str,
   pub color: u32,
+  // "he/they" beside the name (ext .hs-card-pronouns, dim); None = unknown or switched off
+  pub pronouns: Option<&'a str>,
   // dim words after the name ("esc closes"); empty = none
   pub hint: &'a str,
   // "[T] " style platform tag and its color
@@ -43,6 +45,10 @@ pub fn head(v: &View) -> (String, Vec<Span>) {
     spans.push(Span { range: a..s.len(), ink: Ink(ink), bold });
   };
   put(&mut s, v.nick, v.color, true);
+  if let Some(p) = v.pronouns {
+    put(&mut s, " ", theme::WHITE, false);
+    put(&mut s, p, theme::DIM, false);
+  }
   put(&mut s, "  ", theme::WHITE, false);
   put(&mut s, v.tag.0.trim_end(), v.tag.1, true);
   if !v.hint.is_empty() {
@@ -119,6 +125,7 @@ mod tests {
       hint: "",
       nick: "bob",
       color: 0,
+      pronouns: None,
       tag: ("[T] ", theme::TWITCH),
       rows: &[],
       note: None,
@@ -128,6 +135,26 @@ mod tests {
     assert!(head(&v).0.contains("note      likes cats\n"));
     let none = View { mine: None, ..v };
     assert!(!head(&none).0.contains("note"));
+  }
+
+  #[test]
+  fn pronouns_sit_dim_right_after_the_name() {
+    let v = View {
+      hint: "",
+      nick: "bob",
+      color: theme::GREEN,
+      pronouns: Some("she/they"),
+      tag: ("[T] ", theme::TWITCH),
+      rows: &[],
+      note: None,
+      mine: None,
+      recent: &[],
+    };
+    let (s, spans) = head(&v);
+    assert!(s.starts_with("bob she/they  [T]\n"), "{s:?}");
+    let p = spans.iter().find(|sp| &s[sp.range.clone()] == "she/they").expect("a span of its own");
+    assert_eq!((p.ink.0, p.bold), (theme::DIM, false));
+    assert!(head(&View { pronouns: None, ..v }).0.starts_with("bob  [T]\n"));
   }
 
   #[test]
@@ -141,6 +168,7 @@ mod tests {
       hint: "esc closes",
       nick: "Bob",
       color: theme::GREEN,
+      pronouns: Some("he/they"),
       tag: ("[T] ", theme::TWITCH),
       rows: &rows,
       note: None,

@@ -123,6 +123,11 @@
   "scope": "sync",
   "default": false
  },
+ "hs_show_pronouns": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "inlineNotifs": {
   "type": "boolmap",
   "scope": "sync",

@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 50] = [
+pub static DEFS: [Def; 51] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -297,6 +297,18 @@ pub static DEFS: [Def; 50] = [
     ctl: pick!(animate_emotes, Animate),
     fx: Fx::Look,
     wire: Wire::Name("animateEmotes"),
+  },
+  Def {
+    id: "pronouns",
+    cmd: Some("/pronouns"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "pronouns",
+    tip: "pronoundb.org pronouns on the user card + name popup (twitch only)",
+    alias: "hs_show_pronouns pronoundb",
+    ctl: pill!(pronouns),
+    fx: Fx::None,
+    wire: Wire::Bool("hs_show_pronouns"),
   },
   Def {
     id: "zoom",

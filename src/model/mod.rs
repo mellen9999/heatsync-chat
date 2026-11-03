@@ -28,6 +28,7 @@ pub mod pin;
 pub mod post;
 pub mod postcmd;
 pub mod preview;
+pub mod pronouns;
 pub mod rules;
 pub mod schema;
 pub mod seen;

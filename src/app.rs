@@ -36,6 +36,7 @@ mod peek;
 mod picker;
 mod pin;
 mod pop;
+mod pronouns;
 mod rover;
 mod screen;
 mod stream;
@@ -174,6 +175,7 @@ pub struct App {
   media_peek: Option<media_peek::MediaPeek>,
   peek_due: Option<Instant>,
   cards: peek::Cards,
+  pronouns: crate::model::pronouns::Pronouns,
   notes: crate::model::notes::Notes,
   occluded: bool,
   // the window was resized or shown again (after a fullscreen app, a hidden tag): the buffer or the
@@ -375,6 +377,7 @@ impl App {
       media_peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
+      pronouns: Default::default(),
       notes: crate::model::notes::Notes::load(),
       occluded: false,
       expose: false,
@@ -2057,6 +2060,7 @@ impl App {
       }
       NetEvent::ModDone(d) => self.on_mod_done(*d),
       NetEvent::Card { platform, login, res } => self.on_card(platform, &login, res),
+      NetEvent::Pronouns(uid, res) => self.on_pronouns(uid, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
@@ -2809,6 +2813,46 @@ mod live {
     app.resized(420, 240);
     app.redraw();
     assert!(lit(&app) > 300, "the chat paints again after a height-only resize, not only its animations");
+  }
+
+  #[test]
+  fn the_card_asks_pronoundb_once_and_shows_the_answer_beside_the_name() {
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.set.pronouns = true;
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.resized(720, 400);
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let person = |login: &str, uid: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "hi");
+      m.kind = crate::model::message::Kind::Chat;
+      (m.login, m.nick, m.user_id) = (login.into(), login.into(), uid.into());
+      m
+    };
+    let alice = person("alice", "42");
+    let who = app.subject_of(&alice).expect("a chatter");
+    let drain = |asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      std::iter::from_fn(|| asked.try_recv().ok())
+        .filter_map(|c| if let Cmd::Pronouns(u) = c { Some(u) } else { None })
+        .collect::<Vec<_>>()
+    };
+    app.open_card(who.clone());
+    assert_eq!(drain(&mut asked), vec![42], "her line's twitch id is asked about, at once");
+    assert_eq!(app.pronouns_of(app.card_twitch_id()), None, "nothing shows until it lands");
+    app.on_net(NetEvent::Pronouns(42, Ok(Some("she/they".into()))));
+    assert_eq!(app.pronouns_of(app.card_twitch_id()), Some("she/they"));
+    app.redraw();
+    // closed and opened again: the answer is kept, nothing is asked
+    app.card = None;
+    app.open_card(who);
+    assert!(drain(&mut asked).is_empty());
+    // switched off: nothing shows, nobody new is asked about
+    app.set.pronouns = false;
+    assert_eq!(app.pronouns_of(app.card_twitch_id()), None);
+    app.open_card(app.subject_of(&person("bob", "43")).unwrap());
+    assert!(drain(&mut asked).is_empty(), "pronoundb never hears of bob");
   }
 
   #[test]

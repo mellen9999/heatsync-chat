@@ -176,6 +176,9 @@ pub struct Settings {
   // chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // pronoundb pronouns beside a twitch name on the card and the name popup. default on, like the ext
+  // (hs_show_pronouns). off, pronoundb is never asked
+  pub pronouns: bool,
   // name paints move (scenes + effects). off freezes each to its first frame, like the ext's animatePaints
   pub paint_motion: bool,
   // stream lines: went live (on), went offline (off), game switch (on), chat-spike line (on)
@@ -242,6 +245,7 @@ impl Default for Settings {
       paints: true,
       ffz_badges: true,
       chatterino_badges: true,
+      pronouns: true,
       paint_motion: true,
       ev_online: true,
       ev_offline: false,
@@ -457,6 +461,7 @@ mod tests {
         paints: true,
         ffz_badges: true,
         chatterino_badges: true,
+        pronouns: true,
         paint_motion: true,
         ev_online: true,
         ev_offline: false,

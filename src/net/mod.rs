@@ -124,6 +124,8 @@ pub enum NetEvent {
   ModDone(Box<modact::Done>),
   // a link's preview (None: nothing to show)
   Preview(Box<str>, Option<crate::model::preview::Preview>),
+  // someone's pronouns (by twitch id): Ok(words or none set), Err = no answer
+  Pronouns(u64, Result<Option<Box<str>>, ()>),
   WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
 }
 
@@ -190,6 +192,8 @@ pub enum Cmd {
   Play(Box<str>),
   // a link's preview, from heatsync's resolver
   Preview(Box<str>),
+  // someone's pronouns from pronoundb, by twitch user id
+  Pronouns(u64),
   Emote(emote_ops::EmoteCmd),
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
@@ -217,6 +221,8 @@ const IMAGE_FETCHES: usize = 6;
 const DISK_CACHE_MAX: u64 = 256 << 20;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
 const MAX_PREVIEW: usize = 64 << 10;
+// a pronoundb answer for one id is a few dozen bytes
+const MAX_PRONOUNS: usize = 4 << 10;
 
 struct DecodeJob {
   id: ImgId,
@@ -265,7 +271,7 @@ async fn image(
     return;
   }
   let Ok(_permit) = gate.acquire().await else { return };
-  match capped(http.get(&*url).send().await).await {
+  match capped(http.get(&*url).send().await, MAX_IMAGE_BYTES).await {
     Ok(bytes) => {
       let _ = dec.send(DecodeJob { id, url, h, bytes, store: true });
     }
@@ -277,30 +283,43 @@ async fn image(
 // fetch_embed_resolve / logEmbed: no login, 6s, a small answer)
 async fn preview(http: reqwest::Client, url: Box<str>, out: Out) {
   let res = http.get(crate::model::preview::ask(&url)).timeout(Duration::from_secs(6)).send().await;
-  let p = match res {
-    Ok(r) if r.status().is_success() && r.content_length().is_none_or(|n| n <= MAX_PREVIEW as u64) => {
-      capped(Ok(r)).await.ok().filter(|b| b.len() <= MAX_PREVIEW)
-    }
-    _ => None,
-  };
-  let p = p
+  let p = capped(res, MAX_PREVIEW)
+    .await
+    .ok()
     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
     .and_then(|v| crate::model::preview::parse(&url, &v));
   out.send(NetEvent::Preview(url, p));
 }
 
-// the body, abandoned as soon as it passes the cap (a hostile host can't make us buffer it all)
-async fn capped(res: Result<reqwest::Response, reqwest::Error>) -> Result<Vec<u8>, String> {
+// pronoundb (ext fetch_pronouns): public, by twitch id, no token ever goes there. 5s at most
+async fn pronouns(http: reqwest::Client, uid: u64, out: Out) {
+  let r = http
+    .get(crate::model::pronouns::url(uid))
+    .header("accept", "application/json")
+    .timeout(Duration::from_secs(5))
+    .send()
+    .await;
+  let res = capped(r, MAX_PRONOUNS)
+    .await
+    .ok()
+    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    .map(|v| crate::model::pronouns::parse(&v, uid))
+    .ok_or(());
+  out.send(NetEvent::Pronouns(uid, res));
+}
+
+// the body, abandoned as soon as it passes `max` (a hostile host can't make us buffer it all)
+async fn capped(res: Result<reqwest::Response, reqwest::Error>, max: usize) -> Result<Vec<u8>, String> {
   let mut r = res.map_err(|e| e.to_string())?;
   if !r.status().is_success() {
     return Err(format!("http {}", r.status().as_u16()));
   }
-  if r.content_length().is_some_and(|n| n > MAX_IMAGE_BYTES as u64) {
+  if r.content_length().is_some_and(|n| n > max as u64) {
     return Err("too large".into());
   }
   let mut out = Vec::new();
   while let Some(c) = r.chunk().await.map_err(|e| e.to_string())? {
-    if out.len() + c.len() > MAX_IMAGE_BYTES {
+    if out.len() + c.len() > max {
       return Err("too large".into());
     }
     out.extend_from_slice(&c);
@@ -525,6 +544,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Update(c) => {
         tokio::spawn(update::run(http.clone(), c, out.clone()));
+      }
+      Cmd::Pronouns(uid) => {
+        tokio::spawn(pronouns(http.clone(), uid, out.clone()));
       }
       Cmd::Preview(url) => {
         tokio::spawn(preview(http.clone(), url, out.clone()));
