@@ -2,7 +2,9 @@
 // clip … in chat is asked of heatsync's resolver (`/api/embed/resolve`, which reads the provider's oembed),
 // and its answer draws under the line: the picture, a video's still with a ▶, or a card (still, where,
 // title, author). the answer is hostile: every string bounded, every url https and bounded. answers are
-// kept per link for the session (capped); a failure is kept too, so a dead link is asked once
+// kept per link for the session (capped); a failure is kept too, so a dead link is asked once. a heatsync
+// chat-log permalink (`/search/logs/<platform>/<channel>/<day>?m=<id>`) asks the archive instead and draws
+// the quoted line (ext logEmbed)
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -19,6 +21,8 @@ pub enum Kind {
   Audio,
   Image,
   Video,
+  // a quoted chat line: `author` said `title`, in `place`, at `ts`
+  Line,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,10 +36,74 @@ pub struct Preview {
   pub media: Option<Box<str>>,
   // moderation categories of the media (held unless the viewer's switch is on)
   pub flagged: Box<[Box<str>]>,
+  // a quoted line's `twitch/forsen`, the speaker's color (0 = none set), when (ms)
+  pub place: Box<str>,
+  pub color: u32,
+  pub ts: i64,
+}
+
+fn slug(s: &str, max: usize) -> bool {
+  !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+// a heatsync chat-log permalink: (platform, channel, message id)
+pub fn log_parts(url: &str) -> Option<(&'static str, String, String)> {
+  let rest = url.get(..8).filter(|p| p.eq_ignore_ascii_case("https://")).map(|_| &url[8..])?;
+  let (host, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+  let host = host.to_ascii_lowercase();
+  if host != "heatsync.org" && !host.strip_suffix(".heatsync.org").is_some_and(|h| slug(h, 63)) {
+    return None;
+  }
+  let (path, query) = tail.split_once('?').unwrap_or((tail, ""));
+  let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+  let [p, c] = match segs[..] {
+    ["search", "logs", p, c, _] | ["logs", p, c, _] => [p, c],
+    _ => return None,
+  };
+  let platform = ["twitch", "kick", "youtube"].into_iter().find(|k| k.eq_ignore_ascii_case(p))?;
+  let id = query.split(['&', '#']).find_map(|kv| kv.strip_prefix("m="))?;
+  (slug(c, 50) && slug(id, 64)).then(|| (platform, c.to_ascii_lowercase(), id.to_owned()))
+}
+
+// where to ask about `url`
+pub fn ask(url: &str) -> String {
+  match log_parts(url) {
+    Some((p, c, id)) => format!("https://heatsync.org/api/archive/message/{p}/{c}?id={id}"),
+    None => format!("https://heatsync.org/api/embed/resolve?url={}", crate::ui::embed::escape(url)),
+  }
+}
+
+// the archive's answer: `{message: {display_name, username, message, timestamp, platform, channel, color}}`
+fn line(url: &str, v: &Value) -> Option<Preview> {
+  let (platform, channel, _) = log_parts(url)?;
+  let m = v.get("message")?;
+  let title = text(m, "message", 500);
+  let mut author = text(m, "display_name", MAX_AUTHOR);
+  if author.is_empty() {
+    author = text(m, "username", MAX_AUTHOR);
+  }
+  if title.is_empty() || author.is_empty() {
+    return None;
+  }
+  Some(Preview {
+    kind: Kind::Line,
+    site: "heatsync",
+    title,
+    author,
+    thumb: None,
+    media: None,
+    flagged: Box::default(),
+    place: format!("{platform}/{channel}").into(),
+    color: m.get("color").and_then(Value::as_str).and_then(super::color::parse_hex).unwrap_or(0),
+    ts: m.get("timestamp").and_then(Value::as_str).and_then(crate::util::time::parse_iso).unwrap_or(0),
+  })
 }
 
 // the providers the ext asks the resolver about, by the link's host and path (ext _CHAT_URL_RE card list)
 pub fn site(url: &str) -> Option<&'static str> {
+  if log_parts(url).is_some() {
+    return Some("heatsync");
+  }
   let lower = url.to_ascii_lowercase();
   let rest = lower.strip_prefix("https://").or_else(|| lower.strip_prefix("http://"))?;
   let (host, path) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
@@ -73,6 +141,9 @@ fn link(v: &Value, key: &str) -> Option<Box<str>> {
 
 // the resolver's answer for `url`; None = nothing to show (an error, an unknown type)
 pub fn parse(url: &str, v: &Value) -> Option<Preview> {
+  if log_parts(url).is_some() {
+    return line(url, v);
+  }
   let kind = match v.get("type")?.as_str()? {
     "rich" => Kind::Rich,
     "audio" => Kind::Audio,
@@ -94,6 +165,9 @@ pub fn parse(url: &str, v: &Value) -> Option<Preview> {
         a.iter().filter_map(Value::as_str).take(8).map(|c| c.chars().take(32).collect::<String>().into()).collect()
       })
       .unwrap_or_default(),
+    place: Box::default(),
+    color: 0,
+    ts: 0,
   };
   // an image or a video with nothing to draw is a card; a card with nothing to say is nothing
   let empty = p.title.is_empty() && p.author.is_empty() && p.thumb.is_none();
@@ -203,6 +277,34 @@ mod tests {
     assert!(parse("https://example.com/", &json!({"type": "rich", "title": "x"})).is_none(), "not a provider");
     let v = parse("https://clips.twitch.tv/a", &json!({"type": "video", "title": "t"})).unwrap();
     assert_eq!(v.kind, Kind::Rich, "a video with no file or still is a card");
+  }
+
+  #[test]
+  fn chat_log_permalinks_quote_the_line() {
+    let u = "https://heatsync.org/search/logs/twitch/Zubatlel/2026-11-03?m=f6dd6ca7-86c2-487e-9324-d39b7109281a";
+    assert_eq!(log_parts(u), Some(("twitch", "zubatlel".into(), "f6dd6ca7-86c2-487e-9324-d39b7109281a".into())));
+    assert_eq!(
+      ask(u),
+      "https://heatsync.org/api/archive/message/twitch/zubatlel?id=f6dd6ca7-86c2-487e-9324-d39b7109281a"
+    );
+    assert!(log_parts("https://heatsync.org/logs/kick/a/2026-01-01?x=1&m=abc").is_some());
+    for bad in [
+      "https://evil.org/search/logs/twitch/a/2026-01-01?m=x",
+      "https://heatsync.org.evil.com/logs/twitch/a/d?m=x",
+      "http://heatsync.org/logs/twitch/a/d?m=x",
+      "https://heatsync.org/logs/irc/a/d?m=x",
+      "https://heatsync.org/logs/twitch/a/d",
+      "https://heatsync.org/logs/twitch/a/d?m=../../x",
+    ] {
+      assert_eq!(log_parts(bad), None, "{bad}");
+    }
+    let v = json!({"message": {"display_name": "Nightbot", "username": "nightbot", "message": "hi\nthere",
+      "timestamp": "2026-11-03T01:00:34.985Z", "color": "#7C7CE1", "message_html": "<img>"}});
+    let p = parse(u, &v).unwrap();
+    assert_eq!((p.kind, &*p.author, &*p.title, &*p.place), (Kind::Line, "Nightbot", "hithere", "twitch/zubatlel"));
+    assert_eq!(p.color, 0x7c7ce1);
+    assert!(p.ts > 0);
+    assert!(parse(u, &json!({"error": "Not found"})).is_none());
   }
 
   #[test]

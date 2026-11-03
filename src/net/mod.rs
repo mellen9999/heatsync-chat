@@ -253,10 +253,10 @@ async fn image(
   }
 }
 
-// ask heatsync's resolver what a link is (ext fetch_embed_resolve: no login, 6s, a small answer)
+// ask heatsync what a link is: its resolver, or its archive for a chat-log permalink (ext
+// fetch_embed_resolve / logEmbed: no login, 6s, a small answer)
 async fn preview(http: reqwest::Client, url: Box<str>, out: Out) {
-  let ask = format!("https://heatsync.org/api/embed/resolve?url={}", crate::ui::embed::escape(&url));
-  let res = http.get(ask).timeout(Duration::from_secs(6)).send().await;
+  let res = http.get(crate::model::preview::ask(&url)).timeout(Duration::from_secs(6)).send().await;
   let p = match res {
     Ok(r) if r.status().is_success() && r.content_length().is_none_or(|n| n <= MAX_PREVIEW as u64) => {
       capped(Ok(r)).await.ok().filter(|b| b.len() <= MAX_PREVIEW)

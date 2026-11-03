@@ -762,7 +762,7 @@ fn picture(
 }
 
 // a preview's card on its own line: the still (small), `[site]` cyan, the title white, the author dim; or
-// the held box. the whole of it is one link (a click opens it, or plays it)
+// the held box; or a quoted chat line. the whole of it is one link (a click opens it, or plays it)
 #[allow(clippy::too_many_arguments)]
 fn card(
   res: &mut Res,
@@ -796,17 +796,27 @@ fn card(
     }
   }
   let a = s.len();
-  let mut part = |s: &mut String, t: &str, ink: u32| {
+  let mut part = |s: &mut String, t: &str, ink: u32, bold: bool| {
     let b = s.len();
     s.push_str(t);
-    spans.push(Span { range: b..s.len(), ink: Ink(ink), bold: false });
+    spans.push(Span { range: b..s.len(), ink: Ink(ink), bold });
   };
-  part(s, &format!("[{}]", c.p.site), theme::CYAN);
-  if !c.p.title.is_empty() {
-    part(s, &format!(" {}", c.p.title), theme::WHITE);
-  }
-  if !c.p.author.is_empty() {
-    part(s, &format!(" · {}", c.p.author), theme::DIM);
+  if c.p.kind == PreviewKind::Line {
+    // ext .hs-log-embed: where and when, dim; the speaker in their color; what they said
+    let when = if c.p.ts > 0 { format!(" {}", hhmm(c.p.ts)) } else { String::new() };
+    part(s, &format!("{}{when} ", c.p.place), theme::DIM, false);
+    let ink =
+      if c.p.color == 0 { crate::model::color::default_for(&c.p.author.to_ascii_lowercase()) } else { c.p.color };
+    part(s, &c.p.author, crate::model::color::readable(ink), true);
+    part(s, &format!(": {}", c.p.title), theme::WHITE, false);
+  } else {
+    part(s, &format!("[{}]", c.p.site), theme::CYAN, false);
+    if !c.p.title.is_empty() {
+      part(s, &format!(" {}", c.p.title), theme::WHITE, false);
+    }
+    if !c.p.author.is_empty() {
+      part(s, &format!(" · {}", c.p.author), theme::DIM, false);
+    }
   }
   links.push(Link { range: 0..0, url: c.url.to_string() });
   link_runs.push((a..s.len(), links.len() - 1));

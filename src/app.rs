@@ -2849,6 +2849,20 @@ mod live {
       app.tabs[chat].view.link_at(area, x, y, res)
     });
     assert_eq!(hit.as_deref(), Some(link), "the card opens the post");
+    // a chat-log permalink quotes the line: the speaker in their color
+    let log = "https://heatsync.org/search/logs/twitch/zubatlel/2026-11-03?m=f6dd6ca7-86c2-487e-9324-d39b7109281a";
+    let mut m = Message::system(0, Platform::Twitch, log);
+    m.kind = crate::model::message::Kind::Chat;
+    m.nick = "bob".into();
+    m.login = "bob".into();
+    app.on_chat("forsen", Chat::Msg(m));
+    app.redraw();
+    let v = serde_json::json!({"message": {"display_name": "Nightbot", "message": "quoted words",
+      "timestamp": "2026-11-03T01:00:34.985Z", "color": "#00ff00"}});
+    app.on_net(NetEvent::Preview(log.into(), crate::model::preview::parse(log, &v)));
+    app.redraw();
+    crate::bench::dump(&app.canvas);
+    assert!(app.canvas.px.iter().filter(|&&p| p == 0x00ff00).count() > 40, "the quoted speaker in green");
   }
 
   // a youtube link: its still under the line with a ▶, a hand over it, a click plays it (never the
