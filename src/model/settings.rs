@@ -396,6 +396,8 @@ pub enum Local {
   Summary,
   // /status: the twitch channel's stream and chat modes
   Status,
+  // /modtools: shield, automod, unban requests, chatters
+  ModTools,
 }
 
 pub fn local_cmd(text: &str) -> Option<Local> {
@@ -441,6 +443,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
     "/status" | "/modes" => Some(Local::Status),
+    "/modtools" | "/unbanrequests" => Some(Local::ModTools),
     w => schema::switch_for(w).map(|d| Local::Toggle(d.id)),
   }
 }

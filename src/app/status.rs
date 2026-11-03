@@ -77,6 +77,7 @@ fn rows(chan: &str, info: Option<&Option<Info>>, modes: Option<&Modes>, can: boo
   put(row("stream summary".into()), Target::Summary);
   if can {
     put(row("blocked terms".into()), Target::BlockedTerms);
+    put(row("mod tools".into()), Target::ModTools);
   }
   (lines, marks)
 }
@@ -154,6 +155,7 @@ impl App {
         }
       }
       (Target::BlockedTerms, None) => self.blocked_open(chan),
+      (Target::ModTools, None) => self.tools_open(chan),
       _ => {}
     }
   }

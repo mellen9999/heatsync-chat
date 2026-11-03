@@ -23,16 +23,19 @@ pub enum Page {
   Summary,
   // a twitch channel's stream and chat modes (app::status)
   Status,
+  // a twitch room's mod tools (app::modtools)
+  ModTools,
 }
 
 pub struct Screen {
   page: Page,
-  st: State,
+  pub(super) st: State,
   pub(super) q: Line,
   pub(super) typing: bool,
   // the first g of gg
   chord: bool,
   pub(super) bt: Option<Box<super::blocked::Bt>>,
+  pub(super) mt: Option<Box<super::modtools::Mt>>,
   // the summary: whose (tab name), and its title and lines as last read
   pub(super) of: Box<str>,
   pub(super) title: String,
@@ -55,6 +58,11 @@ pub(super) enum Target {
   Mode(crate::model::modes::Mode),
   Summary,
   BlockedTerms,
+  ModTools,
+  // mod tools: shield mode, an automod level (its place), an unban request (its place)
+  Shield,
+  Level(u8),
+  Unban(usize),
   None,
 }
 
@@ -78,6 +86,7 @@ impl Screen {
       typing: false,
       chord: false,
       bt: None,
+      mt: None,
       of: "".into(),
       title: String::new(),
       shown: Vec::new(),
@@ -109,6 +118,7 @@ impl Screen {
       Page::Blocked => self.bt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |b| b.lines(&self.q.text)),
       Page::Summary => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::Status => (self.shown.clone(), self.marks.clone()),
+      Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
     }
   }
 
@@ -310,7 +320,13 @@ impl App {
   // ---- keys and the mouse ----
 
   pub(super) fn screen_key(&mut self, key: Key<&str>, text: Option<&str>) {
-    if self.screen.as_ref().is_some_and(|s| s.page == Page::Blocked) && self.blocked_key(&key, text) {
+    let page = self.screen.as_ref().map(|s| s.page);
+    let spent = match page {
+      Some(Page::Blocked) => self.blocked_key(&key, text),
+      Some(Page::ModTools) => self.tools_key(&key),
+      _ => false,
+    };
+    if spent {
       if let Some(s) = self.screen.as_mut() {
         let (lines, _) = s.lines(&self.set);
         s.st.settle(&lines);
@@ -356,7 +372,7 @@ impl App {
         Key::Character("g") => s.chord = true,
         Key::Named(NamedKey::Home) => s.st.first(&lines),
         Key::Character("G") | Key::Named(NamedKey::End) => s.st.last(&lines),
-        Key::Character("/") if matches!(s.page, Page::Settings | Page::Blocked) => s.typing = true,
+        Key::Character("/") if matches!(s.page, Page::Settings | Page::Blocked | Page::ModTools) => s.typing = true,
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
         Key::Character("?") => act = Do::Settings,
         Key::Named(NamedKey::Enter | NamedKey::Space) if !ctrl => act = Do::Toggle,
@@ -416,8 +432,15 @@ impl App {
         Ctl::Words(_) | Ctl::Patterns | Ctl::Rules => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
+      (Some(t @ (Target::Allow | Target::Retry | Target::Shield | Target::Level(_) | Target::Unban(_))), _)
+        if s.page == Page::ModTools =>
+      {
+        self.tools_pick(t, adjust)
+      }
       (Some(t @ (Target::Term(_) | Target::Allow | Target::Retry)), None) => self.blocked_pick(t),
-      (Some(t @ (Target::Mode(_) | Target::Summary | Target::BlockedTerms)), _) => self.status_pick(t, adjust),
+      (Some(t @ (Target::Mode(_) | Target::Summary | Target::BlockedTerms | Target::ModTools)), _) => {
+        self.status_pick(t, adjust)
+      }
       _ => {}
     }
   }
@@ -464,6 +487,7 @@ impl App {
       _ => "",
     };
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
+    let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
     let (title, search, keys) = match (s.page, s.bt.as_deref()) {
       (Page::Blocked, Some(b)) => (
         bt_title.as_str(),
@@ -492,14 +516,26 @@ impl App {
         },
       ),
       (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
+      (Page::ModTools, _) => (
+        mt_title.as_str(),
+        Some((s.q.text.as_str(), s.typing, "/ filter", "/ ")),
+        if s.typing {
+          "type to filter · enter or esc stops"
+        } else if s.mt.as_ref().is_some_and(|m| m.confirm.is_some()) {
+          "y yes · n no"
+        } else {
+          "j k move · enter flips · h l level · y approve · x deny · r reload · esc"
+        },
+      ),
       (Page::Status, _) if s.marks.iter().any(|t| matches!(t, Target::BlockedTerms)) => {
         (s.title.as_str(), None, "j k move · enter flips · h l wait · esc closes")
       }
       (Page::Status, _) => (s.title.as_str(), None, "j k move · enter opens · esc closes"),
       _ => ("keys", None, "j k scroll · ? settings · esc closes"),
     };
-    let tip = match s.bt.as_deref() {
-      Some(b) if s.page == Page::Blocked => b.msg.as_str(),
+    let tip = match (s.bt.as_deref(), s.mt.as_deref()) {
+      (Some(b), _) if s.page == Page::Blocked => b.msg.as_str(),
+      (_, Some(m)) if s.page == Page::ModTools => m.msg.as_str(),
       _ => tip,
     };
     let v = sheet::View { title, search, lines: &lines, tip, keys, col: None };

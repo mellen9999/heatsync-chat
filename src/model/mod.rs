@@ -24,6 +24,7 @@ pub mod message;
 pub mod modcmd;
 pub mod modes;
 pub mod modsuite;
+pub mod modtools;
 pub mod notes;
 pub mod pace;
 pub mod pathcomp;

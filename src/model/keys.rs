@@ -136,6 +136,7 @@ pub static KEYS: [Group; 12] = [
       ("allow / deny", "an automod hold: click, or its line menu"),
       ("/blocked", "blocked terms: j k move, x delete, a add, / filter"),
       ("/warn /shoutout /shield", "warn with a reason, shout out, shield mode"),
+      ("/modtools", "shield, automod (h l), unban requests (y approve, x deny), chatters"),
       ("/status", "stream and chat modes: enter flips a mode, h l its wait"),
       ("/slow /followers", "a wait, or off: /slow 30, /followers 10m"),
       ("/emoteonly /subscribers /unique", "on, or off: /emoteonly off"),

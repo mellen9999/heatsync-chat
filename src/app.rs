@@ -34,6 +34,7 @@ mod media_peek;
 mod mentions;
 mod mods;
 mod modsuite;
+mod modtools;
 mod notes;
 mod peek;
 mod picker;
@@ -761,6 +762,7 @@ impl App {
       Local::Blocked => self.blocked_here(),
       Local::Summary => self.summary_here(),
       Local::Status => self.status_here(),
+      Local::ModTools => self.tools_here(),
     }
   }
 
@@ -2133,6 +2135,7 @@ impl App {
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
       NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
       NetEvent::Suite { chan, cmd, res } => self.on_suite(chan, cmd, res),
+      NetEvent::Tools { chan, res } => self.on_tools(chan, res),
       NetEvent::TagCard(tag, res) => self.on_tag_card(tag, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
