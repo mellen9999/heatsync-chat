@@ -1,0 +1,209 @@
+{
+ "animateEmotes": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "always",
+  "options": [
+   "always",
+   "hover",
+   "never"
+  ]
+ },
+ "animatePaints": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "always",
+  "options": [
+   "always",
+   "never"
+  ]
+ },
+ "autoHideEmpty": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "firstChatterGlow": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "hermesEvents": {
+  "type": "boolmap",
+  "scope": "sync",
+  "default": {
+   "online": true,
+   "offline": false,
+   "gameSwitch": true,
+   "raid": true,
+   "hype": false,
+   "sub": true,
+   "redeem": true,
+   "pred": true,
+   "poll": true,
+   "ytSuperchat": true,
+   "ytSupersticker": true,
+   "ytMembership": true,
+   "ytMilestone": true,
+   "ytGiftMemberships": true
+  },
+  "options": [
+   "online",
+   "offline",
+   "gameSwitch",
+   "raid",
+   "hype",
+   "sub",
+   "redeem",
+   "pred",
+   "poll",
+   "ytSuperchat",
+   "ytSupersticker",
+   "ytMembership",
+   "ytMilestone",
+   "ytGiftMemberships"
+  ]
+ },
+ "hiddenTabs": {
+  "type": "multiselect",
+  "scope": "sync",
+  "default": [
+   "pinned",
+   "modlog",
+   "discover"
+  ],
+  "options": [
+   "feed",
+   "discover",
+   "whispers",
+   "mentions",
+   "pinned",
+   "modlog"
+  ]
+ },
+ "hideBots": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "hideCommands": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "hideDuplicates": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "inlineNotifs": {
+  "type": "boolmap",
+  "scope": "sync",
+  "default": {
+   "op": true,
+   "mop": true,
+   "re": true,
+   "dm": false,
+   "moment": true
+  },
+  "options": [
+   "op",
+   "mop",
+   "re",
+   "dm",
+   "moment"
+  ]
+ },
+ "lineHeight": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "20",
+  "options": [
+   "20",
+   "22",
+   "26"
+  ]
+ },
+ "mediaEmbedsEnabled": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "mentionSoundVolume": {
+  "type": "range",
+  "scope": "sync",
+  "default": 0.3,
+  "min": 0,
+  "max": 1
+ },
+ "mentionTitleFlash": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "modConfirmBan": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "partialLinksEnabled": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "sevenTvPaints": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "showPlatformBadges": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "tabCounter": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "unread",
+  "options": [
+   "off",
+   "unread",
+   "heat"
+  ]
+ },
+ "tabPosition": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "top",
+  "options": [
+   "top",
+   "right",
+   "bottom",
+   "left"
+  ]
+ },
+ "timestampFormat": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "24h",
+  "options": [
+   "24h",
+   "12h"
+  ]
+ },
+ "timestamps": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "viMode": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
+ "zebra": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ }
+}

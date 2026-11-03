@@ -25,7 +25,7 @@ pub enum Side {
 
 impl Side {
   // the ext's order, which h / l step through
-  const ALL: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
+  pub const ALL: [Side; 4] = [Side::Top, Side::Right, Side::Bottom, Side::Left];
 
   pub fn name(self) -> &'static str {
     match self {
@@ -57,7 +57,7 @@ pub enum Counter {
 }
 
 impl Counter {
-  const ALL: [Counter; 3] = [Counter::Off, Counter::Unread, Counter::Heat];
+  pub const ALL: [Counter; 3] = [Counter::Off, Counter::Unread, Counter::Heat];
 
   pub fn name(self) -> &'static str {
     match self {

@@ -98,6 +98,10 @@ pub enum NetEvent {
   Deleted { id: Box<str>, res: Result<(), u16> },
   // you last looked at a tab at `at` (here at login, or on another client since)
   Seen { surface: crate::model::unseen::Surface, at: i64 },
+  // your settings as the account holds them (only the keys the window maps)
+  UiState(crate::model::sync::Inbound),
+  // the heatsync socket is signed in (or is not, again)
+  HsAuth(bool),
   Posted { res: Result<crate::model::post::Post, u16> },
   // a page of the chat-log viewer, or the http status that said why not (0 = no answer); `epoch` names the ask
   Logs { epoch: u32, res: Result<crate::model::logs::Page, u16> },

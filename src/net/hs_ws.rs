@@ -33,6 +33,8 @@ pub enum Cmd {
   YtUnsub(Box<str>),
   // sign the socket in with the heatsync session (None = signed out)
   Auth(Option<String>),
+  // settings you changed, for the account (the patch is only keys model::sync wrote)
+  UiSync(Value),
 }
 
 fn plat(p: Platform) -> &'static str {
@@ -71,7 +73,10 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
     match timeout(HANDSHAKE_LIMIT, connect_async(URL)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
-        match session(ws, &mut rx, &mut st, &pins, &out).await {
+        let ended = session(ws, &mut rx, &mut st, &pins, &out).await;
+        // nothing is signed in on the next socket until it says so
+        out.send(NetEvent::HsAuth(false));
+        match ended {
           End::Quit => return,
           End::Shutdown(spread) => {
             let ms = crate::util::time::now_ms().unsigned_abs() % spread.clamp(1000, 60_000);
@@ -123,6 +128,7 @@ fn apply(st: &mut State, c: Cmd) -> Option<Value> {
       st.token = t;
       None
     }
+    Cmd::UiSync(patch) => Some(json!({"type": "ui-state:sync", "patch": patch})),
     Cmd::YtSub(h) if valid_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
@@ -397,6 +403,12 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       use crate::model::unseen::{Surface, at};
       let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?)?;
       send(NetEvent::Seen { surface, at: at(v.get("at"))? })
+    }
+    "authenticated" => send(NetEvent::HsAuth(true)),
+    // your settings as the account holds them (the full state from a write, or the changed keys from the site)
+    "ui-state:update" => {
+      let (state, _) = crate::model::sync::pluck(v.get("state")?);
+      (!state.is_empty()).then(|| send(NetEvent::UiState(state))).flatten()
     }
     "whisper:new" => {
       let w = crate::model::whisper::parse(v, 0, None)?;

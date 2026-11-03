@@ -33,6 +33,7 @@ pub mod settings;
 pub mod slash;
 pub mod stream_events;
 pub mod suggest;
+pub mod sync;
 pub mod tab_count;
 pub mod tabs;
 pub mod unseen;

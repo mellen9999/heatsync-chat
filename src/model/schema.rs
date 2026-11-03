@@ -68,6 +68,34 @@ pub enum Ctl {
   Words(bool),
 }
 
+// how a row travels to and from the account's ui-state (model/sync.rs holds the codecs). the ext's key
+// names are its storage names, never renamed; rows with none stay on this device
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Wire {
+  None,
+  // an on/off switch under its own key
+  Bool(&'static str),
+  // a named choice: the ext stores the choice's name
+  Name(&'static str),
+  // a switch the ext stores as "always" / "never"
+  Anim(&'static str),
+  // a volume the ext stores as 0..1
+  Level(&'static str),
+  // one flag of a {name: bool} map shared with other flags
+  Flag(&'static str, &'static str),
+  // one built-in tab: shown unless its id is in a list of hidden ids shared with other tabs
+  Hidden(&'static str, &'static str),
+}
+
+impl Wire {
+  pub fn key(self) -> Option<&'static str> {
+    match self {
+      Wire::None => None,
+      Wire::Bool(k) | Wire::Name(k) | Wire::Anim(k) | Wire::Level(k) | Wire::Flag(k, _) | Wire::Hidden(k, _) => Some(k),
+    }
+  }
+}
+
 pub struct Def {
   // the key in the settings file
   pub id: &'static str,
@@ -81,6 +109,8 @@ pub struct Def {
   pub alias: &'static str,
   pub ctl: Ctl,
   pub fx: Fx,
+  // where the heatsync account keeps it (the ext's key), so it follows you between clients
+  pub wire: Wire,
 }
 
 macro_rules! pill {
@@ -106,6 +136,7 @@ pub static DEFS: [Def; 44] = [
     alias: "firstchatter first chatter",
     ctl: pill!(first_glow),
     fx: Fx::Glow,
+    wire: Wire::Bool("firstChatterGlow"),
   },
   Def {
     id: "auto_hide",
@@ -117,6 +148,7 @@ pub static DEFS: [Def; 44] = [
     alias: "autohide",
     ctl: pill!(auto_hide),
     fx: Fx::None,
+    wire: Wire::Bool("autoHideEmpty"),
   },
   Def {
     id: "timestamps",
@@ -128,6 +160,7 @@ pub static DEFS: [Def; 44] = [
     alias: "timestamps clock time",
     ctl: pill!(timestamps),
     fx: Fx::Look,
+    wire: Wire::Bool("timestamps"),
   },
   Def {
     id: "time_fmt",
@@ -139,6 +172,7 @@ pub static DEFS: [Def; 44] = [
     alias: "timestampFormat 12h 24h clock am pm",
     ctl: pick!(time_fmt, TimeFmt),
     fx: Fx::Look,
+    wire: Wire::Name("timestampFormat"),
   },
   Def {
     id: "zebra",
@@ -150,6 +184,7 @@ pub static DEFS: [Def; 44] = [
     alias: "zebra stripes rows",
     ctl: pill!(zebra),
     fx: Fx::Look,
+    wire: Wire::Bool("zebra"),
   },
   Def {
     id: "readable",
@@ -161,6 +196,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hs_readable_names readablenames contrast",
     ctl: pill!(readable),
     fx: Fx::Look,
+    wire: Wire::None,
   },
   Def {
     id: "platform_tags",
@@ -172,6 +208,7 @@ pub static DEFS: [Def; 44] = [
     alias: "showPlatformBadges platform badges",
     ctl: pill!(platform_tags),
     fx: Fx::Look,
+    wire: Wire::Bool("showPlatformBadges"),
   },
   Def {
     id: "emote_size",
@@ -183,6 +220,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hs_emote_size scale",
     ctl: pick!(emote_size, EmoteSize),
     fx: Fx::Look,
+    wire: Wire::None,
   },
   Def {
     id: "paints",
@@ -194,6 +232,7 @@ pub static DEFS: [Def; 44] = [
     alias: "sevenTvPaints seventv cosmetics",
     ctl: pill!(paints),
     fx: Fx::Paints,
+    wire: Wire::Bool("sevenTvPaints"),
   },
   Def {
     id: "paint_motion",
@@ -205,6 +244,7 @@ pub static DEFS: [Def; 44] = [
     alias: "animatePaints motion scenes effects reduced",
     ctl: pill!(paint_motion),
     fx: Fx::PaintMotion,
+    wire: Wire::Anim("animatePaints"),
   },
   Def {
     id: "animate_emotes",
@@ -216,6 +256,7 @@ pub static DEFS: [Def; 44] = [
     alias: "animateEmotes gif motion static reduced",
     ctl: pick!(animate_emotes, Animate),
     fx: Fx::Look,
+    wire: Wire::Name("animateEmotes"),
   },
   Def {
     id: "zoom",
@@ -227,6 +268,7 @@ pub static DEFS: [Def; 44] = [
     alias: "size scale font",
     ctl: Ctl::Zoom,
     fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "line_height",
@@ -238,6 +280,7 @@ pub static DEFS: [Def; 44] = [
     alias: "lineHeight line spacing",
     ctl: pick!(line_height, LineHeight),
     fx: Fx::Look,
+    wire: Wire::Name("lineHeight"),
   },
   Def {
     id: "tab_side",
@@ -249,6 +292,7 @@ pub static DEFS: [Def; 44] = [
     alias: "tabPosition tab bar side",
     ctl: Ctl::Side,
     fx: Fx::None,
+    wire: Wire::Name("tabPosition"),
   },
   Def {
     id: "tab_counter",
@@ -260,6 +304,7 @@ pub static DEFS: [Def; 44] = [
     alias: "tabCounter unread heat count number",
     ctl: Ctl::Counter,
     fx: Fx::None,
+    wire: Wire::Name("tabCounter"),
   },
   Def {
     id: "vi",
@@ -271,6 +316,7 @@ pub static DEFS: [Def; 44] = [
     alias: "viMode vim keys",
     ctl: pill!(vi),
     fx: Fx::Vi,
+    wire: Wire::Bool("viMode"),
   },
   Def {
     id: "media",
@@ -282,6 +328,7 @@ pub static DEFS: [Def; 44] = [
     alias: "mediaembeds embeds pictures",
     ctl: pill!(media),
     fx: Fx::Media,
+    wire: Wire::Bool("mediaEmbedsEnabled"),
   },
   Def {
     id: "partial_links",
@@ -293,6 +340,7 @@ pub static DEFS: [Def; 44] = [
     alias: "partiallinks defang",
     ctl: pill!(partial_links),
     fx: Fx::Links,
+    wire: Wire::Bool("partialLinksEnabled"),
   },
   Def {
     id: "highlights",
@@ -304,6 +352,7 @@ pub static DEFS: [Def; 44] = [
     alias: "keywordhighlights words",
     ctl: Ctl::Words(true),
     fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "dim_timeouts",
@@ -315,6 +364,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hs_dim_timeouts dimtimeouts timeout ban",
     ctl: pill!(dim_timeouts),
     fx: Fx::Look,
+    wire: Wire::None,
   },
   Def {
     id: "updates",
@@ -326,6 +376,7 @@ pub static DEFS: [Def; 44] = [
     alias: "update upgrade new version",
     ctl: pill!(updates),
     fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "notify",
@@ -337,6 +388,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hs_notifications browser notification",
     ctl: pill!(notify),
     fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "mention_volume",
@@ -348,6 +400,7 @@ pub static DEFS: [Def; 44] = [
     alias: "mentionSoundVolume ping audio sound volume",
     ctl: pick!(mention_volume, Volume),
     fx: Fx::None,
+    wire: Wire::Level("mentionSoundVolume"),
   },
   Def {
     id: "title_flash",
@@ -359,6 +412,7 @@ pub static DEFS: [Def; 44] = [
     alias: "mentionTitleFlash tab title flash",
     ctl: pill!(title_flash),
     fx: Fx::None,
+    wire: Wire::Bool("mentionTitleFlash"),
   },
   Def {
     id: "ev_online",
@@ -370,6 +424,7 @@ pub static DEFS: [Def; 44] = [
     alias: "online",
     ctl: pill!(ev_online),
     fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "online"),
   },
   Def {
     id: "ev_offline",
@@ -381,6 +436,7 @@ pub static DEFS: [Def; 44] = [
     alias: "offline",
     ctl: pill!(ev_offline),
     fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "offline"),
   },
   Def {
     id: "ev_game",
@@ -392,6 +448,7 @@ pub static DEFS: [Def; 44] = [
     alias: "game category",
     ctl: pill!(ev_game),
     fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "gameSwitch"),
   },
   Def {
     id: "inline_op",
@@ -403,6 +460,7 @@ pub static DEFS: [Def; 44] = [
     alias: "inline op feed posts",
     ctl: pill!(inline_op),
     fx: Fx::None,
+    wire: Wire::Flag("inlineNotifs", "op"),
   },
   Def {
     id: "inline_mop",
@@ -414,6 +472,7 @@ pub static DEFS: [Def; 44] = [
     alias: "inline op reply feed",
     ctl: pill!(inline_mop),
     fx: Fx::None,
+    wire: Wire::Flag("inlineNotifs", "mop"),
   },
   Def {
     id: "inline_re",
@@ -425,6 +484,7 @@ pub static DEFS: [Def; 44] = [
     alias: "inline re feed replies",
     ctl: pill!(inline_re),
     fx: Fx::None,
+    wire: Wire::Flag("inlineNotifs", "re"),
   },
   Def {
     id: "moments",
@@ -436,6 +496,7 @@ pub static DEFS: [Def; 44] = [
     alias: "spike heat",
     ctl: pill!(moments),
     fx: Fx::None,
+    wire: Wire::Flag("inlineNotifs", "moment"),
   },
   Def {
     id: "confirm_ban",
@@ -447,6 +508,7 @@ pub static DEFS: [Def; 44] = [
     alias: "modConfirmBan",
     ctl: pill!(confirm_ban),
     fx: Fx::None,
+    wire: Wire::Bool("modConfirmBan"),
   },
   Def {
     id: "hide_bots",
@@ -458,6 +520,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hideBots",
     ctl: pill!(hide_bots),
     fx: Fx::Filters,
+    wire: Wire::Bool("hideBots"),
   },
   Def {
     id: "hide_cmds",
@@ -469,6 +532,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hideCommands",
     ctl: pill!(hide_cmds),
     fx: Fx::Filters,
+    wire: Wire::Bool("hideCommands"),
   },
   Def {
     id: "hide_dupes",
@@ -480,6 +544,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hideDuplicates spam",
     ctl: pill!(hide_dupes),
     fx: Fx::Filters,
+    wire: Wire::Bool("hideDuplicates"),
   },
   Def {
     id: "hidden_words",
@@ -491,6 +556,7 @@ pub static DEFS: [Def; 44] = [
     alias: "hideword hidden words",
     ctl: Ctl::Words(false),
     fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "show_nsfw",
@@ -502,6 +568,7 @@ pub static DEFS: [Def; 44] = [
     alias: "viewer_show_sexual sexual cw content warning sensitive",
     ctl: pill!(show_nsfw),
     fx: Fx::Content,
+    wire: Wire::None,
   },
   Def {
     id: "show_violence",
@@ -513,6 +580,7 @@ pub static DEFS: [Def; 44] = [
     alias: "viewer_show_gore gore cw content warning sensitive",
     ctl: pill!(show_violence),
     fx: Fx::Content,
+    wire: Wire::None,
   },
   Def {
     id: "show_weapons",
@@ -524,6 +592,7 @@ pub static DEFS: [Def; 44] = [
     alias: "viewer_show_weapon weapon cw content warning sensitive",
     ctl: pill!(show_weapons),
     fx: Fx::Content,
+    wire: Wire::None,
   },
   Def {
     id: "show_drugs",
@@ -535,6 +604,7 @@ pub static DEFS: [Def; 44] = [
     alias: "viewer_show_drug drug cw content warning sensitive",
     ctl: pill!(show_drugs),
     fx: Fx::Content,
+    wire: Wire::None,
   },
   Def {
     id: "show_hate",
@@ -546,6 +616,7 @@ pub static DEFS: [Def; 44] = [
     alias: "viewer_show_hate cw content warning sensitive",
     ctl: pill!(show_hate),
     fx: Fx::Content,
+    wire: Wire::None,
   },
   Def {
     id: "tab_feed",
@@ -557,6 +628,7 @@ pub static DEFS: [Def; 44] = [
     alias: "visible tabs hiddenTabs",
     ctl: pill!(tab_feed),
     fx: Fx::Tab(Kind::Feed),
+    wire: Wire::Hidden("hiddenTabs", "feed"),
   },
   Def {
     id: "tab_whispers",
@@ -568,6 +640,7 @@ pub static DEFS: [Def; 44] = [
     alias: "visible tabs hiddenTabs dm",
     ctl: pill!(tab_whispers),
     fx: Fx::Tab(Kind::Whispers),
+    wire: Wire::Hidden("hiddenTabs", "whispers"),
   },
   Def {
     id: "tab_mentions",
@@ -579,6 +652,7 @@ pub static DEFS: [Def; 44] = [
     alias: "visible tabs hiddenTabs",
     ctl: pill!(tab_mentions),
     fx: Fx::Tab(Kind::Mentions),
+    wire: Wire::Hidden("hiddenTabs", "mentions"),
   },
 ];
 

@@ -51,6 +51,8 @@ pub enum Cmd {
   PutNote { platform: Platform, login: Box<str>, profile_id: Box<str>, text: String },
   // when you last looked at the mentions, whispers and feed tabs, on any client
   SeenGet,
+  // your settings as the account holds them
+  UiStateGet,
   // you looked at one just now (`at`); the server tells your other clients
   SeenBump { surface: Surface, at: i64 },
   // one page of a person's archived lines (the chat-log viewer)
@@ -73,6 +75,11 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::WhisperHistory { me, epoch } => {
       if let Some(t) = token {
         history(&http, &t, me, epoch, &out).await;
+      }
+    }
+    Cmd::UiStateGet => {
+      if let Some(t) = token {
+        ui_state_get(&http, &t, &out).await;
       }
     }
     Cmd::SeenGet => {
@@ -280,6 +287,17 @@ async fn media(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &
 
 fn authed(http: &reqwest::Client, token: &str, path: &str, body: String) -> reqwest::RequestBuilder {
   http.post(format!("{ORIGIN}{path}")).bearer_auth(token).header("content-type", "application/json").body(body)
+}
+
+async fn ui_state_get(http: &reqwest::Client, token: &str, out: &Out) {
+  let (status, v) = call(get(http, token, "/api/user/ui-state")).await;
+  if status != 200 {
+    return;
+  }
+  let (state, _) = crate::model::sync::pluck(v.get("state").unwrap_or(&Value::Null));
+  if !state.is_empty() {
+    void(out.send(NetEvent::UiState(state)));
+  }
 }
 
 async fn seen_get(http: &reqwest::Client, token: &str, out: &Out) {

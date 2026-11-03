@@ -126,7 +126,7 @@ impl App {
   // ---- changing a setting: the one path for slash commands, the screen and presets ----
 
   // what a flipped switch has to redo
-  fn applied(&mut self, fx: Fx) {
+  pub(super) fn applied(&mut self, fx: Fx) {
     match fx {
       Fx::None => {}
       Fx::Vi => self.mode = Mode::Insert,

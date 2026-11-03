@@ -13,6 +13,7 @@ use winit::platform::wayland::WindowAttributesExtWayland;
 use winit::platform::x11::WindowAttributesExtX11;
 use winit::window::{Window, WindowId};
 
+mod acct;
 mod builtin;
 mod card;
 mod chips;
@@ -198,6 +199,11 @@ pub struct App {
   input_h: i32,
   input_dirty: bool,
   me: Option<Me>,
+  // settings that follow the heatsync account: what it holds, whether the heatsync socket is signed in, and
+  // when the settings were last asked for
+  acct: crate::model::sync::Acct,
+  hs_authed: bool,
+  ui_get_at: Option<Instant>,
   // input-method composition, whether the window currently lets one run, and the caret rect
   ime: Ime,
   ime_on: bool,
@@ -307,6 +313,7 @@ impl App {
       });
     }
     let set = Settings::load();
+    let acct = crate::model::sync::Acct::new(&set);
     crate::heatsync::content::set_shown(set.content());
     crate::model::filter::edit(|f| {
       *f = crate::model::filter::Filters::load();
@@ -382,6 +389,9 @@ impl App {
       input_h: 0,
       input_dirty: true,
       me: None,
+      acct,
+      hs_authed: false,
+      ui_get_at: None,
       ime: Ime::default(),
       ime_on: false,
       ime_area: None,
@@ -1971,6 +1981,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.flash_due.is_some_and(|t| t <= now) {
       self.flash_tick();
     }
+    self.ui_state_tick();
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
       self.bar_dirty = true;
@@ -1987,6 +1998,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.heat_due,
       self.pace_due,
       self.flash_due,
+      self.ui_state_due(),
     ]
     .into_iter()
     .flatten()
@@ -2054,6 +2066,15 @@ impl App {
         self.feed_show();
       }
       NetEvent::Seen { surface, at } => self.on_seen(surface, at),
+      // an answer that outlived its login must not seed the next one
+      NetEvent::UiState(_) if self.me.is_none() => {}
+      NetEvent::UiState(st) => self.on_ui_state(st),
+      NetEvent::HsAuth(on) => {
+        self.hs_authed = on;
+        if on {
+          self.ui_state_fetch();
+        }
+      }
       NetEvent::Voted { id, res } => self.on_voted(id, res),
       NetEvent::Posted { res } => self.on_posted(res),
       NetEvent::Bookmarked { id, on, res } => self.on_bookmarked(id, on, res),
@@ -2126,6 +2147,9 @@ impl App {
           self.whispers_reset();
           // the new account's own seen times arrive with SeenGet below
           self.unseen = Default::default();
+          // nothing pending belongs to the new account
+          self.acct.reset(&self.set);
+          self.ui_get_at = None;
           self.filters_login_changed();
           self.feed_reset();
           self.res.blocked.clear_server();
@@ -2135,6 +2159,7 @@ impl App {
         self.me = me;
         if self.me.is_some() {
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
+          self.ui_state_fetch();
         }
         self.whisper_empty();
         self.set_mention_names();
@@ -3336,6 +3361,53 @@ mod live {
     app.pointer = (r.x + 2, r.y + 2);
     app.bar_click();
     assert!(app.logs.is_none() && app.tabs[chat].under.is_none());
+  }
+
+  // the account's settings reach the window the way a flip does (look, tabs, vi, side), are saved, and
+  // nothing goes back out; a flip here goes out once the socket is signed in (scratch HOME as above)
+  #[test]
+  #[ignore]
+  fn headless_account_settings() {
+    use crate::model::tabs::Kind;
+    use serde_json::json;
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, Vec::new(), false);
+    app.canvas.resize(640, 240);
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: None,
+      twitch_id: None,
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    app.hs_authed = true;
+    let state =
+      json!({"zebra": false, "viMode": true, "tabPosition": "left", "hiddenTabs": ["pinned", "feed"], "junk": [1]});
+    let (inb, _) = crate::model::sync::pluck(&state);
+    app.on_net(NetEvent::UiState(inb));
+    assert!(!app.set.zebra && app.set.vi && !app.set.tab_feed && app.set.tab_whispers);
+    assert_eq!(app.set.tab_side, Side::Left);
+    assert!(app.tabs.iter().position(|t| t.kind == Kind::Feed).is_some_and(|i| !app.visible(i)), "feed went away");
+    assert!(Settings::load().vi && !Settings::load().zebra, "saved");
+    app.ui_state_tick();
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    app.ui_state_tick();
+    let out = |asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+      let mut n = 0;
+      while let Ok(c) = asked.try_recv() {
+        n += usize::from(matches!(c, Cmd::Hs(crate::net::hs_ws::Cmd::UiSync(_))));
+      }
+      n
+    };
+    assert_eq!(out(&mut asked), 0, "applying the account's state sends nothing back");
+    app.flip(crate::model::schema::def("timestamps").unwrap());
+    app.ui_state_tick();
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    app.ui_state_tick();
+    assert_eq!(out(&mut asked), 1, "your flip goes out once");
   }
 
   // tabs on each side: the bar sits there, the chat and input take the rest, a click on a tab picks it.
