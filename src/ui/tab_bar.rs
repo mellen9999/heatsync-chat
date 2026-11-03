@@ -7,11 +7,15 @@ use super::theme;
 
 pub struct TabLabel<'a> {
   pub name: &'a str,
+  // the counter after the name (ext tab-counter), empty for none
+  pub count: &'a str,
   pub active: bool,
   pub unread: bool,
   // the color of an unread tab: white for chat, yellow after a stream line, red for mentions, cyan
   // for whispers (the ext's)
   pub hot: u32,
+  // tab mode's cursor is on it: underlined
+  pub cursor: bool,
 }
 
 // the buttons after the tabs: which is under the pointer (or open), and a newer version's label
@@ -68,8 +72,14 @@ pub fn draw(
     };
   for t in tabs {
     let ink = if t.unread { t.hot } else { theme::DIM };
-    let label = if column { format!(" {}", t.name) } else { format!(" {} ", t.name) };
-    hits.push(cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, t.active));
+    let count = if t.count.is_empty() { String::new() } else { format!(" {}", t.count) };
+    let label = if column { format!(" {}{count}", t.name) } else { format!(" {}{count} ", t.name) };
+    let r = cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, t.active);
+    if t.cursor {
+      let u = Rect::new(r.x + 2, r.bottom() - 2, (r.w - 4).max(1), 1);
+      c.fill(u.intersect(inner), if t.active { theme::BLACK } else { theme::WHITE });
+    }
+    hits.push(r);
   }
   // the two buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
   // font that sits lower than the `+`). in a column they share one row

@@ -46,11 +46,43 @@ impl Side {
   }
 }
 
+// the number after a channel tab's name (ext tabCounter): unread since you looked, the last minute's
+// messages, or nothing
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Counter {
+  Off,
+  #[default]
+  Unread,
+  Heat,
+}
+
+impl Counter {
+  const ALL: [Counter; 3] = [Counter::Off, Counter::Unread, Counter::Heat];
+
+  pub fn name(self) -> &'static str {
+    match self {
+      Counter::Off => "off",
+      Counter::Unread => "unread",
+      Counter::Heat => "heat",
+    }
+  }
+
+  pub fn parse(s: &str) -> Option<Counter> {
+    Self::ALL.into_iter().find(|d| d.name() == s.trim())
+  }
+
+  pub fn step(self, up: bool) -> Counter {
+    let i = Self::ALL.iter().position(|&d| d == self).unwrap_or(0);
+    Self::ALL[(i + if up { 1 } else { 2 }) % 3]
+  }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Settings {
   // everything's size, percent of the display scale (100 = native)
   pub zoom: u16,
   pub tab_side: Side,
+  pub tab_counter: Counter,
   // vim keys in the message box + chat-driving mode
   pub vi: bool,
   // the input bar takes no room while empty and unused
@@ -103,6 +135,7 @@ impl Default for Settings {
     Settings {
       zoom: 100,
       tab_side: Side::Top,
+      tab_counter: Counter::Unread,
       vi: false,
       auto_hide: false,
       first_glow: true,
@@ -189,6 +222,11 @@ impl Settings {
       {
         out.tab_side = d;
       }
+      if k == "tab_counter"
+        && let Some(d) = Counter::parse(v)
+      {
+        out.tab_counter = d;
+      }
     }
     out
   }
@@ -200,7 +238,12 @@ impl Settings {
         out.push_str(&format!("{}={on}\n", d.id));
       }
     }
-    out.push_str(&format!("zoom={}\ntab_side={}\n", self.scale(), self.tab_side.name()));
+    out.push_str(&format!(
+      "zoom={}\ntab_side={}\ntab_counter={}\n",
+      self.scale(),
+      self.tab_side.name(),
+      self.tab_counter.name()
+    ));
     out
   }
 
@@ -224,6 +267,8 @@ pub enum Local {
   Zoom(Option<u16>),
   // `/tabs left`; None = no such side
   Side(Option<Side>),
+  // `/tabcounter heat`; None = no such mode
+  Counter(Option<Counter>),
   // `/hide feed`, `/show mentions`; None = no such tab
   Tab(Option<Kind>, bool),
   // the settings screen, the key map
@@ -244,6 +289,11 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     && (rest.is_empty() || rest.starts_with(char::is_whitespace))
   {
     return Some(Local::Side(Side::parse(rest)));
+  }
+  if let Some(rest) = low.strip_prefix("/tabcounter")
+    && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+  {
+    return Some(Local::Counter(Counter::parse(rest)));
   }
   for (word, on) in [("/hide", false), ("/show", true)] {
     if let Some(rest) = low.strip_prefix(word)
@@ -276,6 +326,7 @@ mod tests {
       Settings {
         zoom: 100,
         tab_side: Side::Top,
+        tab_counter: Counter::Unread,
         vi: false,
         auto_hide: false,
         first_glow: true,
@@ -335,6 +386,12 @@ mod tests {
     assert_eq!(Side::Left.step(true), Side::Top);
     assert_eq!(local_cmd("/tabs Right"), Some(Local::Side(Some(Side::Right))));
     assert_eq!(local_cmd("/tabs"), Some(Local::Side(None)));
+    assert_eq!(Settings::parse("tab_counter=heat").tab_counter, Counter::Heat);
+    assert_eq!(Settings::default().tab_counter, Counter::Unread);
+    let s = Settings { tab_counter: Counter::Off, ..Settings::default() };
+    assert_eq!(Settings::parse(&s.render()).tab_counter, Counter::Off);
+    assert_eq!(Counter::Off.step(false), Counter::Heat);
+    assert_eq!(local_cmd("/tabcounter heat"), Some(Local::Counter(Some(Counter::Heat))));
     assert_eq!(local_cmd("/tabsy"), None);
   }
 

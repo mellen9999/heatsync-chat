@@ -78,7 +78,17 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
   let mut view = ChatView::new(SCROLLBACK, first);
   view.tags = tags(&sources);
   view.filtered = true;
-  Tab { name: spec.name().into(), kind: Kind::Chat, view, unread: false, event: false, sources, target: 0, under: None }
+  Tab {
+    name: spec.name().into(),
+    kind: Kind::Chat,
+    view,
+    unread: false,
+    event: false,
+    sources,
+    target: 0,
+    under: None,
+    count: Default::default(),
+  }
 }
 
 // source tags show on merged tabs and on anything not plain twitch

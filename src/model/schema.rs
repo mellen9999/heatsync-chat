@@ -57,6 +57,8 @@ pub enum Ctl {
   Zoom,
   // the tab bar's side, stepped
   Side,
+  // the tab counter's mode, stepped
+  Counter,
   // a list kept with slash commands (hidden words, highlight words); true = highlight
   Words(bool),
 }
@@ -82,7 +84,7 @@ macro_rules! pill {
   };
 }
 
-pub static DEFS: [Def; 32] = [
+pub static DEFS: [Def; 33] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -147,6 +149,17 @@ pub static DEFS: [Def; 32] = [
     tip: "where the tabs sit: top, bottom, left or right. /tabs left",
     alias: "tabPosition tab bar side",
     ctl: Ctl::Side,
+    fx: Fx::None,
+  },
+  Def {
+    id: "tab_counter",
+    cmd: Some("/tabcounter"),
+    cat: Cat::Display,
+    section: "layout",
+    label: "tab counter",
+    tip: "the number after a channel's name: unread since you looked, heat (messages in the last minute), or off. /tabcounter heat",
+    alias: "tabCounter unread heat count number",
+    ctl: Ctl::Counter,
     fx: Fx::None,
   },
   Def {

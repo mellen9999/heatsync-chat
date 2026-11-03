@@ -6,7 +6,7 @@ pub struct Group {
   pub rows: &'static [(&'static str, &'static str)],
 }
 
-pub static KEYS: [Group; 10] = [
+pub static KEYS: [Group; 11] = [
   Group {
     name: "anywhere",
     rows: &[
@@ -35,6 +35,7 @@ pub static KEYS: [Group; 10] = [
       ("ctrl-g", "next match (shift: previous)"),
       ("esc", "clear the search"),
       ("space x", "hide the pinned line"),
+      ("space t", "tab mode: move, reorder, close tabs from the keys"),
       ("space w", "watch this channel's stream (mpv, else the browser)"),
       ("ctrl-w", "close the tab"),
     ],
@@ -117,6 +118,18 @@ pub static KEYS: [Group; 10] = [
       ("/ban /timeout /unban", "by name"),
       ("/delete /purge", "this line, a person's lines"),
       ("/confirmban", "ask before a ban"),
+    ],
+  },
+  Group {
+    name: "tab mode (space t)",
+    rows: &[
+      ("j k  up down", "move the cursor (3j: three)"),
+      ("g G", "first, last"),
+      ("enter l", "open the tab"),
+      ("J K", "carry a channel down, up"),
+      ("d x", "close a channel"),
+      ("a o", "add a channel"),
+      ("esc q t", "leave"),
     ],
   },
   Group {

@@ -46,6 +46,7 @@ pub fn all() -> Vec<Slash> {
     Ctl::Pill(..) => Some(s(d.cmd?, "", d.label)),
     Ctl::Zoom => Some(s(d.cmd?, "[percent]", d.label)),
     Ctl::Side => Some(s(d.cmd?, "<top|bottom|left|right>", d.label)),
+    Ctl::Counter => Some(s(d.cmd?, "<unread|heat|off>", d.label)),
     _ => None,
   });
   FIXED.into_iter().chain(switches).collect()

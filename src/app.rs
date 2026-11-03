@@ -31,6 +31,7 @@ mod peek;
 mod picker;
 mod pin;
 mod pop;
+mod rover;
 mod screen;
 mod stream;
 mod suggest;
@@ -54,7 +55,7 @@ use crate::model::mention::Mentions;
 use crate::model::message::{Message, Platform, flag};
 use crate::model::picker::{Focus, Picker, Recents};
 use crate::model::pin::Pins;
-use crate::model::settings::{Local, Settings, Side, local_cmd};
+use crate::model::settings::{Counter, Local, Settings, Side, local_cmd};
 use crate::model::stream_events::Moments;
 use crate::model::suggest::Suggest;
 use crate::model::tabs::Kind;
@@ -106,6 +107,8 @@ struct Tab {
   // something took the tab over (a feed thread): `view` shows it, the tab's own lines wait here, still
   // filling, and the label reads `← back` until it closes
   under: Option<ChatView>,
+  // the number after its name (channel tabs)
+  count: crate::model::tab_count::Count,
 }
 
 impl Tab {
@@ -146,6 +149,8 @@ pub struct App {
   // the emote hover popup, and when its animated emote flips next
   tip: Option<crate::ui::tip::Tip>,
   tip_next: Option<Instant>,
+  // heat counts fall with the clock: the tab bar repaints each second while one shows
+  heat_due: Option<Instant>,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
   // the open `:` `@` `/` list, the text and cursor it was made for, its rows on screen (index, rect)
@@ -200,6 +205,8 @@ pub struct App {
   cursor: winit::window::CursorIcon,
   // a picture filling the chat area
   img_view: Option<img_view::ImgView>,
+  // tab mode's cursor on the tab bar (space t)
+  rover: Option<rover::Rover>,
   tab_menu: Option<tabs::TabMenu>,
   // the floating menu for login and line actions
   pop: Option<pop::Pop>,
@@ -279,6 +286,7 @@ impl App {
         sources: Vec::new(),
         target: 0,
         under: None,
+        count: Default::default(),
       });
     }
     let set = Settings::load();
@@ -326,6 +334,7 @@ impl App {
       next_anim: None,
       tip: None,
       tip_next: None,
+      heat_due: None,
       input_next: None,
       input_hit: None,
       over_input: false,
@@ -360,6 +369,7 @@ impl App {
       form_hover: None,
       cursor: winit::window::CursorIcon::Default,
       img_view: None,
+      rover: None,
       tab_menu: None,
       pop: None,
       card: None,
@@ -525,6 +535,26 @@ impl App {
     }
   }
 
+  pub(super) fn counter_to(&mut self, c: Counter) {
+    if c != self.set.tab_counter {
+      self.set.tab_counter = c;
+      self.set.save();
+      self.bar_dirty = true;
+      self.wake();
+    }
+  }
+
+  // a chat message landed in tab `i`: its counter moves (the bar repaints when the number shown does)
+  fn bump_count(&mut self, i: usize) {
+    let active = i == self.active;
+    self.tabs[i].count.bump(active, now_ms() / 1000);
+    match self.set.tab_counter {
+      Counter::Unread if !active => self.bar_dirty = true,
+      Counter::Heat if self.heat_due.is_none() => self.bar_dirty = true,
+      _ => {}
+    }
+  }
+
   // the space under the tabs changed size or place: views take its width, the whole frame repaints
   pub(super) fn relayout_body(&mut self) {
     let w = self.body().w;
@@ -629,6 +659,8 @@ impl App {
       Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.5 to 3)"),
       Local::Side(Some(side)) => self.side_to(side),
       Local::Side(None) => self.say("usage: /tabs top, bottom, left or right"),
+      Local::Counter(Some(c)) => self.counter_to(c),
+      Local::Counter(None) => self.say("usage: /tabcounter unread, heat or off"),
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Keys => self.open_screen(screen::Page::Keys),
     }
@@ -714,12 +746,14 @@ impl App {
       self.img_close();
       self.find_clear();
       self.hide_tip();
+      self.rover = None;
       self.active = i;
       // a card or menu belongs to the tab it was opened in
       self.card = None;
       self.pop = None;
       self.tabs[i].unread = false;
       self.tabs[i].event = false;
+      self.tabs[i].count.read();
       if let Some(s) = unseen::surface(self.tabs[i].kind) {
         self.unseen_clear(s);
       }
@@ -803,6 +837,9 @@ impl App {
         for m in &msgs {
           v.push(m.clone());
         }
+        for _ in &msgs {
+          self.bump_count(i);
+        }
         self.touched(i);
       }
     }
@@ -860,7 +897,10 @@ impl App {
     let Some(i) = i else { return };
     let tab = self.tabs[i].chat();
     match ev {
-      Chat::Msg(m) => tab.push(m),
+      Chat::Msg(m) => {
+        tab.push(m);
+        self.bump_count(i);
+      }
       Chat::ClearMsg(id) => tab.clear_msg(&id),
       Chat::ClearUser { login, secs } => {
         tab.clear_user(&login);
@@ -890,6 +930,9 @@ impl App {
   fn mode_line(&self) -> (Vec<mode_label::Seg>, String) {
     if self.prompt.is_some() {
       return (Vec::new(), if self.finding { self.find_note.clone() } else { String::new() });
+    }
+    if let Some(note) = self.rover_note() {
+      return (Vec::new(), note);
     }
     let short = !self.line.text.is_empty() && !self.hidden();
     let segs = mode_label::segs(self.set.vi, self.mode, self.selecting(), short);
@@ -983,9 +1026,21 @@ impl App {
     }
     if std::mem::take(&mut self.bar_dirty) {
       let shown: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.visible(i)).collect();
-      let labels: Vec<TabLabel> = shown
+      let (mode, now) = (self.set.tab_counter, now_ms() / 1000);
+      let counts: Vec<String> = shown
         .iter()
         .map(|&i| {
+          let active = i == self.active;
+          let t = &mut self.tabs[i];
+          if t.kind == Kind::Chat { t.count.text(mode, active, now) } else { String::new() }
+        })
+        .collect();
+      self.heat_due = (mode == Counter::Heat && counts.iter().any(|c| !c.is_empty()))
+        .then(|| Instant::now() + Duration::from_secs(1));
+      let labels: Vec<TabLabel> = shown
+        .iter()
+        .zip(&counts)
+        .map(|(&i, count)| {
           let t = &self.tabs[i];
           let hot = match t.kind {
             Kind::Mentions => crate::ui::theme::RED,
@@ -996,7 +1051,9 @@ impl App {
           // a tab something took over reads `← back` while you look at it (ext takeover.js)
           let back = (t.under.is_some() || self.img_view.is_some()) && i == self.active;
           let name = if back { "← back" } else { &t.name };
-          TabLabel { name, active: i == self.active, unread: !back && (t.unread || t.event), hot }
+          let count = if back { "" } else { count.as_str() };
+          let cursor = self.rover.as_ref().is_some_and(|r| r.at == i);
+          TabLabel { name, count, active: i == self.active, unread: !back && (t.unread || t.event), hot, cursor }
         })
         .collect();
       let bar = self.bar();
@@ -1573,6 +1630,7 @@ impl App {
       "]" => self.select(self.step_tab(self.active, false)),
       "[" => self.select(self.step_tab(self.active, true)),
       "x" => self.pin_hide(),
+      "t" => self.rover_open(),
       "w" => self.watch_here(),
       "g" => {
         let res = &mut self.res;
@@ -1757,6 +1815,9 @@ impl ApplicationHandler<NetEvent> for App {
         if self.tab_menu.is_some() {
           return self.tab_menu_key(k);
         }
+        if self.rover.is_some() {
+          return self.rover_key(k);
+        }
         if self.menu.is_some() {
           return self.menu_key(k);
         }
@@ -1797,8 +1858,15 @@ impl ApplicationHandler<NetEvent> for App {
     if self.update_due.is_some_and(|t| t <= now) {
       self.update_check();
     }
-    let wake =
-      [self.flood, anim, self.trim_at, self.mute_due, self.peek_due, self.update_due].into_iter().flatten().min();
+    if self.heat_due.is_some_and(|t| t <= now) {
+      self.heat_due = None;
+      self.bar_dirty = true;
+      self.wake();
+    }
+    let wake = [self.flood, anim, self.trim_at, self.mute_due, self.peek_due, self.update_due, self.heat_due]
+      .into_iter()
+      .flatten()
+      .min();
     el.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
   }
 }
@@ -2807,6 +2875,51 @@ mod live {
     app.pointer = (r.x + 2, r.y + 2);
     app.click();
     assert!(app.img_view.is_none() && app.active == chat, "← back closes it, the tab stays");
+  }
+
+  // the unread number after a channel's name, and tab mode: the cursor moves without switching, K
+  // carries a channel up, enter opens. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_tab_mode -- --ignored
+  #[test]
+  #[ignore]
+  fn headless_tab_mode() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["aaa".into(), "bbb".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(640, 300);
+    app.side_to(Side::Top);
+    app.relayout_body();
+    let pos = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
+    app.select(pos(&app, "aaa"));
+    for _ in 0..3 {
+      let mut m = Message::system(0, Platform::Twitch, "hi");
+      m.kind = crate::model::message::Kind::Chat;
+      m.nick = "bob".into();
+      m.login = "bob".into();
+      app.on_chat("bbb", Chat::Msg(m));
+    }
+    let b = pos(&app, "bbb");
+    assert_eq!(app.tabs[b].count.text(Counter::Unread, false, now_ms() / 1000), "3");
+    app.bar_dirty = true;
+    app.redraw();
+    crate::bench::dump(&app.canvas);
+    // tab mode: the cursor starts on the open tab and moves without switching
+    app.leader_key(Key::Character("t"));
+    assert_eq!(app.rover.as_ref().map(|r| r.at), Some(pos(&app, "aaa")));
+    app.rover_key(Key::Character("j"));
+    assert_eq!(app.rover.as_ref().map(|r| r.at), Some(pos(&app, "bbb")));
+    assert_eq!(&*app.tabs[app.active].name, "aaa", "moving never switches");
+    assert!(app.mode_line().1.contains("bbb"), "the input bar says where the cursor is");
+    // K carries bbb above aaa, and the cursor follows it
+    let before = pos(&app, "aaa");
+    app.rover_key(Key::Character("K"));
+    assert_eq!(pos(&app, "bbb"), before);
+    assert_eq!(app.rover.as_ref().map(|r| r.at), Some(pos(&app, "bbb")));
+    assert_eq!(&*app.tabs[app.active].name, "aaa", "the open tab stays open through the swap");
+    app.rover_key(Key::Named(NamedKey::Enter));
+    assert!(app.rover.is_none());
+    assert_eq!(&*app.tabs[app.active].name, "bbb");
+    assert_eq!(app.tabs[app.active].count.text(Counter::Unread, false, now_ms() / 1000), "", "opening reads it");
   }
 
   // a reddit link: the resolver is asked once, its answer draws as a card under the line, and the card

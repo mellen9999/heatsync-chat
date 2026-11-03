@@ -108,6 +108,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       Ctl::Pill(..) => (String::new(), d.on(set)),
       Ctl::Zoom => (format!("{}%", set.zoom), None),
       Ctl::Side => (set.tab_side.name().to_owned(), None),
+      Ctl::Counter => (set.tab_counter.name().to_owned(), None),
       Ctl::Words(marks) => {
         let n = crate::model::filter::with(|f| f.words(marks).len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
@@ -320,6 +321,7 @@ impl App {
           self.zoom_to(next);
         }
         Ctl::Side => self.side_to(self.set.tab_side.step(adjust.unwrap_or(true))),
+        Ctl::Counter => self.counter_to(self.set.tab_counter.step(adjust.unwrap_or(true))),
         // a list lives in slash commands: leave the screen with the command ready to finish
         Ctl::Words(_) if adjust.is_none() => {
           self.close_screen();
