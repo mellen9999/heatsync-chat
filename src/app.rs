@@ -3059,6 +3059,9 @@ mod live {
   fn headless_chat_look() {
     let (net, _asked) = Net::tap();
     let mut app = App::new(net, vec!["aaa".into()], false);
+    // the scratch HOME keeps what the last run switched: start from the defaults
+    app.set = crate::model::settings::Settings::default();
+    app.res.look = crate::ui::res::Look::of(&app.set);
     app.dpi = 1.0;
     app.res.set_scale(app.scale());
     app.canvas.resize(640, 300);

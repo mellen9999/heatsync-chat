@@ -32,7 +32,16 @@ pub fn key(p: Platform, login: &str) -> String {
 // one line of one note: no control chars (a pasted newline would break the file), cut to the cap
 pub fn clean(s: &str) -> String {
   let flat: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-  flat.trim().chars().take(MAX_CHARS).collect()
+  // counted the way the server counts (js string length, utf-16 units), so an emoji-heavy note is never refused
+  let mut units = 0;
+  flat
+    .trim()
+    .chars()
+    .take_while(|c| {
+      units += c.len_utf16();
+      units <= MAX_CHARS
+    })
+    .collect()
 }
 
 // a heatsync id the server keeps notes for: not the kick_ / yt_ ids made up for people without an account
@@ -180,6 +189,12 @@ pub fn command(text: &str) -> Option<Cmd> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn the_cap_counts_like_the_server() {
+    assert_eq!(clean(&"😀".repeat(MAX_CHARS)).chars().count(), MAX_CHARS / 2);
+    assert_eq!(clean(&"a".repeat(MAX_CHARS + 5)).len(), MAX_CHARS);
+  }
 
   #[test]
   fn keys_are_platform_and_lowercase() {
