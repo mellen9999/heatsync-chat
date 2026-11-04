@@ -45,13 +45,14 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 
 ## ws `wss://heatsync.org/ws?b=1`
 - anon allowed, no-Origin native clients admitted. json text frames. limits: 30 frames/s, 50 channels/socket, 90s idle
-- on open, in order: `channel:join {platform,channel}` per room → `emote:watch {login}` → `ack:channels {channels:[{channel:"kick/<slug>",lastSeq}]}` (kick only, ≤200) → `youtube:subscribe {url,channelId}` per yt source + backfill once per session
-- out: `channel:leave`, `presence:heartbeat` every 25s, `twitch:chat:relay {channel}` (archive demand, ≤1/5min/channel), `youtube:unsubscribe {videoId}`
+- on open, in order: `channel:join {platform,channel}` per room (a twitch room also `irc:join {channel}`) → `emote:watch {login}` → `ack:channels {channels:[{channel:"kick/<slug>",lastSeq}]}` (kick only, ≤200) → `youtube:subscribe {url,channelId}` per yt source + backfill once per session
+- out: `channel:leave` (a twitch room also `irc:part {channel}`), `presence:heartbeat` every 25s, `twitch:chat:relay {channel}` (archive demand, ≤1/5min/channel), `youtube:unsubscribe {videoId}`
 - in:
   - `batch {messages}` unwrap (≤256, don't recurse)
   - `server:shutdown {reconnectSpreadMs}` → close, reconnect after rand(0, clamp(spread,1000,60000)); no backoff charge
   - `emote:added|removed|emotes:refresh` — `_ch` starts `emotes/` = own inventory → refetch `?v=_seq`; with `username` = another user (global broadcast, reaches anon `?b=1` sockets): `senderKeys[]`, `emoteName`, `ver` → refetch those senders (`&v=`); `removed` tombstones the name now (the ext's removedAt: lines sent before keep it, lines after are text, no slack). a refetch that lacks a name tombstones it too (an unstamped row is just dropped); a fresh row of the name clears the tombstone and keeps the earliest added_at. tombstones count toward the 5000-rows-per-sender cap, oldest evicted first. auto-add-on-send means the add usually lands just AFTER the line, so the refetch must relayout that sender's existing lines
   - `emote:broadcast {username, emoteName, emoteData{url,width,height,zero_width,nsfw,cw_cats}}` → merge into that sender's map
+  - `irc:message {channel, message:{type,id,username,content,…,hsEmotes{word→ref}}}` — heatsync's copy of a twitch line in a room we `irc:join`ed (every line, so busy rooms send twice): frames without `hsEmotes` are skipped before parsing. never shown as a line (our irc has it): its refs merge into our line of the same id, by name, never over a name the line already has, and only that row lays out again. refs that beat the line wait by id (≤256, 30s)
   - `kick-chat-message {data:{id,username,displayName,content,color,timestamp,hsEmotes{word→{url,provider,zeroWidth,nsfw,cw_cats}},replyTo}, _ch, _seq}`; `kick-chat-backfill {channel, messages}`
   - `youtube:chat {channelId, messages[{id,user,text,emotes[{alt,url}],timestamp,color,amount,systemMsg,authorChannelId,hsEmotes}], replay}` — drop `replay:true` batches
   - `youtube:status {channelId,status:connected|ended|not-live|chat-off|no-slot|error,videoId}` — yt subscribe ≤5/60s; retry ~120s

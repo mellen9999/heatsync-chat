@@ -30,7 +30,7 @@ fn ts(v: &Value) -> i64 {
 }
 
 // heatsync's per-sender emote refs, server-resolved from the sender's inventory
-fn hs_emotes(v: Option<&Value>) -> Box<[HsEmote]> {
+pub(crate) fn hs_emotes(v: Option<&Value>) -> Box<[HsEmote]> {
   let Some(map) = v.and_then(Value::as_object) else { return Box::new([]) };
   map
     .iter()
@@ -41,6 +41,20 @@ fn hs_emotes(v: Option<&Value>) -> Box<[HsEmote]> {
     })
     .take(MAX_HS)
     .collect()
+}
+
+// refs that arrived apart from their line, added by name: a name already on the line keeps its ref (the
+// ext's merge: additive, never overwriting). true when any landed
+pub fn merge_hs(into: &mut Box<[HsEmote]>, add: &[HsEmote]) -> bool {
+  let fresh: Vec<&HsEmote> = add.iter().filter(|a| !into.iter().any(|h| h.0 == a.0)).collect();
+  let room = MAX_HS.saturating_sub(into.len());
+  if fresh.is_empty() || room == 0 {
+    return false;
+  }
+  let mut v = std::mem::take(into).into_vec();
+  v.extend(fresh.into_iter().take(room).cloned());
+  *into = v.into();
+  true
 }
 
 fn base(platform: Platform, id: &str, login: &str, nick: &str, color: Option<&str>, body: String, ts: i64) -> Message {

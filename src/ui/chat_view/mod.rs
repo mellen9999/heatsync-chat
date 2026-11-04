@@ -609,6 +609,20 @@ impl ChatView {
       .collect()
   }
 
+  // heatsync's refs for a twitch line landed after it: added to that line, which alone lays out again.
+  // false = no such line here
+  pub fn merge_hs(&mut self, id: &str, refs: &[crate::model::message::HsEmote]) -> bool {
+    let mut hit = false;
+    for r in self.rows.iter_mut().filter(|r| r.msg.platform == Platform::Twitch && &*r.msg.id == id) {
+      hit = true;
+      if crate::net::relay::merge_hs(&mut r.msg.hs, refs) {
+        Self::touch(r);
+        self.stale = true;
+      }
+    }
+    hit
+  }
+
   // a twitch sender's heatsync inventory arrived or changed: re-resolve only their lines
   pub fn touch_sender(&mut self, uid: &str) {
     for r in self.rows.iter_mut().filter(|r| r.msg.platform == Platform::Twitch && &*r.msg.user_id == uid) {

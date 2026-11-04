@@ -126,35 +126,55 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
   }
 }
 
-// update desired state; returns the frame to send if connected
-fn apply(st: &mut State, c: Cmd) -> Option<Value> {
+// update desired state; returns the frames to send if connected
+fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
   match c {
-    Cmd::Join(p, ch) if ident::relay_key(&ch) && st.rooms.len() < MAX_ROOMS => st
-      .rooms
-      .insert((plat(p), ch.clone()))
-      .then(|| json!({"type": "channel:join", "platform": plat(p), "channel": &*ch})),
+    Cmd::Join(p, ch) if ident::relay_key(&ch) && st.rooms.len() < MAX_ROOMS => {
+      if st.rooms.insert((plat(p), ch.clone())) { join(plat(p), &ch) } else { Vec::new() }
+    }
     Cmd::Leave(p, ch) => {
       if p == Platform::Kick {
         st.kick_seq.remove(&ch);
       }
-      st.rooms
-        .remove(&(plat(p), ch.clone()))
-        .then(|| json!({"type": "channel:leave", "platform": plat(p), "channel": &*ch}))
+      if !st.rooms.remove(&(plat(p), ch.clone())) {
+        return Vec::new();
+      }
+      let mut out = vec![json!({"type": "channel:leave", "platform": plat(p), "channel": &*ch})];
+      if p == Platform::Twitch {
+        out.push(json!({"type": "irc:part", "channel": &*ch}));
+      }
+      out
     }
     Cmd::Auth(t) => {
       st.token = t;
-      None
+      Vec::new()
     }
-    Cmd::UiSync(patch) => Some(json!({"type": "ui-state:sync", "patch": patch})),
-    Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)),
+    Cmd::UiSync(patch) => vec![json!({"type": "ui-state:sync", "patch": patch})],
+    Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)).into_iter().collect(),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
       st.yt_status.remove(&h);
       // without a videoId the server ref-counts and reaps on drop
-      None
+      Vec::new()
     }
-    _ => None,
+    _ => Vec::new(),
   }
+}
+
+// a room's join. a twitch room also joins heatsync's own copy of its chat (`irc:join`): its lines carry
+// the sender's heatsync refs (`hsEmotes`), stamped at fanout, which our own irc copy lacks
+fn join(p: &str, ch: &str) -> Vec<Value> {
+  let mut out = vec![json!({"type": "channel:join", "platform": p, "channel": ch})];
+  if p == "twitch" && ident::twitch_room(ch) {
+    out.push(json!({"type": "irc:join", "channel": ch}));
+  }
+  out
+}
+
+// heatsync's copy of a twitch line, read only for its refs: most carry none, and on a busy channel every
+// line comes twice now, so those are dropped before parsing (the server writes `type` first)
+fn refless(text: &str) -> bool {
+  text.starts_with(r#"{"type":"irc:message""#) && !text.contains(r#""hsEmotes""#)
 }
 
 // the youtube feeds a new socket subscribes again after an earlier one ran (lowercase, as frames name them)
@@ -181,7 +201,7 @@ async fn session(
 ) -> End {
   let (mut tx, mut read) = ws.split();
   let mut hello: Vec<Value> = st.token.iter().map(authenticate).collect();
-  hello.extend(st.rooms.iter().map(|(p, c)| json!({"type": "channel:join", "platform": p, "channel": &**c})));
+  hello.extend(st.rooms.iter().flat_map(|(p, c)| join(p, c)));
   let acks: Vec<Value> =
     st.kick_seq.iter().take(200).map(|(c, s)| json!({"channel": format!("kick/{c}"), "lastSeq": s})).collect();
   if !acks.is_empty() {
@@ -212,6 +232,9 @@ async fn session(
           Some(Ok(_)) => { last_rx = Instant::now(); continue }
         };
         last_rx = Instant::now();
+        if refless(&text) {
+          continue;
+        }
         let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
         if v.get("type").and_then(Value::as_str) == Some("batch") {
           let list = v.get("messages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
@@ -244,10 +267,11 @@ async fn session(
           continue;
         }
         let joined = if let Cmd::Join(p, ch) = &c { Some((*p, ch.clone())) } else { None };
-        if let Some(f) = apply(st, c) {
-          if let Some(a) = joined {
-            let _ = pins.send(a);
-          }
+        let frames = apply(st, c);
+        if let Some(a) = joined.filter(|_| !frames.is_empty()) {
+          let _ = pins.send(a);
+        }
+        for f in frames {
           if tx.send(Ws::text(f.to_string())).await.is_err() {
             return End::Reconnect;
           }
@@ -449,6 +473,18 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Seen { surface, at: at(v.get("at"))? })
     }
     "authenticated" => send(NetEvent::HsAuth(true)),
+    // heatsync's copy of a twitch line in a room we're in: only its id and refs are kept (our own irc
+    // has the line; it is never shown twice)
+    "irc:message" => {
+      let ch = v.get("channel").and_then(Value::as_str).filter(|c| ident::twitch_room(c))?;
+      if !st.rooms.contains(&("twitch", ch.into())) {
+        return None;
+      }
+      let m = v.get("message")?;
+      let id = m.get("id").and_then(Value::as_str).filter(|i| (1..=100).contains(&i.len()))?;
+      let refs = relay::hs_emotes(m.get("hsEmotes"));
+      (!refs.is_empty()).then(|| send(NetEvent::HsRefs { chan: ch.into(), id: id.into(), refs })).flatten()
+    }
     // your settings as the account holds them (the full state from a write, or the changed keys from the site)
     "ui-state:update" => {
       let (state, _) = crate::model::sync::pluck(v.get("state")?);
@@ -536,12 +572,12 @@ mod tests {
   #[test]
   fn apply_validates_and_dedupes() {
     let mut st = State::default();
-    assert!(apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into())).is_some());
-    assert!(apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into())).is_none());
-    assert!(apply(&mut st, Cmd::Join(Platform::Kick, "bad name".into())).is_none());
-    assert!(apply(&mut st, Cmd::YtSub("@handle".into())).is_some());
-    let f = apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into())).unwrap();
-    assert_eq!(f["type"], "channel:leave");
+    assert_eq!(apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into())).len(), 1);
+    assert!(apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into())).is_empty());
+    assert!(apply(&mut st, Cmd::Join(Platform::Kick, "bad name".into())).is_empty());
+    assert_eq!(apply(&mut st, Cmd::YtSub("@handle".into())).len(), 1);
+    let f = apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into()));
+    assert_eq!((f.len(), &f[0]["type"]), (1, &json!("channel:leave")));
   }
 
   #[test]
@@ -559,5 +595,42 @@ mod tests {
     st.kick_seq.insert("xqc".into(), 7);
     apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into()));
     assert!(st.kick_seq.is_empty());
+  }
+
+  // a twitch room joins heatsync's copy of its chat too, and leaves it with the room
+  #[test]
+  fn a_twitch_room_joins_and_parts_heatsyncs_irc_copy() {
+    let mut st = State::default();
+    let types = |f: &[Value]| f.iter().map(|f| f["type"].as_str().unwrap_or("").to_owned()).collect::<Vec<_>>();
+    let f = apply(&mut st, Cmd::Join(Platform::Twitch, "forsen".into()));
+    assert_eq!(types(&f), ["channel:join", "irc:join"]);
+    assert_eq!(f[1]["channel"], "forsen");
+    assert_eq!(types(&apply(&mut st, Cmd::Leave(Platform::Twitch, "forsen".into()))), ["channel:leave", "irc:part"]);
+    assert_eq!(types(&apply(&mut st, Cmd::Join(Platform::Kick, "forsen".into()))), ["channel:join"]);
+  }
+
+  // a server copy of a twitch line hands over its refs by id; one without refs is never parsed, one for a
+  // room we're not in or with a hostile ref is dropped
+  #[test]
+  fn an_irc_copy_hands_over_its_refs() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    apply(&mut st, Cmd::Join(Platform::Twitch, "forsen".into()));
+    let frame = |ch: &str, refs: Value| {
+      json!({"type": "irc:message", "channel": ch, "message": {"type": "privmsg", "id": "abc", "username": "bob",
+        "content": "kek hi", "hsEmotes": refs}})
+    };
+    let good = json!({"kek": {"url": "https://cdn.7tv.app/emote/x/1x.webp", "provider": "7tv", "zeroWidth": true},
+      "evil": {"url": "https://evil.example/x.png"}});
+    dispatch(&frame("forsen", good.clone()), &mut st, &out);
+    let Ok(NetEvent::HsRefs { chan, id, refs }) = rx.try_recv() else { panic!("no refs") };
+    assert_eq!((&*chan, &*id), ("forsen", "abc"));
+    assert_eq!(&*refs, [("kek".into(), "https://cdn.7tv.app/emote/x/1x.webp".into(), true)]);
+    dispatch(&frame("xqc", good), &mut st, &out);
+    assert!(rx.try_recv().is_err(), "not our room");
+    assert!(refless(r#"{"type":"irc:message","channel":"forsen","message":{"id":"x","content":"hi"}}"#));
+    assert!(!refless(&frame("forsen", json!({})).to_string()));
+    assert!(!refless(r#"{"type":"kick-chat-message"}"#));
   }
 }

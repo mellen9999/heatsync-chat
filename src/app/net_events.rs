@@ -120,6 +120,9 @@ impl App {
             v.adopt_id(&m.login, &m.user_id);
           }
         }
+        if let Some(refs) = self.late_refs.take(ch, &m.id) {
+          crate::net::relay::merge_hs(&mut m.hs, &refs);
+        }
         self.scan_mention(Platform::Twitch, ch, &mut m);
         self.logs_live(Platform::Twitch, ch, &m);
         Chat::Msg(m)
@@ -365,6 +368,17 @@ impl App {
         self.bar_dirty = true;
         self.input_dirty = true;
         self.wake();
+      }
+      NetEvent::HsRefs { chan, id, refs } => {
+        let mut hit = false;
+        for v in self.tabs.iter_mut().flat_map(Tab::views) {
+          hit |= v.merge_hs(&id, &refs);
+        }
+        if hit {
+          self.wake();
+        } else {
+          self.late_refs.hold(chan, id, refs);
+        }
       }
       NetEvent::SendersStale { ids, ver, removed } => {
         if self.prof {

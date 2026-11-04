@@ -192,6 +192,8 @@ pub struct App {
   // youtube lines waiting their turn, and when the next one is due
   pacer: crate::model::pace::Pacer,
   pace_due: Option<Instant>,
+  // heatsync refs that beat their twitch line here
+  late_refs: crate::heatsync::late_refs::LateRefs,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
   sug: suggest::SuggestUi,
@@ -387,6 +389,7 @@ impl App {
       heat_due: None,
       pacer: Default::default(),
       pace_due: None,
+      late_refs: Default::default(),
       input_next: None,
       input_hit: None,
       login_link: None,

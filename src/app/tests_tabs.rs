@@ -561,3 +561,38 @@ fn headless_chat_logs() {
   app.bar_click();
   assert!(app.logs.is_none() && app.tabs[chat].under.is_none());
 }
+
+// heatsync's refs for a twitch line land on our own copy of it, by id, whichever comes first; additive,
+// a name the line already has keeps its ref (scratch HOME as above)
+#[test]
+#[ignore]
+fn headless_late_refs_land_on_their_line() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  let f = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  let line = |id: &str| {
+    let mut m = Message::system(now_ms(), Platform::Twitch, "kek pog");
+    m.kind = crate::model::message::Kind::Chat;
+    (m.id, m.nick, m.login) = (id.into(), "bob".into(), "bob".into());
+    m
+  };
+  let url = |n: &str| format!("https://cdn.7tv.app/emote/{n}/1x.webp");
+  let refs = |pairs: &[(&str, &str)]| -> Box<[crate::model::message::HsEmote]> {
+    pairs.iter().map(|(w, u)| ((*w).into(), url(u).into(), false)).collect()
+  };
+  let hs = |app: &App| {
+    app.tabs[f].view.last_msg().map(|m| m.hs.iter().map(|h| (h.0.to_string(), h.1.to_string())).collect::<Vec<_>>())
+  };
+  let before = app.tabs[f].view.len();
+  // the line first, then its refs
+  let mut first = line("a");
+  first.hs = refs(&[("kek", "MINE")]);
+  app.on_chat("forsen", Chat::Msg(first));
+  app.on_net(NetEvent::HsRefs { chan: "forsen".into(), id: "a".into(), refs: refs(&[("kek", "OTHER"), ("pog", "P")]) });
+  assert_eq!(hs(&app), Some(vec![("kek".into(), url("MINE")), ("pog".into(), url("P"))]));
+  // the refs first: they wait for the line
+  app.on_net(NetEvent::HsRefs { chan: "forsen".into(), id: "b".into(), refs: refs(&[("pog", "P")]) });
+  app.on_chat("forsen", Chat::Msg(line("b")));
+  assert_eq!(hs(&app), Some(vec![("pog".into(), url("P"))]));
+  assert_eq!(app.tabs[f].view.len(), before + 2, "never a second copy of the line");
+}

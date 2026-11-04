@@ -92,6 +92,12 @@ pub enum NetEvent {
   UserBadges(Source, UserBadges),
   // heatsync inventories for twitch user ids
   Senders(Vec<(u64, SenderSet)>),
+  // heatsync's refs for a twitch line (by its id), from the server's own copy of it
+  HsRefs {
+    chan: Box<str>,
+    id: Box<str>,
+    refs: Box<[crate::model::message::HsEmote]>,
+  },
   SendersStale {
     ids: Vec<u64>,
     ver: Option<Box<str>>,
