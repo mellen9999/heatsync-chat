@@ -202,6 +202,7 @@ impl App {
         || res.emotes.sub(w).is_some()
     };
     let picked = self.catalog_reg.take_sent(text, skip);
+    let any = !picked.is_empty();
     for (name, rec) in picked {
       let (url, zero_width) = (rec.url, rec.zero_width);
       let cmd = if owned(&name).is_some() {
@@ -210,6 +211,10 @@ impl App {
         EmoteCmd::Add { name, url, hash: None, zero_width }
       };
       self.net.send(Cmd::Emote(cmd));
+    }
+    // the line that picked them goes out after they land, else heatsync stamps it with your old emotes
+    if any {
+      self.net.send(Cmd::HoldSends);
     }
   }
 
@@ -306,7 +311,7 @@ mod tests {
 
   fn asked(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<Cmd> {
     std::iter::from_fn(|| rx.try_recv().ok())
-      .filter(|c| matches!(c, Cmd::Catalog { .. } | Cmd::Emote(_) | Cmd::Send { .. }))
+      .filter(|c| matches!(c, Cmd::Catalog { .. } | Cmd::Emote(_) | Cmd::HoldSends | Cmd::Send { .. }))
       .collect()
   }
 
@@ -482,9 +487,18 @@ mod tests {
       "only names that were tabbed onto, each once"
     );
     assert!(sent.iter().any(|c| matches!(c, Cmd::Send { text, .. } if text.contains("zzcatLol hello"))));
+    // the line waits for those adds: the hold comes after them and before the line
+    let at = |f: &dyn Fn(&Cmd) -> bool| sent.iter().rposition(f);
+    let (add, hold, line) = (
+      at(&|c| matches!(c, Cmd::Emote(_))),
+      at(&|c| matches!(c, Cmd::HoldSends)),
+      at(&|c| matches!(c, Cmd::Send { .. })),
+    );
+    assert!(add < hold && hold < line && add.is_some(), "add, hold, line: {add:?} {hold:?} {line:?}");
     app.line.insert("zzcatLol");
     app.send();
-    assert!(asked(&mut rx).iter().all(|c| !matches!(c, Cmd::Emote(_))), "added once");
+    let again = asked(&mut rx);
+    assert!(again.iter().all(|c| !matches!(c, Cmd::Emote(_) | Cmd::HoldSends)), "added once, nothing to wait for");
   }
 
   // a name you own, block or get as a global is never added; logged out adds nothing; blocked names

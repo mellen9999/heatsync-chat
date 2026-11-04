@@ -47,6 +47,8 @@ pub enum Cmd {
   ChatRefused(String),
   Logout,
   Emote(EmoteCmd),
+  // answered once every emote op asked before it is done (they run in order): a chat line waits on it
+  Barrier(tokio::sync::oneshot::Sender<()>),
   Upload(std::path::PathBuf),
   Picture(Vec<u8>),
   Pick,
@@ -158,6 +160,9 @@ pub async fn run(
           Some(t) => emote_ops::run(&st.http, t, c, &st.out).await,
           None => st.out.status("log in first (ctrl-l)"),
         },
+        Some(Cmd::Barrier(done)) => {
+          let _ = done.send(());
+        }
         Some(Cmd::Upload(p)) => st.upload(p),
         Some(Cmd::Picture(b)) => st.picture(b),
         Some(Cmd::Pick) => st.pick(),

@@ -24,6 +24,7 @@ pub mod pred;
 mod recent;
 pub mod relay;
 mod retry;
+mod send_queue;
 mod senders;
 mod session;
 pub mod seventv;
@@ -439,6 +440,8 @@ pub enum Cmd {
   // our own twitch id, for watching our own 7tv cosmetics
   SevenTvMe(Option<u64>),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
+  // the next line sent waits (bounded) for the emote adds/swaps asked for just before it
+  HoldSends,
   // whispers and feed calls bound to the login
   Social(social::Cmd),
   // a newer release: look, or install it
@@ -810,6 +813,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     return out.status("can't start the picture loader, restart heatsync-chat");
   };
   let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
+  let (sendq, sendq_rx) = mpsc::unbounded_channel();
+  let (irc_send, sess_send) = (irc_tx.clone(), sess_tx.clone());
+  watch("sending chat", send_queue::run(sendq_rx, move |c| send_line(c, &irc_send, &sess_send)), out.clone());
+  // what the next line waits for: the session answers once the emote ops asked before it are done
+  let mut hold = None;
   while let Some(cmd) = rx.recv().await {
     match cmd {
       Cmd::Join(ch) => {
@@ -920,14 +928,13 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Pick => {
         let _ = sess_tx.send(session::Cmd::Pick);
       }
-      Cmd::Send { platform: Platform::Twitch, chan, text, reply } => {
-        let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
+      Cmd::HoldSends => {
+        let (done, wait) = tokio::sync::oneshot::channel();
+        let _ = sess_tx.send(session::Cmd::Barrier(done));
+        hold = Some(wait);
       }
-      Cmd::Send { platform: Platform::Kick, chan, text, reply } => {
-        let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id) });
-      }
-      Cmd::Send { platform: Platform::Youtube, chan, text, .. } => {
-        let _ = sess_tx.send(session::Cmd::Youtube { chan, text });
+      c @ Cmd::Send { .. } => {
+        let _ = sendq.send((hold.take(), c));
       }
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));
@@ -948,6 +955,22 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
+  }
+}
+
+// a chat line, its turn come (send_queue)
+fn send_line(c: Cmd, irc_tx: &mpsc::UnboundedSender<irc::Cmd>, sess_tx: &mpsc::UnboundedSender<session::Cmd>) {
+  match c {
+    Cmd::Send { platform: Platform::Twitch, chan, text, reply } => {
+      let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
+    }
+    Cmd::Send { platform: Platform::Kick, chan, text, reply } => {
+      let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id) });
+    }
+    Cmd::Send { platform: Platform::Youtube, chan, text, .. } => {
+      let _ = sess_tx.send(session::Cmd::Youtube { chan, text });
+    }
+    _ => {}
   }
 }
 
