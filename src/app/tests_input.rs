@@ -312,6 +312,13 @@ fn headless_line_menu() {
   for want in ["copy name", "copy message", "copy \u{2192} input", "hide in tab", "add note", "filter to Bob"] {
     assert!(rows.contains(&want.to_owned()), "{want} in {rows:?}");
   }
+  // copy link sits right after copy message, and is the line's public log permalink
+  let at = |l: &str| rows.iter().position(|r| r == l);
+  assert_eq!(at("copy link"), at("copy message").map(|i| i + 1), "{rows:?}");
+  let sel = app.tabs[app.active].view.selected().cloned().unwrap();
+  let day = crate::model::logs::permalink(Platform::Twitch, "forsen", "1", sel.ts).unwrap();
+  assert_eq!(app.link_of(&sel).as_deref(), Some(day.as_str()));
+  assert!(day.starts_with("https://heatsync.org/search/logs/twitch/forsen/") && day.ends_with("?m=1"));
   // copy → input: the words, flat, a space after
   app.act(Act::Quote, None, None);
   assert_eq!(app.line.text, "hello there ");

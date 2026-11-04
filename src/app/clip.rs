@@ -47,6 +47,23 @@ impl App {
     self.copy(&s, "message copied");
   }
 
+  // a line's public heatsync log permalink (ext buildRowPermalink): its room, its id, its own utc day.
+  // only someone's chat line in a room heatsync archives has one
+  pub(super) fn link_of(&self, m: &crate::model::message::Message) -> Option<String> {
+    if !m.kind.said() || m.id.is_empty() {
+      return None;
+    }
+    crate::model::logs::permalink(m.platform, &self.room_of(m)?, &m.id, m.ts)
+  }
+
+  // copy link: the selected line's permalink
+  pub(super) fn copy_link_selected(&mut self) {
+    let Some(url) = self.tabs.get(self.active).and_then(|t| t.view.selected()).and_then(|m| self.link_of(m)) else {
+      return;
+    };
+    self.copy(&url, "link copied");
+  }
+
   // copy name: the selected line's sender
   pub(super) fn copy_name(&mut self) {
     let Some(n) = self.tabs.get(self.active).and_then(|t| t.view.selected()).map(|m| m.nick.to_string()) else {

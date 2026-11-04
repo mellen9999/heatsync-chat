@@ -48,6 +48,7 @@ pub enum Act {
   Reply,
   CopyName,
   CopyMessage,
+  CopyLink,
   // the message's words into the box
   Quote,
   // true = hide them in this tab, false = bring them back
@@ -195,6 +196,8 @@ pub struct Ctx {
   pub post: Option<PostCtx>,
   // a chat line you could post to the feed
   pub op: bool,
+  // the line has a public heatsync log permalink
+  pub link: bool,
 }
 
 // the ext's order: card, reply, op to feed, the copies, the person (filters, mod), then note, a post's
@@ -213,6 +216,9 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   }
   rows.push((Act::CopyName, "copy name".into()));
   rows.push((Act::CopyMessage, "copy message".into()));
+  if c.link {
+    rows.push((Act::CopyLink, "copy link".into()));
+  }
   rows.push((Act::Quote, "copy \u{2192} input".into()));
   rows.extend(person);
   let post = |rows: &mut Vec<(Act, String)>, f: fn(&PostCtx) -> Vec<(Act, String)>| {
@@ -323,6 +329,7 @@ impl App {
       (Act::OpToFeed, ..) => self.op_to_feed(),
       (Act::CopyName, ..) => self.copy_name(),
       (Act::CopyMessage, ..) => self.copy_selected(),
+      (Act::CopyLink, ..) => self.copy_link_selected(),
       (Act::Quote, ..) => self.quote_selected(),
       (Act::HideInTab(hide), Some(who), _) => {
         self.filter_cmd(crate::model::filtercmd::Cmd::Hide(who.login.to_string(), hide))
@@ -465,6 +472,7 @@ impl App {
       paint,
       post,
       op,
+      link: self.link_of(m).is_some(),
     };
     let mut rows = line_rows(&ctx, person);
     // an automod hold: allow / deny first
@@ -616,6 +624,7 @@ mod tests {
       paint: Some(false),
       post: None,
       op: false,
+      link: true,
     };
     assert_eq!(
       rows(&c),
@@ -624,6 +633,7 @@ mod tests {
         "reply",
         "copy name",
         "copy message",
+        "copy link",
         "copy \u{2192} input",
         "mute",
         "hide in tab",
@@ -645,6 +655,7 @@ mod tests {
       paint: Some(true),
       post: None,
       op: false,
+      link: false,
     };
     let r = rows(&c);
     assert!(r.contains(&"edit note".to_owned()) && r.contains(&"show Bob\u{2019}s paint".to_owned()));
@@ -660,6 +671,7 @@ mod tests {
       paint: None,
       post: None,
       op: false,
+      link: false,
     };
     let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
     assert_eq!(
@@ -679,7 +691,7 @@ mod tests {
 
   #[test]
   fn a_line_with_no_person_still_copies() {
-    let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None, post: None, op: false };
+    let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None, post: None, op: false, link: false };
     assert_eq!(
       rows(&c),
       ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"],
@@ -700,6 +712,7 @@ mod tests {
       paint: None,
       post: post(false, false, false, None),
       op: false,
+      link: false,
     };
     assert_eq!(rows_of(&c), ["reply", "copy name", "copy message", "copy \u{2192} input", "upvote", "bookmark"]);
     let c = Ctx { post: post(false, true, true, None), ..c };
@@ -717,6 +730,7 @@ mod tests {
       paint: None,
       post: post(true, false, false, Some(412_000)),
       op: false,
+      link: false,
     };
     let r = rows_of(&c);
     assert!(!r.iter().any(|l| l.contains("upvote")));
@@ -728,13 +742,13 @@ mod tests {
 
   #[test]
   fn logged_out_a_post_has_no_post_rows_and_a_chat_line_no_op_to_feed() {
-    let c = Ctx { who: None, can_reply: false, chat_tab: false, paint: None, post: None, op: false };
+    let c = Ctx { who: None, can_reply: false, chat_tab: false, paint: None, post: None, op: false, link: false };
     assert_eq!(rows_of(&c), ["copy name", "copy message", "copy \u{2192} input"]);
   }
 
   #[test]
   fn a_chat_line_offers_op_to_feed_after_reply() {
-    let c = Ctx { who: None, can_reply: true, chat_tab: true, paint: None, post: None, op: true };
+    let c = Ctx { who: None, can_reply: true, chat_tab: true, paint: None, post: None, op: true, link: false };
     assert_eq!(rows_of(&c)[..2], ["reply", "op to feed"]);
   }
 
