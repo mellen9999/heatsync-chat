@@ -84,20 +84,23 @@ impl App {
         return;
       }
       let matches = self.candidates(word, slash);
-      let remote = !slash && catalog::eligible(word);
+      // `:nyan` is nyan to the catalogs; the pick replaces the colon too
+      let q = word.strip_prefix(':').unwrap_or(word);
+      let remote = !slash && catalog::eligible(q);
       if matches.is_empty() && !remote {
         self.say(format!("no match for {word}"));
         self.bar_dirty = true;
         return self.wake();
       }
-      let cycle = remote.then(|| Cycle::new(word));
+      let cycle = remote.then(|| Cycle::new(q));
       self.line.checkpoint(false);
       let empty = matches.is_empty();
       self.complete =
         Some(Complete { start: r.start, end: r.end, matches, at: usize::MAX, chipped: None, remote: cycle });
-      // nothing local: the catalogs are asked now, and the first hit lands in the box when they answer
+      // the catalogs are asked on the first tab, local matches or not (ext): their picks join the end
+      // of the cycle. nothing local: the first hit lands in the box when they answer
+      self.ask_catalog(true);
       if empty {
-        self.ask_catalog(true);
         self.input_dirty = true;
         return self.wake();
       }
@@ -276,6 +279,38 @@ mod tests {
     std::iter::from_fn(|| rx.try_recv().ok())
       .filter(|c| matches!(c, Cmd::Catalog { .. } | Cmd::Emote(_) | Cmd::Send { .. }))
       .collect()
+  }
+
+  // the first tab asks the catalogs even with a local match, and `:word` asks for the word
+  #[test]
+  fn first_tab_searches_the_catalogs_with_or_without_a_colon() {
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    // more local matches than the cycle's lookahead, so only the first-tab ask can reach the catalogs
+    let rows: Vec<_> = ["zzcatHere"]
+      .into_iter()
+      .chain((0..20).map(|_| ""))
+      .enumerate()
+      .map(|(i, n)| {
+        let name = if n.is_empty() { format!("zzcatHere{i}") } else { n.into() };
+        serde_json::json!({"custom_name": name, "url": format!("https://cdn.7tv.app/emote/x{i}/1x.webp"),
+        "width": 32, "height": 32, "added_at": "2026-10-30T22:26:51.099Z"})
+      })
+      .collect();
+    signed_in(&mut app);
+    app.res.senders.lookup(1, "zzcatHere", 0);
+    app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!(rows)));
+    for typed in ["zzcat", ":zzcat"] {
+      app.complete = None;
+      app.line = Default::default();
+      app.line.insert(&format!("say {typed}"));
+      app.tab_complete(false);
+      assert!(
+        matches!(asked(&mut rx).as_slice(), [Cmd::Catalog { q, .. }] if &**q == "zzcat"),
+        "{typed} asks the catalogs for zzcat"
+      );
+      assert_eq!(app.line.text, "say zzcatHere ", "{typed}: the local match shows meanwhile");
+    }
   }
 
   // tab with nothing local asks the catalogs, a stale answer is dropped, the live one fills the cycle
