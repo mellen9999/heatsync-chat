@@ -49,6 +49,18 @@ fn write_mode(name: &str, data: &str, mode: u32) -> std::io::Result<()> {
   std::fs::rename(tmp, d.join(name))
 }
 
+// one line onto a small log (owner-only); past `max` bytes the log starts over
+pub fn append(name: &str, line: &str, max: u64) -> std::io::Result<()> {
+  use std::io::Write;
+  use std::os::unix::fs::OpenOptionsExt;
+  let d = dir().ok_or_else(|| std::io::Error::other("no home directory"))?;
+  std::fs::create_dir_all(&d)?;
+  let p = d.join(name);
+  let full = std::fs::metadata(&p).is_ok_and(|m| m.len() > max);
+  let mut f = std::fs::OpenOptions::new().create(true).append(!full).write(true).truncate(full).mode(0o600).open(p)?;
+  f.write_all(line.as_bytes())
+}
+
 pub fn load_tabs() -> Vec<Box<str>> {
   read("tabs").map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty()).map(Into::into).collect()).unwrap_or_default()
 }

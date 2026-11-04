@@ -17,6 +17,7 @@ use winit::event_loop::EventLoop;
 
 fn main() {
   util::mem::limit_arenas();
+  util::crash::install();
   let args: Vec<String> = std::env::args().skip(1).collect();
   if args.first().map(String::as_str) == Some("--bench") {
     let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10_000);

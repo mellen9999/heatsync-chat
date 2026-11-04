@@ -645,6 +645,19 @@ async fn global_emotes(http: reqwest::Client, out: Out) {
   }
 }
 
+// a long-lived part of the network side; if it crashes, say so instead of going quiet
+fn watch(name: &'static str, task: impl std::future::Future<Output = ()> + Send + 'static, out: Out) {
+  use futures_util::FutureExt;
+  tokio::spawn(async move {
+    if std::panic::AssertUnwindSafe(task).catch_unwind().await.is_err() {
+      out.status(format!(
+        "{name} stopped after a crash: restart heatsync-chat (details in {})",
+        crate::util::crash::LOG
+      ));
+    }
+  });
+}
+
 pub struct Net {
   tx: mpsc::UnboundedSender<Cmd>,
 }
@@ -661,7 +674,13 @@ impl Net {
         Ok(rt) => rt,
         Err(e) => return out.status(format!("network runtime failed: {e}")),
       };
-      rt.block_on(main(rx, out));
+      let o = out.clone();
+      if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rt.block_on(main(rx, o)))).is_err() {
+        out.status(format!(
+          "network stopped after a crash: restart heatsync-chat (details in {})",
+          crate::util::crash::LOG
+        ));
+      }
     });
     if let Err(e) = spawned {
       eprintln!("net thread: {e}");
@@ -692,24 +711,24 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     Err(e) => return out.status(format!("http client failed: {e}")),
   };
   let (irc_tx, irc_rx) = mpsc::unbounded_channel();
-  tokio::spawn(irc::run(irc_rx, out.clone()));
+  watch("chat", irc::run(irc_rx, out.clone()), out.clone());
   tokio::spawn(global_emotes(http.clone(), out.clone()));
   tokio::spawn(global_badges(http.clone(), out.clone()));
   let (hs_tx, hs_rx) = mpsc::unbounded_channel();
   let (pin_tx, pin_rx) = mpsc::unbounded_channel();
-  tokio::spawn(pin::run(http.clone(), pin_rx, out.clone()));
-  tokio::spawn(hs_ws::run(hs_rx, pin_tx, out.clone()));
+  watch("pins", pin::run(http.clone(), pin_rx, out.clone()), out.clone());
+  watch("heatsync", hs_ws::run(hs_rx, pin_tx, out.clone()), out.clone());
   let hs_auth = hs_tx.clone();
   let (snd_tx, snd_rx) = mpsc::unbounded_channel();
-  tokio::spawn(senders::run(http.clone(), snd_rx, out.clone()));
+  watch("sending", senders::run(http.clone(), snd_rx, out.clone()), out.clone());
   let (sess_tx, sess_rx) = mpsc::unbounded_channel();
-  tokio::spawn(session::run(http.clone(), sess_rx, irc_tx.clone(), hs_auth, out.clone()));
+  watch("login", session::run(http.clone(), sess_rx, irc_tx.clone(), hs_auth, out.clone()), out.clone());
   let (cos_tx, cos_rx) = mpsc::unbounded_channel();
-  tokio::spawn(cosmetics::run(http.clone(), cos_rx, out.clone()));
+  watch("paints", cosmetics::run(http.clone(), cos_rx, out.clone()), out.clone());
   let (av_tx, av_rx) = mpsc::unbounded_channel();
-  tokio::spawn(avatars::run(http.clone(), av_rx, out.clone()));
+  watch("avatars", avatars::run(http.clone(), av_rx, out.clone()), out.clone());
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
-  tokio::spawn(seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()));
+  watch("7tv", seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()), out.clone());
   let Some(dec) = spawn_decoder(out.clone()) else {
     return out.status("image decoder failed to start");
   };
@@ -848,6 +867,27 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_crashed_task_says_so() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    rt.block_on(async {
+      watch("chat", async { panic!("boom") }, Out::Pipe(tx.clone()));
+      watch("pins", async {}, Out::Pipe(tx));
+      tokio::task::yield_now().await;
+      tokio::task::yield_now().await;
+    });
+    let said: Vec<String> =
+      rx.try_iter().filter_map(|e| if let NetEvent::Status(s) = e { Some(s) } else { None }).collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].starts_with("chat stopped after a crash"), "{}", said[0]);
   }
 }
 
