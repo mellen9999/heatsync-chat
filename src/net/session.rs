@@ -9,6 +9,7 @@ use tokio::time::{Instant, sleep_until};
 use super::auth::{self, Check, Provider};
 use super::emote_ops::{self, EmoteCmd};
 use super::hs_ws;
+use super::http;
 use super::irc::{self, Creds};
 use super::upload;
 use super::{NetEvent, ORIGIN, Out};
@@ -16,6 +17,8 @@ use crate::model::message::{Message, Platform};
 use crate::store;
 use crate::util::time::now_ms;
 
+// the reply to one kick send
+const MAX_REPLY: usize = 64 << 10;
 const TOKEN: &str = "token";
 // /api/auth/check slides the session once <24h is left; checking this often keeps it alive forever
 const RENEW: Duration = Duration::from_secs(6 * 3600);
@@ -323,7 +326,7 @@ async fn kick_send(
     return Ok(());
   }
   let code = r.status().as_u16();
-  let v: Value = r.bytes().await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+  let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
   Err(match v.get("error_code").and_then(Value::as_str) {
     Some("not_linked") => "link kick on heatsync.org first".into(),
     Some("scope_missing") => "re-link kick on heatsync.org to allow sending".into(),

@@ -3,12 +3,15 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+use super::http;
 use super::irc::{self, Chat};
 use super::{NetEvent, ORIGIN, Out};
 use crate::model::message::REPLY_TEXT;
 use crate::util::clamp;
 
 const LIMIT: usize = 800;
+// ~800 raw irc lines
+const MAX_BODY: usize = 2 << 20;
 
 #[derive(Deserialize)]
 struct Recent {
@@ -21,7 +24,7 @@ pub async fn fetch(http: reqwest::Client, ch: Box<str>, out: Out) {
     "{ORIGIN}/api/recent-messages/{ch}?limit={LIMIT}&hide_moderation_messages=false&hide_moderated_messages=false&clearchatToNotice=true"
   );
   let res = match http.get(url).send().await {
-    Ok(r) if r.status().is_success() => r.bytes().await,
+    Ok(r) if r.status().is_success() => http::read(r, MAX_BODY).await,
     Ok(r) => return out.status(format!("history for {ch}: http {}", r.status().as_u16())),
     Err(e) => return out.status(format!("history for {ch}: {e}")),
   };

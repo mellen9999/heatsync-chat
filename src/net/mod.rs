@@ -9,6 +9,7 @@ mod cosmetics;
 pub mod emote_ops;
 pub mod held;
 pub mod hs_ws;
+pub mod http;
 pub mod irc;
 mod links;
 pub mod modact;
@@ -461,7 +462,7 @@ async fn image(
     return;
   }
   let Ok(_permit) = gate.acquire().await else { return };
-  match capped(http.get(&*url).send().await, MAX_IMAGE_BYTES).await {
+  match http::capped(http.get(&*url).send().await, MAX_IMAGE_BYTES).await {
     Ok(bytes) => {
       let _ = dec.send(DecodeJob { id, url, h, bytes, store: true });
     }
@@ -473,7 +474,7 @@ async fn image(
 // fetch_embed_resolve / logEmbed: no login, 6s, a small answer)
 async fn preview(http: reqwest::Client, url: Box<str>, out: Out) {
   let res = http.get(crate::model::preview::ask(&url)).timeout(Duration::from_secs(6)).send().await;
-  let p = capped(res, MAX_PREVIEW)
+  let p = http::capped(res, MAX_PREVIEW)
     .await
     .ok()
     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
@@ -497,7 +498,7 @@ pub(crate) async fn tag_card(http: reqwest::Client, token: Option<String>, tag: 
     }
     match req.send().await {
       Ok(r) if r.status().as_u16() == 404 => Ok(None),
-      r => capped(r, MAX_TAG_CARD)
+      r => http::capped(r, MAX_TAG_CARD)
         .await
         .map_err(drop)
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).map_err(drop))
@@ -515,32 +516,13 @@ async fn pronouns(http: reqwest::Client, uid: u64, out: Out) {
     .timeout(Duration::from_secs(5))
     .send()
     .await;
-  let res = capped(r, MAX_PRONOUNS)
+  let res = http::capped(r, MAX_PRONOUNS)
     .await
     .ok()
     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
     .map(|v| crate::model::pronouns::parse(&v, uid))
     .ok_or(());
   out.send(NetEvent::Pronouns(uid, res));
-}
-
-// the body, abandoned as soon as it passes `max` (a hostile host can't make us buffer it all)
-async fn capped(res: Result<reqwest::Response, reqwest::Error>, max: usize) -> Result<Vec<u8>, String> {
-  let mut r = res.map_err(|e| e.to_string())?;
-  if !r.status().is_success() {
-    return Err(format!("http {}", r.status().as_u16()));
-  }
-  if r.content_length().is_some_and(|n| n > max as u64) {
-    return Err("too large".into());
-  }
-  let mut out = Vec::new();
-  while let Some(c) = r.chunk().await.map_err(|e| e.to_string())? {
-    if out.len() + c.len() > max {
-      return Err("too large".into());
-    }
-    out.extend_from_slice(&c);
-  }
-  Ok(out)
 }
 
 // image fetches follow redirects only between allowlisted hosts (`/api/img` answers with a 302)

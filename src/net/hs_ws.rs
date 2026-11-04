@@ -8,9 +8,10 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, interval, sleep, timeout};
-use tokio_tungstenite::connect_async;
+use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
+use super::http::ws_config;
 use super::{NetEvent, Out, backoff};
 use super::{pin, relay, senders};
 use crate::cosmetics::id::PaintId;
@@ -23,6 +24,8 @@ const HEARTBEAT: Duration = Duration::from_secs(25);
 const IDLE_LIMIT: Duration = Duration::from_secs(90);
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(30);
 const STABLE: Duration = Duration::from_secs(30);
+// a `batch` of 256 chat lines or a kick backfill is the biggest legit frame
+const MAX_FRAME: usize = 2 << 20;
 const MAX_BATCH: usize = 256;
 const MAX_ROOMS: usize = 50;
 
@@ -70,7 +73,7 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
   let mut attempts = 0u32;
   loop {
     let mut wait = None;
-    match timeout(HANDSHAKE_LIMIT, connect_async(URL)).await {
+    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         let ended = session(ws, &mut rx, &mut st, &pins, &out).await;

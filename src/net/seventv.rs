@@ -11,8 +11,8 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, interval, sleep, timeout};
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
+use super::http::ws_config;
 use super::{NetEvent, Out, backoff};
 use crate::emotes::live::{self, valid_id};
 use crate::emotes::{Provider, providers};
@@ -105,8 +105,7 @@ pub async fn run(
         None => return,
       }
     }
-    let cfg = WebSocketConfig::default().max_message_size(Some(MAX_FRAME)).max_frame_size(Some(MAX_FRAME));
-    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(cfg), false)).await {
+    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         if had_session {

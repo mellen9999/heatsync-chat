@@ -2,7 +2,10 @@
 // the line comes back through the heatsync relay like everyone else's, so there is no local echo
 use serde_json::{Value, json};
 
-use super::ORIGIN;
+use super::{ORIGIN, http};
+
+// the reply to one youtube send
+const MAX_REPLY: usize = 64 << 10;
 
 // youtube's own cap on a chat message
 pub const MAX: usize = 200;
@@ -52,7 +55,7 @@ pub async fn send(http: &reqwest::Client, token: &str, chan: &str, text: &str) -
     return Ok(());
   }
   let status = r.status().as_u16();
-  let v: Value = r.bytes().await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+  let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
   Err(explain(v.get("error_code").and_then(Value::as_str), status))
 }
 

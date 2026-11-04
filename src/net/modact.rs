@@ -3,9 +3,12 @@
 // the channel slug and the login
 use serde_json::{Value, json};
 
-use super::{NetEvent, ORIGIN, Out, social};
+use super::{NetEvent, ORIGIN, Out, http, social};
 use crate::model::message::Platform;
 use crate::model::modcmd::Verb;
+
+// the reply to one mod action
+const MAX_REPLY: usize = 64 << 10;
 
 pub struct Req {
   pub platform: Platform,
@@ -114,7 +117,7 @@ async fn act(http: &reqwest::Client, token: &str, r: &Req) -> Result<(), Fail> {
     .await
     .map_err(|e| Fail::Other(e.to_string()))?;
   let status = resp.status().as_u16();
-  let v: Value = resp.bytes().await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+  let v: Value = http::read_json(resp, MAX_REPLY).await.unwrap_or(Value::Null);
   classify(status, &v)
 }
 

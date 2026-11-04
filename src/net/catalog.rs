@@ -27,7 +27,7 @@ fn stv_body(q: &str, page: u32) -> String {
 }
 
 async fn body(r: Result<reqwest::Response, reqwest::Error>) -> Option<Value> {
-  serde_json::from_slice(&super::capped(r, MAX_BODY).await.ok()?).ok()
+  serde_json::from_slice(&super::http::capped(r, MAX_BODY).await.ok()?).ok()
 }
 
 pub async fn run(http: reqwest::Client, q: Box<str>, epoch: u32, page: u32, ask: (bool, bool), out: Out) {

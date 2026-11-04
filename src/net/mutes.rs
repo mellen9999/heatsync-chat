@@ -3,7 +3,7 @@
 // server (the ext never writes them there), so a block made here stays on this machine
 use serde_json::{Value, json};
 
-use super::{NetEvent, ORIGIN, Out};
+use super::{NetEvent, ORIGIN, Out, http};
 use crate::util::time::parse_iso;
 
 const MAX_BODY: usize = 2 << 20;
@@ -57,11 +57,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, op: Op) {
 
 async fn json(r: reqwest::RequestBuilder) -> Option<Value> {
   let r = r.send().await.ok().filter(|r| r.status().is_success())?;
-  if r.content_length().is_some_and(|n| n > MAX_BODY as u64) {
-    return None;
-  }
-  let b = r.bytes().await.ok().filter(|b| b.len() <= MAX_BODY)?;
-  serde_json::from_slice(&b).ok()
+  http::read_json(r, MAX_BODY).await.ok()
 }
 
 pub async fn load(http: reqwest::Client, token: String, out: Out) {

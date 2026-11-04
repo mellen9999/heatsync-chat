@@ -4,8 +4,12 @@ use serde_json::Value;
 
 use super::{Emote, MAX_SET, Provider, Set, valid_name};
 use crate::images::url::allowed;
+use crate::net::http;
 
 // bttv's overlay globals carry no zero-width flag in the api; every client hardcodes them
+// a channel or global emote set (7tv / bttv / ffz): thousands of emotes, a few MiB at most
+const MAX_SET_BODY: usize = 4 << 20;
+
 const BTTV_ZERO_WIDTH: [&str; 8] =
   ["SoSnowy", "IceCold", "SantaHat", "TopHat", "ReinDeer", "CandyCane", "cvMask", "cvHazmat"];
 
@@ -34,8 +38,7 @@ pub async fn fetch(http: &reqwest::Client, url: &str) -> Result<Value, String> {
   if !r.status().is_success() {
     return Err(format!("http {}", r.status().as_u16()));
   }
-  let b = r.bytes().await.map_err(|e| e.to_string())?;
-  serde_json::from_slice(&b).map_err(|e| e.to_string())
+  http::capped_json(Ok(r), MAX_SET_BODY).await
 }
 
 // ---- 7tv: v3 emote set { emotes: [{ name, flags, data: { host: { url, files } } }] }

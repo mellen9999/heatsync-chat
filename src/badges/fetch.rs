@@ -4,10 +4,13 @@ use serde_json::{Value, json};
 use super::{Badge, TwitchSet, UserBadges, key};
 use crate::images::url::allowed;
 use crate::model::color::parse_hex;
+use crate::net::http;
 
 // twitch's own public web client id; anonymous reads only
 pub(crate) const GQL_CLIENT_ID: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 pub(crate) const GQL: &str = "https://gql.twitch.tv/gql";
+// the twitch badge gql answer
+const MAX_GQL: usize = 1 << 20;
 const MAX_USERS: usize = 100_000;
 const MAX_BADGES: usize = 2000;
 
@@ -38,11 +41,7 @@ async fn gql(http: &reqwest::Client, query: &str) -> Result<Value, String> {
     .send()
     .await
     .map_err(|e| e.to_string())?;
-  if !r.status().is_success() {
-    return Err(format!("http {}", r.status().as_u16()));
-  }
-  let b = r.bytes().await.map_err(|e| e.to_string())?;
-  let v: Value = serde_json::from_slice(&b).map_err(|e| e.to_string())?;
+  let v = http::capped_json(Ok(r), MAX_GQL).await?;
   Ok(v.get("data").cloned().unwrap_or(Value::Null))
 }
 

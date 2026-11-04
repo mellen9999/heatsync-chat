@@ -10,10 +10,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
-use super::ORIGIN;
+use super::{ORIGIN, http};
 
 const WAIT: Duration = Duration::from_secs(300);
 const MAX_REQUEST: usize = 8 << 10;
+// any heatsync auth reply (session check, ticket, token): a small json object
+const MAX_REPLY: usize = 64 << 10;
 
 fn b64url(b: &[u8]) -> String {
   const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -193,8 +195,7 @@ async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<
 }
 
 async fn body(r: reqwest::Response) -> Result<Value, String> {
-  let b = r.bytes().await.map_err(|e| e.to_string())?;
-  serde_json::from_slice(&b).map_err(|e| e.to_string())
+  http::read_json(r, MAX_REPLY).await
 }
 
 // a jwt: three base64url segments, bounded

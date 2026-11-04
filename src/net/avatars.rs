@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::{NetEvent, Out, capped};
+use super::http::capped;
+use super::{NetEvent, Out};
 use crate::model::message::Platform;
 
 // the ext's MAX_AVATAR_FETCHES

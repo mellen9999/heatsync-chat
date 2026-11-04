@@ -4,10 +4,11 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
-use tokio::time::{Instant, interval, sleep};
-use tokio_tungstenite::connect_async;
+use tokio::time::{Instant, interval, sleep, timeout};
+use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
+use super::http::ws_config;
 use super::{Out, Reply, backoff};
 use crate::model::color;
 use crate::model::message::{Kind, Message, Platform, REPLY_TEXT, flag};
@@ -20,6 +21,9 @@ const PING_EVERY: Duration = Duration::from_secs(60);
 const SILENCE_LIMIT: Duration = Duration::from_secs(180);
 const STABLE: Duration = Duration::from_secs(30);
 const MAX_BODY: usize = 2000;
+const HANDSHAKE_LIMIT: Duration = Duration::from_secs(30);
+// one irc line is ≤ ~8KiB with tags; twitch may batch several lines in a frame
+const MAX_FRAME: usize = 256 << 10;
 
 #[derive(Debug, PartialEq)]
 pub struct Line<'a> {
@@ -302,8 +306,8 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let mut creds: Option<Creds> = None;
   let mut attempts = 0u32;
   loop {
-    match connect_async(URL).await {
-      Ok((ws, _)) => {
+    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
+      Ok(Ok((ws, _))) => {
         let started = Instant::now();
         out.status(if creds.is_some() { "twitch connected" } else { "twitch connected (read-only)" });
         match session(ws, &mut rx, &mut chans, &mut creds, &out).await {
@@ -318,7 +322,8 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
           attempts = 0;
         }
       }
-      Err(e) => out.status(format!("twitch connect failed: {e}")),
+      Ok(Err(e)) => out.status(format!("twitch connect failed: {e}")),
+      Err(_) => out.status("twitch handshake timed out"),
     }
     attempts += 1;
     let wait = sleep(backoff(attempts));
