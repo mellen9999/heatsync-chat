@@ -9,6 +9,7 @@ use tokio::time::{Instant, interval, sleep, timeout};
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
+use super::dupe::Dupes;
 use super::http::ws_config;
 use super::{Out, Reply, backoff};
 use crate::model::color;
@@ -170,7 +171,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
   let nick: Box<str> = l.tag("display-name").map_or_else(|| login.clone(), Into::into);
   // as sent: the view lifts it (or not) at draw time, so the setting works on lines already shown
   let color = l.tag("color").and_then(|c| color::parse_hex(&c)).unwrap_or_else(|| color::default_for(&login));
-  let body = clamp(body, MAX_BODY);
+  let body = clamp(super::dupe::strip(body), MAX_BODY);
   let mut flags = 0;
   if l.tag("first-msg").as_deref() == Some("1") {
     flags |= flag::FIRST;
@@ -196,7 +197,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     hs: Box::new([]),
     body: body.into(),
     reply_to: l.tag("reply-parent-display-name").map(Into::into),
-    reply_text: l.tag("reply-parent-msg-body").map(|t| clamp(&t, REPLY_TEXT).into()),
+    reply_text: l.tag("reply-parent-msg-body").map(|t| clamp(super::dupe::strip(&t), REPLY_TEXT).into()),
     system: None,
     x: None,
   }
@@ -278,7 +279,7 @@ const MAX_PENDING: usize = 20;
 const MAX_SEND: usize = 500;
 
 // what goes on the wire for a send: one line, no injection of a second irc command
-fn privmsg(chan: &str, text: &str, reply: Option<&str>) -> Option<String> {
+fn privmsg(chan: &str, text: &str, reply: Option<&str>, dupes: &mut Dupes) -> Option<String> {
   let text: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_SEND).collect();
   let text = text.trim();
   if !ident::twitch_room(chan) || text.is_empty() {
@@ -288,6 +289,7 @@ fn privmsg(chan: &str, text: &str, reply: Option<&str>) -> Option<String> {
     Some(id) => format!("@reply-parent-msg-id={id} "),
     None => String::new(),
   };
+  let text = dupes.wire(chan, text);
   Some(format!("{tag}PRIVMSG #{chan} :{text}"))
 }
 
@@ -330,6 +332,7 @@ pub async fn run(
   // when we last lost twitch: set once there has been a connection, so the next one fills the gap
   let mut lost: Option<Instant> = None;
   let mut pending: VecDeque<Sent> = VecDeque::new();
+  let mut dupes = Dupes::default();
   loop {
     let mut why = "can't reach twitch";
     match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
@@ -340,7 +343,7 @@ pub async fn run(
           let chans: Vec<_> = chans.iter().cloned().collect();
           tokio::spawn(super::recent::catch_up(http.clone(), chans, catch_limit(since.elapsed()), out.clone()));
         }
-        let end = session(ws, &mut rx, &mut chans, &mut creds, &mut pending, &out).await;
+        let end = session(ws, &mut rx, &mut chans, &mut creds, &mut pending, &mut dupes, &out).await;
         // a line still waiting on twitch's word when the socket went: say so rather than let it vanish
         unsure(&out, &mut pending);
         lost = Some(Instant::now());
@@ -418,6 +421,7 @@ async fn session(
   chans: &mut BTreeSet<Box<str>>,
   creds: &mut Option<Creds>,
   pending: &mut VecDeque<Sent>,
+  dupes: &mut Dupes,
   out: &Out,
 ) -> End {
   let (mut tx, mut read) = ws.split();
@@ -509,7 +513,7 @@ async fn session(
               unsent(out, chan, "twitch isn't linked: link it at heatsync.org, or log in with twitch (ctrl-l)");
               continue;
             }
-            let Some(l) = privmsg(&chan, &text, reply.as_ref().map(|r| &*r.id)) else { continue };
+            let Some(l) = privmsg(&chan, &text, reply.as_ref().map(|r| &*r.id), dupes) else { continue };
             if pending.len() == MAX_PENDING {
               pending.pop_front();
             }
@@ -700,13 +704,38 @@ mod tests {
 
   #[test]
   fn send_line_is_one_command() {
-    assert_eq!(privmsg("forsen", "hi\r\nJOIN #x", None).as_deref(), Some("PRIVMSG #forsen :hi  JOIN #x"));
     assert_eq!(
-      privmsg("forsen", "yo", Some("abc-1")).as_deref(),
+      privmsg("forsen", "hi\r\nJOIN #x", None, &mut Dupes::default()).as_deref(),
+      Some("PRIVMSG #forsen :hi  JOIN #x")
+    );
+    assert_eq!(
+      privmsg("forsen", "yo", Some("abc-1"), &mut Dupes::default()).as_deref(),
       Some("@reply-parent-msg-id=abc-1 PRIVMSG #forsen :yo")
     );
-    assert_eq!(privmsg("forsen", "yo", Some("a b;x=1")).as_deref(), Some("PRIVMSG #forsen :yo"));
-    assert_eq!(privmsg("forsen", "   ", None), None);
-    assert_eq!(privmsg("Bad Chan", "x", None), None);
+    assert_eq!(privmsg("forsen", "yo", Some("a b;x=1"), &mut Dupes::default()).as_deref(), Some("PRIVMSG #forsen :yo"));
+    assert_eq!(privmsg("forsen", "   ", None, &mut Dupes::default()), None);
+    assert_eq!(privmsg("Bad Chan", "x", None, &mut Dupes::default()), None);
+  }
+
+  #[test]
+  fn repeat_goes_out_tagged_and_shows_clean() {
+    let mut d = Dupes::default();
+    assert_eq!(privmsg("c", "hi", None, &mut d).as_deref(), Some("PRIVMSG #c :hi"));
+    let l = privmsg("c", "hi", None, &mut d).unwrap();
+    assert_eq!(l, "PRIVMSG #c :hi \u{E0000}");
+    // the line as twitch (or history) hands it back: shown without the tag
+    let raw = format!("@id=1 :a!a@a {}", l);
+    let m = match to_chat(&parse(&raw).unwrap()).unwrap().1 {
+      Chat::Msg(m) => m,
+      _ => panic!("msg"),
+    };
+    assert_eq!(&*m.body, "hi");
+    let raw = "@id=2 :a!a@a PRIVMSG #c :\u{1}ACTION waves \u{E0000}\u{1}";
+    let m = match to_chat(&parse(raw).unwrap()).unwrap().1 {
+      Chat::Msg(m) => m,
+      _ => panic!("msg"),
+    };
+    assert_eq!((&*m.body, m.kind), ("waves", Kind::Action));
+    assert_eq!(privmsg("c", "hi", None, &mut d).as_deref(), Some("PRIVMSG #c :hi"));
   }
 }

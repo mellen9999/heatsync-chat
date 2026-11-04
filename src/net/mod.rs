@@ -7,6 +7,7 @@ mod catalog;
 pub mod chantools;
 mod clip;
 mod cosmetics;
+pub mod dupe;
 pub mod emote_ops;
 pub mod held;
 pub mod hs_ws;
