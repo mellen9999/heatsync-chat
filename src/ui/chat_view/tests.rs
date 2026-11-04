@@ -91,9 +91,9 @@ fn text_badges_swap_twitch_pictures_for_words_and_off_is_unchanged() {
   };
   // off: two pictures, the name starts the text
   assert_eq!(at(&mut res), (2, 0));
-  // on: "mod" and "sub" are text before the name, no pictures, the unstyled role draws nothing
+  // on: "mod" and "sub" are boxed words before the name, no pictures, the unstyled role draws nothing
   res.look.text_badges = true;
-  assert_eq!(at(&mut res), (0, "modsub".len()));
+  assert_eq!(at(&mut res), (0, " mod  sub ".len()));
   res.look.text_badges = false;
   assert_eq!(at(&mut res), (2, 0));
 }
@@ -1245,19 +1245,19 @@ fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
     (l.boxes.len(), l.nick.start)
   };
   // the sub is a picture, the roles words, a channel's own badge name draws nothing
-  assert_eq!(at(&mut res, &m, "c"), (1, "modog".len()));
+  assert_eq!(at(&mut res, &m, "c"), (1, " mod  og ".len()));
   // the sub art is the 6 month tier (7 months, nearest lower): nothing asked until drawn, so look at the box
   let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
   assert_eq!(l.boxes[0].img, res.images.id("https://files.kick.com/a/6", crate::ui::res::BADGE_PX));
   // another tab has no art: the sub falls back to its word, like the ext
-  assert_eq!(at(&mut res, &m, "other"), (0, "modsubog".len()));
+  assert_eq!(at(&mut res, &m, "other"), (0, " mod  sub  og ".len()));
   // text badges: words only, no picture
   res.look.text_badges = true;
-  assert_eq!(at(&mut res, &m, "c"), (0, "modsubog".len()));
+  assert_eq!(at(&mut res, &m, "c"), (0, " mod  sub  og ".len()));
   // a sub below the lowest tier has no art either
   res.look.text_badges = false;
   res.badges.set_kick("c", vec![(3, "https://files.kick.com/a/3".into())]);
-  assert_eq!(at(&mut res, &relayed(Platform::Kick, &[("subscriber", "1")]), "c"), (0, "sub".len()));
+  assert_eq!(at(&mut res, &relayed(Platform::Kick, &[("subscriber", "1")]), "c"), (0, " sub ".len()));
   // a twitch-id badge set never dresses a kick chatter
   res.badges.set_users(
     crate::badges::Source::Ffz,

@@ -126,6 +126,8 @@ enum Frame {
   Bits,
   // an announcement's chip: 1px yellow (ext .hs-mc-notice-announce::before)
   Announce,
+  // a badge as a word: 1px in its own color
+  Chip(u32),
 }
 
 struct Row {

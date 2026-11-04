@@ -194,6 +194,7 @@ impl ChatView {
               Frame::Button => c.outline(r, clip, theme::WHITE),
               Frame::Hold | Frame::Announce => c.outline(r, clip, theme::YELLOW),
               Frame::Bits => c.outline(r, clip, theme::TWITCH),
+              Frame::Chip(ink) => c.outline(r, clip, *ink),
             }
           }
           let anims = &mut self.anims;

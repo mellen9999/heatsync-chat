@@ -194,7 +194,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
       frames.push((a..s.len(), Frame::Bits));
       s.push(' ');
     }
-    badges(res, chan, m, &mut s, &mut spans, &mut ib, &mut boxes);
+    badges(res, chan, m, &mut s, &mut spans, &mut ib, &mut boxes, &mut frames);
     let n0 = s.len();
     s.push_str(&m.nick);
     nick = n0..s.len();
@@ -683,6 +683,7 @@ pub(super) fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn badges(
   res: &mut Res,
   chan: &str,
@@ -691,8 +692,21 @@ pub(super) fn badges(
   spans: &mut Vec<Span>,
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
+  frames: &mut Vec<(std::ops::Range<usize>, Frame)>,
 ) {
   let look = res.look;
+  // a role as a word (ext .hs-mc-badge, its colored fill as a 1px border in the same color: no fill behind
+  // words), 2px apart
+  let two = res.images.px(2);
+  let mut word = |s: &mut String, spans: &mut Vec<Span>, ib: &mut Vec<InlineBox>, w: &str, ink: u32| {
+    let a = s.len();
+    s.push(' ');
+    s.push_str(w);
+    s.push(' ');
+    spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: true });
+    frames.push((a..s.len(), Frame::Chip(ink)));
+    ib.push(gap(s.len(), two));
+  };
   let all = if matches!(m.platform, Platform::Kick | Platform::Youtube) {
     // kick + youtube: roles in order, each a picture (kick sub art) or its word. no per-chatter
     // twitch-id sets here: a kick id is not a twitch id
@@ -705,24 +719,28 @@ pub(super) fn badges(
         push_badge(res, &url, None, s, ib, boxes);
         continue;
       }
-      let chip = if m.platform == Platform::Kick { badge_text::chip(role) } else { badge_text::youtube_chip(role) };
-      let Some((word, ink)) = chip else { continue };
+      if m.platform == Platform::Kick {
+        if let Some((w, ink)) = badge_text::chip(role) {
+          word(s, spans, ib, w, ink);
+        }
+        continue;
+      }
+      // youtube's owner star / moderator swords: a glyph on black, 3px either side (ext ytBadgeStyles)
+      let Some((glyph, ink)) = badge_text::youtube_chip(role) else { continue };
+      ib.push(gap(s.len(), res.images.px(3)));
       let a = s.len();
-      s.push_str(word);
-      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
-      ib.push(gap(s.len(), res.images.px(2)));
+      s.push_str(glyph);
+      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: true });
+      ib.push(gap(s.len(), res.images.px(5)));
     }
     Vec::new()
   } else if look.text_badges {
     // ext textBadges: twitch / kick roles become short words, no picture asked for. the per-chatter
     // third-party sets (ffz, chatterino, 7tv) stay pictures, like the ext
     for (role, _) in m.badges.iter() {
-      let Some((word, ink)) = badge_text::chip(role) else { continue };
-      let a = s.len();
-      s.push_str(word);
-      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
-      // ext: 2px between badges (a monospace space is a whole cell)
-      ib.push(gap(s.len(), res.images.px(2)));
+      if let Some((w, ink)) = badge_text::chip(role) {
+        word(s, spans, ib, w, ink);
+      }
     }
     res.badges.third_party(m, look.ffz_badges, look.chatterino_badges)
   } else {
