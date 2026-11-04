@@ -13,6 +13,7 @@ use winit::platform::wayland::WindowAttributesExtWayland;
 use winit::platform::x11::WindowAttributesExtX11;
 use winit::window::{Window, WindowId};
 
+mod account;
 mod acct;
 mod blocked;
 mod builtin;
@@ -786,6 +787,9 @@ impl App {
       Local::Counter(None) => self.say("usage: /tabcounter unread, heat or off"),
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Keys => self.open_screen(screen::Page::Keys),
+      Local::Login(arg) => self.login_cmd(&arg),
+      Local::Logout => self.logout_cmd(),
+      Local::Account => self.account_open(),
       Local::Blocked => self.blocked_here(),
       Local::Summary => self.summary_here(),
       Local::Status => self.status_here(),

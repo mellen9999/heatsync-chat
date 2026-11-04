@@ -435,6 +435,10 @@ pub enum Local {
   // the settings screen, the key map
   Settings,
   Keys,
+  // /login [platform], /logout, /account: who you are
+  Login(String),
+  Logout,
+  Account,
   // /blocked: the twitch room's blocked terms
   Blocked,
   // /summary: the tab's stream stats
@@ -502,6 +506,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/follow" => return Some(Local::Follow(tail.to_owned(), true)),
     "/unfollow" => return Some(Local::Follow(tail.to_owned(), false)),
     "/tab" => return Some(Local::Goto(tail.to_owned())),
+    "/login" => return Some(Local::Login(tail.to_ascii_lowercase())),
     "/set" => {
       let (k, v) = tail.split_once(char::is_whitespace).unwrap_or((tail, ""));
       return Some(Local::Set(k.to_owned(), v.trim().to_owned()));
@@ -511,6 +516,8 @@ pub fn local_cmd(text: &str) -> Option<Local> {
   match low.as_str() {
     "/settings" => Some(Local::Settings),
     "/keys" | "/help" => Some(Local::Keys),
+    "/logout" => Some(Local::Logout),
+    "/account" => Some(Local::Account),
     "/lclear" => Some(Local::Lclear),
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
@@ -744,6 +751,10 @@ mod tests {
     assert_eq!(local_cmd("/hidebots"), Some(Local::Toggle("hide_bots")));
     assert_eq!(local_cmd("/settings"), Some(Local::Settings));
     assert_eq!(local_cmd("/KEYS"), Some(Local::Keys));
+    assert_eq!(local_cmd("/login"), Some(Local::Login(String::new())));
+    assert_eq!(local_cmd("/login  Kick "), Some(Local::Login("kick".into())));
+    assert_eq!(local_cmd("/logout"), Some(Local::Logout));
+    assert_eq!(local_cmd("/ACCOUNT"), Some(Local::Account));
     // every switch in the table answers to its own command
     for d in &schema::DEFS {
       if let (Some(c), Ctl::Pill(..)) = (d.cmd, d.ctl) {

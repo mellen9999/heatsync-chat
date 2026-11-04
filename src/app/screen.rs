@@ -26,6 +26,8 @@ pub enum Page {
   ModTools,
   // a twitch channel's prediction (app::pred)
   Pred,
+  // who you are logged in as (app::account)
+  Account,
 }
 
 pub struct Screen {
@@ -64,6 +66,8 @@ pub(super) enum Target {
   Shield,
   Level(u8),
   Unban(usize),
+  // the account screen: log in, link, log out
+  Account(super::account::Step),
   None,
 }
 
@@ -121,6 +125,7 @@ impl Screen {
       Page::Status => (self.shown.clone(), self.marks.clone()),
       Page::Pred => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
+      Page::Account => (self.shown.clone(), self.marks.clone()),
     }
   }
 
@@ -445,6 +450,7 @@ impl App {
         Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
+      (Some(Target::Account(step)), None) => self.account_step(step),
       (Some(t @ (Target::Allow | Target::Retry | Target::Shield | Target::Level(_) | Target::Unban(_))), _)
         if s.page == Page::ModTools =>
       {
@@ -488,6 +494,7 @@ impl App {
   }
 
   pub(super) fn draw_screen(&mut self) -> Option<Rect> {
+    self.account_refresh();
     self.summary_refresh();
     self.status_refresh();
     let area = self.chat_area();
@@ -497,6 +504,7 @@ impl App {
     let tip = match targets.get(s.st.at) {
       Some(Target::Def(d)) => d.tip,
       Some(Target::Preset(p)) => p.tip,
+      Some(Target::Account(step)) => step.tip(),
       _ => "",
     };
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
@@ -529,6 +537,7 @@ impl App {
         },
       ),
       (Page::Pred, _) => (s.title.as_str(), None, "read only · j k scroll · r refresh · esc closes"),
+      (Page::Account, _) => ("account", None, "j k move · enter picks · esc closes"),
       (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
       (Page::ModTools, _) => (
         mt_title.as_str(),
