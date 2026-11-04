@@ -107,7 +107,7 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       if !valid_name(&name) || !allowed(&url) {
         return out.status("can't add that emote");
       }
-      match add(http, token, &name, &url, hash.as_deref(), zero_width).await {
+      match add(http, token, &name, &url, hash.as_deref(), zero_width, false).await {
         Ok(()) => {
           out.status(format!("added {name} to your emotes"));
           out.send(NetEvent::Inventory { removed: None });
@@ -126,16 +126,16 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       if !valid_name(&name) || !allowed(&url) {
         return out.status("can't add that emote");
       }
-      if let Err(e) = remove(http, token, &name).await {
-        return out.status(format!("couldn't swap {name}: {e}"));
-      }
-      out.send(NetEvent::Inventory { removed: Some(name.clone()) });
-      match add(http, token, &name, &url, None, zero_width).await {
+      // one request: the server points your slot at the new emote, so a failure leaves the old one
+      match add(http, token, &name, &url, None, zero_width, true).await {
         Ok(()) => {
           out.status(format!("your {name} is now the one you picked"));
-          out.send(NetEvent::Inventory { removed: None });
+          out.send(NetEvent::Inventory { removed: Some(name) });
         }
-        Err(e) => out.status(format!("removed your old {name}, but couldn't add the new one: {e}")),
+        Err(e) if e.contains("held by your upload") => {
+          out.status(format!("kept your own upload as {name}: an upload never gets swapped out"))
+        }
+        Err(e) => out.status(format!("couldn't swap {name}, you still have your old one: {e}")),
       }
     }
     EmoteCmd::Remove { name } => match remove(http, token, &name).await {
@@ -177,19 +177,28 @@ async fn add(
   url: &str,
   hash: Option<&str>,
   zero_width: bool,
+  replace: bool,
 ) -> Result<(), String> {
-  let body = json!({
-    "emoteUrl": url, "emoteName": name, "customName": name,
-    "source": "extension", "sourceId": hash, "zeroWidth": zero_width,
-  });
   let r = http
     .post(format!("{ORIGIN}/api/user/emotes"))
     .bearer_auth(token)
     .header("content-type", "application/json")
-    .body(body.to_string())
+    .body(add_body(name, url, hash, zero_width, replace).to_string())
     .send()
     .await;
   result(r).await.map(drop)
+}
+
+// `replace`: a different emote you own under this name is swapped for this one in the same slot
+fn add_body(name: &str, url: &str, hash: Option<&str>, zero_width: bool, replace: bool) -> Value {
+  let mut b = json!({
+    "emoteUrl": url, "emoteName": name, "customName": name,
+    "source": "extension", "sourceId": hash, "zeroWidth": zero_width,
+  });
+  if replace {
+    b["replace"] = Value::Bool(true);
+  }
+  b
 }
 
 async fn result(r: Result<reqwest::Response, reqwest::Error>) -> Result<Value, String> {
@@ -225,6 +234,13 @@ fn slot_of(rows: &[Value], name: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_swap_is_one_add_that_replaces() {
+    let u = "https://cdn.7tv.app/emote/x/1x.webp";
+    assert_eq!(add_body("IDK", u, None, false, true)["replace"], true);
+    assert!(add_body("IDK", u, None, false, false).get("replace").is_none());
+  }
 
   #[test]
   fn sub_emotes_are_read_bounded_and_on_the_allowlist() {
