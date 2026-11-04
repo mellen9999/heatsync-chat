@@ -729,12 +729,28 @@ impl Net {
   }
 }
 
+const MAX_REDIRECTS: usize = 5;
+
+// a redirect is followed only over https and only so far: a hostile reply can't bounce us around or
+// down to plain http (`https_only` on the client refuses http outright)
+fn follow_redirect(hops: usize, to: &reqwest::Url) -> bool {
+  hops < MAX_REDIRECTS && to.scheme() == "https"
+}
+
+fn redirects() -> reqwest::redirect::Policy {
+  reqwest::redirect::Policy::custom(
+    |a| if follow_redirect(a.previous().len(), a.url()) { a.follow() } else { a.stop() },
+  )
+}
+
 // the one client for every api and json fetch
 fn main_client() -> Result<reqwest::Client, reqwest::Error> {
   reqwest::Client::builder()
     .user_agent(USER_AGENT)
     .connect_timeout(Duration::from_secs(8))
     .timeout(Duration::from_secs(12))
+    .https_only(true)
+    .redirect(redirects())
     .build()
 }
 
@@ -915,6 +931,57 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // one-shot local server answering whatever it is asked with `reply`
+  async fn serve(reply: String) -> std::net::SocketAddr {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+      let (mut s, _) = l.accept().await.unwrap();
+      let mut buf = [0u8; 1024];
+      let _ = s.read(&mut buf).await;
+      let _ = s.write_all(reply.as_bytes()).await;
+    });
+    addr
+  }
+
+  #[test]
+  fn redirects_stop_at_five_hops_and_never_leave_https() {
+    let https = reqwest::Url::parse("https://heatsync.org/x").unwrap();
+    let http = reqwest::Url::parse("http://heatsync.org/x").unwrap();
+    for hops in 0..MAX_REDIRECTS {
+      assert!(follow_redirect(hops, &https), "hop {hops}");
+    }
+    assert!(!follow_redirect(MAX_REDIRECTS, &https), "the sixth hop is a loop or a trap");
+    assert!(!follow_redirect(0, &http), "never down to plain http");
+    assert!(!follow_redirect(0, &reqwest::Url::parse("ftp://x/y").unwrap()));
+  }
+
+  #[tokio::test]
+  async fn the_main_client_refuses_plain_http_and_does_not_chase_a_redirect_to_it() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let c = main_client().unwrap();
+    let e = c.get("http://127.0.0.1:9/").send().await.unwrap_err();
+    assert!(e.is_builder(), "plain http is refused before anything is sent: {e}");
+    // the same redirect policy on a client that can reach a local server: a 302 to http stays a 302
+    let target = serve("HTTP/1.1 200 OK\r\ncontent-length: 8\r\nconnection: close\r\n\r\nfollowed".into()).await;
+    let hop = serve(format!(
+      "HTTP/1.1 302 Found\r\nlocation: http://{target}/\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+    ))
+    .await;
+    let plain = reqwest::Client::builder().redirect(redirects()).build().unwrap();
+    let r = plain.get(format!("http://{hop}/")).send().await.unwrap();
+    assert_eq!(r.status().as_u16(), 302, "not followed");
+    // the default policy would have walked right on
+    let target = serve("HTTP/1.1 200 OK\r\ncontent-length: 8\r\nconnection: close\r\n\r\nfollowed".into()).await;
+    let hop = serve(format!(
+      "HTTP/1.1 302 Found\r\nlocation: http://{target}/\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+    ))
+    .await;
+    let r = reqwest::Client::new().get(format!("http://{hop}/")).send().await.unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+  }
 
   #[test]
   fn a_crashed_task_says_so() {
