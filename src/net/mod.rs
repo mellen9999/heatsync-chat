@@ -430,7 +430,9 @@ fn spawn_decoder(out: Out) -> Option<std::sync::mpsc::Sender<DecodeJob>> {
       if j.store {
         cache::write(&j.url, &j.bytes);
       }
-      let res = decode::decode(&j.bytes, j.h);
+      // a decoder bug on one hostile file must not end decoding for the session
+      let res =
+        std::panic::catch_unwind(|| decode::decode(&j.bytes, j.h)).unwrap_or_else(|_| Err("decoder crashed".into()));
       if !out.send(NetEvent::Image(j.id, j.h, res)) {
         return;
       }

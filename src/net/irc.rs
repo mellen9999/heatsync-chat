@@ -114,7 +114,8 @@ fn twitch_emotes(tag: &str, body: &str) -> Vec<(std::ops::Range<u32>, Box<str>)>
       let (Ok(a), Ok(b)) = (a.parse::<usize>(), b.parse::<usize>()) else {
         continue;
       };
-      if a > b || b + 1 >= starts.len() {
+      // `starts` always holds body.len(), so b + 1 is in range only when b < len - 1
+      if a > b || b >= starts.len() - 1 {
         continue;
       }
       out.push((starts[a] as u32..starts[b + 1] as u32, crate::emotes::twitch_url(id).into()));
@@ -538,6 +539,8 @@ mod tests {
   #[test]
   fn hostile_emote_tag() {
     assert!(twitch_emotes("25:9-99,5-2,x-y/:/../:0-1", "hi").is_empty());
+    let max = usize::MAX;
+    assert!(twitch_emotes(&format!("25:0-{max},{max}-{max}"), "hi").is_empty(), "no overflow");
   }
 
   #[test]

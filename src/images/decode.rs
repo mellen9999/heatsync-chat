@@ -143,7 +143,8 @@ fn gif(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
     }
     frames.push(Frame { rgba: canvas.clone().into(), delay_ms: delay(f.delay as u32 * 10) });
     match f.dispose {
-      gif::DisposalMethod::Background => {
+      // a frame may sit partly or wholly off the canvas: clear only the part on it
+      gif::DisposalMethod::Background if fx < w => {
         for y in fy..(fy + fh).min(h) {
           let a = ((y * w + fx) * 4) as usize;
           let b = ((y * w + (fx + fw).min(w)) * 4) as usize;
@@ -247,6 +248,21 @@ mod tests {
     assert_eq!(&out[..4], &[255, 135, 0, 255]);
     let clear = vec![0u8; 4 * 4 * 4];
     assert!(resize(&clear, 4, 4, 2, 2).iter().all(|&b| b == 0));
+  }
+
+  #[test]
+  fn a_gif_frame_off_the_canvas_does_not_crash() {
+    let mut bytes = Vec::new();
+    {
+      let mut e = gif::Encoder::new(&mut bytes, 2, 2, &[255, 0, 0, 0, 0, 0]).unwrap();
+      for left in [10, 0] {
+        let mut f = gif::Frame { width: 2, height: 2, left, buffer: vec![0; 4].into(), ..Default::default() };
+        f.dispose = gif::DisposalMethod::Background;
+        e.write_frame(&f).unwrap();
+      }
+    }
+    let d = decode(&bytes, 2).unwrap();
+    assert_eq!(d.frames.len(), 2);
   }
 
   #[test]
