@@ -43,6 +43,8 @@ pub struct Look {
   pub dim_timeouts: bool,
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // badges as text chips, not pictures
+  pub text_badges: bool,
   // a picture beside each name
   pub avatars: bool,
   // emotes from a heatsync inventory draw (renderInventoryEmotes)
@@ -64,6 +66,7 @@ impl Look {
       dim_timeouts: s.dim_timeouts,
       ffz_badges: s.ffz_badges,
       chatterino_badges: s.chatterino_badges,
+      text_badges: s.text_badges,
       avatars: s.avatars,
       inventory_emotes: s.render_inventory,
     }
@@ -131,6 +134,12 @@ impl Res {
       partial_links: true,
       links: true,
     }
+  }
+
+  // the settings that shape drawing: the look, and which provider wins a shared emote name
+  pub fn apply_look(&mut self, s: &Settings) {
+    self.look = Look::of(s);
+    self.emotes.set_order(s.emote_provider.order());
   }
 
   pub fn set_scale(&mut self, scale: f32) {

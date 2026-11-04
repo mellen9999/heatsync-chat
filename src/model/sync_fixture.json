@@ -50,6 +50,16 @@
   "scope": "sync",
   "default": true
  },
+ "emoteProviderPriority": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "ffz",
+  "options": [
+   "7tv",
+   "bttv",
+   "ffz"
+  ]
+ },
  "ffzBadges": {
   "type": "bool",
   "scope": "sync",
@@ -273,6 +283,11 @@
    "bottom",
    "left"
   ]
+ },
+ "textBadges": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
  },
  "timestampFormat": {
   "type": "enum",

@@ -367,7 +367,7 @@ impl App {
       crate::fake::seed_paints(&mut res.cosmetics);
     }
     res.media = set.media;
-    res.look = crate::ui::res::Look::of(&set);
+    res.apply_look(&set);
     res.partial_links = set.partial_links;
     res.links = set.links;
     Self {
@@ -3838,7 +3838,7 @@ mod live {
     let mut app = App::new(net, vec!["aaa".into()], false);
     // the scratch HOME keeps what the last run switched: start from the defaults
     app.set = crate::model::settings::Settings::default();
-    app.res.look = crate::ui::res::Look::of(&app.set);
+    app.res.apply_look(&app.set);
     app.dpi = 1.0;
     app.res.set_scale(app.scale());
     app.canvas.resize(640, 300);

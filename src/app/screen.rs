@@ -10,7 +10,6 @@ use crate::model::schema::{self, Ctl, DEFS, Def, Fx, PRESETS, Preset};
 use crate::model::settings::{Settings, ZOOM_MAX, ZOOM_STEP, clamp_zoom};
 use crate::model::vi::Mode;
 use crate::ui::canvas::Rect;
-use crate::ui::res::Look;
 use crate::ui::sheet::{self, L, State};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -219,7 +218,7 @@ impl App {
         self.relayout_where(None);
       }
       Fx::Look => {
-        self.res.look = Look::of(&self.set);
+        self.res.apply_look(&self.set);
         self.relayout_where(None);
       }
       Fx::Links => {

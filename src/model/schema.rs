@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 59] = [
+pub static DEFS: [Def; 61] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -311,6 +311,30 @@ pub static DEFS: [Def; 59] = [
     ctl: pill!(chatterino_badges),
     fx: Fx::Look,
     wire: Wire::Bool("chatterinoBadges"),
+  },
+  Def {
+    id: "text_badges",
+    cmd: Some("/textbadges"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "text badges",
+    tip: "mod, vip, sub and the rest as short text chips (mod, vip, sub) instead of pictures",
+    alias: "textBadges chips labels",
+    ctl: pill!(text_badges),
+    fx: Fx::Look,
+    wire: Wire::Bool("textBadges"),
+  },
+  Def {
+    id: "emote_provider",
+    cmd: Some("/emoteprovider"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "emote provider priority",
+    tip: "when 7tv, bttv and ffz have an emote with the same name, this one wins. /emoteprovider 7tv",
+    alias: "emoteProviderPriority 7tv bttv ffz priority",
+    ctl: pick!(emote_provider, EmoteProvider),
+    fx: Fx::Look,
+    wire: Wire::Name("emoteProviderPriority"),
   },
   Def {
     id: "paint_motion",

@@ -123,6 +123,23 @@ choice! {
   Animate { Always = "always", Never = "never" }
 }
 
+choice! {
+  // which third-party provider wins an emote name two of them define (ext emoteProviderPriority)
+  EmoteProvider { Ffz = "ffz", SevenTv = "7tv", Bttv = "bttv" }
+}
+
+impl EmoteProvider {
+  // the winner first, then the rest in the ext's old merge order
+  pub fn order(self) -> [crate::emotes::Provider; 3] {
+    use crate::emotes::{Provider, order_for};
+    order_for(match self {
+      EmoteProvider::Ffz => Provider::Ffz,
+      EmoteProvider::SevenTv => Provider::SevenTv,
+      EmoteProvider::Bttv => Provider::Bttv,
+    })
+  }
+}
+
 impl Volume {
   pub fn percent(self) -> u8 {
     [0, 10, 20, 30, 50, 70, 100][self as usize]
@@ -180,6 +197,10 @@ pub struct Settings {
   // chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // badges as short text chips instead of pictures (ext textBadges). default off, like the ext
+  pub text_badges: bool,
+  // who wins an emote name two third-party providers share (ext emoteProviderPriority). default ffz
+  pub emote_provider: EmoteProvider,
   // pronoundb pronouns beside a twitch name on the card and the name popup. default on, like the ext
   // (hs_show_pronouns). off, pronoundb is never asked
   pub pronouns: bool,
@@ -260,6 +281,8 @@ impl Default for Settings {
       hs_paints: true,
       ffz_badges: true,
       chatterino_badges: true,
+      text_badges: false,
+      emote_provider: EmoteProvider::Ffz,
       pronouns: true,
       stream_stats: true,
       paint_motion: true,
@@ -522,6 +545,8 @@ mod tests {
         hs_paints: true,
         ffz_badges: true,
         chatterino_badges: true,
+        text_badges: false,
+        emote_provider: EmoteProvider::Ffz,
         pronouns: true,
         stream_stats: true,
         paint_motion: true,
@@ -624,6 +649,23 @@ mod tests {
     assert!((LineHeight::L22.ratio() - 1.1).abs() < 1e-6 && LineHeight::L20.ratio() == 1.0);
     assert_eq!(TimeFmt::CHOICE.usage, "<24h|12h>");
     assert_eq!(Animate::CHOICE.usage, "<always|never>");
+  }
+
+  #[test]
+  fn text_badges_and_provider_priority_round_trip() {
+    use crate::emotes::Provider::*;
+    let d = Settings::default();
+    assert!(!d.text_badges && d.emote_provider == EmoteProvider::Ffz);
+    let s = Settings::parse("text_badges=true\nemote_provider=7tv\n");
+    assert!(s.text_badges && s.emote_provider == EmoteProvider::SevenTv);
+    assert_eq!(Settings::parse(&s.render()), s);
+    // an unknown name leaves the default
+    assert_eq!(Settings::parse("emote_provider=twitch").emote_provider, EmoteProvider::Ffz);
+    assert_eq!(EmoteProvider::Ffz.order(), [Ffz, SevenTv, Bttv]);
+    assert_eq!(EmoteProvider::SevenTv.order(), [SevenTv, Ffz, Bttv]);
+    assert_eq!(EmoteProvider::Bttv.order(), [Bttv, SevenTv, Ffz]);
+    assert_eq!(local_cmd("/textbadges"), Some(Local::Toggle("text_badges")));
+    assert_eq!(local_cmd("/emoteprovider bttv"), Some(Local::Pick("emote_provider", Some(2))));
   }
 
   #[test]

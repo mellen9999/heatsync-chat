@@ -1,3 +1,4 @@
+pub mod badge_text;
 pub mod canvas;
 pub mod card;
 pub mod chat_view;

@@ -411,7 +411,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
         thread = a..a + g.text.trim_end().len();
       }
     }
-    badges(res, chan, m, &s, &mut ib, &mut boxes);
+    badges(res, chan, m, &mut s, &mut spans, &mut ib, &mut boxes);
     let n0 = s.len();
     s.push_str(&m.nick);
     nick = n0..s.len();
@@ -946,13 +946,32 @@ fn inline(id: usize, index: usize, w: u32, h: u32) -> InlineBox {
   }
 }
 
-fn badges(res: &mut Res, chan: &str, m: &Message, s: &str, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
-  let mut found: Vec<(Box<str>, Option<u32>)> = res
-    .badges
-    .for_message(chan, m, res.look.ffz_badges, res.look.chatterino_badges)
-    .into_iter()
-    .map(|b| (b.url.clone(), b.bg))
-    .collect();
+fn badges(
+  res: &mut Res,
+  chan: &str,
+  m: &Message,
+  s: &mut String,
+  spans: &mut Vec<Span>,
+  ib: &mut Vec<InlineBox>,
+  boxes: &mut Vec<EmoteBox>,
+) {
+  let look = res.look;
+  let all = if look.text_badges {
+    // ext textBadges: twitch / kick roles become short words, no picture asked for. the per-chatter
+    // third-party sets (ffz, chatterino, 7tv) stay pictures, like the ext
+    for (role, _) in m.badges.iter() {
+      let Some((word, ink)) = super::badge_text::chip(role) else { continue };
+      let a = s.len();
+      s.push_str(word);
+      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
+      // ext: 2px between badges (a monospace space is a whole cell)
+      ib.push(gap(s.len(), res.images.px(2)));
+    }
+    res.badges.third_party(m, look.ffz_badges, look.chatterino_badges)
+  } else {
+    res.badges.for_message(chan, m, look.ffz_badges, look.chatterino_badges)
+  };
+  let mut found: Vec<(Box<str>, Option<u32>)> = all.into_iter().map(|b| (b.url.clone(), b.bg)).collect();
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
   // asks heatsync for their cosmetics: batched, cached, answered into the same slot
   if let Some(uid) = PaintId::of_message(m)
@@ -2300,6 +2319,39 @@ mod tests {
     assert_eq!(n(&mut res), 1);
     res.cosmetics.on = false;
     assert_eq!(n(&mut res), 0);
+  }
+
+  #[test]
+  fn text_badges_swap_twitch_pictures_for_words_and_off_is_unchanged() {
+    use crate::badges::{Badge, key};
+    let mut res = Res::new(1.0);
+    let b = |u: &str| Badge { url: u.into(), title: "".into(), bg: None };
+    res.badges.set_twitch(
+      None,
+      [
+        (key("moderator", "1"), b("https://static-cdn.jtvnw.net/m")),
+        (key("subscriber", "0"), b("https://static-cdn.jtvnw.net/s")),
+      ]
+      .into(),
+    );
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.nick = "bob".into();
+    m.body = "hi".into();
+    m.badges =
+      vec![("moderator".into(), "1".into()), ("subscriber".into(), "0".into()), ("first-msg".into(), "1".into())]
+        .into();
+    let at = |res: &mut Res| {
+      let l = layout_row(res, "c", &m, false, 400, NO_OPTS);
+      (l.boxes.len(), l.nick.start)
+    };
+    // off: two pictures, the name starts the text
+    assert_eq!(at(&mut res), (2, 0));
+    // on: "mod" and "sub" are text before the name, no pictures, the unstyled role draws nothing
+    res.look.text_badges = true;
+    assert_eq!(at(&mut res), (0, "modsub".len()));
+    res.look.text_badges = false;
+    assert_eq!(at(&mut res), (2, 0));
   }
 
   #[test]

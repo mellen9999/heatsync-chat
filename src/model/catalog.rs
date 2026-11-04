@@ -238,6 +238,7 @@ impl Cycle {
     &mut self,
     stv: Option<Page>,
     ffz: Option<Page>,
+    ffz_first: bool,
     matches: &mut Vec<Pick>,
     reg: &mut Registry,
     blocked: impl Fn(&str, &str) -> bool,
@@ -248,8 +249,9 @@ impl Cycle {
         self.ex[i] = true;
       }
     }
-    // the ext's default provider order: ffz, then 7tv
-    let incoming = ffz.into_iter().chain(stv).flat_map(|p| p.hits);
+    // the emote provider priority (ext emoteProviderPriority): the winner of 7tv / ffz lists first
+    let (a, b) = if ffz_first { (ffz, stv) } else { (stv, ffz) };
+    let incoming = a.into_iter().chain(b).flat_map(|p| p.hits);
     let low = self.search.to_lowercase();
     let mut have: std::collections::HashSet<String> = matches.iter().map(|m| m.name.to_lowercase()).collect();
     let mut add: Vec<Hit> = Vec::new();
@@ -458,6 +460,7 @@ mod tests {
     let s = cy.absorb(
       Some(Page { hits: vec![hit("NotSad", Source::SevenTv), hit("SADGE", Source::SevenTv)], more: true }),
       Some(page(&["SadSub", "SAD", "nothing", "SadBlocked", "sadsub"], true)),
+      true,
       &mut m,
       &mut reg,
       blocked,
@@ -472,19 +475,34 @@ mod tests {
   }
 
   #[test]
+  fn the_provider_priority_orders_the_new_block() {
+    let run = |ffz_first| {
+      let mut cy = Cycle::new("sad");
+      let mut m: Vec<Pick> = Vec::new();
+      cy.ask(1, 0, true).unwrap();
+      let stv = Page { hits: vec![hit("SadA", Source::SevenTv), hit("SadDup", Source::SevenTv)], more: false };
+      let ffz = Page { hits: vec![hit("SadB", Source::Ffz), hit("SadDup", Source::Ffz)], more: false };
+      cy.absorb(Some(stv), Some(ffz), ffz_first, &mut m, &mut Registry::default(), |_, _| false);
+      (names(&m).into_iter().map(String::from).collect::<Vec<_>>(), cy.hit("SadDup").map(|h| h.source))
+    };
+    assert_eq!(run(true), (["SadB", "SadDup", "SadA"].map(String::from).to_vec(), Some(Source::Ffz)));
+    assert_eq!(run(false), (["SadA", "SadDup", "SadB"].map(String::from).to_vec(), Some(Source::SevenTv)));
+  }
+
+  #[test]
   fn first_hit_when_there_were_no_locals_and_chasing_dupes() {
     let mut cy = Cycle::new("kek");
     let mut reg = Registry::default();
     let mut m: Vec<Pick> = Vec::new();
     cy.ask(1, 0, true).unwrap();
-    let s = cy.absorb(None, Some(page(&["Kekw"], true)), &mut m, &mut reg, |_, _| false);
+    let s = cy.absorb(None, Some(page(&["Kekw"], true)), true, &mut m, &mut reg, |_, _| false);
     assert_eq!(s, Step { added: 1, first: true, chase: false });
     assert!(cy.ex == [true, false] && !cy.done(), "a failed provider is finished, the other pages on");
     assert_eq!(cy.ask(2, 1, true), Some(Ask { page: 2, stv: false, ffz: true }));
     // an all-duplicate page chases, up to the budget
     let mut chased = 0;
     loop {
-      let s = cy.absorb(None, Some(page(&["kekw"], true)), &mut m, &mut reg, |_, _| false);
+      let s = cy.absorb(None, Some(page(&["kekw"], true)), true, &mut m, &mut reg, |_, _| false);
       if !s.chase {
         break;
       }
@@ -495,7 +513,7 @@ mod tests {
     assert!(!cy.done());
     // a short last page ends it
     cy.ask(11, m.len(), true).unwrap();
-    cy.absorb(None, Some(page(&[], false)), &mut m, &mut reg, |_, _| false);
+    cy.absorb(None, Some(page(&[], false)), true, &mut m, &mut reg, |_, _| false);
     assert!(cy.done() && cy.ask(12, m.len(), true).is_none());
   }
 
@@ -505,7 +523,7 @@ mod tests {
     let mut reg = Registry::default();
     let mut m: Vec<Pick> = (0..MAX_MATCHES - 2).map(|i| pick(&format!("loc{i}"))).collect();
     cy.ask(1, m.len(), true).unwrap();
-    let s = cy.absorb(None, Some(page(&["Em1", "Em2", "Em3", "Em4"], true)), &mut m, &mut reg, |_, _| false);
+    let s = cy.absorb(None, Some(page(&["Em1", "Em2", "Em3", "Em4"], true)), true, &mut m, &mut reg, |_, _| false);
     assert_eq!((m.len(), s.added), (MAX_MATCHES, 2));
     assert!(cy.done());
   }

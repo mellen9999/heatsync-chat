@@ -11,7 +11,7 @@ pub enum Provider {
   SevenTv,
   Bttv,
   Ffz,
-  // twitch's own globals. never in ORDER: other people's lines get twitch emotes from the
+  // twitch's own globals. never in the order: other people's lines get twitch emotes from the
   // irc `emotes` tag (only what they can actually use); this set is for our own echo + completion
   Twitch,
 }
@@ -40,23 +40,23 @@ struct Scope {
 }
 
 impl Scope {
-  fn get(&self, word: &str) -> Option<&Emote> {
-    ORDER.iter().find_map(|p| self.sets.get(p)?.get(word))
+  fn get(&self, order: &[Provider; 3], word: &str) -> Option<&Emote> {
+    order.iter().find_map(|p| self.sets.get(p)?.get(word))
   }
 
   // every name once, with the provider that wins it
-  fn names(&self) -> Vec<(&str, Provider, &Emote)> {
-    self.provided().collect()
+  fn names(&self, order: &[Provider; 3]) -> Vec<(&str, Provider, &Emote)> {
+    self.provided(order).collect()
   }
 
   // every emote once, the provider that wins a shared name first
-  fn entries(&self) -> Vec<(&str, &Emote)> {
-    self.provided().map(|(k, _, v)| (k, v)).collect()
+  fn entries(&self, order: &[Provider; 3]) -> Vec<(&str, &Emote)> {
+    self.provided(order).map(|(k, _, v)| (k, v)).collect()
   }
 
-  fn provided(&self) -> impl Iterator<Item = (&str, Provider, &Emote)> {
+  fn provided(&self, order: &[Provider; 3]) -> impl Iterator<Item = (&str, Provider, &Emote)> {
     let mut seen = std::collections::HashSet::new();
-    let order = ORDER.iter().chain(std::iter::once(&Provider::Twitch));
+    let order = order.iter().chain(std::iter::once(&Provider::Twitch));
     order
       .filter_map(|p| Some((*p, self.sets.get(p)?)))
       .flat_map(|(p, s)| s.iter().map(move |(k, v)| (&**k, p, v)))
@@ -64,16 +64,35 @@ impl Scope {
   }
 }
 
-// which provider wins a name both define (ext setting emoteProviderPriority, default ffz)
-const ORDER: [Provider; 3] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv];
+// which provider wins a name two of them define (ext setting emoteProviderPriority, default ffz): the
+// pick leads, the other two keep the ext's old merge order (7tv, ffz, bttv). only ever among the
+// third-party sets: heatsync inventory emotes never come through here
+pub fn order_for(first: Provider) -> [Provider; 3] {
+  let mut out = [first; 3];
+  let rest = [Provider::SevenTv, Provider::Ffz, Provider::Bttv].into_iter().filter(|p| *p != first);
+  for (slot, p) in out.iter_mut().skip(1).zip(rest) {
+    *slot = p;
+  }
+  out
+}
 
-#[derive(Default)]
 pub struct Emotes {
   global: Scope,
   channels: HashMap<Box<str>, Scope>,
+  order: [Provider; 3],
+}
+
+impl Default for Emotes {
+  fn default() -> Self {
+    Emotes { global: Scope::default(), channels: HashMap::new(), order: order_for(Provider::Ffz) }
+  }
 }
 
 impl Emotes {
+  pub fn set_order(&mut self, order: [Provider; 3]) {
+    self.order = order;
+  }
+
   pub fn set(&mut self, channel: Option<&str>, p: Provider, set: Set) {
     let scope = match channel {
       Some(c) => self.channels.entry(c.into()).or_default(),
@@ -86,13 +105,13 @@ impl Emotes {
     self.channels.remove(channel);
   }
 
-  // within a scope, ORDER decides. callers check the channel before globals
+  // within a scope, the provider order decides. callers check the channel before globals
   pub fn channel(&self, channel: &str, word: &str) -> Option<&Emote> {
-    self.channels.get(channel)?.get(word)
+    self.channels.get(channel)?.get(&self.order, word)
   }
 
   pub fn global(&self, word: &str) -> Option<&Emote> {
-    self.global.get(word)
+    self.global.get(&self.order, word)
   }
 
   pub fn twitch_global(&self, word: &str) -> Option<&Emote> {
@@ -100,19 +119,19 @@ impl Emotes {
   }
 
   pub fn channel_names(&self, channel: &str) -> Vec<(&str, Provider, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, Scope::names)
+    self.channels.get(channel).map_or_else(Vec::new, |c| c.names(&self.order))
   }
 
   pub fn channel_entries(&self, channel: &str) -> Vec<(&str, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, Scope::entries)
+    self.channels.get(channel).map_or_else(Vec::new, |c| c.entries(&self.order))
   }
 
   pub fn global_entries(&self) -> Vec<(&str, &Emote)> {
-    self.global.entries()
+    self.global.entries(&self.order)
   }
 
   pub fn global_names(&self) -> Vec<(&str, Provider, &Emote)> {
-    self.global.names()
+    self.global.names(&self.order)
   }
 }
 
@@ -138,5 +157,34 @@ mod tests {
     assert_eq!(&*find("c", "LUL").unwrap().url, "c-ffz");
     assert_eq!(&*find("other", "LUL").unwrap().url, "g-bttv");
     assert!(find("c", "lul").is_none());
+  }
+
+  #[test]
+  fn order_leads_with_the_pick_and_keeps_the_rest() {
+    use Provider::*;
+    assert_eq!(order_for(Ffz), [Ffz, SevenTv, Bttv]);
+    assert_eq!(order_for(SevenTv), [SevenTv, Ffz, Bttv]);
+    assert_eq!(order_for(Bttv), [Bttv, SevenTv, Ffz]);
+  }
+
+  #[test]
+  fn the_pick_decides_a_shared_name_in_every_view() {
+    let mut em = Emotes::default();
+    em.set(Some("c"), Provider::SevenTv, [("Same".into(), e("c-7tv"))].into());
+    em.set(Some("c"), Provider::Bttv, [("Same".into(), e("c-bttv"))].into());
+    em.set(None, Provider::Ffz, [("G".into(), e("g-ffz"))].into());
+    em.set(None, Provider::Bttv, [("G".into(), e("g-bttv"))].into());
+    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv");
+    assert_eq!(&*em.global("G").unwrap().url, "g-ffz");
+    em.set_order(order_for(Provider::Bttv));
+    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-bttv");
+    assert_eq!(&*em.global("G").unwrap().url, "g-bttv");
+    let names = em.channel_names("c");
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0].1, Provider::Bttv);
+    assert_eq!(&*em.global_entries()[0].1.url, "g-bttv");
+    // a provider the pick doesn't have a name in still serves it
+    em.set_order(order_for(Provider::Ffz));
+    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv");
   }
 }

@@ -83,6 +83,13 @@ impl Badges {
         room.and_then(|r| r.get(&k)).or_else(|| ch.and_then(|c| c.get(&k))).or_else(|| self.global.get(&k))
       })
       .collect();
+    out.extend(self.third_party(m, ffz, chatterino));
+    out
+  }
+
+  // the chatterino then ffz badges one chatter holds, each behind its switch
+  pub fn third_party<'a>(&'a self, m: &Message, ffz: bool, chatterino: bool) -> Vec<&'a Badge> {
+    let mut out = Vec::new();
     if let Ok(uid) = m.user_id.parse::<u64>() {
       for ub in [(chatterino, &self.chatterino), (ffz, &self.ffz)].into_iter().filter(|s| s.0).map(|s| s.1) {
         if let Some(ix) = ub.users.get(&uid) {
