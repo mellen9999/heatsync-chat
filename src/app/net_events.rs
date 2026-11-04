@@ -334,6 +334,15 @@ impl App {
         self.res.badges.set_twitch(ch.as_deref(), set);
         self.relayout_where(ch.as_deref());
       }
+      NetEvent::KickBadges(slug, art) => {
+        // the art is kept per tab (a line knows its tab, not its kick slug)
+        for i in self.tabs_with(Platform::Kick, &slug) {
+          let name = self.tabs[i].name.clone();
+          self.res.badges.set_kick(&name, art.clone());
+          self.tabs[i].views().for_each(ChatView::relayout);
+        }
+        self.wake();
+      }
       NetEvent::FfzRoomBadges(ch, set) => {
         let had = !set.is_empty();
         self.res.badges.set_ffz_room(&ch, set);

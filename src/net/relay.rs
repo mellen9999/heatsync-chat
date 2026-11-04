@@ -131,6 +131,7 @@ pub fn kick(v: &Value) -> Option<Message> {
   m.user_id =
     v.get("senderId").and_then(Value::as_u64).filter(|n| *n > 0).map(|n| n.to_string().into()).unwrap_or_default();
   m.hs = hs_emotes(v.get("hsEmotes"));
+  m.badges = crate::badges::relay::kick(v.get("badges"));
   m.reply_to = v.get("replyTo").and_then(|r| str_of(r, "username")).map(|u| clamp(u, MAX_NAME).into());
   m.reply_text = v.get("replyTo").and_then(|r| str_of(r, "content")).map(|t| clamp(t, REPLY_TEXT).into());
   Some(m)
@@ -191,6 +192,7 @@ pub fn youtube(v: &Value) -> Option<Message> {
   let mut m = base(Platform::Youtube, str_of(v, "id").unwrap_or(""), nick, nick, str_of(v, "color"), body, ts(v));
   m.user_id = str_of(v, "authorChannelId").map(|c| clamp(c, 64).into()).unwrap_or_default();
   m.hs = hs_emotes(v.get("hsEmotes"));
+  m.badges = crate::badges::relay::youtube(v.get("badges"));
   let mut emotes = Vec::new();
   for e in v.get("emotes").and_then(Value::as_array).into_iter().flatten().take(50) {
     let (Some(alt), Some(url)) = (str_of(e, "alt"), str_of(e, "url").and_then(yt_url)) else { continue };

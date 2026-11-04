@@ -26,6 +26,16 @@ pub fn chip(role: &str) -> Option<(&'static str, u32)> {
   })
 }
 
+// youtube's chips (ext ytBadgeStyles): a star for the owner, crossed swords for a moderator. members and
+// verified draw nothing there (the server sends no picture for them)
+pub fn youtube_chip(role: &str) -> Option<(&'static str, u32)> {
+  match role {
+    "broadcaster" | "owner" => Some(("\u{2606}", theme::YELLOW)),
+    "moderator" => Some(("\u{2694}", theme::BLUE)),
+    _ => None,
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -39,6 +49,14 @@ mod tests {
     // BADGE_SHORT has it but BADGE_STYLES doesn't: the ext draws nothing
     assert_eq!(chip("first-msg"), None);
     assert_eq!(chip("enchantedbigboiboxers"), None);
+  }
+
+  #[test]
+  fn youtube_draws_owner_and_moderator_only() {
+    assert_eq!(youtube_chip("broadcaster"), Some(("\u{2606}", theme::YELLOW)));
+    assert_eq!(youtube_chip("owner"), youtube_chip("broadcaster"));
+    assert_eq!(youtube_chip("moderator"), Some(("\u{2694}", theme::BLUE)));
+    assert_eq!((youtube_chip("member"), youtube_chip("verified")), (None, None));
   }
 
   #[test]

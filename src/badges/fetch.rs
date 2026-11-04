@@ -13,6 +13,9 @@ pub(crate) const GQL: &str = "https://gql.twitch.tv/gql";
 const MAX_GQL: usize = 1 << 20;
 const MAX_USERS: usize = 100_000;
 const MAX_BADGES: usize = 2000;
+const MAX_KICK: usize = 1 << 20;
+const MAX_KICK_TIERS: usize = 100;
+const KICK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 fn twitch_set(list: Option<&Value>) -> TwitchSet {
   let mut out = TwitchSet::new();
@@ -136,6 +139,30 @@ pub fn chatterino(v: &Value) -> UserBadges {
   out
 }
 
+// a kick channel's subscriber badge art (`subscriber_badges[{months, badge_image:{src}}]` of the public
+// channel json, what the ext's kick_channel_badges reads): months → picture, only pictures on the host
+// allowlist. a channel with none gives an empty list
+pub fn kick_subs(v: &Value) -> Vec<(u32, Box<str>)> {
+  let mut out: Vec<(u32, Box<str>)> = Vec::new();
+  for b in v.get("subscriber_badges").and_then(Value::as_array).into_iter().flatten().take(MAX_KICK_TIERS) {
+    let months = b.get("months").and_then(|m| m.as_u64().or_else(|| m.as_str()?.trim().parse().ok()));
+    let src = b.pointer("/badge_image/src").and_then(Value::as_str);
+    if let (Some(m), Some(src)) = (months.filter(|m| (1..=1200).contains(m)), src)
+      && allowed(src)
+      && !out.iter().any(|o| u64::from(o.0) == m)
+    {
+      out.push((m as u32, src.into()));
+    }
+  }
+  out
+}
+
+pub async fn kick_channel(http: &reqwest::Client, slug: &str) -> Result<Vec<(u32, Box<str>)>, String> {
+  // slug is checked by the caller (`ident::relay_key`); it goes in a path, so nothing else gets here
+  let r = http.get(format!("https://kick.com/api/v2/channels/{slug}")).timeout(KICK_TIMEOUT).send().await;
+  Ok(kick_subs(&http::capped_json(r, MAX_KICK).await?))
+}
+
 pub const FFZ_IDS: &str = "https://api.frankerfacez.com/v1/badges/ids";
 pub const CHATTERINO: &str = "https://heatsync.org/api/chatterino-badges";
 
@@ -165,6 +192,26 @@ mod tests {
     ));
     assert_eq!(s.len(), 1);
     assert_eq!(&*s[&key("moderator", "1")].title, "Moderator");
+  }
+
+  #[test]
+  fn kick_tiers_are_months_to_allowlisted_art() {
+    let v = json!({"subscriber_badges": [
+      {"months": 1, "badge_image": {"src": "https://files.kick.com/channel_subscriber_badges/1/original"}},
+      {"months": "3", "badge_image": {"src": "https://files.kick.com/channel_subscriber_badges/3/original"}},
+      {"months": 1, "badge_image": {"src": "https://files.kick.com/dupe"}},
+      {"months": 6, "badge_image": {"src": "https://evil.example/x"}},
+      {"months": 0, "badge_image": {"src": "https://files.kick.com/zero"}},
+      {"months": 9, "badge_image": null}, {"months": 12}, 7, null]});
+    let t = kick_subs(&v);
+    assert_eq!(t.iter().map(|a| a.0).collect::<Vec<_>>(), [1, 3]);
+    assert!(t[0].1.ends_with("/1/original"), "first wins");
+    for bad in [json!(null), json!({"subscriber_badges": 4}), json!({"subscriber_badges": {}})] {
+      assert!(kick_subs(&bad).is_empty());
+    }
+    let many: Vec<Value> =
+      (1..=500).map(|i| json!({"months": i, "badge_image": {"src": "https://files.kick.com/a"}})).collect();
+    assert_eq!(kick_subs(&json!({"subscriber_badges": many})).len(), MAX_KICK_TIERS);
   }
 
   #[test]

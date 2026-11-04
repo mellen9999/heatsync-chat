@@ -68,6 +68,8 @@ pub enum NetEvent {
   TwitchBadges(Option<Box<str>>, TwitchSet),
   // a channel's own ffz mod / vip badge art
   FfzRoomBadges(Box<str>, TwitchSet),
+  // a kick channel's subscriber art by months, keyed by kick slug
+  KickBadges(Box<str>, Vec<(u32, Box<str>)>),
   // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
   Relay {
     platform: Platform,
@@ -673,6 +675,17 @@ async fn channel_badges(http: reqwest::Client, ch: Box<str>, tab: retry::Watch, 
   }
 }
 
+// a kick channel's subscriber art, a few tries (a channel with no art of its own answers fine and
+// sends nothing; lines then wear the "sub" word, like the ext)
+async fn kick_badges(http: reqwest::Client, slug: Box<str>, out: Out) {
+  let what = format!("{slug}'s kick badges");
+  if let Some(art) = retry::until_n(&out, &what, 3, || true, || badges::fetch::kick_channel(&http, &slug)).await
+    && !art.is_empty()
+  {
+    out.send(NetEvent::KickBadges(slug, art));
+  }
+}
+
 // every global emote source, each its own retrying task: one down doesn't hold up the rest
 async fn global_emotes(http: reqwest::Client, out: Out) {
   type Parse = fn(&serde_json::Value) -> Set;
@@ -849,6 +862,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = irc_tx.send(irc::Cmd::Part(ch));
       }
       Cmd::Hs(c) => {
+        if let hs_ws::Cmd::Join(Platform::Kick, slug) = &c
+          && ident::relay_key(slug)
+        {
+          tokio::spawn(kick_badges(http.clone(), slug.clone(), out.clone()));
+        }
         let _ = hs_tx.send(c);
       }
       Cmd::Backfill(p, key, archive) => {

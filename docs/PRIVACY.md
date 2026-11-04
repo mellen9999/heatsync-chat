@@ -26,7 +26,7 @@ every host heatsync-chat talks to, what it gets, and why. no analytics, no telem
 | `api.betterttv.net`, `cdn.betterttv.net` | bttv emotes | the global set; each open channel's twitch id; the file requests | when you open a channel |
 | `api.frankerfacez.com`, `cdn.frankerfacez.com` | ffz emotes and badges | the global set; each open channel's twitch id (its emotes, its mod/vip badge art); the badge list; the word you typed in an emote search; the file requests | when you open a channel or search |
 | `fourtf.com` | chatterino badge art | the file request | when a line shows one |
-| `kick.com` | a kick chatter's profile picture | their name (`/api/v2/channels/<name>`). kick *chat* does not go here, it comes through heatsync | only with pfps on (off by default) |
+| `kick.com` | a kick channel's subscriber badge art; a kick chatter's profile picture | the channel's name (`/api/v2/channels/<name>`), the same call for both. kick *chat* does not go here, it comes through heatsync | when you open a kick channel (badges); with pfps on (pictures, off by default) |
 | `files.kick.com` | kick emote pictures | the file request | when a line shows one |
 | `yt3.ggpht.com`, `*.googleusercontent.com` | youtube emoji and picture files a relayed line carries | the file request | when a line shows one |
 | `pronoundb.org` | pronouns on a card or name popup | the twitch id of that person | when you open their card. once a day per person. off with `/pronouns` |

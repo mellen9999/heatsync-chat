@@ -1,6 +1,7 @@
 // chat badges: twitch (global + per channel, keyed set/version) and third-party per-user sets
 // (ffz, chatterino; 7tv lands with its event api). all images go through the url allowlist
 pub mod fetch;
+pub mod relay;
 
 use std::collections::HashMap;
 
@@ -38,7 +39,13 @@ pub struct Badges {
   ffz_room: HashMap<Box<str>, TwitchSet>,
   ffz: UserBadges,
   chatterino: UserBadges,
+  // a kick channel's subscriber art by months, per tab (sorted by months). kick never falls back to
+  // twitch's art: twitch versions are tiers, kick's are months
+  kick: HashMap<Box<str>, Vec<(u32, Box<str>)>>,
 }
+
+// tabs whose kick art is kept: the ext's 20
+const KICK_TABS: usize = 20;
 
 pub fn key(set: &str, version: &str) -> Box<str> {
   format!("{set}/{version}").into()
@@ -58,7 +65,27 @@ impl Badges {
     self.ffz_room.insert(channel.into(), set);
   }
 
+  pub fn set_kick(&mut self, tab: &str, mut art: Vec<(u32, Box<str>)>) {
+    art.sort_by_key(|a| a.0);
+    if self.kick.len() >= KICK_TABS
+      && !self.kick.contains_key(tab)
+      && let Some(old) = self.kick.keys().next().cloned()
+    {
+      self.kick.remove(&old);
+    }
+    self.kick.insert(tab.into(), art);
+  }
+
+  // the picture for a sub of `months`: the exact tier, else the nearest lower one (the ext's
+  // findNearestKickBadgeVersion); none when the channel has no art that low
+  pub fn kick_sub(&self, tab: &str, months: u32) -> Option<&str> {
+    let art = self.kick.get(tab)?;
+    let i = art.partition_point(|a| a.0 <= months);
+    art[..i].last().map(|a| &*a.1)
+  }
+
   pub fn drop_channel(&mut self, channel: &str) {
+    self.kick.remove(channel);
     self.channels.remove(channel);
     self.ffz_room.remove(channel);
   }
@@ -129,5 +156,25 @@ mod tests {
     assert_eq!(&*bs.for_message("other", &m, true, true)[0].url, "g-mod", "only in its own channel");
     let urls: Vec<&str> = bs.for_message("c", &m, false, true).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["ffz-mod", "c-sub"], "ffz badges off: the channel's own ffz mod art stays");
+  }
+
+  #[test]
+  fn kick_sub_art_is_the_nearest_lower_month() {
+    let mut bs = Badges::default();
+    bs.set_kick("c", vec![(6, "six".into()), (1, "one".into()), (12, "twelve".into())]);
+    let at = |m| bs.kick_sub("c", m);
+    assert_eq!((at(1), at(5), at(6)), (Some("one"), Some("one"), Some("six")));
+    assert_eq!((at(11), at(999)), (Some("six"), Some("twelve")));
+    assert_eq!((at(0), bs.kick_sub("other", 3)), (None, None));
+  }
+
+  #[test]
+  fn kick_art_is_kept_for_at_most_twenty_tabs() {
+    let mut bs = Badges::default();
+    for i in 0..40 {
+      bs.set_kick(&format!("t{i}"), vec![(1, "x".into())]);
+    }
+    assert_eq!(bs.kick.len(), KICK_TABS);
+    assert!(bs.kick_sub("t39", 1).is_some(), "the newest is kept");
   }
 }

@@ -693,7 +693,27 @@ pub(super) fn badges(
   boxes: &mut Vec<EmoteBox>,
 ) {
   let look = res.look;
-  let all = if look.text_badges {
+  let all = if matches!(m.platform, Platform::Kick | Platform::Youtube) {
+    // kick + youtube: roles in order, each a picture (kick sub art) or its word. no per-chatter
+    // twitch-id sets here: a kick id is not a twitch id
+    for (role, ver) in m.badges.iter() {
+      let sub = (m.platform == Platform::Kick && !look.text_badges && &**role == "subscriber")
+        .then(|| ver.parse().ok().and_then(|n| res.badges.kick_sub(chan, n)))
+        .flatten()
+        .map(Box::<str>::from);
+      if let Some(url) = sub {
+        push_badge(res, &url, None, s, ib, boxes);
+        continue;
+      }
+      let chip = if m.platform == Platform::Kick { badge_text::chip(role) } else { badge_text::youtube_chip(role) };
+      let Some((word, ink)) = chip else { continue };
+      let a = s.len();
+      s.push_str(word);
+      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
+      ib.push(gap(s.len(), res.images.px(2)));
+    }
+    Vec::new()
+  } else if look.text_badges {
     // ext textBadges: twitch / kick roles become short words, no picture asked for. the per-chatter
     // third-party sets (ffz, chatterino, 7tv) stay pictures, like the ext
     for (role, _) in m.badges.iter() {
@@ -716,25 +736,30 @@ pub(super) fn badges(
   {
     found.push((b.url.clone(), b.bg));
   }
-  let h = res.images.px(BADGE_PX);
   for (url, bg) in found {
-    let img = res.images.id(&url, BADGE_PX);
-    let w = res.images.width(img, (18, 18));
-    ib.push(inline(boxes.len(), s.len(), w, h));
-    boxes.push(EmoteBox {
-      img,
-      zw: Vec::new(),
-      zw_words: Vec::new(),
-      bg,
-      word: (0, 0),
-      blocked: false,
-      stand_in: None,
-      glyph: None,
-    });
-    // ext: 2px between badges (a monospace space is a whole cell)
-    ib.push(gap(s.len(), res.images.px(2)));
+    push_badge(res, &url, bg, s, ib, boxes);
   }
   avatar(res, m, s, ib, boxes);
+}
+
+// one badge picture at the end of the text so far, then the ext's 2px
+fn push_badge(res: &mut Res, url: &str, bg: Option<u32>, s: &str, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+  let h = res.images.px(BADGE_PX);
+  let img = res.images.id(url, BADGE_PX);
+  let w = res.images.width(img, (18, 18));
+  ib.push(inline(boxes.len(), s.len(), w, h));
+  boxes.push(EmoteBox {
+    img,
+    zw: Vec::new(),
+    zw_words: Vec::new(),
+    bg,
+    word: (0, 0),
+    blocked: false,
+    stand_in: None,
+    glyph: None,
+  });
+  // ext: 2px between badges (a monospace space is a whole cell)
+  ib.push(gap(s.len(), res.images.px(2)));
 }
 
 // the picture before the name (ext: after the badges, 18px square, 3px after). off: no box, no ask.

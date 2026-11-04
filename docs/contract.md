@@ -12,7 +12,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 ## hostile-input bounds
 - inventory rows ≤5000 · sender map ≤5000 · url ≤2048, no control bytes · emote name: one token, ≤100, no ws/control, not starting `/` or `.`
 - emote dims 1..65535 finite · message text ≤2000 · display name ≤100 · ≤50 emote tokens/message
-- ≤250 msgs per backfill / youtube batch (keep the tail) · ws `batch` ≤256 · `senderKeys` ≤50 · heat push ≤500 · pin content 500 / name 64
+- chat badges on kick / youtube lines ≤16 per line, names `[a-z0-9_-]{1,32}`, kick `count` (months) 1..1200 else `1` (`badges/relay.rs`) · ≤250 msgs per backfill / youtube batch (keep the tail) · ws `batch` ≤256 · `senderKeys` ≤50 · heat push ≤500 · pin content 500 / name 64
 - image host allowlist (https, no userinfo `@`, bare `[\w.-]+` host, exact or `.`-suffix): `7tv.app betterttv.net frankerfacez.com kick.com ggpht.com googleusercontent.com static-cdn.jtvnw.net heatsync.org fourtf.com` (+ `7tv.io`, `cdn.heatsync.org`, `files.kick.com` covered by suffix)
 
 ## rest
@@ -34,6 +34,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 | live / moments | `GET /api/live/top?limit=50`, `GET /api/moments?limit=&hours=` | |
 | catalog | `GET /api/emote-search?q=` (2-50, `[a-z0-9_\-:.]`) → `merged[{name,url,provider,animated,zeroWidth}]` | completion only — NEVER render |
 | badges | `GET /api/chatterino-badges` | |
+| kick sub art | `GET https://kick.com/api/v2/channels/<slug>` → `subscriber_badges[{months, badge_image:{src}}]` | the ext's kick_channel_badges, once per kick channel opened (3 tries, 8s, body ≤1MB, ≤100 tiers, art only from the image allowlist: `files.kick.com`). a line wears the exact month tier or the nearest lower one, never twitch art; no art → the `sub` word |
 | heatsync paints | `GET /api/paints?ids=<twitch ids>` → `paints{id:spec v2}` | fetched with each cosmetics batch (either failing retries it); outranks the 7tv paint. rendered like the ext: base + glow, every scene backdrop/weather and effect (cpu, 24-30fps, only while on screen; `animate paints` off = first frame). `fill` (4 layers, flow/spin, hue/breathe, underlay), `outline`, `shadows` too; 7tv picture layers draw their fallback stops |
 | 7tv cosmetics | `GET /api/cosmetics/batch?ids=<twitch ids, sorted>` → `cosmetics{id:{paint,badge}\|null}` | ≤25/req, 300ms gather, one in flight, 5s cooldown after a failure. ttl +30min / none 5min. lru 500. paint image only `https://cdn.7tv.app/paint/…` |
 | gifs | `GET /api/gifs/search?q=&limit=`, `/api/gifs/top` | no offset; page n = `limit n*12` |

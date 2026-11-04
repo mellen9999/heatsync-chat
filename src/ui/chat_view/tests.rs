@@ -1226,3 +1226,96 @@ fn a_heatsync_send_wears_its_tag() {
   }
   assert!(c.px.iter().filter(|&&p| p == theme::HEATSYNC).count() > 20);
 }
+
+fn relayed(p: Platform, badges: &[(&str, &str)]) -> Message {
+  let mut m = said("bob", "hi");
+  m.platform = p;
+  m.color = theme::RED;
+  m.badges = badges.iter().map(|(a, b)| ((*a).into(), (*b).into())).collect();
+  m
+}
+
+#[test]
+fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
+  let mut res = Res::new(1.0);
+  res.badges.set_kick("c", vec![(1, "https://files.kick.com/a/1".into()), (6, "https://files.kick.com/a/6".into())]);
+  let m = relayed(Platform::Kick, &[("moderator", "1"), ("subscriber", "7"), ("og", "1"), ("trainwreckstv", "1")]);
+  let at = |res: &mut Res, m: &Message, chan: &str| {
+    let l = layout_row(res, chan, m, false, 400, NO_OPTS);
+    (l.boxes.len(), l.nick.start)
+  };
+  // the sub is a picture, the roles words, a channel's own badge name draws nothing
+  assert_eq!(at(&mut res, &m, "c"), (1, "modog".len()));
+  // the sub art is the 6 month tier (7 months, nearest lower): nothing asked until drawn, so look at the box
+  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  assert_eq!(l.boxes[0].img, res.images.id("https://files.kick.com/a/6", crate::ui::res::BADGE_PX));
+  // another tab has no art: the sub falls back to its word, like the ext
+  assert_eq!(at(&mut res, &m, "other"), (0, "modsubog".len()));
+  // text badges: words only, no picture
+  res.look.text_badges = true;
+  assert_eq!(at(&mut res, &m, "c"), (0, "modsubog".len()));
+  // a sub below the lowest tier has no art either
+  res.look.text_badges = false;
+  res.badges.set_kick("c", vec![(3, "https://files.kick.com/a/3".into())]);
+  assert_eq!(at(&mut res, &relayed(Platform::Kick, &[("subscriber", "1")]), "c"), (0, "sub".len()));
+  // a twitch-id badge set never dresses a kick chatter
+  res.badges.set_users(
+    crate::badges::Source::Ffz,
+    crate::badges::UserBadges {
+      list: vec![crate::badges::Badge { url: "https://cdn.frankerfacez.com/x".into(), title: "".into(), bg: None }],
+      users: [(42, vec![0])].into(),
+    },
+  );
+  let mut k = relayed(Platform::Kick, &[]);
+  k.user_id = "42".into();
+  assert_eq!(at(&mut res, &k, "c"), (0, 0));
+}
+
+fn drawn(res: &mut Res, m: Message, colors: [u32; 2]) -> (usize, usize) {
+  let mut v = ChatView::new(10, "c".into());
+  v.zebra = false;
+  v.resize(400);
+  v.push(m);
+  let area = Rect::new(0, 0, 400, 40);
+  let mut c = Canvas::new(400, 40);
+  v.draw(&mut c, res, area, area);
+  (c.inked(colors[0]), c.inked(colors[1]))
+}
+
+// pixels of the periwinkle (theme::BLUE) ink at any shade: blue well over red, red = green. the
+// exact-channel `inked` can't say it (its channels are neither 0 nor 255)
+fn periwinkle(m: Message, res: &mut Res) -> usize {
+  let mut v = ChatView::new(10, "c".into());
+  v.zebra = false;
+  v.resize(400);
+  v.push(m);
+  let area = Rect::new(0, 0, 400, 40);
+  let mut c = Canvas::new(400, 40);
+  v.draw(&mut c, res, area, area);
+  let near = |p: &u32| {
+    let (r, g, b) = (p >> 16 & 255, p >> 8 & 255, p & 255);
+    r.abs_diff(g) < 6 && b > r + r / 2 + 24
+  };
+  c.px.iter().filter(|p| near(p)).count()
+}
+
+#[test]
+fn kick_role_chips_are_drawn_in_their_colors() {
+  let mut res = Res::new(1.0);
+  let plain = drawn(&mut res, relayed(Platform::Kick, &[]), [theme::MAGENTA, theme::GREEN]);
+  let dressed = drawn(&mut res, relayed(Platform::Kick, &[("vip", "1"), ("og", "1")]), [theme::MAGENTA, theme::GREEN]);
+  assert!(dressed.0 > plain.0 + 10, "vip is magenta");
+  assert!(dressed.1 > plain.1 + 10, "og is green");
+}
+
+#[test]
+fn youtube_lines_wear_a_star_and_swords_and_nothing_for_members() {
+  let mut res = Res::new(1.0);
+  let m = relayed(Platform::Youtube, &[("broadcaster", "1"), ("moderator", "1"), ("member", "1"), ("verified", "1")]);
+  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  assert_eq!((l.boxes.len(), l.nick.start), (0, "\u{2606}\u{2694}".len()));
+  let yellow = |res: &mut Res, m| drawn(res, m, [theme::YELLOW, theme::YELLOW]).0;
+  let plain = relayed(Platform::Youtube, &[]);
+  assert!(yellow(&mut res, m.clone()) > yellow(&mut res, plain.clone()), "the owner's star is yellow");
+  assert!(periwinkle(m, &mut res) > periwinkle(plain, &mut res), "the moderator's swords are blue");
+}
