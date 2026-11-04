@@ -99,6 +99,8 @@ pub enum NetEvent {
     id: Box<str>,
     refs: Box<[crate::model::message::HsEmote]>,
   },
+  // a platform was linked or unlinked (or the socket came back): read the account again
+  AccountChanged,
   SendersStale {
     ids: Vec<u64>,
     ver: Option<Box<str>>,
@@ -440,6 +442,8 @@ pub enum Cmd {
   // our own twitch id, for watching our own 7tv cosmetics
   SevenTvMe(Option<u64>),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
+  // read the account again (heatsync said it changed)
+  Recheck,
   // the next line sent waits (bounded) for the emote adds/swaps asked for just before it
   HoldSends,
   // whispers and feed calls bound to the login
@@ -907,6 +911,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         if let Err(e) = crate::util::open::play(&url, move |s| o.status(s)) {
           out.status(e);
         }
+      }
+      Cmd::Recheck => {
+        let _ = sess_tx.send(session::Cmd::Recheck);
       }
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);

@@ -56,6 +56,9 @@ struct State {
   token: Option<String>,
   // a socket has run before, so the next one is a comeback
   resumed: bool,
+  // signed in on some socket before / on this one: a later socket's sign-in re-reads the account
+  authed: bool,
+  socket_authed: bool,
   // youtube feeds this socket re-subscribed after a drop: their replayed backlog fills the gap
   // (lowercase). on a first socket the replay is dropped, history comes from /api/recent
   catching: BTreeSet<Box<str>>,
@@ -209,6 +212,7 @@ async fn session(
   }
   hello.extend(st.yt.iter().map(|h| yt_sub(h)));
   st.catching = resubscribed(st);
+  st.socket_authed = false;
   for f in hello {
     if tx.send(Ws::text(f.to_string())).await.is_err() {
       return End::Reconnect;
@@ -472,7 +476,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?)?;
       send(NetEvent::Seen { surface, at: at(v.get("at"))? })
     }
-    "authenticated" => send(NetEvent::HsAuth(true)),
+    "authenticated" => {
+      // a link or unlink while we were away sent its account:changed to nobody: read the account again
+      let again = st.authed && !st.socket_authed;
+      (st.authed, st.socket_authed) = (true, true);
+      send(NetEvent::HsAuth(true)).or_else(|| again.then(|| send(NetEvent::AccountChanged)).flatten())
+    }
+    // a platform was linked or unlinked on heatsync.org (the frame carries nothing else)
+    "account:changed" => send(NetEvent::AccountChanged),
     // heatsync's copy of a twitch line in a room we're in: only its id and refs are kept (our own irc
     // has the line; it is never shown twice)
     "irc:message" => {
@@ -632,5 +643,26 @@ mod tests {
     assert!(refless(r#"{"type":"irc:message","channel":"forsen","message":{"id":"x","content":"hi"}}"#));
     assert!(!refless(&frame("forsen", json!({})).to_string()));
     assert!(!refless(r#"{"type":"kick-chat-message"}"#));
+  }
+
+  // account:changed, and a later socket's sign-in (one sent while we were away is lost), re-read the account
+  #[test]
+  fn the_account_is_read_again_on_account_changed_and_on_a_later_sign_in() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let auth = json!({"type": "authenticated"});
+    let got = |rx: &std::sync::mpsc::Receiver<NetEvent>| {
+      rx.try_iter().filter(|e| matches!(e, NetEvent::AccountChanged)).count()
+    };
+    dispatch(&auth, &mut st, &out);
+    assert_eq!(got(&rx), 0, "the first sign-in: login just read it");
+    dispatch(&json!({"type": "account:changed"}), &mut st, &out);
+    assert_eq!(got(&rx), 1);
+    dispatch(&auth, &mut st, &out);
+    assert_eq!(got(&rx), 0, "the same socket signing in again is not a comeback");
+    st.socket_authed = false;
+    dispatch(&auth, &mut st, &out);
+    assert_eq!(got(&rx), 1, "a new socket's sign-in");
   }
 }

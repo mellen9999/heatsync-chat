@@ -46,6 +46,8 @@ pub enum Cmd {
   // twitch irc turned this chat token down: get a fresh one
   ChatRefused(String),
   Logout,
+  // heatsync says the account changed (a link or unlink): check it now, not at the next renewal
+  Recheck,
   Emote(EmoteCmd),
   // answered once every emote op asked before it is done (they run in order): a chat line waits on it
   Barrier(tokio::sync::oneshot::Sender<()>),
@@ -89,6 +91,8 @@ struct State {
   // the chat token irc just refused: a refresh that hands back the same one is not given to irc again
   refused: Option<String>,
   refusals: u32,
+  // the next step is the whole account check, even while only the chat login is being retried
+  recheck: bool,
 }
 
 // one sign-in in the browser: which, and the task holding the loopback port
@@ -132,6 +136,7 @@ pub async fn run(
     checked: Instant::now(),
     refused: None,
     refusals: 0,
+    recheck: false,
   };
   let mut next = Instant::now();
   loop {
@@ -160,6 +165,10 @@ pub async fn run(
           Some(t) => emote_ops::run(&st.http, t, c, &st.out).await,
           None => st.out.status("log in first (ctrl-l)"),
         },
+        Some(Cmd::Recheck) => {
+          st.recheck = true;
+          next = Instant::now();
+        }
         Some(Cmd::Barrier(done)) => {
           let _ = done.send(());
         }
@@ -358,11 +367,16 @@ impl State {
     true
   }
 
+  // the next step only retries the twitch chat login (the session itself was vouched for lately, and
+  // heatsync didn't say the account changed)
+  fn chat_only(&mut self) -> bool {
+    !std::mem::take(&mut self.recheck) && self.chat_due && self.checked.elapsed() < RENEW
+  }
+
   // one scheduled step; how long until the next. a failed step comes back soon, a good one in hours
   async fn tick(&mut self) -> Duration {
     // retries only redo the twitch step, but the session itself is still vouched for on schedule
-    let due = self.chat_due && self.checked.elapsed() < RENEW;
-    let res = if due { self.link_chat().await } else { self.check().await };
+    let res = if self.chat_only() { self.link_chat().await } else { self.check().await };
     match res {
       Ok(()) => {
         self.fails = 0;
@@ -565,8 +579,19 @@ mod tests {
       checked: Instant::now(),
       refused: None,
       refusals: 0,
+      recheck: false,
     };
     (st, orx, irx)
+  }
+
+  // account:changed: the next step reads the whole account again, even mid chat-login retries
+  #[test]
+  fn a_changed_account_is_checked_whole() {
+    let (mut st, _out, _irc) = rig();
+    st.chat_due = true;
+    st.recheck = true;
+    assert!(!st.chat_only(), "the account first");
+    assert!(st.chat_only(), "then back to the chat retries");
   }
 
   fn said(rx: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<String> {

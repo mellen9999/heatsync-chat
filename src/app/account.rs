@@ -179,4 +179,14 @@ mod tests {
     let (lines, _) = rows(Some(&m));
     assert!(text(&lines).contains(&"kick | mellen".to_owned()), "{:?}", text(&lines));
   }
+
+  // heatsync says the account changed (linked or unlinked elsewhere): it is read again
+  #[test]
+  fn a_changed_account_is_read_again() {
+    let (net, mut rx) = crate::net::Net::tap();
+    let mut app = crate::app::App::new(net, vec![], false);
+    while rx.try_recv().is_ok() {}
+    app.on_net(crate::net::NetEvent::AccountChanged);
+    assert!(std::iter::from_fn(|| rx.try_recv().ok()).any(|c| matches!(c, crate::net::Cmd::Recheck)));
+  }
 }

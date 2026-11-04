@@ -57,6 +57,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
   - `youtube:chat {channelId, messages[{id,user,text,emotes[{alt,url}],timestamp,color,amount,systemMsg,authorChannelId,hsEmotes}], replay}` — drop `replay:true` batches
   - `youtube:status {channelId,status:connected|ended|not-live|chat-off|no-slot|error,videoId}` — yt subscribe ≤5/60s; retry ~120s
   - `stream:online|offline|update {platform,channel,game,title,prevGame,prevTitle}`, `pin:set|clear`, `moment:spike {platform,channel,id,rate,baseline,game,title}`, `user:heat_batch_update {updates[{username,userHeat,op,re}]}`
+  - `account:changed` (authed, exactly `{type}`: a platform was linked or unlinked) → re-read the account (`me`, twitch id, chat token) now. also on every `authenticated` of a later socket after the first sign-in: one sent while we were away is lost
   - `seen:update {surface: mentions|whispers|live, at}` (authed) → your other client looked: out goes that tab's light unless something newer landed. ms epoch, `0 < at ≤ 9999999999999`; other surfaces (`inbox`) ignored
 - reconnect: backoff `min(60, 2^min(n,6))s × 0.8..1.2`, reset only after a ≥30s session. watchdog: recycle if no frame 90s or handshake >30s. generation token — late frames from a dead socket are dropped. gap >60s → mark sender caches stale + refetch pins. track max `_seq` per `kick/*`
 

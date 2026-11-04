@@ -380,6 +380,8 @@ impl App {
           self.late_refs.hold(chan, id, refs);
         }
       }
+      // linked or unlinked on heatsync.org: who you are (and so whose emotes are yours) is read again
+      NetEvent::AccountChanged => self.net.send(Cmd::Recheck),
       NetEvent::SendersStale { ids, ver, removed } => {
         if self.prof {
           eprintln!("senders stale {}", ids.len());
