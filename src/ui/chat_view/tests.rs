@@ -1163,17 +1163,19 @@ fn event_rows_wear_their_color() {
   resub.extra().notice = Notice::Milestone;
   let mut cheer = said("cat", "Cheer100 gg");
   cheer.extra().bits = 100;
+  let mut announce = said("eve", "listen up");
+  announce.extra().notice = Notice::Announce;
   let mut redeem = said("dan", "play the song");
   redeem.system = Some("◆ channel point redeem".into());
   redeem.extra().notice = Notice::Redeem;
   let mut v = ChatView::new(10, "c".into());
   v.zebra = false;
   v.resize(400);
-  for m in [sub, resub, cheer, redeem] {
+  for m in [sub, resub, cheer, redeem, announce] {
     v.push(m);
   }
-  let area = Rect::new(0, 0, 400, 160);
-  let mut c = Canvas::new(400, 160);
+  let area = Rect::new(0, 0, 400, 200);
+  let mut c = Canvas::new(400, 200);
   v.draw(&mut c, &mut res, area, area);
   if let Some(path) = std::env::var_os("HSC_DUMP") {
     let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
@@ -1193,6 +1195,10 @@ fn event_rows_wear_their_color() {
   assert!(count(theme::TWITCH) > 60, "the bits box and its words");
   // the sub's words are magenta, not the dim of a plain notice
   assert!(count(theme::MAGENTA) > rows[0] as usize * MARK_W as usize + 20);
+  // the announcement: its chip's box is a yellow line across the chip, past the edge
+  let y4 = y0 + rows[..4].iter().sum::<i32>();
+  let boxed = (y4..y4 + rows[4]).any(|y| (MARK_W + 1..c.w).filter(|&x| at(x, y) == theme::YELLOW).count() >= 40);
+  assert!(boxed, "the announce chip is boxed");
 }
 
 // a line sent through heatsync.org wears [H] in heatsync orange even with platform tags off

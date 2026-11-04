@@ -282,10 +282,6 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       if notice != Notice::Plain {
         m.extra().notice = notice;
       }
-      // an announcement carries no words of twitch's own: the ext's `announce` chip says what it is
-      if notice == Notice::Announce && m.system.is_none() {
-        m.system = Some("announce".into());
-      }
       if m.body.is_empty() {
         m.kind = Kind::System;
         m.body = m.system.take().unwrap_or_default();
@@ -766,10 +762,10 @@ mod tests {
     let raw = "@msg-id=resub;system-msg=A\\ssubscribed;login=a :tmi.twitch.tv USERNOTICE #c :hype";
     let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
     assert_eq!((m.kind, m.notice(), &*m.body), (Kind::Chat, Notice::Sub, "hype"));
-    // an announcement has no system words: it is labelled
+    // an announcement has no system words: it stays the person's line, the chip says what it is (layout)
     let raw = "@msg-id=announcement;login=a :tmi.twitch.tv USERNOTICE #c :listen up";
     let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
-    assert_eq!((m.notice(), m.system.as_deref()), (Notice::Announce, Some("announce")));
+    assert_eq!((m.kind, m.notice(), m.system.as_deref(), &*m.body), (Kind::Chat, Notice::Announce, None, "listen up"));
     let bits = |tag: &str| {
       let raw = format!("@bits={tag};id=1 :a!a@a PRIVMSG #c :Cheer100 gg");
       let (_, Chat::Msg(m)) = to_chat(&parse(&raw).unwrap()).unwrap() else { panic!() };

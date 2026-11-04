@@ -124,6 +124,8 @@ enum Frame {
   Hold,
   // a cheer's `N bits`: 1px twitch color
   Bits,
+  // an announcement's chip: 1px yellow (ext .hs-mc-notice-announce::before)
+  Announce,
 }
 
 struct Row {

@@ -73,6 +73,16 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
   };
   let event = notice_ink(m.notice());
+  let mut frames = Vec::new();
+  // an announcement opens with the ext's `announce` chip (::before on the row): yellow words in a 1px
+  // yellow box
+  if m.notice() == Notice::Announce {
+    let a = s.len();
+    s.push_str(" announce ");
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::YELLOW), bold: true });
+    frames.push((a..s.len(), Frame::Announce));
+    s.push(' ');
+  }
   if let Some(sys) = &m.system {
     match event {
       Some(ink) => {
@@ -150,7 +160,6 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   let (mut allow, mut deny) = (0..0, 0..0);
   let mut refs = Vec::new();
   let mut tags = Vec::new();
-  let mut frames = Vec::new();
   let mut pics = Vec::new();
   let mut plays = Vec::new();
   // where the words sit in the text, for search hits

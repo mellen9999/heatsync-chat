@@ -192,7 +192,7 @@ impl ChatView {
             match f {
               Frame::Held => c.dashed(r, clip, theme::CYAN),
               Frame::Button => c.outline(r, clip, theme::WHITE),
-              Frame::Hold => c.outline(r, clip, theme::YELLOW),
+              Frame::Hold | Frame::Announce => c.outline(r, clip, theme::YELLOW),
               Frame::Bits => c.outline(r, clip, theme::TWITCH),
             }
           }
