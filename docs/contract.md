@@ -50,7 +50,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - in:
   - `batch {messages}` unwrap (≤256, don't recurse)
   - `server:shutdown {reconnectSpreadMs}` → close, reconnect after rand(0, clamp(spread,1000,60000)); no backoff charge
-  - `emote:added|removed|emotes:refresh` — `_ch` starts `emotes/` = own inventory → refetch `?v=_seq`; with `username` = another user (global broadcast, reaches anon `?b=1` sockets): `senderKeys[]`, `emoteName`, `ver` → drop + refetch those senders (`&v=`); `removed` scrubs name now. auto-add-on-send means the add usually lands just AFTER the line, so the refetch must relayout that sender's existing lines
+  - `emote:added|removed|emotes:refresh` — `_ch` starts `emotes/` = own inventory → refetch `?v=_seq`; with `username` = another user (global broadcast, reaches anon `?b=1` sockets): `senderKeys[]`, `emoteName`, `ver` → refetch those senders (`&v=`); `removed` tombstones the name now (the ext's removedAt: lines sent before keep it, lines after are text, no slack). a refetch that lacks a name tombstones it too (an unstamped row is just dropped); a fresh row of the name clears the tombstone and keeps the earliest added_at. tombstones count toward the 5000-rows-per-sender cap, oldest evicted first. auto-add-on-send means the add usually lands just AFTER the line, so the refetch must relayout that sender's existing lines
   - `emote:broadcast {username, emoteName, emoteData{url,width,height,zero_width,nsfw,cw_cats}}` → merge into that sender's map
   - `kick-chat-message {data:{id,username,displayName,content,color,timestamp,hsEmotes{word→{url,provider,zeroWidth,nsfw,cw_cats}},replyTo}, _ch, _seq}`; `kick-chat-backfill {channel, messages}`
   - `youtube:chat {channelId, messages[{id,user,text,emotes[{alt,url}],timestamp,color,amount,systemMsg,authorChannelId,hsEmotes}], replay}` — drop `replay:true` batches
@@ -60,7 +60,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - reconnect: backoff `min(60, 2^min(n,6))s × 0.8..1.2`, reset only after a ≥30s session. watchdog: recycle if no frame 90s or handshake >30s. generation token — late frames from a dead socket are dropped. gap >60s → mark sender caches stale + refetch pins. track max `_seq` per `kick/*`
 
 ## render rules
-- heatsync emote renders iff the sender's own inventory has the exact-case whitespace token, `height>0`, msg time within `[added_at−120s, until+120s)`, not locally blocked, ≤50/msg
+- heatsync emote renders iff the sender's own inventory has the exact-case whitespace token, `height>0`, msg time within `[added_at−120s, until+120s)` and before any removal tombstone, not locally blocked, ≤50/msg
 - relayed `hsEmotes` are server-computed from the sender's inventory — look up only the words present
 - cw gate: skip `nsfw` or `cw_cats` ∋ `sexual|gore` unless the viewer opted in (`viewer_show_*`)
 - size: scale by height only — cdn 1x is ≤32px tall but stored dims are native; never trust stored width. 7tv `.avif` → `.webp`
