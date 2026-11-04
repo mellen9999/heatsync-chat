@@ -287,6 +287,17 @@ impl App {
     self.wake();
   }
 
+  // the first window of a run with no channels asks for one right away, instead of an empty window
+  pub(super) fn first_run(&mut self) {
+    if !std::mem::take(&mut self.welcome) {
+      return;
+    }
+    self.open_form(None);
+    if let Some(f) = &mut self.form {
+      f.welcome = true;
+    }
+  }
+
   pub(super) fn close_form(&mut self) {
     self.form = None;
     self.ime.clear();
@@ -378,6 +389,7 @@ impl App {
     let f = self.form.as_ref()?;
     let title = match f.edit.and_then(|i| self.tabs.get(i)) {
       Some(t) => format!("edit {}", t.name),
+      None if f.welcome => "add your first channel".to_owned(),
       None => "add channel".to_owned(),
     };
     let (caret, _) = form::draw(&mut self.canvas, &mut self.res.text, area, f, &title, self.form_hover);

@@ -114,8 +114,10 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hov
       c.fill(caret.intersect(inner), theme::WHITE);
     }
   }
-  if let Some(e) = f.err {
-    put(c, t, e, g.err, theme::RED, false, g.panel);
+  match (f.err, f.welcome) {
+    (Some(e), _) => put(c, t, e, g.err, theme::RED, false, g.panel),
+    (None, true) => put(c, t, "type a name in any row, then press enter", g.err, theme::DIM, false, g.panel),
+    _ => {}
   }
   let go = if f.edit.is_some() { "save" } else { "add" };
   button(c, t, g.ok, go, hover == Some(Hit::Ok), line);

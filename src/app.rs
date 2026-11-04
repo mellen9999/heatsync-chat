@@ -246,6 +246,8 @@ pub struct App {
   menu: Option<emote::Open>,
   // the add/edit channel form (covers the chat), and the menu on a right-clicked tab
   form: Option<Form>,
+  // the first window of a run with no channels asks for one (tabs::first_run)
+  welcome: bool,
   form_hover: Option<Hit>,
   // the pointer is a hand: it sits on a link
   // the pointer's look: a hand over a link, a magnifier over a picture or the open view
@@ -358,6 +360,8 @@ impl App {
         stats: Default::default(),
       });
     }
+    // no channel to open (a first run, or nothing saved): the add-channel form greets the window
+    let welcome = tabs.is_empty();
     let set = Settings::load();
     let acct = crate::model::sync::Acct::new(&set);
     crate::heatsync::content::set_shown(set.content());
@@ -455,6 +459,7 @@ impl App {
       ime_sent: None,
       menu: None,
       form: None,
+      welcome,
       form_hover: None,
       cursor: winit::window::CursorIcon::Default,
       img_view: None,
@@ -2015,6 +2020,7 @@ impl ApplicationHandler<NetEvent> for App {
     let size = window.inner_size();
     self.gfx = Some(Gfx { window, surface });
     self.resize(size.width, size.height);
+    self.first_run();
   }
 
   fn user_event(&mut self, _: &ActiveEventLoop, ev: NetEvent) {

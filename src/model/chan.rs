@@ -215,6 +215,8 @@ pub struct Form {
   pub fields: [Line; 3],
   pub focus: usize,
   pub err: Option<&'static str>,
+  // the first window of a run with no channels: a title and a line that say what to do
+  pub welcome: bool,
   // Some(tab index) while editing
   pub edit: Option<usize>,
 }
@@ -226,7 +228,7 @@ impl Form {
       f.set_text(v.clone());
       f.end();
     }
-    Self { fields, focus: 0, err: None, edit }
+    Self { fields, focus: 0, err: None, welcome: false, edit }
   }
 
   pub fn cycle(&mut self, back: bool) {
