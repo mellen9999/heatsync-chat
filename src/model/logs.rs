@@ -205,7 +205,7 @@ fn html_emotes(html: &str, message: &str) -> (Box<[Placed]>, Box<[HsEmote]>) {
     let mut word = String::new();
     unescape(alt, &mut word);
     // a heatsync inventory emote is not the render's to hand us: the word stays plain text and draws
-    // only if the sender's own set has it (the one gate, ui::chat_view::resolve)
+    // only if the sender's own set has it (the one gate, emotes::resolve)
     let url = emote_url(src).filter(|u| !inventory_url(u));
     let start = plain.len() as u32;
     plain.push_str(&word);

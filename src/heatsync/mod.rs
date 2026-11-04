@@ -14,7 +14,7 @@ pub fn valid_name(w: &str) -> bool {
 
 // an image only a heatsync inventory could have put on a line: heatsync's own `/e/hs/…`, an upload, its
 // cdn. a provider's mirror (`/e/7tv/…`) is the channel's emote, not a person's. such an image is never
-// trusted from a server's word for a line: it draws only through the sender's own set (chat_view::resolve)
+// trusted from a server's word for a line: it draws only through the sender's own set (emotes::resolve)
 pub fn inventory_url(url: &str) -> bool {
   const MIRRORS: [&str; 5] = ["/e/7tv/", "/e/bttv/", "/e/ffz/", "/e/twitch/", "/e/kick/"];
   let Some(host) = crate::images::url::host(url) else { return false };
