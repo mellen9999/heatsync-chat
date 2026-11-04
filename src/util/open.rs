@@ -1,6 +1,6 @@
 // open a link from chat in the default browser, or play a video or a stream in mpv. the text is hostile:
 // only http(s), no spaces or control characters, bounded, and never through a shell (the url is one
-// argument, after mpv's `--`)
+// argument, after mpv's `--`). mpv gets only https, and none of the user's mpv config or scripts
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -23,18 +23,29 @@ pub fn installed(bin: &str) -> bool {
   })
 }
 
+// what mpv is started with. `--no-config` and `--load-scripts=no`: a link from chat never runs with the
+// user's mpv.conf options or scripts. `--` ends the options, so the url (which `check` made an http(s)
+// address) is the thing to play and never a flag
+fn mpv_args(url: &str) -> [&str; 6] {
+  ["--no-config", "--load-scripts=no", "--force-window=immediate", "--no-terminal", "--", url]
+}
+
+fn https(url: &str) -> bool {
+  url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+}
+
 // mpv plays it when it can: a page (youtube, twitch) needs yt-dlp too, a video file only mpv. else the
 // browser. if mpv gives up (a stream gone offline, a page it can't read) the browser gets it after all,
 // and `status` says so
 pub fn play(url: &str, status: impl FnOnce(String) + Send + 'static) -> Result<(), String> {
   check(url)?;
   let ytdl = installed("yt-dlp") || installed("youtube-dl");
-  if !installed("mpv") || !(ytdl || video::file(url)) {
+  // plain http stays in the browser: nothing unencrypted is fed to a player
+  if !https(url) || !installed("mpv") || !(ytdl || video::file(url)) {
     return open_url(url);
   }
   let mut child = Command::new("mpv")
-    .args(["--force-window=immediate", "--no-terminal", "--"])
-    .arg(url)
+    .args(mpv_args(url))
     .stdin(Stdio::null())
     .stdout(Stdio::null())
     .stderr(Stdio::null())
@@ -70,6 +81,24 @@ pub fn open_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn mpv_never_reads_the_link_as_an_option_or_loads_the_users_config() {
+    let args = mpv_args("https://youtu.be/abc");
+    let end = args.iter().position(|a| *a == "--").expect("options end before the url");
+    assert_eq!(args[end + 1..], ["https://youtu.be/abc"], "the link is the one thing after `--`");
+    assert_eq!(args.len(), end + 2);
+    for want in ["--no-config", "--load-scripts=no"] {
+      assert!(args[..end].contains(&want), "{want} comes before the link");
+    }
+    // however hostile the link, it stays a single argument after the `--`
+    let evil = "https://x.com/--input-ipc-server=/tmp/s";
+    assert_eq!(mpv_args(evil)[end + 1], evil);
+    assert_eq!(mpv_args(evil).len(), args.len());
+    // only https is handed to mpv; anything else (even if it passed `check`) goes to the browser
+    assert!(https("https://a.com/x") && https("HTTPS://a.com/x"));
+    assert!(!https("http://a.com/x") && !https("file:///x") && !https("https:/") && !https(""));
+  }
 
   #[test]
   fn only_plain_web_links_pass() {
