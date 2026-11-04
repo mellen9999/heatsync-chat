@@ -270,6 +270,11 @@ fn emoji_forced(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
 // every emoji cluster in `text`, for scaling (a superset of `emoji_forced`): pictographs, flags (a
 // regional indicator pair), keycaps, and what joins on (selectors, skin tones, zwj + next, tags). a
 // bmp symbol (❤ ✔ ☺) counts only with U+FE0F or when it is emoji by default; digits # * only as keycaps
+// the word is one emoji and nothing else (what an overlay emote can sit on)
+pub fn lone_emoji(word: &str) -> bool {
+  matches!(emoji_runs(word).as_slice(), [r] if !word.is_empty() && *r == (0..word.len()))
+}
+
 fn emoji_runs(text: &str) -> Vec<Range<usize>> {
   let ri = |c: char| matches!(c, '\u{1f1e6}'..='\u{1f1ff}');
   let pict = |c: char| matches!(c, '\u{1f300}'..='\u{1faff}' | '\u{1f004}' | '\u{1f0cf}' | '\u{1f18e}' | '\u{1f191}'..='\u{1f19a}' | '\u{1f201}' | '\u{1f21a}' | '\u{1f22f}' | '\u{1f232}'..='\u{1f23a}' | '\u{1f250}' | '\u{1f251}');

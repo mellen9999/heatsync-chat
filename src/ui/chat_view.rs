@@ -39,6 +39,8 @@ struct EmoteBox {
   blocked: bool,
   // a name's picture: what stands in until it is drawn (or when there is none)
   stand_in: Option<(char, u32)>,
+  // an emoji under the images (an overlay emote sent right after it, like the ext): drawn first
+  glyph: Option<Box<str>>,
 }
 
 // an emote under the pointer
@@ -155,6 +157,7 @@ struct Anim {
   rect: Rect,
   bg: u32,
   imgs: Vec<ImgId>,
+  glyph: Option<Box<str>>,
 }
 
 // an animated painted name on screen: redrawn alone on its tick, only while it is in view
@@ -515,6 +518,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
           word: (0, 0),
           blocked: false,
           stand_in: None,
+          glyph: None,
         });
       }
     }
@@ -706,6 +710,7 @@ fn post_media(
       word: (0, 0),
       blocked: false,
       stand_in: None,
+      glyph: None,
     });
   }
 }
@@ -718,6 +723,15 @@ fn stand_in(c: &mut Canvas, text: &mut Text, r: Rect, ch: char, ink: u32, clip: 
   let mut buf = [0u8; 4];
   let t: &str = ch.encode_utf8(&mut buf);
   let l = text.layout(t, &[Span { range: 0..t.len(), ink: Ink(ink), bold: true }], &[], r.w as f32);
+  let (x, y) = (r.x as f32 + (r.w as f32 - l.full_width()) / 2.0, r.y as f32 + (r.h as f32 - l.height()) / 2.0);
+  text.draw(&l, c, x, y, r.intersect(clip), |_, _| {});
+}
+
+// an emoji as big as the emote slot it sits in, centered (an overlay emote goes on top)
+fn emoji_glyph(c: &mut Canvas, text: &mut Text, r: Rect, g: &str, clip: Rect) {
+  let k = ((r.h as f32 / text.font_px).round() as u16).max(1);
+  let spans = [Span { range: 0..g.len(), ink: Ink(theme::WHITE), bold: false }];
+  let l = text.layout_at(g, &spans, &[], f32::MAX, text.line_px, (0..g.len(), k));
   let (x, y) = (r.x as f32 + (r.w as f32 - l.full_width()) / 2.0, r.y as f32 + (r.h as f32 - l.height()) / 2.0);
   text.draw(&l, c, x, y, r.intersect(clip), |_, _| {});
 }
@@ -902,6 +916,7 @@ fn card(
         word: (0, 0),
         blocked: false,
         stand_in: None,
+        glyph: None,
       });
       s.push(' ');
     }
@@ -991,6 +1006,7 @@ fn badges(
       word: (0, 0),
       blocked: false,
       stand_in: None,
+      glyph: None,
     });
     // ext: 2px between badges (a monospace space is a whole cell)
     ib.push(gap(s.len(), res.images.px(2)));
@@ -1019,6 +1035,7 @@ fn avatar(res: &mut Res, m: &Message, s: &str, ib: &mut Vec<InlineBox>, boxes: &
     word: (0, 0),
     blocked: false,
     stand_in: Some(crate::avatars::tile(&m.login, &m.nick)),
+    glyph: None,
   });
   ib.push(gap(s.len(), res.images.px(3)));
 }
@@ -1044,6 +1061,9 @@ fn body(
   let px = res.look.emote_px();
   let h = res.images.px(px);
   let mut prev_emote = false;
+  // a lone emoji just written as text (where it starts in `s`, its body bytes): an overlay emote right
+  // after it stacks on it, like on an emote
+  let mut emoji: Option<(usize, usize, usize)> = None;
   let mut first = true;
   let mut at = 0usize;
   for word in m.body.split(' ') {
@@ -1056,7 +1076,25 @@ fn body(
     let blocked = found.as_ref().is_some_and(|f| res.blocked.contains(word, &f.0));
     match found {
       // a blocked overlay just vanishes; a blocked base keeps its slot
-      Some((_, _, true, _)) if prev_emote && blocked => continue,
+      Some((_, _, true, _)) if (prev_emote || emoji.is_some()) && blocked => continue,
+      // an overlay on an emoji: the emoji's text becomes a slot with the emoji drawn under the overlay
+      Some((url, dims, true, _)) if !prev_emote && let Some((p, ea, eb)) = emoji.take() => {
+        s.truncate(p);
+        let img = res.images.id(&url, px);
+        let w = res.images.width(img, dims).max(h);
+        ib.push(inline(boxes.len(), s.len(), w, h));
+        boxes.push(EmoteBox {
+          img,
+          zw: Vec::new(),
+          zw_words: Vec::new(),
+          bg: None,
+          word: (a as u32, b as u32),
+          blocked: false,
+          stand_in: None,
+          glyph: Some(m.body[ea..eb].into()),
+        });
+        prev_emote = true;
+      }
       Some((url, _, true, _)) if prev_emote => {
         let img = res.images.id(&url, px);
         if let Some(last) = boxes.last_mut() {
@@ -1071,6 +1109,7 @@ fn body(
         }
         let img = res.images.id(&url, px);
         let w = res.images.width(img, dims);
+        emoji = None;
         ib.push(inline(boxes.len(), s.len(), w, h));
         boxes.push(EmoteBox {
           img,
@@ -1080,6 +1119,7 @@ fn body(
           word: (a as u32, b as u32),
           blocked,
           stand_in: None,
+          glyph: None,
         });
         prev_emote = true;
       }
@@ -1089,6 +1129,9 @@ fn body(
         }
         let p0 = s.len();
         s.push_str(word);
+        if !word.is_empty() {
+          emoji = super::text::lone_emoji(word).then_some((p0, a, b));
+        }
         // the words of a link answer clicks
         let mut linked = false;
         for (k, _) in links.iter().enumerate().filter(|(_, l)| l.range.start < b && a < l.range.end) {
@@ -2167,6 +2210,7 @@ impl ChatView {
           text.stripe = stripe;
           let mut stills = Vec::new();
           let mut stand_ins = Vec::new();
+          let mut on_emoji = Vec::new();
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
             let Some(eb) = laid.boxes.get(b.id as usize) else {
               return;
@@ -2190,15 +2234,28 @@ impl ChatView {
             let mut imgs = Vec::with_capacity(1 + eb.zw.len());
             imgs.push(eb.img);
             imgs.extend_from_slice(&eb.zw);
+            // the emoji under it needs the text drawer, busy here: drawn right after
+            if let Some(g) = &eb.glyph {
+              on_emoji.push((rect, g.clone(), imgs));
+              return;
+            }
             if let Some(bg) = eb.bg {
               c.fill(rect.intersect(clip), bg);
             }
             let mut flip = None;
             blit_emote(c, images, play, &imgs, rect, clip, &mut flip);
             if flip.is_some() {
-              anims.push(Anim { rect: rect.intersect(area), bg, imgs });
+              anims.push(Anim { rect: rect.intersect(area), bg, imgs, glyph: None });
             }
           });
+          for (r, g, imgs) in on_emoji {
+            emoji_glyph(c, text, r, &g, clip);
+            let mut flip = None;
+            blit_emote(c, images, play, &imgs, r, clip, &mut flip);
+            if flip.is_some() {
+              self.anims.push(Anim { rect: r.intersect(area), bg, imgs, glyph: Some(g) });
+            }
+          }
           for r in stills {
             play_mark(c, r, clip);
           }
@@ -2287,6 +2344,9 @@ impl ChatView {
         continue;
       }
       c.fill(r, a.bg);
+      if let Some(g) = &a.glyph {
+        emoji_glyph(c, &mut res.text, a.rect, g, r);
+      }
       blit_emote(c, &mut res.images, res.look.animate_emotes, &a.imgs, a.rect, r, &mut next);
       dirty = Some(dirty.map_or(r, |d| super::union(d, r)));
     }
@@ -3212,6 +3272,30 @@ mod tests {
     assert_eq!(n(&mut res, &placed), 0, "not 44's");
     placed.emotes = Box::new([(0..3, "https://heatsync.org/e/7tv/abc".into())]);
     assert_eq!(n(&mut res, &placed), 1, "a provider mirror placed by position is native");
+  }
+
+  // an overlay emote right after a lone emoji stacks on it (ext): the emoji becomes the slot's base,
+  // drawn as itself; anything between them, or no overlay, leaves the emoji as text
+  #[test]
+  fn an_overlay_after_an_emoji_stacks_on_it() {
+    use crate::emotes::{Emote, Provider};
+    let mut res = Res::new(1.0);
+    let fog = Emote { url: "https://cdn.7tv.app/emote/fog/1x.webp".into(), w: 28, h: 28, zero_width: true };
+    let base = Emote { url: "https://cdn.7tv.app/emote/b/1x.webp".into(), w: 28, h: 28, zero_width: false };
+    res.emotes.set(Some("c"), Provider::SevenTv, [("fog0".into(), fog), ("Base".into(), base)].into());
+    let laid = |res: &mut Res, body: &str| {
+      let l = layout_row(res, "c", &plain("a", body), false, 400, NO_OPTS);
+      l.boxes.iter().map(|b| (b.glyph.as_deref().map(str::to_owned), b.zw.len())).collect::<Vec<_>>()
+    };
+    let on = |g: &str| vec![(Some(g.to_owned()), 0)];
+    assert_eq!(laid(&mut res, "🏙  fog0"), on("🏙"), "two spaces between, like the report");
+    assert_eq!(laid(&mut res, "hi 🏙\u{fe0f} fog0 there"), on("🏙\u{fe0f}"));
+    assert_eq!(laid(&mut res, "👍🏽 fog0"), on("👍🏽"));
+    assert_eq!(laid(&mut res, "🏙 fog0 fog0"), vec![(Some("🏙".to_owned()), 1)], "a second overlay stacks too");
+    assert!(laid(&mut res, "🏙 hi fog0").iter().all(|b| b.0.is_none()), "a word between: not stacked");
+    assert!(laid(&mut res, "hi🏙 fog0").iter().all(|b| b.0.is_none()), "not a lone emoji");
+    assert!(laid(&mut res, "🏙 hi").is_empty(), "no overlay: the emoji stays text");
+    assert_eq!(laid(&mut res, "Base fog0"), vec![(None, 1)], "an emote base as before");
   }
 
   // linksEnabled: off, a url is plain text, not a link and not a partial one either

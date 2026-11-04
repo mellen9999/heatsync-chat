@@ -3596,6 +3596,57 @@ mod live {
     assert!(app.reply.is_some(), "r on the picked line starts a reply");
   }
 
+  // 🏙 fog0: the overlay stacks on the emoji, drawn over it (scratch HOME as above; HSC_DUMP to look)
+  #[test]
+  #[ignore]
+  fn headless_overlay_on_emoji() {
+    use crate::emotes::{Emote, Provider};
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(420, 200);
+    for t in &mut app.tabs {
+      t.view.resize(420);
+    }
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let url = "https://cdn.7tv.app/emote/fog/1x.webp";
+    let fog = Emote { url: url.into(), w: 28, h: 28, zero_width: true };
+    app.res.emotes.set(Some("forsen"), Provider::SevenTv, [("fog0".into(), fog)].into());
+    let mut m = Message::system(now_ms(), Platform::Twitch, "🏙  fog0 and 🏙 alone");
+    (m.kind, m.id, m.nick, m.login) = (crate::model::message::Kind::Chat, "e1".into(), "bob".into(), "bob".into());
+    app.on_chat("forsen", Chat::Msg(m));
+    app.redraw();
+    // the fog: a see-through gray band over the lower half
+    let lh = app.res.look.emote_px();
+    let id = app.res.images.id(url, lh);
+    let px = app.res.images.px(lh);
+    let rgba: Vec<u8> =
+      (0..px * px).flat_map(|i| if i / px > px / 2 { [200, 200, 200, 160] } else { [0, 0, 0, 0] }).collect();
+    let frame = crate::images::decode::Frame { rgba: rgba.into(), delay_ms: 0 };
+    app.res.images.loaded(id, px, Ok(crate::images::decode::Decoded { w: px, h: px, frames: vec![frame] }));
+    app.tabs[chat].view.relayout();
+    app.redraw();
+    if let Some(path) = std::env::var_os("HSC_DUMP") {
+      let c = &app.canvas;
+      let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+      c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+      let _ = std::fs::write(path, out);
+    }
+    // the fog's gray lands on the canvas somewhere in the chat
+    let area = app.chat_area();
+    let gray = (area.y..area.bottom())
+      .flat_map(|y| (area.x..area.right()).map(move |x| (x, y)))
+      .filter(|&(x, y)| {
+        let p = app.canvas.px[(y * app.canvas.w + x) as usize];
+        let (r, g, b) = ((p >> 16) & 255, (p >> 8) & 255, p & 255);
+        r == g && g == b && (100..=150).contains(&r)
+      })
+      .count();
+    assert!(gray > 20, "the overlay was drawn ({gray} px)");
+  }
+
   // a went-live line in every tab is news, not chat: never picked, menued or replied to (scratch HOME as above)
   #[test]
   #[ignore]
