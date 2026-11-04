@@ -67,6 +67,26 @@ fn seventv_badge_follows_the_cosmetics_answer() {
 }
 
 #[test]
+fn bttv_badge_shows_for_its_holder_behind_its_switch() {
+  use crate::badges::{Badge, Source, UserBadges};
+  let mut res = Res::new(1.0);
+  let badge = Badge { url: "https://cdn.betterttv.net/badges/developer.svg".into(), title: "dev".into(), bg: None };
+  res.badges.set_users(Source::Bttv, UserBadges { list: vec![badge], users: [(42, vec![0])].into() });
+  let mut m = Message::system(1, Platform::Twitch, "x");
+  m.kind = Kind::Chat;
+  m.user_id = "42".into();
+  m.nick = "bob".into();
+  m.body = "hi".into();
+  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 400, NO_OPTS).boxes.len();
+  assert_eq!(n(&mut res, &m), 1);
+  let mut other = m.clone();
+  other.user_id = "43".into();
+  assert_eq!(n(&mut res, &other), 0, "only its holder");
+  res.look.bttv_badges = false;
+  assert_eq!(n(&mut res, &m), 0, "bttv badges off");
+}
+
+#[test]
 fn text_badges_swap_twitch_pictures_for_words_and_off_is_unchanged() {
   use crate::badges::{Badge, key};
   let mut res = Res::new(1.0);

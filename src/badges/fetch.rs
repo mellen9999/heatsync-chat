@@ -118,6 +118,36 @@ pub fn ffz(v: &Value) -> UserBadges {
   out
 }
 
+// bttv's badge list (`/3/cached/badges`): one flat picture per row, held by the twitch id in `providerId`.
+// the art is svg (drawn by `images::svg`); a row with any other kind of url is skipped
+pub fn bttv(v: &Value) -> UserBadges {
+  let mut out = UserBadges::default();
+  let mut index: std::collections::HashMap<Box<str>, u16> = std::collections::HashMap::new();
+  for row in v.as_array().into_iter().flatten().take(MAX_USERS) {
+    let (Some(id), Some(badge)) =
+      (row.get("providerId").and_then(Value::as_str).and_then(|s| s.parse::<u64>().ok()), row.get("badge"))
+    else {
+      continue;
+    };
+    let url = badge.get("svg").and_then(Value::as_str).filter(|u| allowed(u) && u.ends_with(".svg"));
+    let Some(url) = url else { continue };
+    let i = match index.get(url) {
+      Some(&i) => i,
+      None if out.list.len() < MAX_BADGES => {
+        let title = badge.get("description").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("bttv");
+        let title: String = title.chars().filter(|c| !c.is_control()).take(100).collect();
+        let i = out.list.len() as u16;
+        out.list.push(Badge { url: url.into(), title: title.into(), bg: None });
+        index.insert(url.into(), i);
+        i
+      }
+      None => continue,
+    };
+    out.users.entry(id).or_default().push(i);
+  }
+  out
+}
+
 pub fn chatterino(v: &Value) -> UserBadges {
   let mut out = UserBadges::default();
   let mut n = 0;
@@ -163,6 +193,7 @@ pub async fn kick_channel(http: &reqwest::Client, slug: &str) -> Result<Vec<(u32
   Ok(kick_subs(&http::capped_json(r, MAX_KICK).await?))
 }
 
+pub const BTTV: &str = "https://api.betterttv.net/3/cached/badges";
 pub const FFZ_IDS: &str = "https://api.frankerfacez.com/v1/badges/ids";
 pub const CHATTERINO: &str = "https://heatsync.org/api/chatterino-badges";
 
@@ -183,6 +214,32 @@ mod tests {
       &json!({"badges": [{"tooltip": "top", "image1": "https://fourtf.com/chatterino/badges/topd.png", "users": ["11", 12, "x"]}]}),
     );
     assert_eq!(c.users.len(), 2);
+  }
+
+  #[test]
+  fn parses_bttv() {
+    let dev =
+      json!({"type": 1, "description": "NightDev Developer", "svg": "https://cdn.betterttv.net/badges/developer.svg"});
+    let v = json!([
+      {"providerId": "11785491", "badge": dev},
+      {"providerId": "20846357", "badge": dev},
+      {"providerId": "5", "badge": {"description": "x", "svg": "https://evil.example/a.svg"}},
+      {"providerId": "6", "badge": {"description": "x", "svg": "https://cdn.betterttv.net/badges/a.png"}},
+      {"providerId": "nope", "badge": dev},
+      {"providerId": "7"}, {"badge": dev}, 4, null
+    ]);
+    let u = bttv(&v);
+    assert_eq!(u.list.len(), 1, "one picture shared by its holders");
+    assert_eq!(&*u.list[0].title, "NightDev Developer");
+    assert_eq!(u.users.len(), 2);
+    assert_eq!(u.users.get(&11785491), Some(&vec![0]));
+    assert!(bttv(&json!({"badges": 1})).users.is_empty() && bttv(&json!(null)).list.is_empty());
+    let many: Vec<Value> = (0..MAX_BADGES as u64 + 50)
+      .map(
+        |i| json!({"providerId": i.to_string(), "badge": {"svg": format!("https://cdn.betterttv.net/badges/{i}.svg")}}),
+      )
+      .collect();
+    assert_eq!(bttv(&json!(many)).list.len(), MAX_BADGES, "pictures are capped");
   }
 
   #[test]

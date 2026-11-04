@@ -756,6 +756,7 @@ dependencies = [
  "serde_json",
  "softbuffer",
  "swash",
+ "tiny-skia",
  "tokio",
  "tokio-tungstenite",
  "winit",

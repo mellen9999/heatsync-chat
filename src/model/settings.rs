@@ -193,8 +193,9 @@ pub struct Settings {
   pub paints: bool,
   // heatsync's own animated name paints, apart from 7tv's. default on, like the ext (showNamePaints)
   pub hs_paints: bool,
-  // the per-chatter badge sets from ffz and chatterino, each on its own switch like the ext (ffzBadges,
-  // chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
+  // the per-chatter badge sets from bttv, ffz and chatterino, each on its own switch like the ext
+  // (bttvBadges, ffzBadges, chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
+  pub bttv_badges: bool,
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
   // badges as short text chips instead of pictures (ext textBadges). default off, like the ext
@@ -286,6 +287,7 @@ impl Default for Settings {
       first_glow: true,
       paints: true,
       hs_paints: true,
+      bttv_badges: true,
       ffz_badges: true,
       chatterino_badges: true,
       text_badges: false,
@@ -577,6 +579,7 @@ mod tests {
         first_glow: true,
         paints: true,
         hs_paints: true,
+        bttv_badges: true,
         ffz_badges: true,
         chatterino_badges: true,
         text_badges: false,

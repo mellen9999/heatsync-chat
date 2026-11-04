@@ -655,7 +655,8 @@ async fn global_badges(http: reqwest::Client, out: Out) {
     }
   });
   type Parse = fn(&serde_json::Value) -> UserBadges;
-  let third: [(Source, &str, &'static str, Parse); 2] = [
+  let third: [(Source, &str, &'static str, Parse); 3] = [
+    (Source::Bttv, badges::fetch::BTTV, "bttv badges", badges::fetch::bttv),
     (Source::Chatterino, badges::fetch::CHATTERINO, "chatterino badges", badges::fetch::chatterino),
     (Source::Ffz, badges::fetch::FFZ_IDS, "ffz badges", badges::fetch::ffz),
   ];

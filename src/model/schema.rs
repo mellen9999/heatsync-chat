@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 65] = [
+pub static DEFS: [Def; 66] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -287,6 +287,18 @@ pub static DEFS: [Def; 65] = [
     ctl: pill!(render_inventory),
     fx: Fx::Look,
     wire: Wire::Bool("renderInventoryEmotes"),
+  },
+  Def {
+    id: "bttv_badges",
+    cmd: Some("/bttvbadges"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "bttv badges",
+    tip: "betterttv badges on chatters",
+    alias: "bttvBadges betterttv",
+    ctl: pill!(bttv_badges),
+    fx: Fx::Look,
+    wire: Wire::Bool("bttvBadges"),
   },
   Def {
     id: "ffz_badges",

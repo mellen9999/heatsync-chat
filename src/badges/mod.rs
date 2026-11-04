@@ -27,8 +27,17 @@ pub struct UserBadges {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
+  Bttv,
   Ffz,
   Chatterino,
+}
+
+// which per-chatter sets show (the ext's bttvBadges, ffzBadges, chatterinoBadges)
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Third {
+  pub bttv: bool,
+  pub ffz: bool,
+  pub chatterino: bool,
 }
 
 #[derive(Default)]
@@ -37,6 +46,7 @@ pub struct Badges {
   channels: HashMap<Box<str>, TwitchSet>,
   // a channel's own ffz mod / vip art, over twitch's for those two (kept apart: either fetch can land first)
   ffz_room: HashMap<Box<str>, TwitchSet>,
+  bttv: UserBadges,
   ffz: UserBadges,
   chatterino: UserBadges,
   // a kick channel's subscriber art by months, per tab (sorted by months). kick never falls back to
@@ -92,14 +102,15 @@ impl Badges {
 
   pub fn set_users(&mut self, src: Source, b: UserBadges) {
     match src {
+      Source::Bttv => self.bttv = b,
       Source::Ffz => self.ffz = b,
       Source::Chatterino => self.chatterino = b,
     }
   }
 
-  // display order: twitch's own (tag order), then chatterino, then ffz; each third-party set behind its
-  // switch (`ffz`, `chatterino`)
-  pub fn for_message<'a>(&'a self, channel: &str, m: &Message, ffz: bool, chatterino: bool) -> Vec<&'a Badge> {
+  // display order: twitch's own (tag order), then bttv, chatterino, ffz; each third-party set behind its
+  // switch (`bttv`, `ffz`, `chatterino`)
+  pub fn for_message<'a>(&'a self, channel: &str, m: &Message, on: Third) -> Vec<&'a Badge> {
     let ch = self.channels.get(channel);
     let room = self.ffz_room.get(channel);
     let mut out: Vec<&Badge> = m
@@ -110,15 +121,16 @@ impl Badges {
         room.and_then(|r| r.get(&k)).or_else(|| ch.and_then(|c| c.get(&k))).or_else(|| self.global.get(&k))
       })
       .collect();
-    out.extend(self.third_party(m, ffz, chatterino));
+    out.extend(self.third_party(m, on));
     out
   }
 
-  // the chatterino then ffz badges one chatter holds, each behind its switch
-  pub fn third_party<'a>(&'a self, m: &Message, ffz: bool, chatterino: bool) -> Vec<&'a Badge> {
+  // the bttv, chatterino then ffz badges one chatter holds, each behind its switch
+  pub fn third_party<'a>(&'a self, m: &Message, on: Third) -> Vec<&'a Badge> {
     let mut out = Vec::new();
     if let Ok(uid) = m.user_id.parse::<u64>() {
-      for ub in [(chatterino, &self.chatterino), (ffz, &self.ffz)].into_iter().filter(|s| s.0).map(|s| s.1) {
+      let sets = [(on.bttv, &self.bttv), (on.chatterino, &self.chatterino), (on.ffz, &self.ffz)];
+      for ub in sets.into_iter().filter(|s| s.0).map(|s| s.1) {
         if let Some(ix) = ub.users.get(&uid) {
           out.extend(ix.iter().filter_map(|&i| ub.list.get(i as usize)));
         }
@@ -148,14 +160,34 @@ mod tests {
     m.user_id = "42".into();
     m.badges =
       vec![("moderator".into(), "1".into()), ("subscriber".into(), "0".into()), ("nope".into(), "1".into())].into();
-    let urls: Vec<&str> = bs.for_message("c", &m, true, true).iter().map(|b| &*b.url).collect();
+    let all = Third { bttv: true, ffz: true, chatterino: true };
+    let urls: Vec<&str> = bs.for_message("c", &m, all).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["g-mod", "c-sub", "ffz"]);
     bs.set_ffz_room("c", [(key("moderator", "1"), b("ffz-mod"))].into());
-    let urls: Vec<&str> = bs.for_message("c", &m, true, true).iter().map(|b| &*b.url).collect();
+    let urls: Vec<&str> = bs.for_message("c", &m, all).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["ffz-mod", "c-sub", "ffz"], "the channel's ffz mod art wins");
-    assert_eq!(&*bs.for_message("other", &m, true, true)[0].url, "g-mod", "only in its own channel");
-    let urls: Vec<&str> = bs.for_message("c", &m, false, true).iter().map(|b| &*b.url).collect();
+    assert_eq!(&*bs.for_message("other", &m, all)[0].url, "g-mod", "only in its own channel");
+    let urls: Vec<&str> = bs.for_message("c", &m, Third { ffz: false, ..all }).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["ffz-mod", "c-sub"], "ffz badges off: the channel's own ffz mod art stays");
+  }
+
+  #[test]
+  fn bttv_badges_come_first_and_have_their_own_switch() {
+    let mut bs = Badges::default();
+    bs.set_users(Source::Bttv, UserBadges { list: vec![b("bttv")], users: [(42, vec![0])].into() });
+    bs.set_users(Source::Chatterino, UserBadges { list: vec![b("chat")], users: [(42, vec![0])].into() });
+    bs.set_users(Source::Ffz, UserBadges { list: vec![b("ffz")], users: [(42, vec![0])].into() });
+    let mut m = Message::system(0, Platform::Twitch, "x");
+    m.kind = Kind::Chat;
+    m.user_id = "42".into();
+    let all = Third { bttv: true, ffz: true, chatterino: true };
+    let urls = |m: &Message, on| bs.third_party(m, on).iter().map(|b| b.url.to_string()).collect::<Vec<_>>();
+    assert_eq!(urls(&m, all), ["bttv", "chat", "ffz"]);
+    assert_eq!(urls(&m, Third { bttv: false, ..all }), ["chat", "ffz"], "bttv badges off");
+    m.user_id = "43".into();
+    assert!(urls(&m, all).is_empty(), "someone else holds none");
+    m.user_id = "x".into();
+    assert!(urls(&m, all).is_empty(), "no twitch id, no badge");
   }
 
   #[test]

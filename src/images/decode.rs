@@ -1,4 +1,4 @@
-// webp (animated), gif (animated), png → straight-alpha rgba frames scaled to a target height.
+// webp (animated), gif (animated), png, flat svg → straight-alpha rgba frames scaled to a target height.
 // decoding at display size is the whole memory story: a 28px frame is 3KB, a 128px one 64KB
 use std::io::Cursor;
 
@@ -46,6 +46,8 @@ pub fn decode(bytes: &[u8], target: u32) -> Result<Decoded, String> {
     gif(bytes)?
   } else if bytes.starts_with(b"\x89PNG") {
     png(bytes)?
+  } else if super::svg::is_svg(bytes) {
+    super::svg::render(bytes)?
   } else {
     return Err("unknown image format".into());
   };
@@ -278,6 +280,14 @@ mod tests {
     let d = decode(&bytes, 4).unwrap();
     assert_eq!((d.w, d.h, d.frames.len()), (4, 4, 1));
     assert_eq!(&d.frames[0].rgba[..4], &[255, 0, 0, 255]);
+  }
+
+  #[test]
+  fn an_svg_badge_decodes_down_to_the_badge_height() {
+    let svg = br##"<svg viewBox="0 0 10 10"><path fill="#27b161" d="M0 0h10v10H0z"/></svg>"##;
+    let d = decode(svg, 18).unwrap();
+    assert_eq!((d.w, d.h, d.frames.len()), (18, 18, 1));
+    assert_eq!(&d.frames[0].rgba[..4], &[0x27, 0xb1, 0x61, 255]);
   }
 
   #[test]

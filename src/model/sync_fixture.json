@@ -39,6 +39,11 @@
   "scope": "sync",
   "default": false
  },
+ "bttvBadges": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "chatFilterRules": {
   "type": "text",
   "scope": "local-mirror",

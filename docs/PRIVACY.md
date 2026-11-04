@@ -23,7 +23,7 @@ every host heatsync-chat talks to, what it gets, and why. no analytics, no telem
 | `events.7tv.io` (wss) | live emote changes and paint/badge changes | one connection that subscribes by 7tv id to each open channel's emote set and broadcaster, and to you. 7tv can tell from that which channels you have open | only while a channel with a 7tv set is open |
 | `api.7tv.app` | emote search for tab-complete and the picker | the word you typed | only when you search |
 | `cdn.7tv.app` | emote, paint and badge pictures | the file request | when a line shows one |
-| `api.betterttv.net`, `cdn.betterttv.net` | bttv emotes | the global set; each open channel's twitch id; the file requests | when you open a channel |
+| `api.betterttv.net`, `cdn.betterttv.net` | bttv emotes and badges | the global set; each open channel's twitch id; the badge list (nothing about you); the file requests | when you open a channel. `/bttvbadges` off hides the badges (the list is still read once at start) |
 | `api.frankerfacez.com`, `cdn.frankerfacez.com` | ffz emotes and badges | the global set; each open channel's twitch id (its emotes, its mod/vip badge art); the badge list; the word you typed in an emote search; the file requests | when you open a channel or search |
 | `fourtf.com` | chatterino badge art | the file request | when a line shows one |
 | `kick.com` | a kick channel's subscriber badge art; a kick chatter's profile picture | the channel's name (`/api/v2/channels/<name>`), the same call for both. kick *chat* does not go here, it comes through heatsync | when you open a kick channel (badges); with pfps on (pictures, off by default) |

@@ -1,6 +1,7 @@
 // ui-side image registry: url → id, decoded frames under a byte cap, lru eviction back to disk
 pub mod cache;
 pub mod decode;
+pub mod svg;
 pub mod url;
 
 use std::collections::HashMap;
