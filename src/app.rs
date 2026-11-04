@@ -669,8 +669,8 @@ impl App {
     }
     if self.kind() == Kind::Whispers {
       return match self.whisper_label() {
-        Some(to) => format!("type to whisper {to}· /w user msg"),
-        None => "/w user msg to whisper someone".into(),
+        Some(to) => format!("type to {to}· /w user msg · /dm user msg"),
+        None => "/w user msg to whisper · /dm user msg to dm".into(),
       };
     }
     let lead = if self.set.vi { "i type" } else { "type to chat" };

@@ -33,7 +33,7 @@ fn make(kind: Kind) -> Tab {
   view.set_empty(match kind {
     Kind::Mentions => "no mentions yet. lines that @ you or reply to you, in any joined channel, land here",
     Kind::ModLog => "no mod actions yet. bans, timeouts, unbans and deletes in your channels land here",
-    Kind::Whispers => "log in to read and send twitch whispers (ctrl-l)",
+    Kind::Whispers => "log in to read and send whispers and dms (ctrl-l)",
     Kind::Feed => "loading...",
     Kind::Chat => "",
   });

@@ -427,6 +427,11 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let w = crate::model::whisper::parse(v, 0, None)?;
       send(NetEvent::Whispers { items: vec![w], live: true, epoch: None })
     }
+    // a heatsync dm to you (`dm:sent` is our own send echoing to our other clients: not shown)
+    "dm:new" => {
+      let w = crate::model::whisper::parse_dm(v, None)?;
+      send(NetEvent::Whispers { items: vec![w], live: true, epoch: None })
+    }
     _ => None,
   }
 }

@@ -8,7 +8,7 @@ use crate::model::logs;
 use crate::model::message::Platform;
 use crate::model::post::{self, Post};
 use crate::model::unseen::{self, Surface};
-use crate::model::whisper::{self, Fail, Who};
+use crate::model::whisper::{self, Fail, Via, Whisper, Who};
 use crate::ui::theme;
 
 const MAX_BODY: usize = 4 << 20;
@@ -42,9 +42,13 @@ pub enum Cmd {
   Delete { id: Box<str> },
   // reply_to None = a top-level post
   Post { text: String, reply_to: Option<Box<str>> },
-  WhisperHistory { me: u64, epoch: u32 },
+  // `me` = our twitch id (None: a login without twitch, so dms only)
+  WhisperHistory { me: Option<u64>, epoch: u32 },
   // `id` is the twitch user id when we already know it, else it is looked up from the login
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
+  // a heatsync dm. `id` is their heatsync user id when known, else it is looked up from the login
+  // on `platform` (the card's lookup)
+  DmSend { key: u64, platform: Platform, login: Box<str>, id: Option<Box<str>>, text: String },
   // the user card's facts: who, on which platform, and the channel it was opened from
   Card { platform: Platform, login: Box<str>, channel: Option<Box<str>> },
   // follow (want) or unfollow someone on heatsync; their account is looked up when its id isn't known
@@ -116,6 +120,13 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         None => false,
       };
       void(out.send(NetEvent::NoteSaved { platform, login, text, ok }))
+    }
+    Cmd::DmSend { key, platform, login, id, text } => {
+      let res = match token {
+        Some(t) => send_dm(&http, &t, platform, &login, id, &text).await,
+        None => Err(Fail::Auth),
+      };
+      out.send(NetEvent::WhisperSent { key, res });
     }
     Cmd::WhisperSend { key, login, id, text } => {
       let res = match token {
@@ -439,10 +450,21 @@ async fn publish(http: &reqwest::Client, token: Option<&str>, text: String, repl
   void(out.send(NetEvent::Posted { res }))
 }
 
-async fn history(http: &reqwest::Client, token: &str, me: u64, epoch: u32, out: &Out) {
+async fn history(http: &reqwest::Client, token: &str, me: Option<u64>, epoch: u32, out: &Out) {
+  let mut all = match me {
+    Some(me) => twitch_history(http, token, me, out).await,
+    None => Vec::new(),
+  };
+  all.extend(dm_history(http, token, out).await);
+  all.sort_by_key(|w| w.ts);
+  out.send(NetEvent::Whispers { items: all, live: false, epoch: Some(epoch) });
+}
+
+async fn twitch_history(http: &reqwest::Client, token: &str, me: u64, out: &Out) -> Vec<Whisper> {
   let (status, list) = call(get(http, token, "/api/whispers")).await;
   if status != 200 {
-    return out.status(format!("whispers: {}", fail_text(&classify(status, &list))));
+    out.status(format!("whispers: {}", fail_text(&classify(status, &list))));
+    return Vec::new();
   }
   let mut all = Vec::new();
   let convos = list.get("conversations").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
@@ -478,7 +500,7 @@ async fn history(http: &reqwest::Client, token: &str, me: u64, epoch: u32, out: 
       .and_then(Value::as_str)
       .and_then(crate::model::color::parse_hex)
       .map_or(theme::WHITE, crate::model::color::readable);
-    let who = Who { id: id.clone().into(), login, name, color };
+    let who = Who { via: Via::Twitch, id: id.clone().into(), login, name, color };
     let (status, thread) = call(get(http, token, &format!("/api/whispers/{id}?limit={PER_CONVERSATION}"))).await;
     if status != 200 {
       continue;
@@ -486,13 +508,48 @@ async fn history(http: &reqwest::Client, token: &str, me: u64, epoch: u32, out: 
     let rows = thread.get("messages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
     all.extend(rows.iter().take(PER_CONVERSATION).filter_map(|m| whisper::parse(m, me, Some(&who))));
   }
-  all.sort_by_key(|w| w.ts);
-  out.send(NetEvent::Whispers { items: all, live: false, epoch: Some(epoch) });
+  all
+}
+
+// GET /api/dm (newest conversation first), then each one's messages
+async fn dm_history(http: &reqwest::Client, token: &str, out: &Out) -> Vec<Whisper> {
+  let (status, list) = call(get(http, token, "/api/dm")).await;
+  if status != 200 {
+    out.status(format!("dms: {}", fail_text(&classify_dm(status, &list, ""))));
+    return Vec::new();
+  }
+  let mut all = Vec::new();
+  let convos = list.get("conversations").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+  for c in convos.iter().take(CONVERSATIONS) {
+    let Some(who) = dm_person(c) else { continue };
+    let url = format!("/api/dm/{}?limit={PER_CONVERSATION}", crate::util::path_seg(&who.id));
+    let (status, thread) = call(get(http, token, &url)).await;
+    if status != 200 {
+      continue;
+    }
+    let rows = thread.get("messages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    all.extend(rows.iter().take(PER_CONVERSATION).filter_map(|m| whisper::parse_dm(m, Some(&who))));
+  }
+  all
+}
+
+// the other side of one GET /api/dm conversation
+fn dm_person(c: &Value) -> Option<Who> {
+  let id = whisper::user_id(c.get("other_user_id"))?;
+  let text = |k: &str| c.get(k).and_then(Value::as_str).map(|s| s.trim().chars().take(100).collect::<String>());
+  let login: Box<str> = text("username").unwrap_or_default().to_lowercase().into();
+  let name: Box<str> = text("display_name").filter(|n| !n.is_empty()).map_or_else(|| login.clone(), Into::into);
+  let color = c
+    .get("user_color")
+    .and_then(Value::as_str)
+    .and_then(crate::model::color::parse_hex)
+    .map_or(theme::WHITE, crate::model::color::readable);
+  Some(Who { via: Via::Heatsync, id, login, name, color })
 }
 
 async fn send(http: &reqwest::Client, token: &str, login: &str, id: Option<Box<str>>, text: &str) -> Result<Who, Fail> {
   let who = match id {
-    Some(id) => Who { id, login: login.into(), name: login.into(), color: theme::WHITE },
+    Some(id) => Who { via: Via::Twitch, id, login: login.into(), name: login.into(), color: theme::WHITE },
     None => resolve(http, login).await?,
   };
   let req = http
@@ -514,6 +571,7 @@ pub(super) async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, 
     Some(id) if status == 200 => {
       let name = v.get("displayName").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or(login);
       Ok(Who {
+        via: Via::Twitch,
         id: id.into(),
         login: login.into(),
         name: name.chars().take(100).collect::<String>().into(),
@@ -522,6 +580,34 @@ pub(super) async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, 
     }
     _ => Err(Fail::Other("failed to resolve twitch user".into())),
   }
+}
+
+// POST /api/dm { toUserId, content }. their heatsync id comes from the card when it isn't known
+async fn send_dm(
+  http: &reqwest::Client,
+  token: &str,
+  platform: Platform,
+  login: &str,
+  id: Option<Box<str>>,
+  text: &str,
+) -> Result<Who, Fail> {
+  let who = match id {
+    Some(id) => Who { via: Via::Heatsync, id, login: login.into(), name: login.into(), color: theme::WHITE },
+    None => {
+      let body = json!({ "platform": platform.name(), "login": login }).to_string();
+      let (status, v) = call(authed(http, token, "/api/card", body)).await;
+      if status != 200 {
+        return Err(classify_dm(status, &v, login));
+      }
+      let info = crate::model::card::parse(&v, crate::util::time::now_ms());
+      let Some(id) = info.profile_id else { return Err(Fail::Other(format!("{login} isn't on heatsync").into())) };
+      let color = info.color.map_or(theme::WHITE, crate::model::color::readable);
+      Who { via: Via::Heatsync, id, login: login.into(), name: login.into(), color }
+    }
+  };
+  let body = json!({ "toUserId": &*who.id, "content": text }).to_string();
+  let (status, v) = call(authed(http, token, "/api/dm", body)).await;
+  if (200..300).contains(&status) && v.get("error").is_none() { Ok(who) } else { Err(classify_dm(status, &v, login)) }
 }
 
 fn fail_text(f: &Fail) -> String {
@@ -549,9 +635,49 @@ pub fn classify(status: u16, v: &Value) -> Fail {
   }
 }
 
+// why a dm failed (ext whispers.js): the server's `code` is the contract, its prose is for humans
+pub fn classify_dm(status: u16, v: &Value, login: &str) -> Fail {
+  let code = v.get("code").and_then(Value::as_str).unwrap_or("");
+  let err = v.get("error").and_then(Value::as_str).unwrap_or("");
+  if code == "mutual_follow_required" {
+    Fail::Follow(login.into())
+  } else if status == 401 {
+    Fail::Auth
+  } else if status == 0 || status >= 500 {
+    Fail::Server
+  } else if err.is_empty() {
+    Fail::Other(format!("dm error {status}").into())
+  } else {
+    Fail::Other(err.chars().filter(|c| !c.is_control()).take(100).collect::<String>().into())
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn dm_failures_read_plainly() {
+    let m = json!({"error": "mutual follow required to send DMs", "code": "mutual_follow_required"});
+    assert_eq!(classify_dm(403, &m, "amy"), Fail::Follow("amy".into()));
+    assert_eq!(classify_dm(401, &Value::Null, "amy"), Fail::Auth);
+    assert_eq!(classify_dm(0, &Value::Null, "amy"), Fail::Server);
+    assert_eq!(classify_dm(500, &json!({}), "amy"), Fail::Server);
+    assert_eq!(classify_dm(403, &json!({"error": "blocked", "code": "blocked"}), "amy"), Fail::Other("blocked".into()));
+    assert_eq!(classify_dm(400, &Value::Null, "amy"), Fail::Other("dm error 400".into()));
+    let long = json!({"error": "x\u{7}".repeat(300)});
+    assert_eq!(classify_dm(400, &long, "a"), Fail::Other("x".repeat(100).into()));
+  }
+
+  #[test]
+  fn a_dm_conversation_names_the_other_side() {
+    let c = json!({"other_user_id": "77", "username": "Amy", "display_name": "Amy_X", "user_color": "#00ff00"});
+    let w = dm_person(&c).unwrap();
+    assert_eq!((w.via, &*w.id, &*w.login, &*w.name), (Via::Heatsync, "77", "amy", "Amy_X"));
+    assert!(dm_person(&json!({"other_user_id": "../x"})).is_none());
+    assert!(dm_person(&json!({"username": "amy"})).is_none());
+    assert_eq!(&*dm_person(&json!({"other_user_id": 5, "username": "Bo"})).unwrap().name, "bo");
+  }
 
   #[test]
   fn failures_are_classified_like_the_ext() {

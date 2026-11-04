@@ -1,6 +1,7 @@
-// twitch whispers (ext whispers.js): one chronological timeline of everything said to and by you,
-// `hh:mm [T] you → them: text`. the server keeps them (it holds the EventSub subscription) and pushes
-// `whisper:new`; sends go through /api/twitch/whisper. pure: parsing, dedupe, caps, row text
+// twitch whispers and heatsync dms (ext whispers.js): one chronological timeline of everything said
+// to and by you, `hh:mm [T] you → them: text` (`[H]` for a dm). the server keeps whispers (it holds the
+// EventSub subscription) and pushes `whisper:new`; sends go through /api/twitch/whisper. dms are
+// `dm:new` pushes and POST /api/dm. pure: parsing, dedupe, caps, row text
 use std::collections::{HashSet, VecDeque};
 
 use serde_json::Value;
@@ -17,9 +18,18 @@ const MAX_SEEN: usize = 2000;
 // a local echo and the server's copy of the same send land within this of each other
 const ECHO_MS: i64 = 120_000;
 
+// which wire a conversation rides (the ext keys them `twitch:` / `hs:`). the same digits can be a
+// twitch id and a heatsync id, so a person is always (via, id)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Via {
+  Twitch,
+  Heatsync,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Who {
-  // twitch user id (digits). empty = not resolved yet
+  pub via: Via,
+  // twitch user id (digits) or heatsync user id. empty = not resolved yet
   pub id: Box<str>,
   pub login: Box<str>,
   pub name: Box<str>,
@@ -32,6 +42,8 @@ pub enum Fail {
   Relink,
   // not logged in on heatsync
   Auth,
+  // dms need a follow both ways: the login to follow first
+  Follow(Box<str>),
   Server,
   Other(Box<str>),
 }
@@ -102,13 +114,13 @@ pub fn parse(v: &Value, me: u64, other: Option<&Who>) -> Option<Whisper> {
     let login = text_of(v, "to_twitch_login").map(|l| l.to_lowercase());
     let login: Box<str> = login.map_or_else(|| other.map_or("".into(), |o| o.login.clone()), Into::into);
     let name = other.map_or_else(|| login.clone(), |o| o.name.clone());
-    Who { id, login, name, color: other.map_or(theme::WHITE, |o| o.color) }
+    Who { via: Via::Twitch, id, login, name, color: other.map_or(theme::WHITE, |o| o.color) }
   } else {
     let login: Box<str> = text_of(v, "from_twitch_login").unwrap_or_default().to_lowercase().into();
     let name = text_of(v, "from_twitch_display")
       .or_else(|| text_of(v, "from_display_name"))
       .map_or_else(|| login.clone(), Into::into);
-    Who { id: from, login, name, color: color_of(v, "from_color") }
+    Who { via: Via::Twitch, id: from, login, name, color: color_of(v, "from_color") }
   };
   let ext: Box<str> = v
     .get("external_message_id")
@@ -118,6 +130,47 @@ pub fn parse(v: &Value, me: u64, other: Option<&Who>) -> Option<Whisper> {
     .or_else(|| digits(v.get("id")).map(|d| format!("db{d}")))
     .unwrap_or_default()
     .into();
+  let ts = v.get("created_at").and_then(Value::as_str).and_then(parse_iso).unwrap_or_else(now_ms);
+  Some(Whisper { key: 0, ext, ts, out, who, text: text.into(), status: Status::Sent })
+}
+
+// a heatsync user id: digits, or the kick_ / yt_ namespaced forms (server PLATFORM_USER_ID_REGEX)
+pub fn user_id(v: Option<&Value>) -> Option<Box<str>> {
+  let s = match v? {
+    Value::String(s) => s.clone(),
+    Value::Number(n) => n.to_string(),
+    _ => return None,
+  };
+  (1..=64)
+    .contains(&s.len())
+    .then_some(s)
+    .filter(|s| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+    .map(Into::into)
+}
+
+// a `dm:new` frame (`other` None: from them, to us) or one row of GET /api/dm/:userId, where `other`
+// is the person the conversation is with: a row they sent is theirs, anything else we sent
+pub fn parse_dm(v: &Value, other: Option<&Who>) -> Option<Whisper> {
+  let from = user_id(v.get("from_user_id"))?;
+  let text = clean(v.get("content").and_then(Value::as_str)?, MAX_TEXT);
+  if text.is_empty() {
+    return None;
+  }
+  let out = other.is_some_and(|o| *o.id != *from);
+  let who = match other {
+    Some(o) => o.clone(),
+    None => {
+      let name = text_of(v, "from_display_name")?;
+      Who {
+        via: Via::Heatsync,
+        id: from,
+        login: name.to_lowercase().into(),
+        name: name.into(),
+        color: color_of(v, "from_color"),
+      }
+    }
+  };
+  let ext: Box<str> = user_id(v.get("id")).map_or_else(Default::default, |d| format!("dm{d}").into());
   let ts = v.get("created_at").and_then(Value::as_str).and_then(parse_iso).unwrap_or_else(now_ms);
   Some(Whisper { key: 0, ext, ts, out, who, text: text.into(), status: Status::Sent })
 }
@@ -145,9 +198,14 @@ impl Timeline {
     self.list.iter()
   }
 
-  // a person we already know the id of, from any whisper with them
-  pub fn known(&self, login: &str) -> Option<Who> {
-    self.list.iter().rev().find(|w| *w.who.login == *login && !w.who.id.is_empty()).map(|w| w.who.clone())
+  // a person we already know the id of, from any whisper or dm with them
+  pub fn known(&self, via: Via, login: &str) -> Option<Who> {
+    self
+      .list
+      .iter()
+      .rev()
+      .find(|w| w.who.via == via && *w.who.login == *login && !w.who.id.is_empty())
+      .map(|w| w.who.clone())
   }
 
   pub fn get(&self, key: u64) -> Option<&Whisper> {
@@ -161,7 +219,12 @@ impl Timeline {
       // our own send comes back in history: it is the local echo, now with its server id
       if w.out
         && let Some(e) = self.list.iter_mut().find(|e| {
-          e.out && e.ext.is_empty() && e.who.id == w.who.id && e.text == w.text && (e.ts - w.ts).abs() < ECHO_MS
+          e.out
+            && e.ext.is_empty()
+            && e.who.via == w.who.via
+            && e.who.id == w.who.id
+            && e.text == w.text
+            && (e.ts - w.ts).abs() < ECHO_MS
         })
       {
         e.ext = w.ext.clone();
@@ -214,7 +277,7 @@ impl Timeline {
     w.status = status;
     if let Some(p) = who {
       w.who = p.clone();
-      if self.last.as_ref().is_some_and(|l| l.login == p.login) {
+      if self.last.as_ref().is_some_and(|l| l.via == p.via && l.login == p.login) {
         self.last = Some(p);
       }
     }
@@ -246,7 +309,8 @@ pub fn current(tag: Option<u32>, now: u32) -> bool {
 pub fn fail_text(f: &Fail) -> String {
   match f {
     Fail::Relink => "twitch whispers not enabled. re-link on heatsync.org".into(),
-    Fail::Auth => "log in to heatsync.org to send whispers".into(),
+    Fail::Auth => "log in to heatsync.org to send whispers and dms".into(),
+    Fail::Follow(login) => format!("dms need a follow both ways. /follow {login} first"),
     Fail::Server => "heatsync server unreachable".into(),
     Fail::Other(e) => e.to_string(),
   }
@@ -269,6 +333,10 @@ pub fn message(w: &Whisper) -> Message {
       body.push_str(&format!(" ⚠ {how}"));
     }
   }
+  let (brand, ink) = match w.who.via {
+    Via::Twitch => ("[T] ", theme::TWITCH),
+    Via::Heatsync => ("[H] ", theme::HEATSYNC),
+  };
   let mut m = Message::system(w.ts, Platform::Twitch, "");
   m.kind = Kind::Chat;
   m.id = row_id(w.key);
@@ -283,7 +351,7 @@ pub fn message(w: &Whisper) -> Message {
   m.body = body.into();
   m.x = Some(Box::new(Extra {
     chan: "".into(),
-    head: Box::new([Seg { text: "[T] ".into(), ink: theme::TWITCH, bold: true }]),
+    head: Box::new([Seg { text: brand.into(), ink, bold: true }]),
     tail: Box::new([
       Seg { text: " → ".into(), ink: arrow, bold: true },
       Seg { text: to_name.to_string().into(), ink: to_ink, bold: true },
@@ -299,11 +367,11 @@ pub fn message(w: &Whisper) -> Message {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Cmd {
-  // /w user [text]: with no text it only opens the conversation
-  To(Box<str>, Option<String>),
+  // /w user [text] or /dm user [text]: with no text it only opens the conversation
+  To(Via, Box<str>, Option<String>),
   // /r text
   Reply(String),
-  // /w or /r with nothing usable
+  // /w, /dm or /r with nothing usable
   Usage,
 }
 
@@ -316,14 +384,15 @@ pub fn command(line: &str) -> Option<Cmd> {
   let (head, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
   let rest = rest.trim();
   match head.to_ascii_lowercase().as_str() {
-    "/w" | "/whisper" => {
+    "/w" | "/whisper" | "/dm" => {
+      let via = if head.eq_ignore_ascii_case("/dm") { Via::Heatsync } else { Via::Twitch };
       let (user, text) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
       let user = user.trim_start_matches('@');
       if !valid_login(user) {
         return Some(Cmd::Usage);
       }
       let text = text.trim();
-      Some(Cmd::To(user.to_ascii_lowercase().into(), (!text.is_empty()).then(|| text.to_string())))
+      Some(Cmd::To(via, user.to_ascii_lowercase().into(), (!text.is_empty()).then(|| text.to_string())))
     }
     "/r" | "/reply" => Some(if rest.is_empty() { Cmd::Usage } else { Cmd::Reply(rest.to_string()) }),
     _ => None,
@@ -395,7 +464,7 @@ mod tests {
   #[test]
   fn a_send_and_its_history_copy_are_one_row() {
     let mut t = Timeline::default();
-    let who = Who { id: "42".into(), login: "bob".into(), name: "Bob".into(), color: 0xff0000 };
+    let who = Who { via: Via::Twitch, id: "42".into(), login: "bob".into(), name: "Bob".into(), color: 0xff0000 };
     let key = t.push_out(who.clone(), "hello").key;
     assert!(matches!(t.get(key).unwrap().status, Status::Pending));
     t.settle(key, Status::Sent, None);
@@ -415,7 +484,7 @@ mod tests {
 
   #[test]
   fn rows_read_like_the_ext() {
-    let who = Who { id: "42".into(), login: "bob".into(), name: "Bob".into(), color: 0xff0000 };
+    let who = Who { via: Via::Twitch, id: "42".into(), login: "bob".into(), name: "Bob".into(), color: 0xff0000 };
     let mut w = Whisper { key: 7, ext: "".into(), ts: 1, out: true, who, text: "hi".into(), status: Status::Pending };
     let m = message(&w);
     assert_eq!((&*m.id, &*m.nick, &*m.body), ("w7", "you", "hi …"));
@@ -439,15 +508,91 @@ mod tests {
 
   #[test]
   fn slash_commands() {
-    assert_eq!(command("/w Bob hello there"), Some(Cmd::To("bob".into(), Some("hello there".into()))));
-    assert_eq!(command("/w @bob"), Some(Cmd::To("bob".into(), None)));
-    assert_eq!(command("/whisper bob  hi"), Some(Cmd::To("bob".into(), Some("hi".into()))));
+    let w = Via::Twitch;
+    assert_eq!(command("/w Bob hello there"), Some(Cmd::To(w, "bob".into(), Some("hello there".into()))));
+    assert_eq!(command("/w @bob"), Some(Cmd::To(w, "bob".into(), None)));
+    assert_eq!(command("/whisper bob  hi"), Some(Cmd::To(w, "bob".into(), Some("hi".into()))));
+    assert_eq!(command("/dm @Bob yo"), Some(Cmd::To(Via::Heatsync, "bob".into(), Some("yo".into()))));
+    assert_eq!(command("/DM bob"), Some(Cmd::To(Via::Heatsync, "bob".into(), None)));
+    assert_eq!(command("/dm"), Some(Cmd::Usage));
     assert_eq!(command("/w"), Some(Cmd::Usage));
     assert_eq!(command("/w bad-name hi"), Some(Cmd::Usage));
     assert_eq!(command("/r thanks"), Some(Cmd::Reply("thanks".into())));
     assert_eq!(command("/r"), Some(Cmd::Usage));
     assert_eq!(command("/wow"), None);
     assert_eq!(command("hello"), None);
+  }
+
+  fn hs_who() -> Who {
+    Who { via: Via::Heatsync, id: "77".into(), login: "amy".into(), name: "Amy".into(), color: 0x00ff00 }
+  }
+
+  #[test]
+  fn parses_a_dm_push_and_history_rows() {
+    let push = json!({"id": "9", "from_user_id": "77", "to_user_id": "1", "from_display_name": "Amy",
+      "from_color": "#00ff00", "content": "hi\nthere", "created_at": "2026-10-30T10:00:00.000Z"});
+    let w = parse_dm(&push, None).unwrap();
+    assert!(!w.out && w.who.via == Via::Heatsync);
+    assert_eq!((&*w.who.id, &*w.who.login, &*w.who.name, &*w.text, &*w.ext), ("77", "amy", "Amy", "hi there", "dm9"));
+    // history: the row they sent is theirs, ours is out, both under the conversation's person
+    let mine = json!({"id": 10, "from_user_id": "1", "to_user_id": "77", "content": "yo"});
+    let w = parse_dm(&mine, Some(&hs_who())).unwrap();
+    assert!(w.out && &*w.who.id == "77" && &*w.who.name == "Amy");
+    assert!(!parse_dm(&push, Some(&hs_who())).unwrap().out);
+    // namespaced ids pass, junk does not
+    assert!(parse_dm(&json!({"from_user_id": "kick_123", "from_display_name": "K", "content": "a"}), None).is_some());
+    let big = "9".repeat(80);
+    for bad in [
+      json!({}),
+      json!({"from_user_id": "77", "content": "a"}),
+      json!({"from_user_id": "77", "from_display_name": "A", "content": "  "}),
+      json!({"from_user_id": "77", "from_display_name": "A"}),
+      json!({"from_user_id": "a/b", "from_display_name": "A", "content": "a"}),
+      json!({"from_user_id": big, "from_display_name": "A", "content": "a"}),
+      json!({"from_user_id": {"a": 1}, "from_display_name": "A", "content": "a"}),
+      json!({"from_user_id": "", "from_display_name": "A", "content": "a"}),
+    ] {
+      assert!(parse_dm(&bad, None).is_none(), "{bad}");
+    }
+    let long = json!({"from_user_id": "77", "from_display_name": "A", "content": "x".repeat(9000)});
+    assert_eq!(parse_dm(&long, None).unwrap().text.len(), MAX_TEXT);
+    let evil = json!({"from_user_id": "77", "from_display_name": "x\u{7}y", "content": "a", "id": {"z": 1}});
+    let w = parse_dm(&evil, None).unwrap();
+    assert_eq!((&*w.who.name, &*w.ext), ("x y", ""));
+  }
+
+  #[test]
+  fn a_dm_and_a_whisper_with_the_same_id_are_different_people() {
+    let mut t = Timeline::default();
+    let mut tw = hs_who();
+    tw.via = Via::Twitch;
+    t.push_out(tw, "whisper");
+    t.push_out(hs_who(), "dm");
+    let w =
+      parse_dm(&json!({"id": "1", "from_user_id": "77", "from_display_name": "Amy", "content": "dm"}), None).unwrap();
+    assert!(t.add(w).is_some());
+    assert_eq!(t.known(Via::Heatsync, "amy").map(|w| w.via), Some(Via::Heatsync));
+    assert_eq!(t.known(Via::Twitch, "amy").map(|w| w.via), Some(Via::Twitch));
+    assert!(t.known(Via::Heatsync, "bob").is_none());
+    // /r points at the dm
+    assert_eq!(t.last.as_ref().map(|w| w.via), Some(Via::Heatsync));
+  }
+
+  #[test]
+  fn dm_rows_wear_the_heatsync_mark() {
+    let w = Whisper {
+      key: 3,
+      ext: "".into(),
+      ts: 1,
+      out: true,
+      who: hs_who(),
+      text: "hi".into(),
+      status: Status::Failed(Fail::Follow("amy".into())),
+    };
+    let m = message(&w);
+    let x = m.x.unwrap();
+    assert_eq!((&*x.head[0].text, x.head[0].ink), ("[H] ", theme::HEATSYNC));
+    assert!(m.body.contains("/follow amy"));
   }
 
   #[test]

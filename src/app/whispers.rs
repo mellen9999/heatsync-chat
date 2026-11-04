@@ -1,24 +1,28 @@
-// the whispers tab (ext whispers.js): twitch whispers to and from you in one timeline.
-// reading: heatsync's server holds the twitch subscription and pushes `whisper:new` to the signed-in
-// socket; history comes from /api/whispers when the tab first opens. sending: /w user msg, /r msg,
-// or just type in the tab to answer the last person. a failed send stays in the list: Enter retries
+// the whispers tab (ext whispers.js): twitch whispers and heatsync dms to and from you in one timeline.
+// reading: heatsync's server holds the twitch subscription and pushes `whisper:new` (and `dm:new`) to the
+// signed-in socket; history comes from /api/whispers and /api/dm when the tab first opens. sending:
+// /w user msg, /dm user msg, /r msg, or just type in the tab to answer the last person. a failed send stays in the list: Enter retries
 // it (or re-links twitch with the whispers permission when that is what is missing)
 use super::App;
+use super::card::Load;
+use crate::model::message::Platform;
 use crate::model::tabs::Kind;
-use crate::model::whisper::{self, Cmd as Slash, Status, Whisper, Who};
+use crate::model::whisper::{self, Cmd as Slash, Status, Via, Whisper, Who};
 use crate::net::Cmd;
 use crate::net::social;
 
-const NEED_LOGIN: &str = "log in to heatsync.org to send whispers (ctrl-l)";
+const NEED_LOGIN: &str = "log in to heatsync.org to send whispers and dms (ctrl-l)";
+// heatsync caps a dm at 500 characters
+const DM_MAX: usize = 500;
 const UNKNOWN: &str = "unknown user. whisper someone first";
 
 impl App {
   // what the empty tab says: it depends on who you are
   pub(super) fn whisper_empty(&mut self) {
     let text = match &self.me {
-      None => "log in to read and send twitch whispers (ctrl-l)",
-      Some(m) if m.twitch_id.is_none() => "whispers are twitch-only. send one (/w user msg) to log in with twitch",
-      Some(_) => "no whispers yet. /w user msg to start one, /r msg to answer the last",
+      None => "log in to read and send whispers and dms (ctrl-l)",
+      Some(m) if m.twitch_id.is_none() => "no dms yet. /dm user msg to start one. whispers need twitch (/w user msg)",
+      Some(_) => "nothing yet. /w user msg whispers, /dm user msg dms, /r msg answers the last",
     };
     if let Some(i) = self.tab_of(Kind::Whispers) {
       self.tabs[i].chat().set_empty(text);
@@ -27,7 +31,8 @@ impl App {
 
   // the history, once per login, the first time the tab is looked at
   pub(super) fn whispers_load(&mut self) {
-    let Some(id) = self.me.as_ref().and_then(|m| m.twitch_id) else { return };
+    let Some(me) = &self.me else { return };
+    let id = me.twitch_id;
     if !self.whispers_loaded {
       self.whispers_loaded = true;
       self.net.send(Cmd::Social(social::Cmd::WhisperHistory { me: id, epoch: self.whisper_epoch }));
@@ -106,7 +111,8 @@ impl App {
         if let Some(i) = self.tab_of(Kind::Whispers) {
           self.select(i);
         }
-        self.say(format!("whisper failed: {why}"));
+        let what = if w.who.via == Via::Heatsync { "dm" } else { "whisper" };
+        self.say(format!("{what} failed: {why}"));
       }
       None if self.kind() != Kind::Whispers => self.say(format!("sent to {}", w.who.name)),
       None => self.wake(),
@@ -117,30 +123,27 @@ impl App {
   // /w and /r from any tab
   pub(super) fn whisper_slash(&mut self, c: Slash) {
     match c {
-      Slash::Usage => self.say("usage: /w user msg · /r msg"),
-      Slash::To(login, None) => {
-        let who = self.whispers.known(&login).unwrap_or(Who {
+      Slash::Usage => self.say("usage: /w user msg · /dm user msg · /r msg"),
+      Slash::To(via, login, text) => {
+        let who = self.whispers.known(via, &login).unwrap_or(Who {
+          via,
           id: "".into(),
           name: login.clone(),
           login,
           color: crate::ui::theme::WHITE,
         });
-        // ext: opens the conversation and points /r at it
-        let name = who.name.clone();
-        self.whispers.last = Some(who);
-        if let Some(i) = self.tab_of(Kind::Whispers) {
-          self.select(i);
+        match text {
+          // ext: opens the conversation and points /r at it
+          None => {
+            let name = who.name.clone();
+            self.whispers.last = Some(who);
+            if let Some(i) = self.tab_of(Kind::Whispers) {
+              self.select(i);
+            }
+            self.say(format!("type to {} {name}", if via == Via::Heatsync { "dm" } else { "whisper" }));
+          }
+          Some(text) => self.start_whisper(who, text),
         }
-        self.say(format!("type to whisper {name}"));
-      }
-      Slash::To(login, Some(text)) => {
-        let who = self.whispers.known(&login).unwrap_or(Who {
-          id: "".into(),
-          name: login.clone(),
-          login,
-          color: crate::ui::theme::WHITE,
-        });
-        self.start_whisper(who, text);
       }
       Slash::Reply(text) => self.reply_whisper(text),
     }
@@ -155,20 +158,29 @@ impl App {
   }
 
   fn start_whisper(&mut self, who: Who, text: String) {
-    match &self.me {
-      None => return self.say(NEED_LOGIN),
-      // a kick-only or youtube-only login: the twitch sign-in (with the whispers permission) is one step away
-      Some(m) if m.twitch_id.is_none() => {
-        self.net.send(Cmd::Relink("whispers"));
-        return self.say("whispers need twitch. finish logging in with twitch in your browser…");
+    if who.via == Via::Heatsync {
+      if self.me.is_none() {
+        return self.say(NEED_LOGIN);
       }
-      // twitch told us which permission packs this login holds, and whispers is not one: ask now
-      // instead of failing the send first
-      Some(m) if !m.packs.is_empty() && !m.has_pack("whispers") => {
-        self.net.send(Cmd::Relink("whispers"));
-        return self.say("whispers need a twitch permission. finish allowing it in your browser…");
+      if text.chars().count() > DM_MAX {
+        return self.say(format!("dm too long: {DM_MAX} characters at most"));
       }
-      Some(_) => {}
+    } else {
+      match &self.me {
+        None => return self.say(NEED_LOGIN),
+        // a kick-only or youtube-only login: the twitch sign-in (with the whispers permission) is one step away
+        Some(m) if m.twitch_id.is_none() => {
+          self.net.send(Cmd::Relink("whispers"));
+          return self.say("whispers need twitch. finish logging in with twitch in your browser…");
+        }
+        // twitch told us which permission packs this login holds, and whispers is not one: ask now
+        // instead of failing the send first
+        Some(m) if !m.packs.is_empty() && !m.has_pack("whispers") => {
+          self.net.send(Cmd::Relink("whispers"));
+          return self.say("whispers need a twitch permission. finish allowing it in your browser…");
+        }
+        Some(_) => {}
+      }
     }
     let w = self.whispers.push_out(who, &text).clone();
     self.put_row(&w);
@@ -182,8 +194,28 @@ impl App {
     self.wake();
   }
 
+  // the platform a dm's name is looked up on: this tab's, twitch when it has none (as /follow does)
+  fn dm_platform(&self) -> Platform {
+    self.tabs.get(self.active).and_then(|t| t.sources.first()).map_or(Platform::Twitch, |s| s.0)
+  }
+
   fn send_whisper(&mut self, w: &Whisper) {
-    let id = (!w.who.id.is_empty()).then(|| w.who.id.clone());
+    let mut id = (!w.who.id.is_empty()).then(|| w.who.id.clone());
+    if w.who.via == Via::Heatsync {
+      let platform = self.dm_platform();
+      if id.is_none()
+        && let Some(Load::Done(i)) = self.cards.get(platform, &w.who.login)
+      {
+        id = i.profile_id.clone();
+      }
+      return self.net.send(Cmd::Social(social::Cmd::DmSend {
+        key: w.key,
+        platform,
+        login: w.who.login.clone(),
+        id,
+        text: w.text.to_string(),
+      }));
+    }
     self.net.send(Cmd::Social(social::Cmd::WhisperSend {
       key: w.key,
       login: w.who.login.clone(),
@@ -227,7 +259,11 @@ impl App {
 
   // the input bar's label while the whispers tab is up: who a plain line goes to
   pub(super) fn whisper_label(&self) -> Option<String> {
-    self.whispers.last.as_ref().map(|w| format!("{} ", w.name))
+    self
+      .whispers
+      .last
+      .as_ref()
+      .map(|w| format!("{} {} ", if w.via == Via::Heatsync { "dm" } else { "whisper" }, w.name))
   }
 }
 
@@ -240,10 +276,93 @@ mod tests {
 
   #[test]
   fn a_failed_row_is_red() {
-    let who = Who { id: "1".into(), login: "bob".into(), name: "Bob".into(), color: 0 };
+    let who = Who { via: Via::Twitch, id: "1".into(), login: "bob".into(), name: "Bob".into(), color: 0 };
     let mut t = crate::model::whisper::Timeline::default();
     let k = t.push_out(who, "hi").key;
     let w = t.settle(k, Status::Failed(Fail::Server), None).unwrap().clone();
     assert!(whisper::message(&w).has(flag::ALERT));
+  }
+
+  fn signed_in(app: &mut App, twitch: bool) {
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: twitch.then_some(1),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+  }
+
+  fn dms(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<String> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| match c {
+        Cmd::Social(social::Cmd::DmSend { login, id, text, .. }) => Some(format!("dm {login} {id:?} {text}")),
+        Cmd::Social(social::Cmd::WhisperSend { login, text, .. }) => Some(format!("whisper {login} {text}")),
+        Cmd::Social(social::Cmd::WhisperHistory { me, .. }) => Some(format!("history {me:?}")),
+        _ => None,
+      })
+      .collect()
+  }
+
+  fn said(app: &App) -> String {
+    app.tabs[app.active].view.last_msg().map(|m| m.body.to_string()).unwrap_or_default()
+  }
+
+  #[test]
+  fn dm_sends_open_reply_and_say_why_they_fail() {
+    use crate::net::NetEvent;
+    let (net, mut rx) = crate::net::Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let typed = |app: &mut App, s: &str| {
+      app.line.set_text(s.into());
+      app.send();
+    };
+    typed(&mut app, "/dm amy hello");
+    assert!(dms(&mut rx).is_empty(), "logged out");
+    assert!(said(&app).contains("log in"));
+    // a heatsync login without twitch can still dm, and loads dm-only history
+    signed_in(&mut app, false);
+    app.whispers_load();
+    assert_eq!(dms(&mut rx), ["history None"]);
+    typed(&mut app, "/dm @Amy hello there");
+    assert_eq!(dms(&mut rx), ["dm amy None hello there"]);
+    typed(&mut app, "/w amy nope");
+    assert!(dms(&mut rx).is_empty(), "whispers still need twitch");
+    typed(&mut app, &format!("/dm amy {}", "x".repeat(501)));
+    assert!(dms(&mut rx).is_empty());
+    assert!(said(&app).contains("too long"));
+    // the net says it went through: the person is now known by id
+    let key = app.whispers.iter().next().unwrap().key;
+    let amy = Who { via: Via::Heatsync, id: "77".into(), login: "amy".into(), name: "amy".into(), color: 0xffffff };
+    app.on_net(NetEvent::WhisperSent { key, res: Ok(amy) });
+    assert_eq!(app.whispers.iter().next().unwrap().status, Status::Sent);
+    // bare /dm opens the tab and points /r at that person; /r then goes by id
+    typed(&mut app, "/dm bob");
+    assert_eq!(app.kind(), Kind::Whispers);
+    assert!(said(&app).contains("type to dm bob"));
+    typed(&mut app, "/r hi bob");
+    assert_eq!(dms(&mut rx), ["dm bob None hi bob"]);
+    typed(&mut app, "/dm amy");
+    typed(&mut app, "/r again");
+    assert_eq!(dms(&mut rx), ["dm amy Some(\"77\") again"], "a known person is not looked up twice");
+    // mutual follow: said plainly, the row keeps the retry
+    let key = app.whispers.iter().last().unwrap().key;
+    app.on_net(NetEvent::WhisperSent { key, res: Err(whisper::Fail::Follow("amy".into())) });
+    assert!(said(&app).contains("dm failed: dms need a follow both ways. /follow amy first"));
+    app.whispers_reset();
+    // a name with no heatsync account
+    typed(&mut app, "/dm ghost hi");
+    let key = app.whispers.iter().last().unwrap().key;
+    app.on_net(NetEvent::WhisperSent { key, res: Err(whisper::Fail::Other("ghost isn't on heatsync".into())) });
+    assert!(said(&app).contains("ghost isn't on heatsync"));
+    // a twitch whisper still goes to twitch, and its reply stays a whisper
+    signed_in(&mut app, true);
+    dms(&mut rx);
+    typed(&mut app, "/w bob yo");
+    typed(&mut app, "/r again");
+    assert_eq!(dms(&mut rx), ["whisper bob yo", "whisper bob again"]);
   }
 }
