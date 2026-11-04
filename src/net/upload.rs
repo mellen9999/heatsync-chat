@@ -10,6 +10,8 @@ use serde_json::Value;
 use super::{NetEvent, ORIGIN, Out};
 use crate::images::url::allowed;
 
+mod strip;
+
 // the ext's own client caps (the server's are 10MB / 50MB)
 pub const MAX_IMG: u64 = 5 << 20;
 pub const MAX_VID: u64 = 45 << 20;
@@ -129,7 +131,8 @@ fn load(path: &Path) -> Result<(Vec<u8>, Media), String> {
   if let Some(e) = too_big(&m, buf.len() as u64) {
     return Err(e);
   }
-  Ok((buf, m))
+  // gps, camera, comments and the rest stay on this machine (never bigger than what was read)
+  Ok((strip::clean(m.mime, buf)?, m))
 }
 
 fn multipart(boundary: &str, m: &Media, bytes: &[u8]) -> Vec<u8> {
@@ -390,8 +393,17 @@ mod tests {
     std::fs::write(&fake, b"not a picture at all").unwrap();
     assert!(load(&fake).is_err());
     let real = d.join("x.bin");
+    // a one-pixel gif with a comment in it: the comment does not leave
+    let mut gif = b"GIF89a\x01\0\x01\0\x80\0\0\0\0\0\xff\xff\xff\x21\xfe\x07SECRET!\0".to_vec();
+    gif.extend_from_slice(b"\x21\xf9\x04\x01\0\0\0\0\x2c\0\0\0\0\x01\0\x01\0\0\x02\x02\x44\x01\0\x3b");
+    std::fs::write(&real, &gif).unwrap();
+    let (sent, kind) = load(&real).unwrap();
+    assert_eq!(kind.mime, "image/gif");
+    assert!(!sent.windows(6).any(|w| w == b"SECRET") && sent.len() < gif.len());
+    assert!(crate::images::decode::decode(&sent, 8).is_ok());
+    // a picture that doesn't parse is not sent as is
     std::fs::write(&real, b"GIF89a\x01\0\x01\0").unwrap();
-    assert_eq!(load(&real).unwrap().1.mime, "image/gif");
+    assert!(load(&real).unwrap_err().contains("damaged"));
     assert!(load(&d).unwrap_err().contains("not a file"));
     std::fs::write(d.join("e"), b"").unwrap();
     assert!(load(&d.join("e")).unwrap_err().contains("empty"));
