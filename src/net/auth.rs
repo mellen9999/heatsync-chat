@@ -8,7 +8,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use super::{ORIGIN, http};
 
@@ -154,28 +154,41 @@ pub async fn login(
   };
   let url = login_url(provider, port, &p, pack, ticket.as_deref());
   open_browser(&url)?;
-  let code = timeout(WAIT, async {
+  let code = wait_for_callback(listener, &p.state, done, WAIT).await?;
+  exchange(http, &code, &p.verifier).await
+}
+
+// the loopback: waits (up to `wait`) for the browser to bring the one-time code. anything else that
+// knocks (favicon, a port scan, a request carrying another login's state) gets nothing useful and the
+// wait goes on: a stranger on localhost can't end the login
+async fn wait_for_callback(listener: TcpListener, state: &str, done: &str, wait: Duration) -> Result<String, String> {
+  timeout(wait, async {
     loop {
-      let Ok((mut sock, _)) = listener.accept().await else { continue };
+      let Ok((mut sock, _)) = listener.accept().await else {
+        sleep(Duration::from_millis(50)).await;
+        continue;
+      };
       let mut buf = vec![0u8; MAX_REQUEST];
       let n = match timeout(Duration::from_secs(5), sock.read(&mut buf)).await {
         Ok(Ok(n)) => n,
         _ => continue,
       };
       let req = String::from_utf8_lossy(&buf[..n]);
-      // stray hits (favicon, a port scan) get nothing and the wait goes on
-      let Some((code, state)) = callback(&req) else { continue };
-      if state != p.state {
-        let _ = sock.write_all(page("login didn't match this app — try again from the app").as_bytes()).await;
-        return Err("login state mismatch".to_string());
+      let Some((code, got)) = callback(&req) else { continue };
+      if got != state {
+        let _ = sock
+          .write_all(
+            page("this login link doesn't belong to this window. go back to heatsync chat and try again").as_bytes(),
+          )
+          .await;
+        continue;
       }
       let _ = sock.write_all(page(done).as_bytes()).await;
-      return Ok(code);
+      return code;
     }
   })
   .await
-  .map_err(|_| "login timed out".to_string())??;
-  exchange(http, &code, &p.verifier).await
+  .map_err(|_| "login timed out".to_string())
 }
 
 async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<String, String> {
@@ -418,6 +431,40 @@ mod tests {
     assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Unlinked));
     let o = serve("200 OK", r#"{"token":"abc123","username":"Mellen"}"#).await;
     assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Ready("abc123".into(), "mellen".into())));
+  }
+
+  // one request to the loopback; the page it answers with
+  async fn knock(port: u16, target: &str) -> String {
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    s.write_all(format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").as_bytes()).await.unwrap();
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out).await;
+    out
+  }
+
+  #[tokio::test]
+  async fn a_stranger_on_localhost_cannot_end_the_login() {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let waiting = tokio::spawn(wait_for_callback(l, "mine", "all done", Duration::from_secs(20)));
+    // a hostile or stale request with someone else's state: told no, and the wait carries on
+    let page = knock(port, "/cb?code=evil&state=theirs").await;
+    assert!(page.contains("doesn't belong to this window"), "{page}");
+    knock(port, "/favicon.ico").await;
+    knock(port, "/cb?code=nostate").await;
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished(), "still waiting for the real browser");
+    // the real one lands and gets the code
+    let page = knock(port, "/cb?code=real123&state=mine").await;
+    assert!(page.contains("all done"));
+    assert_eq!(waiting.await.unwrap(), Ok("real123".to_string()));
+  }
+
+  #[tokio::test]
+  async fn a_login_nobody_finishes_times_out() {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let got = wait_for_callback(l, "mine", "done", Duration::from_millis(30)).await;
+    assert_eq!(got, Err("login timed out".to_string()));
   }
 
   #[test]
