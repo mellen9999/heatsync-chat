@@ -37,7 +37,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - `?` shows every key, `ctrl-,` opens settings (or click ⚙)
 - `ctrl-f` searches the tab, `tab` completes emotes and names (7tv, bttv and ffz too: `nyan` or `:nyan`)
 - `/vi` turns on vim keys (`j`/`k`, `gg`/`G`, `gt`/`gT`)
-- `/share` copies your tabs as a `heatsync.org/m/…` link, `/open <link>` opens someone else's
+- `/sharelayout` (or `/sl`) copies your tabs as a `heatsync.org/m/…` link, `/layout <link>` opens someone else's
 
 ## what's in it
 

@@ -276,7 +276,7 @@ impl App {
       }
       ChanCmd::Share => self.share_lineup(),
       ChanCmd::Open(Some(link)) => self.open_layout(&link),
-      ChanCmd::Open(None) => self.say("paste a heatsync.org/m/ link after /open"),
+      ChanCmd::Open(None) => self.say("paste a heatsync.org/m/ link after /layout"),
       ChanCmd::Part if self.tabs.get(self.active).is_some_and(|t| !t.sources.is_empty()) => {
         self.remove_tab(self.active)
       }
