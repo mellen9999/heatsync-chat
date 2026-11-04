@@ -2750,7 +2750,8 @@ mod live {
     app.tab_complete(false);
     assert_eq!(app.line.text, "hi Kappa ", "a pick comes with a space to keep typing");
     let tip = app.complete.as_ref().and_then(Complete::tip);
-    assert_eq!(tip.as_deref(), Some("1/1 Kappa · global · 7tv users"));
+    // the first tab asks the catalogs too (ext): the tip says so until they answer
+    assert_eq!(tip.as_deref(), Some("1/1 Kappa · global · 7tv users · searching…"));
     app.redraw();
     assert!(app.over_input, "the cycle's tooltip shows over the box");
     app.line.insert("frozen0");
