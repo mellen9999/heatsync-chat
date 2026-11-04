@@ -150,10 +150,23 @@ impl App {
   pub(super) fn on_catalog(&mut self, epoch: u32, stv: Option<Page>, ffz: Option<Page>) {
     let Some(c) = &mut self.complete else { return };
     let Some(r) = c.remote.as_mut().filter(|r| r.pending && r.epoch == epoch) else { return };
-    let res = &self.res;
+    let (res, chan, own, now) = (
+      &self.res,
+      self.tabs.get(self.active).map_or("", |t| &*t.view.channel),
+      self.me.as_ref().and_then(|m| m.twitch_id),
+      now_ms(),
+    );
+    // this very picture already answers to the name here: offering it again would be a twin
+    let mine = |n: &str, u: &str| {
+      res.emotes.channel(chan, n).is_some_and(|e| *e.url == *u)
+        || own.and_then(|id| res.senders.peek(id, n, now)).is_some_and(|e| *e.url == *u)
+        || res.emotes.global(n).is_some_and(|e| *e.url == *u)
+    };
     let ffz_first = self.set.emote_provider.order().iter().find(|p| matches!(p, Provider::Ffz | Provider::SevenTv))
       == Some(&Provider::Ffz);
-    let step = r.absorb(stv, ffz, ffz_first, &mut c.matches, &mut self.catalog_reg, |n, u| res.blocked.contains(n, u));
+    let step = r.absorb(stv, ffz, ffz_first, &mut c.matches, &mut self.catalog_reg, |n, u| {
+      res.blocked.contains(n, u) || mine(n, u)
+    });
     let (word, none, done) = (r.search.clone(), c.matches.is_empty(), r.done());
     if step.chase {
       self.ask_catalog(false);
@@ -170,19 +183,30 @@ impl App {
   }
 
   // a sent line adds the catalog picks in it to your heatsync inventory, so they show for everyone
-  // from then on (the ext's autoAddInputEmotes). not what you own, block or already get as a global
+  // from then on (the ext's autoAddInputEmotes): your inventory's emote beats the channel's of the same
+  // name, so a different IDK you picked is the IDK people see. not what you block, a twitch global
+  // (twitch draws those itself), or the very emote you already own; another emote you own under that
+  // name is swapped for the one you picked
   pub(super) fn auto_add(&mut self, text: &str) {
     if self.me.is_none() {
       return;
     }
     let (own, now, res) = (self.own_id(), now_ms(), &self.res);
+    let owned = |w: &str| own.and_then(|id| res.senders.peek(id, w, now)).map(|e| e.url.clone());
     let skip = |w: &str, rec: &Rec| {
       res.blocked.contains(w, &rec.url)
-        || own.is_some_and(|id| res.senders.peek(id, w, now).is_some())
+        || owned(w).is_some_and(|u| u == rec.url)
         || res.emotes.twitch_global(w).is_some()
     };
-    for (name, rec) in self.catalog_reg.take_sent(text, skip) {
-      self.net.send(Cmd::Emote(EmoteCmd::Add { name, url: rec.url, hash: None, zero_width: rec.zero_width }));
+    let picked = self.catalog_reg.take_sent(text, skip);
+    for (name, rec) in picked {
+      let (url, zero_width) = (rec.url, rec.zero_width);
+      let cmd = if owned(&name).is_some() {
+        EmoteCmd::Swap { name, url, zero_width }
+      } else {
+        EmoteCmd::Add { name, url, hash: None, zero_width }
+      };
+      self.net.send(Cmd::Emote(cmd));
     }
   }
 
@@ -194,9 +218,11 @@ impl App {
     if let Some(old) = c.chipped.take() {
       self.line.chips.remove(&old);
     }
-    // a catalog pick is remembered the moment it's taken, for the box's picture and auto-add on send
-    if let Some(h) = c.remote.as_ref().and_then(|r| r.hit(&pick)) {
-      self.catalog_reg.track(h);
+    // a catalog pick is remembered the moment it's taken, for the box's picture and auto-add on send;
+    // moving on to another emote of the same name means that one instead
+    match c.remote.as_ref().and_then(|r| r.hit(c.at)) {
+      Some(h) => self.catalog_reg.track(h),
+      None => self.catalog_reg.forget(&pick),
     }
     self.line.replace(c.start..c.end, &pick);
     c.end = c.start + pick.len();
@@ -310,6 +336,60 @@ mod tests {
         "{typed} asks the catalogs for zzcat"
       );
       assert_eq!(app.line.text, "say zzcatHere ", "{typed}: the local match shows meanwhile");
+    }
+  }
+
+  // the channel has an IDK; tab on finds another IDK in the catalogs, the box shows that one, and
+  // sending it puts it in your inventory (swapping out an IDK you already had)
+  #[test]
+  fn another_emote_of_a_channel_name_can_be_picked_and_sent() {
+    use crate::emotes::{Emote, Provider};
+    use crate::net::NetEvent;
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    let url = |id: &str| format!("https://cdn.7tv.app/emote/{id}/1x.webp");
+    let e = |id: &str| Emote { url: url(id).into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(None, Provider::SevenTv, [("IDK".into(), e("CHAN"))].into());
+    for (owned, swap) in [(None, false), (Some("OLD"), true)] {
+      if let Some(o) = owned {
+        let row = serde_json::json!({"custom_name": "IDK", "url": url(o), "width": 32, "height": 32,
+          "added_at": "2026-10-30T22:26:51.099Z"});
+        app.res.senders.lookup(1, "IDK", 0);
+        app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+      }
+      (app.complete, app.line) = (None, Default::default());
+      app.line.insert("lol IDK");
+      app.tab_complete(false);
+      let epoch = match asked(&mut rx).as_slice() {
+        [Cmd::Catalog { epoch, .. }] => *epoch,
+        _ => panic!("one catalog ask"),
+      };
+      let local = app.box_url("IDK");
+      app.on_net(NetEvent::Catalog {
+        epoch,
+        stv: Some(page(vec![hit("IDK", "CHAN"), hit("IDK", "OTHER")], false)),
+        ffz: None,
+      });
+      let names: Vec<&str> = app.complete.as_ref().unwrap().matches.iter().map(|p| &*p.name).collect();
+      assert_eq!(names.iter().filter(|n| **n == "IDK").count(), 2, "{names:?}");
+      assert_eq!(app.box_url("IDK"), local, "typing IDK still means the one you'd get anyway");
+      // tab onto the catalog's IDK: the box shows it
+      while app.box_url("IDK").as_deref() != Some(&*url("OTHER")) {
+        app.tab_complete(false);
+        assert!(app.complete.as_ref().unwrap().at < 5, "never reached the other IDK");
+      }
+      app.complete = None;
+      app.send();
+      let sent = asked(&mut rx);
+      let cmd =
+        sent.iter().find_map(|c| if let Cmd::Emote(e) = c { Some(e) } else { None }).expect("an inventory change");
+      match (swap, cmd) {
+        (false, EmoteCmd::Add { name, url: u, .. }) | (true, EmoteCmd::Swap { name, url: u, .. }) => {
+          assert_eq!((&**name, &**u), ("IDK", &*url("OTHER")))
+        }
+        _ => panic!("wrong inventory change (swap expected: {swap})"),
+      }
     }
   }
 
@@ -456,10 +536,10 @@ mod tests {
     assert!(app.complete.as_ref().unwrap().tip().unwrap().contains("searching"));
     app.on_net(NetEvent::Catalog {
       epoch,
-      stv: Some(page(vec![hit("qqone", "R1"), hit("qqthree", "R2")], true)),
+      stv: Some(page(vec![hit("qqone", "L1"), hit("qqthree", "R2")], true)),
       ffz: None,
     });
-    assert_eq!(app.complete.as_ref().unwrap().matches.len(), 3, "the duplicate of a local is dropped");
+    assert_eq!(app.complete.as_ref().unwrap().matches.len(), 3, "the very emote a local already is, is dropped");
     assert_eq!(app.line.text, "qqtwo ", "the pick under the cursor did not move");
     app.tab_complete(false);
     assert_eq!(app.line.text, "qqthree ");

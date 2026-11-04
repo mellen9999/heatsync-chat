@@ -1127,8 +1127,8 @@ fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &
   }
 }
 
-// ext order: the line's own server-verified refs, the channel catalog, the sender's heatsync
-// inventory, then globals. the sender's set is the only heatsync source (privacy invariant)
+// order: the line's own server-verified refs, the sender's heatsync inventory (the ext's refs carry
+// exactly that, ahead of the channel), the channel catalog, then globals. the sender's set is the only heatsync source (privacy invariant)
 fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
   let e = |e: &crate::emotes::Emote, sc| (e.url.clone(), (e.w, e.h), e.zero_width, sc);
   // the one gate for renderInventoryEmotes: off, nothing from a heatsync inventory ever draws
@@ -1136,11 +1136,13 @@ fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &s
   if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
     return Some((u.clone(), (0, 0), *zw, Scope::Hs));
   }
-  if let Some(x) = res.emotes.channel(chan, word) {
-    return Some(e(x, Scope::Channel));
-  }
+  // the sender's own emote of this name beats the channel's: it is the one they picked (heatsync's
+  // own per-line refs say the same for relayed lines, above)
   if let Some(x) = sender.filter(|_| inventory).and_then(|id| res.senders.lookup(id, word, m.ts)) {
     return Some((x.url.clone(), (x.w, x.h), x.zero_width, Scope::Hs));
+  }
+  if let Some(x) = res.emotes.channel(chan, word) {
+    return Some(e(x, Scope::Channel));
   }
   if m.has(flag::OWN)
     && let Some(x) = res.emotes.twitch_global(word)
@@ -3080,6 +3082,29 @@ mod tests {
     assert_eq!(n(&mut res, &r), 0);
     res.look.inventory_emotes = true;
     assert_eq!(n(&mut res, &r), 1);
+  }
+
+  // a channel's IDK and the sender's own, different IDK: the sender's is drawn (it is the one they
+  // picked); anyone else's IDK is still the channel's
+  #[test]
+  fn the_senders_own_emote_beats_the_channels_of_the_same_name() {
+    use crate::emotes::{Emote, Provider};
+    let mut res = Res::new(1.0);
+    let url = |id: &str| format!("https://cdn.7tv.app/emote/{id}/1x.webp");
+    let e = Emote { url: url("CHAN").into(), w: 28, h: 28, zero_width: false };
+    res.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), e)].into());
+    let ts = 1_793_399_211_099;
+    let row = serde_json::json!({"custom_name": "IDK", "url": url("MINE"), "width": 32, "height": 32,
+      "added_at": "2026-10-30T22:26:51.099Z"});
+    res.senders.lookup(42, "IDK", ts);
+    res.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    let mut m = plain("a", "IDK");
+    (m.user_id, m.ts) = ("42".into(), ts);
+    let got = |res: &mut Res, m: &Message, who: Option<u64>| resolve(res, "c", m, who, "IDK").map(|f| f.0.to_string());
+    assert_eq!(got(&mut res, &m, Some(42)), Some(url("MINE")));
+    assert_eq!(got(&mut res, &m, Some(7)), Some(url("CHAN")), "someone without their own IDK");
+    res.look.inventory_emotes = false;
+    assert_eq!(got(&mut res, &m, Some(42)), Some(url("CHAN")), "inventory emotes off: the channel's");
   }
 
   // linksEnabled: off, a url is plain text, not a link and not a partial one either

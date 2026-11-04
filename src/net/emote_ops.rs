@@ -17,6 +17,9 @@ pub enum EmoteCmd {
   Unblock { hash: String },
   Add { name: Box<str>, url: Box<str>, hash: Option<String>, zero_width: bool },
   Remove { name: Box<str> },
+  // another emote you own under this name makes way for this one (remove, then add: the server holds
+  // one emote per name)
+  Swap { name: Box<str>, url: Box<str>, zero_width: bool },
 }
 
 // body capped while streaming, so a hostile server can't make us buffer more than `max`
@@ -100,23 +103,28 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       if !valid_name(&name) || !allowed(&url) {
         return out.status("can't add that emote");
       }
-      let body = json!({
-        "emoteUrl": &*url, "emoteName": &*name, "customName": &*name,
-        "source": "extension", "sourceId": hash, "zeroWidth": zero_width,
-      });
-      let r = http
-        .post(format!("{ORIGIN}/api/user/emotes"))
-        .bearer_auth(token)
-        .header("content-type", "application/json")
-        .body(body.to_string())
-        .send()
-        .await;
-      match result(r).await {
-        Ok(_) => {
+      match add(http, token, &name, &url, hash.as_deref(), zero_width).await {
+        Ok(()) => {
           out.status(format!("added {name} to your emotes"));
           out.send(NetEvent::Inventory { removed: None });
         }
         Err(e) => out.status(format!("couldn't add {name}: {e}")),
+      }
+    }
+    EmoteCmd::Swap { name, url, zero_width } => {
+      if !valid_name(&name) || !allowed(&url) {
+        return out.status("can't add that emote");
+      }
+      if let Err(e) = remove(http, token, &name).await {
+        return out.status(format!("couldn't swap {name}: {e}"));
+      }
+      out.send(NetEvent::Inventory { removed: Some(name.clone()) });
+      match add(http, token, &name, &url, None, zero_width).await {
+        Ok(()) => {
+          out.status(format!("your {name} is now the one you picked"));
+          out.send(NetEvent::Inventory { removed: None });
+        }
+        Err(e) => out.status(format!("removed your old {name}, but couldn't add the new one: {e}")),
       }
     }
     EmoteCmd::Remove { name } => match remove(http, token, &name).await {
@@ -127,6 +135,28 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       Err(e) => out.status(format!("couldn't remove {name}: {e}")),
     },
   }
+}
+
+async fn add(
+  http: &reqwest::Client,
+  token: &str,
+  name: &str,
+  url: &str,
+  hash: Option<&str>,
+  zero_width: bool,
+) -> Result<(), String> {
+  let body = json!({
+    "emoteUrl": url, "emoteName": name, "customName": name,
+    "source": "extension", "sourceId": hash, "zeroWidth": zero_width,
+  });
+  let r = http
+    .post(format!("{ORIGIN}/api/user/emotes"))
+    .bearer_auth(token)
+    .header("content-type", "application/json")
+    .body(body.to_string())
+    .send()
+    .await;
+  result(r).await.map(drop)
 }
 
 async fn result(r: Result<reqwest::Response, reqwest::Error>) -> Result<Value, String> {

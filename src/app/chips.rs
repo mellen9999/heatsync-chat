@@ -19,15 +19,16 @@ impl App {
     Some((x.url.clone(), (x.w, x.h), x.zero_width))
   }
 
-  // render order, like a line you sent: the channel's set, your inventory, then globals
+  // what the name will be once sent: a catalog pick you just took (box only: nothing that draws a chat
+  // line asks this; it joins your inventory on send), then render order like a line you sent: your
+  // inventory, the channel's set, globals
   fn box_emote(&self, word: &str) -> Option<Found> {
     let chan = self.tabs.get(self.active).map_or("", |t| &*t.view.channel);
     let e = |e: &crate::emotes::Emote| (e.url.clone(), (e.w, e.h), e.zero_width);
-    let found = self.res.emotes.channel(chan, word).map(e).or_else(|| self.owned_emote(word));
+    let found = self.catalog_reg.get(word).map(|r| (r.url.clone(), (0, 0), r.zero_width));
+    let found = found.or_else(|| self.owned_emote(word)).or_else(|| self.res.emotes.channel(chan, word).map(e));
     let found =
       found.or_else(|| self.res.emotes.twitch_global(word).map(e)).or_else(|| self.res.emotes.global(word).map(e));
-    // last: a catalog pick you took, drawn in the box only. nothing that draws a chat line asks this
-    let found = found.or_else(|| self.catalog_reg.get(word).map(|r| (r.url.clone(), (0, 0), r.zero_width)));
     found.filter(|(url, _, _)| !self.res.blocked.contains(word, url))
   }
 
