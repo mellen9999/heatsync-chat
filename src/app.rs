@@ -17,6 +17,7 @@ mod acct;
 mod blocked;
 mod builtin;
 mod card;
+mod chantools;
 mod chips;
 mod clip;
 mod complete;
@@ -816,6 +817,11 @@ impl App {
     if let Some(cmd) = crate::model::modsuite::command(&self.line.text) {
       self.line.take();
       self.suite_slash(cmd);
+      return self.after_send();
+    }
+    if let Some(cmd) = crate::model::chantools::command(&self.line.text) {
+      self.line.take();
+      self.chan_tools_slash(cmd);
       return self.after_send();
     }
     if let Some(cmd) = crate::model::modcmd::command(&self.line.text) {
@@ -2159,6 +2165,7 @@ impl App {
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
       NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
       NetEvent::Suite { chan, cmd, res } => self.on_suite(chan, cmd, res),
+      NetEvent::Chan { chan, cmd, res } => self.on_chan_tools(chan, cmd, res),
       NetEvent::Tools { chan, res } => self.on_tools(chan, res),
       NetEvent::Followed { platform, login, want, res } => self.on_followed(platform, login, want, res),
       NetEvent::TagCard(tag, res) => self.on_tag_card(tag, res),

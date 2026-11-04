@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 60] = [
+const FIXED: [Slash; 72] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -31,6 +31,18 @@ const FIXED: [Slash; 60] = [
   s("/shoutout", "<user>", "twitch shoutout (live only)"),
   s("/so", "<user>", "same as /shoutout"),
   s("/shield", "[on|off]", "shield mode; alone, flips it"),
+  s("/announce", "[blue|green|orange|purple] <text>", "highlighted announcement in chat (mods)"),
+  s("/vip", "<user>", "give vip (broadcaster)"),
+  s("/unvip", "<user>", "take vip away (broadcaster)"),
+  s("/mod", "<user>", "make a moderator (broadcaster)"),
+  s("/unmod", "<user>", "remove a moderator (broadcaster)"),
+  s("/color", "<name|#hex>", "your twitch chat color; hex needs turbo or prime"),
+  s("/poll", "<title> | <a> | <b> [| secs]", "start a poll, 2-5 choices (broadcaster)"),
+  s("/endpoll", "", "end the running poll (broadcaster)"),
+  s("/prediction", "<title> | <a> | <b> [| secs]", "start a prediction, 2-10 outcomes (broadcaster)"),
+  s("/lockprediction", "", "lock the open prediction (broadcaster)"),
+  s("/resolveprediction", "<n>", "pick the winning outcome (broadcaster)"),
+  s("/cancelprediction", "", "cancel and refund the prediction (broadcaster)"),
   s("/modtools", "", "shield mode, automod levels, unban requests, chatters (mods)"),
   s("/unbanrequests", "", "same as /modtools"),
   s("/blocked", "", "this channel's twitch blocked terms (mods)"),

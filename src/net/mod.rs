@@ -4,6 +4,7 @@ pub mod auth;
 mod avatars;
 pub mod blocked;
 mod catalog;
+pub mod chantools;
 mod cosmetics;
 pub mod emote_ops;
 pub mod held;
@@ -264,6 +265,12 @@ pub enum NetEvent {
     cmd: crate::model::modsuite::Cmd,
     res: Result<Option<bool>, blocked::Fail>,
   },
+  // an /announce, /vip, /mod, /color, /poll or /prediction settled
+  Chan {
+    chan: Box<str>,
+    cmd: crate::model::chantools::Cmd,
+    res: Result<chantools::Done, chantools::Oops>,
+  },
   // the mod tools screen's answer (by twitch login)
   Tools {
     chan: Box<str>,
@@ -359,6 +366,8 @@ pub enum Cmd {
   StreamInfo(Box<str>),
   // twitch's mod suite in a room (by login): warn, shoutout, shield mode
   Suite(Box<str>, crate::model::modsuite::Cmd),
+  // announce, roles, color, polls and predictions (the room by login; empty for your color)
+  Chan(Box<str>, crate::model::chantools::Cmd),
   // the mod tools screen: load, shield, an unban request, an automod level
   Tools(Box<str>, modtools::Op),
   Emote(emote_ops::EmoteCmd),
@@ -752,6 +761,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Suite(chan, c) => {
         let _ = sess_tx.send(session::Cmd::Suite(chan, c));
+      }
+      Cmd::Chan(chan, c) => {
+        let _ = sess_tx.send(session::Cmd::Chan(chan, c));
       }
       Cmd::Tools(chan, op) => {
         let _ = sess_tx.send(session::Cmd::Tools(chan, op));

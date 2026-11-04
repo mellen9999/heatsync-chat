@@ -3,6 +3,7 @@ pub mod blocked;
 pub mod card;
 pub mod catalog;
 pub mod chan;
+pub mod chantools;
 pub mod chatters;
 pub mod color;
 pub mod complete;

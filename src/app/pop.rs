@@ -34,6 +34,9 @@ pub enum Act {
   // /warn typed for them (the reason goes after), and a twitch shoutout
   Warn,
   Shoutout,
+  // the broadcaster's vip (true = give, false = take) and moderator grants
+  Vip(bool),
+  Mod(bool),
   // a mod action on the person the menu was opened for
   Do(Verb),
   // the answers to "ban bob?"
@@ -294,6 +297,8 @@ impl App {
       (Act::Follow(want), Some(who), _) => self.follow(who.platform, who.login, want),
       (Act::Warn, Some(who), _) => self.type_into_line(&format!("/warn {} ", who.login)),
       (Act::Shoutout, Some(who), _) => self.suite_run(who.chan, crate::model::modsuite::Cmd::Shoutout(who.login)),
+      (Act::Vip(add), Some(who), _) => self.chan_tools_run(who.chan, crate::model::chantools::Cmd::Vip(who.login, add)),
+      (Act::Mod(add), Some(who), _) => self.chan_tools_run(who.chan, crate::model::chantools::Cmd::Mod(who.login, add)),
       (Act::Held(allow), ..) => {
         if let Some(id) = self.held_selected() {
           self.held_act(&id, allow);
@@ -408,6 +413,12 @@ impl App {
         rows.push((Act::Shoutout, "shoutout".into()));
       }
       rows.push((Act::BlockedTerms, "blocked terms".into()));
+    }
+    if w.platform == Platform::Twitch && self.is_caster(&w.chan) {
+      rows.push((Act::Vip(true), "vip".into()));
+      rows.push((Act::Vip(false), "unvip".into()));
+      rows.push((Act::Mod(true), "mod".into()));
+      rows.push((Act::Mod(false), "unmod".into()));
     }
     rows
   }
