@@ -362,7 +362,7 @@ impl App {
 
   // esc / h / the `← back` tab: out of the thread, back to where it was opened. false = nothing to leave
   pub(super) fn feed_back(&mut self) -> bool {
-    if !self.tabs.get(self.active).is_some_and(|t| t.under.is_some()) {
+    if self.tabs.get(self.active).is_none_or(|t| t.under.is_none()) {
       return false;
     }
     self.takeover_close()

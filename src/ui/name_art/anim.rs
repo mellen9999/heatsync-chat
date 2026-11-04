@@ -142,7 +142,7 @@ impl Filler {
         let (sn, cs) = 115f32.to_radians().sin_cos();
         let len = (bw * sn).abs() + (h * cs).abs();
         let t = ((gx - bw / 2.0) * sn - (gy - h / 2.0) * cs) / len + 0.5;
-        let a = if t < 0.38 || t > 0.62 {
+        let a = if !(0.38..=0.62).contains(&t) {
           0.0
         } else if t < 0.5 {
           0.8 * (t - 0.38) / 0.12

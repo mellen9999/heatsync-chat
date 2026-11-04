@@ -52,7 +52,7 @@ impl App {
 
   pub(super) fn pred_tick(&mut self, now: Instant) {
     let Some(chan) = self.pred_chan() else { return };
-    if !self.pred_bar.preds.due(&chan, now).is_some_and(|t| t <= now) {
+    if self.pred_bar.preds.due(&chan, now).is_none_or(|t| t > now) {
       return;
     }
     // a closed tab's channel is forgotten
