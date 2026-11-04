@@ -17,6 +17,8 @@ pub enum EmoteCmd {
   Unblock { hash: String },
   Add { name: Box<str>, url: Box<str>, hash: Option<String>, zero_width: bool },
   Remove { name: Box<str> },
+  // your twitch sub emotes, which heatsync reads off your twitch account
+  Subs,
   // another emote you own under this name makes way for this one (remove, then add: the server holds
   // one emote per name)
   Swap { name: Box<str>, url: Box<str>, zero_width: bool },
@@ -111,6 +113,13 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
         Err(e) => out.status(format!("couldn't add {name}: {e}")),
       }
     }
+    EmoteCmd::Subs => {
+      let r = http.get(format!("{ORIGIN}/api/user/emotes")).bearer_auth(token).send().await;
+      // quiet on failure: tab and the picker just go without them until the next login
+      if let Ok(v) = result(r).await {
+        out.send(NetEvent::SubEmotes(subs(&v)));
+      }
+    }
     EmoteCmd::Swap { name, url, zero_width } => {
       if !valid_name(&name) || !allowed(&url) {
         return out.status("can't add that emote");
@@ -135,6 +144,28 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       Err(e) => out.status(format!("couldn't remove {name}: {e}")),
     },
   }
+}
+
+// `subscriptionEmotes` of GET /api/user/emotes: hostile, so bounded, named sanely, and only urls on
+// the image host allowlist
+fn subs(v: &Value) -> crate::emotes::Set {
+  let rows = v.get("subscriptionEmotes").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+  let mut out = crate::emotes::Set::new();
+  for r in rows.iter().take(crate::emotes::MAX_SET) {
+    let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");
+    let (name, url) = (s("custom_name"), s("url"));
+    if !valid_name(name) || !url.starts_with("https://") || !allowed(url) {
+      continue;
+    }
+    let px = |k: &str| r.get(k).and_then(Value::as_u64).filter(|&n| n <= 512).unwrap_or(0) as u16;
+    out.entry(name.into()).or_insert(crate::emotes::Emote {
+      url: url.into(),
+      w: px("width"),
+      h: px("height"),
+      zero_width: false,
+    });
+  }
+  out
 }
 
 async fn add(
@@ -192,6 +223,22 @@ fn slot_of(rows: &[Value], name: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn sub_emotes_are_read_bounded_and_on_the_allowlist() {
+    let row = |n: &str, u: &str| serde_json::json!({"custom_name": n, "url": u, "width": 28, "height": 28});
+    let ok = "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_x/default/dark/1.0";
+    let v = serde_json::json!({"subscriptionEmotes": [
+      row("delloreat", ok), row("evil", "https://evil.example/x.png"), row("plain", "http://static-cdn.jtvnw.net/x"),
+      row("has space", ok), row("", ok), {"custom_name": 5, "url": ok}
+    ]});
+    let s = subs(&v);
+    assert_eq!(s.keys().map(|k| &**k).collect::<Vec<_>>(), ["delloreat"]);
+    assert_eq!(s["delloreat"].w, 28);
+    for junk in [serde_json::json!(null), serde_json::json!({"subscriptionEmotes": "x"}), serde_json::json!([])] {
+      assert!(subs(&junk).is_empty());
+    }
+  }
 
   #[test]
   fn finds_the_slot_by_name() {

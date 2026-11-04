@@ -26,7 +26,10 @@ impl App {
     let chan = self.tabs.get(self.active).map_or("", |t| &*t.view.channel);
     let e = |e: &crate::emotes::Emote| (e.url.clone(), (e.w, e.h), e.zero_width);
     let found = self.catalog_reg.get(word).map(|r| (r.url.clone(), (0, 0), r.zero_width));
-    let found = found.or_else(|| self.owned_emote(word)).or_else(|| self.res.emotes.channel(chan, word).map(e));
+    let found = found
+      .or_else(|| self.owned_emote(word))
+      .or_else(|| self.res.emotes.sub(word).map(e))
+      .or_else(|| self.res.emotes.channel(chan, word).map(e));
     let found =
       found.or_else(|| self.res.emotes.twitch_global(word).map(e)).or_else(|| self.res.emotes.global(word).map(e));
     found.filter(|(url, _, _)| !self.res.blocked.contains(word, url))

@@ -80,11 +80,14 @@ pub struct Emotes {
   global: Scope,
   channels: HashMap<Box<str>, Scope>,
   order: [Provider; 3],
+  // twitch emotes you may send anywhere (your subs'), as heatsync reads them off your twitch account.
+  // yours only: tab, the picker, the box and your own lines, never someone else's line
+  subs: Set,
 }
 
 impl Default for Emotes {
   fn default() -> Self {
-    Emotes { global: Scope::default(), channels: HashMap::new(), order: order_for(Provider::Ffz) }
+    Emotes { global: Scope::default(), channels: HashMap::new(), order: order_for(Provider::Ffz), subs: Set::new() }
   }
 }
 
@@ -112,6 +115,20 @@ impl Emotes {
 
   pub fn global(&self, word: &str) -> Option<&Emote> {
     self.global.get(&self.order, word)
+  }
+
+  pub fn set_subs(&mut self, subs: Set) {
+    self.subs = subs;
+  }
+
+  pub fn sub(&self, word: &str) -> Option<&Emote> {
+    self.subs.get(word)
+  }
+
+  pub fn sub_entries(&self) -> Vec<(&str, &Emote)> {
+    let mut v: Vec<_> = self.subs.iter().map(|(k, e)| (&**k, e)).collect();
+    v.sort_by_cached_key(|e| e.0.to_lowercase());
+    v
   }
 
   pub fn twitch_global(&self, word: &str) -> Option<&Emote> {

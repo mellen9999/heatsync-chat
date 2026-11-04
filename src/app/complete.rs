@@ -57,9 +57,11 @@ impl App {
     let own = own.map_or_else(Vec::new, |id| self.res.senders.entries(id, now));
     let own = own.into_iter().filter(|(n, e)| !blocked(n, &e.url));
     let own = own.map(|(name, _)| Cand { name, tier: 1, what: "your inventory · heatsync only" });
+    let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, e)| !blocked(n, &e.url));
+    let subs: Vec<Cand> = subs.map(|(name, _)| Cand { name, tier: 1, what: "your sub emote · all twitch" }).collect();
     let global = self.res.emotes.global_names().into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
     let global = global.map(|(name, p, _)| Cand { name, tier: 2, what: what(false, p) });
-    let found = emotes(q, channel.chain(own).chain(global), |n| self.frecency.score(n, now));
+    let found = emotes(q, channel.chain(own).chain(subs).chain(global), |n| self.frecency.score(n, now));
     // a bare word: people who spoke here lately first; with no emote at all, anyone heard anywhere
     let mut out: Vec<Pick> =
       if q == word { people(q, &recent, &[], false) } else { Vec::new() }.into_iter().map(|(n, _)| chat(n)).collect();
@@ -197,6 +199,7 @@ impl App {
       res.blocked.contains(w, &rec.url)
         || owned(w).is_some_and(|u| u == rec.url)
         || res.emotes.twitch_global(w).is_some()
+        || res.emotes.sub(w).is_some()
     };
     let picked = self.catalog_reg.take_sent(text, skip);
     for (name, rec) in picked {
@@ -305,6 +308,20 @@ mod tests {
     std::iter::from_fn(|| rx.try_recv().ok())
       .filter(|c| matches!(c, Cmd::Catalog { .. } | Cmd::Emote(_) | Cmd::Send { .. }))
       .collect()
+  }
+
+  // your twitch sub emotes (dellor's delloreat) are tab-completed and shown in the box
+  #[test]
+  fn sub_emotes_tab_complete() {
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let url = "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_x/default/dark/1.0";
+    let e = crate::emotes::Emote { url: url.into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set_subs([("delloreat".into(), e)].into());
+    let c = app.candidates("delloreat", false);
+    assert!(c.iter().any(|p| &*p.name == "delloreat" && p.what == "your sub emote · all twitch"), "{:?}", c.len());
+    assert!(app.candidates(":dellore", false).iter().any(|p| &*p.name == "delloreat"));
+    assert_eq!(app.box_url("delloreat").as_deref(), Some(url));
   }
 
   // the first tab asks the catalogs even with a local match, and `:word` asks for the word

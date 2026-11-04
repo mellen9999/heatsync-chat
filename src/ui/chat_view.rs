@@ -1144,8 +1144,9 @@ fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &s
   if let Some(x) = res.emotes.channel(chan, word) {
     return Some(e(x, Scope::Channel));
   }
+  // our own echoed line carries no emote positions: twitch's globals and our sub emotes by name
   if m.has(flag::OWN)
-    && let Some(x) = res.emotes.twitch_global(word)
+    && let Some(x) = res.emotes.twitch_global(word).or_else(|| res.emotes.sub(word))
   {
     return Some(e(x, Scope::Global));
   }
@@ -3105,6 +3106,20 @@ mod tests {
     assert_eq!(got(&mut res, &m, Some(7)), Some(url("CHAN")), "someone without their own IDK");
     res.look.inventory_emotes = false;
     assert_eq!(got(&mut res, &m, Some(42)), Some(url("CHAN")), "inventory emotes off: the channel's");
+  }
+
+  // our own echoed line has no emote positions: our sub emotes draw by name there, nowhere else
+  #[test]
+  fn sub_emotes_draw_in_our_own_lines_only() {
+    let mut res = Res::new(1.0);
+    let url = "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_x/default/dark/1.0";
+    res.emotes.set_subs(
+      [("delloreat".into(), crate::emotes::Emote { url: url.into(), w: 28, h: 28, zero_width: false })].into(),
+    );
+    let mut own = plain("a", "delloreat");
+    own.flags |= flag::OWN;
+    assert_eq!(resolve(&mut res, "c", &own, None, "delloreat").map(|f| f.0.to_string()).as_deref(), Some(url));
+    assert!(resolve(&mut res, "c", &plain("b", "delloreat"), None, "delloreat").is_none(), "someone else's line");
   }
 
   // linksEnabled: off, a url is plain text, not a link and not a partial one either

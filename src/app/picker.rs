@@ -13,12 +13,16 @@ impl App {
     }
     let chan: Box<str> = self.tabs.get(self.active).map_or("".into(), |t| t.view.channel.clone());
     let item = |sec, name: &str, url: &str, w, h| Item { sec, name: name.into(), url: url.into(), w, h };
-    let mine = match self.me.as_ref().and_then(|m| m.twitch_id) {
+    // yours: your heatsync emotes, then your twitch sub emotes
+    let mut mine: Vec<Item> = match self.me.as_ref().and_then(|m| m.twitch_id) {
       Some(id) => {
         self.res.senders.entries(id, now_ms()).into_iter().map(|(n, e)| item(Sec::Mine, n, &e.url, e.w, e.h)).collect()
       }
       None => Vec::new(),
     };
+    let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, _)| !mine.iter().any(|m| &*m.name == *n));
+    let subs: Vec<Item> = subs.map(|(n, e)| item(Sec::Mine, n, &e.url, e.w, e.h)).collect();
+    mine.extend(subs);
     let channel = self
       .res
       .emotes

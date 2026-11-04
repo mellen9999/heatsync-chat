@@ -2327,7 +2327,10 @@ impl App {
         self.held_sweep();
         if self.me.is_some() {
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
+          self.net.send(Cmd::Emote(crate::net::emote_ops::EmoteCmd::Subs));
           self.ui_state_fetch();
+        } else {
+          self.res.emotes.set_subs(Default::default());
         }
         self.whisper_empty();
         self.set_mention_names();
@@ -2381,6 +2384,12 @@ impl App {
       NetEvent::BlockedHashes(h) => {
         self.res.blocked.set_server(h);
         self.relayout_where(None);
+      }
+      NetEvent::SubEmotes(set) => {
+        self.res.emotes.set_subs(set);
+        self.relayout_where(None);
+        self.input_dirty = true;
+        self.wake();
       }
       NetEvent::Inventory { removed } => {
         if let Some(id) = self.me.as_ref().and_then(|m| m.twitch_id) {

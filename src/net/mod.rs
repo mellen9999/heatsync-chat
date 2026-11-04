@@ -90,6 +90,8 @@ pub enum NetEvent {
   Me(Option<auth::Me>),
   // the server's blocked-emote hashes for this login
   BlockedHashes(Vec<Box<str>>),
+  // your twitch sub emotes (empty: none, or logged out)
+  SubEmotes(crate::emotes::Set),
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
   Inventory {
     removed: Option<Box<str>>,
