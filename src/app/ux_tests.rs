@@ -230,3 +230,29 @@ fn login_logout_and_account_by_name() {
   typed(&mut app, "/logout");
   assert!(matches!(asked(&mut rx)[..], [Cmd::Logout]));
 }
+
+#[test]
+fn open_adds_a_links_tabs_and_skips_what_is_open() {
+  let (mut app, _rx) = boot(&["forsen"], 420, 800);
+  let names = |a: &App| a.tabs.iter().filter(|t| !t.sources.is_empty()).map(|t| t.name.to_string()).collect::<Vec<_>>();
+  typed(&mut app, "/open");
+  assert!(said(&app).contains("paste a heatsync.org/m/ link"));
+  typed(&mut app, "/open https://evil.example/m/t:xqc");
+  assert!(said(&app).contains("isn't a heatsync.org/m/ link") && names(&app) == ["forsen"]);
+  // forsen is open: only its kick leg is new; asmon is added; the youtube id can't open
+  typed(&mut app, "/open https://heatsync.org/m/t:forsen,k:forsen+t:asmon+y:UC8yh-UI81uUteMDSOwQyx1g");
+  assert!(said(&app).starts_with("added 2 tabs: kick:forsen, asmon"), "{}", said(&app));
+  assert!(said(&app).contains("skipped 1"));
+  assert_eq!(names(&app), ["forsen", "kick:forsen", "asmon"]);
+  // the first new tab is the one you land on
+  assert_eq!(&*app.tabs[app.active].name, "kick:forsen");
+  // again: nothing new
+  typed(&mut app, "/open t:forsen+t:asmon");
+  assert_eq!(said(&app), "already open");
+  assert_eq!(names(&app).len(), 3);
+  // a pasted link after /join works too, and share has something to build
+  typed(&mut app, "/join https://heatsync.org/m/t:xqc");
+  assert_eq!(names(&app).len(), 4);
+  typed(&mut app, "/share");
+  assert!(!said(&app).contains("no channel tabs"), "{}", said(&app));
+}

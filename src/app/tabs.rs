@@ -6,6 +6,7 @@ use super::overlay::Overlay;
 use super::screen::Page;
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Cmd as ChanCmd, Form, Spec};
+use crate::model::layout_link;
 use crate::model::message::Platform;
 use crate::model::settings::Side;
 use crate::model::tabs::Kind;
@@ -248,12 +249,19 @@ impl App {
   pub(super) fn chan_cmd(&mut self, cmd: ChanCmd) {
     match cmd {
       ChanCmd::Join(None) => self.open_form(None),
+      // a pasted /m/ link where a channel goes opens its lineup
+      ChanCmd::Join(Some(words)) if layout_link::extract(&words).is_some_and(|_| words.contains("/m/")) => {
+        self.open_layout(&words)
+      }
       ChanCmd::Join(Some(words)) => {
         match Spec::from_line(&words).and_then(|s| s.check(&self.other_specs(None)).map(|_| s)) {
           Ok(s) => self.add_tab(&s),
           Err(e) => self.say(e.msg()),
         }
       }
+      ChanCmd::Share => self.share_lineup(),
+      ChanCmd::Open(Some(link)) => self.open_layout(&link),
+      ChanCmd::Open(None) => self.say("paste a heatsync.org/m/ link after /open"),
       ChanCmd::Part if self.tabs.get(self.active).is_some_and(|t| !t.sources.is_empty()) => {
         self.remove_tab(self.active)
       }
@@ -263,6 +271,45 @@ impl App {
         None => self.say("no channel to watch here"),
       },
     }
+  }
+
+  // /share: every channel tab as one heatsync.org/m/ link, on the clipboard
+  fn share_lineup(&mut self) {
+    let specs = self.other_specs(None);
+    let Some(l) = layout_link::link(&specs) else { return self.say("no channel tabs to share") };
+    // the copy runs off the ui thread and reports itself; the line says how much of the lineup fit
+    let n = layout_link::parse(l.rsplit('/').next().unwrap_or("")).len();
+    let cut = if n < specs.len() { format!(" (first {n} of {})", specs.len()) } else { String::new() };
+    self.copy(&l, format!("copied your lineup, {n} tab{}{cut}", if n == 1 { "" } else { "s" }));
+  }
+
+  // /open <link>: add the lineup's tabs, minus whatever is already open
+  pub(super) fn open_layout(&mut self, input: &str) {
+    let Some(layout) = layout_link::extract(input) else {
+      return self.say("that isn't a heatsync.org/m/ link");
+    };
+    let (specs, skipped) = layout_link::to_specs(&layout_link::parse(&layout));
+    let mut have = self.other_specs(None);
+    let first = self.tabs.len();
+    let mut names: Vec<String> = Vec::new();
+    for spec in &specs {
+      if let Some(s) = layout_link::fresh(spec, &have) {
+        names.push(s.name());
+        have.push(s.clone());
+        let mut tab = make_tab(&self.net, &s);
+        tab.view.resize(self.body().w);
+        seat_hosts(&mut self.res.chatters, &tab.sources);
+        self.tabs.push(tab);
+      }
+    }
+    let note = if skipped > 0 { format!(", skipped {skipped} it can't open") } else { String::new() };
+    if names.is_empty() {
+      return self.say(if specs.is_empty() { format!("nothing to open there{note}") } else { "already open".into() });
+    }
+    self.save_tabs();
+    self.activate(first);
+    let n = names.len();
+    self.say(format!("added {n} tab{}: {}{note}", if n == 1 { "" } else { "s" }, names.join(", ")));
   }
 
   // ---- the form ----

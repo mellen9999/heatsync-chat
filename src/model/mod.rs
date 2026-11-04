@@ -19,6 +19,7 @@ pub mod held;
 pub mod ident;
 pub mod ime;
 pub mod keys;
+pub mod layout_link;
 pub mod line;
 pub mod links;
 pub mod logs;

@@ -192,6 +192,10 @@ pub enum Cmd {
   Part,
   // this tab's stream, in mpv or the browser
   Watch,
+  // copy the whole lineup as a heatsync.org/m/ link
+  Share,
+  // open the tabs of a pasted link (None = say how)
+  Open(Option<String>),
 }
 
 pub fn command(text: &str) -> Option<Cmd> {
@@ -201,6 +205,8 @@ pub fn command(text: &str) -> Option<Cmd> {
     "/join" => Some(Cmd::Join((!rest.trim().is_empty()).then(|| rest.trim().to_owned()))),
     "/part" if rest.trim().is_empty() => Some(Cmd::Part),
     "/watch" if rest.trim().is_empty() => Some(Cmd::Watch),
+    "/share" if rest.trim().is_empty() => Some(Cmd::Share),
+    "/open" => Some(Cmd::Open((!rest.trim().is_empty()).then(|| rest.trim().to_owned()))),
     _ => None,
   }
 }
@@ -317,6 +323,10 @@ mod tests {
     assert_eq!(command(" /JOIN  forsen kick:x "), Some(Cmd::Join(Some("forsen kick:x".into()))));
     assert_eq!(command("/part"), Some(Cmd::Part));
     assert_eq!(command("/watch"), Some(Cmd::Watch));
+    assert_eq!(command("/share"), Some(Cmd::Share));
+    assert_eq!(command("/share now"), None);
+    assert_eq!(command("/open"), Some(Cmd::Open(None)));
+    assert_eq!(command("/OPEN t:xqc"), Some(Cmd::Open(Some("t:xqc".into()))));
     assert_eq!(command("/part now"), None);
     assert_eq!(command("/joined"), None);
     assert_eq!(command("hello /join"), None);
