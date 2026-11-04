@@ -3,6 +3,7 @@
 // tweet fragments, defanged `site (dot) com`, and bare hosts on a curated tld list. the shown text stays as
 // typed; the target is the canonical url. hand-written matchers, same semantics as the ext's regexes
 // (lookbehinds, greedy tails, and what they refuse). every match is plain ascii at its edges
+use super::ident;
 use std::ops::Range;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -114,17 +115,9 @@ fn full(w: &str) -> Option<String> {
   (dots > 0 && b.get(p) == Some(&b'/')).then(|| format!("https://{w}"))
 }
 
-fn word(c: u8) -> bool {
-  c.is_ascii_alphanumeric() || c == b'_'
-}
-
-fn idc(c: u8) -> bool {
-  word(c) || c == b'-'
-}
-
 // js (?<![\w<blocked>]) at i
 fn before(b: &[u8], i: usize, blocked: &[u8]) -> bool {
-  i == 0 || (!word(b[i - 1]) && !blocked.contains(&b[i - 1]))
+  i == 0 || (!ident::name_byte(b[i - 1]) && !blocked.contains(&b[i - 1]))
 }
 
 fn run(b: &[u8], p: usize, ok: impl Fn(u8) -> bool) -> usize {
@@ -144,7 +137,7 @@ fn yt(t: &str, i: usize) -> Hit {
   let p = i + usize::from(b[i] == b'/');
   let kind = ["watch?v=", "shorts/", "live/", "embed/", "v/"].into_iter().find(|k| b[p..].starts_with(k.as_bytes()))?;
   let id = p + kind.len();
-  if run(b, id, idc) < 11 {
+  if run(b, id, ident::slug_byte) < 11 {
     return None;
   }
   let mut e = id + 11;
@@ -163,7 +156,7 @@ fn yt(t: &str, i: usize) -> Hit {
     qs.push_str(s(b, e + sep, e + sep + n));
     e += sep + n;
   }
-  if b.get(e).is_some_and(|c| idc(*c)) {
+  if b.get(e).is_some_and(|c| ident::slug_byte(*c)) {
     return None;
   }
   let id = s(b, id, id + 11);
@@ -183,7 +176,7 @@ fn yt_list(t: &str, i: usize) -> Hit {
   let p = i + usize::from(b[i] == b'/');
   let kind = ["playlist?list=", "channel/UC"].into_iter().find(|k| b[p..].starts_with(k.as_bytes()))?;
   let id = p + kind.len();
-  let n = run(b, id, idc);
+  let n = run(b, id, ident::slug_byte);
   if n < 12 {
     return None;
   }
@@ -206,7 +199,7 @@ fn reddit(t: &str, i: usize) -> Hit {
   if !b.get(n0).is_some_and(|c| c.is_ascii_alphanumeric()) {
     return None;
   }
-  let len = run(b, n0, word).min(21);
+  let len = run(b, n0, ident::name_byte).min(21);
   for l in (3..=len).rev() {
     let ne = n0 + l;
     for e in post_ends(b, ne) {
@@ -215,7 +208,7 @@ fn reddit(t: &str, i: usize) -> Hit {
           continue;
         }
         let after = b.get(e + slash).copied();
-        if !after.is_some_and(|c| word(c) || c == b'/' || c == b'-') {
+        if !after.is_some_and(|c| ident::name_byte(c) || c == b'/' || c == b'-') {
           let name = s(b, n0, ne);
           let who = if kind == "r" { "r" } else { "user" };
           return Some((e + slash, Some(format!("https://www.reddit.com/{who}/{name}{}", s(b, ne, e)))));
@@ -236,7 +229,7 @@ fn post_ends(b: &[u8], p: usize) -> Vec<usize> {
       let mut ends = vec![id + l];
       let mut q = id + l;
       for _ in 0..2 {
-        let n = if b.get(q) == Some(&b'/') { run(b, q + 1, idc) } else { 0 };
+        let n = if b.get(q) == Some(&b'/') { run(b, q + 1, ident::slug_byte) } else { 0 };
         if n == 0 {
           break;
         }
@@ -257,7 +250,7 @@ fn tweet(t: &str, i: usize) -> Hit {
     return None;
   }
   let p = i + usize::from(b[i] == b'@');
-  let n = run(b, p, word);
+  let n = run(b, p, ident::name_byte);
   if !(1..=15).contains(&n) || !b[p + n..].starts_with(b"/status/") {
     return None;
   }
@@ -267,14 +260,14 @@ fn tweet(t: &str, i: usize) -> Hit {
     return None;
   }
   let e = d + digits;
-  let qc = |c: u8| word(c) || b"=&;%-".contains(&c);
+  let qc = |c: u8| ident::name_byte(c) || b"=&;%-".contains(&c);
   let mut ends = Vec::new();
   if b.get(e) == Some(&b'?') {
     let q = run(b, e + 1, qc);
     ends.extend((0..=q).rev().map(|k| e + 1 + k));
   }
   ends.push(e);
-  let end = ends.into_iter().find(|&x| !b.get(x).is_some_and(|c| word(*c) || *c == b'/'))?;
+  let end = ends.into_iter().find(|&x| !b.get(x).is_some_and(|c| ident::name_byte(*c) || *c == b'/'))?;
   Some((end, Some(format!("https://x.com/{}/status/{}", s(b, p, p + n), s(b, d, e)))))
 }
 
@@ -295,7 +288,7 @@ fn bare(t: &str, i: usize) -> Hit {
     dots.push(p);
   }
   for &d in dots.iter().rev() {
-    let n = run(b, d, word);
+    let n = run(b, d, ident::name_byte);
     let tld = s(b, d, d + n).to_ascii_lowercase();
     if TLDS.contains(&tld.as_str()) && !matches!(b.get(d + n), Some(b'.' | b'-' | b'/')) {
       let host = s(b, i, d + n).to_ascii_lowercase();

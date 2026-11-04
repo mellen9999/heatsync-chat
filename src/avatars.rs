@@ -1,6 +1,7 @@
 // the picture beside a chatter's name (ext avatars / `.hs-mc-avatar`). a login maps to an image url,
 // asked once per login and kept in a 500-entry cache (the ext's cap). the net layer answers; every
 // url is checked against the image host allowlist before it is kept
+use crate::model::ident;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -39,7 +40,7 @@ fn slot(p: Platform) -> Option<usize> {
 
 // a login we will put in a request: lowercase-able ascii names only
 pub fn valid(login: &str) -> bool {
-  (1..=50).contains(&login.len()) && login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+  ident::chatter_login(login)
 }
 
 impl Avatars {

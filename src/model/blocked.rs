@@ -1,6 +1,7 @@
 // a twitch room's blocked terms, for its moderators (ext blocked-terms.js): the list lives on twitch,
 // heatsync's server reads and changes it (/api/mod/blocked-terms). a term is attacker-shaped text:
 // bounded, control chars made spaces, its id checked before it rides back in a request
+use super::ident;
 use serde_json::Value;
 
 pub const MIN: usize = 2;
@@ -16,7 +17,7 @@ pub struct Term {
 }
 
 pub fn valid_id(s: &str) -> bool {
-  (1..=MAX_ID).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+  ident::slug(s, MAX_ID)
 }
 
 pub fn term(v: &Value) -> Option<Term> {

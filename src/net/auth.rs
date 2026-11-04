@@ -1,6 +1,7 @@
 // heatsync login for the app: rfc 8252 loopback + pkce (server side: heatsync lib/native-auth.ts).
 // the browser does the twitch oauth; the app only ever sees a one-time code on 127.0.0.1, and that
 // code is worthless without the verifier that never leaves this process
+use crate::model::ident;
 use std::time::Duration;
 
 use ring::digest::{SHA256, digest};
@@ -371,7 +372,7 @@ fn parse_chat_token(ok: bool, v: &Value) -> Result<Option<(String, String)>, Str
   let t =
     v.get("token").and_then(Value::as_str).filter(|t| t.len() <= 200 && t.bytes().all(|b| b.is_ascii_alphanumeric()));
   // heatsync may hand back a mixed-case handle: irc wants lowercase
-  let u = v.get("username").and_then(Value::as_str).map(str::to_lowercase).filter(|u| super::irc::valid_channel(u));
+  let u = v.get("username").and_then(Value::as_str).map(str::to_lowercase).filter(|u| ident::twitch_room(u));
   match (ok, t, u) {
     (true, Some(t), Some(u)) => Ok(Some((t.to_string(), u))),
     _ => Err(v.get("error").and_then(Value::as_str).unwrap_or("no twitch chat token").chars().take(100).collect()),

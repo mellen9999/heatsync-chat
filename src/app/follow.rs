@@ -2,6 +2,7 @@
 // the follow decides whose posts fill your feed; it doesn't follow them on twitch or kick
 use super::App;
 use super::card::Load;
+use crate::model::ident;
 use crate::model::message::Platform;
 use crate::net::Cmd;
 use crate::net::social::{self, FollowFail};
@@ -10,7 +11,7 @@ impl App {
   // /follow <name>, /unfollow <name>: on this tab's platform (twitch when it has none)
   pub(super) fn follow_slash(&mut self, name: &str, want: bool) {
     let login = name.trim().trim_start_matches('@').to_ascii_lowercase();
-    if login.is_empty() || login.len() > 25 || !login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+    if !ident::twitch_login(&login) {
       return self.say(if want { "usage: /follow <name>" } else { "usage: /unfollow <name>" });
     }
     let platform = self.tabs.get(self.active).and_then(|t| t.sources.first()).map_or(Platform::Twitch, |s| s.0);

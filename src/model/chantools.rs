@@ -2,6 +2,7 @@
 // /announceblue ...), /vip /unvip /mod /unmod <user>, /color <name|#hex>, /poll and /prediction
 // "title | a | b [| secs]", /endpoll and the prediction verbs. announce is for mods; roles, polls and
 // predictions are the broadcaster's. heatsync's server is the real check
+use super::ident;
 use super::modsuite::login;
 
 pub const MAX_ANNOUNCE: usize = 500;
@@ -190,7 +191,7 @@ pub fn tidy(s: &str, max: usize) -> Box<str> {
 
 // an id twitch gave us, before it goes back in a request
 pub fn id_ok(s: &str) -> bool {
-  !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+  ident::slug(s, 64)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 // a twitch room's chat modes through heatsync (ext chat-modes.js): POST /api/mod/chat-settings with
 // helix's names. the server's helix call is the moderator check; twitch echoes the change back as a
 // ROOMSTATE, which is what the status screen shows
+use crate::model::ident;
 use serde_json::json;
 
 use super::modact::{Fail, classify};
@@ -11,9 +12,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, chan: Box<str>, s
   let res = match token {
     None => Err(Fail::Auth),
     // a twitch login: nothing that could bend the body
-    Some(_) if chan.is_empty() || chan.len() > 25 || !chan.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') => {
-      Err(Fail::Other("not a twitch channel".into()))
-    }
+    Some(_) if !ident::twitch_login(&chan) => Err(Fail::Other("not a twitch channel".into())),
     Some(t) => ask(&http, &t, &chan, set).await,
   };
   out.send(NetEvent::ModesDone { chan, set, res });

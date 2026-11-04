@@ -1,5 +1,6 @@
 // the mod tools screen's data (ext mod-suite.js): shield mode, pending unban requests, automod levels and
 // who is in chat, read from heatsync's /api/mod/* answers. every field is bounded; junk rows are dropped
+use super::ident;
 use serde_json::Value;
 
 pub const MAX_UNBANS: usize = 500;
@@ -33,10 +34,6 @@ fn text(v: &Value, k: &str, max: usize) -> Box<str> {
   s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().into()
 }
 
-fn login_ok(s: &str) -> bool {
-  !s.is_empty() && s.len() <= 25 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-}
-
 pub fn unbans(v: &Value) -> Vec<Unban> {
   let rows = v.get("requests").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
   rows
@@ -45,8 +42,7 @@ pub fn unbans(v: &Value) -> Vec<Unban> {
     .filter_map(|r| {
       let id = text(r, "id", 128);
       let login = text(r, "user_login", 25).to_ascii_lowercase();
-      let ok = !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-      (ok && login_ok(&login)).then(|| Unban {
+      (ident::slug(&id, 128) && ident::twitch_login(&login)).then(|| Unban {
         name: Some(text(r, "user_name", 40)).filter(|n| !n.is_empty()).unwrap_or_else(|| login.as_str().into()),
         login: login.into(),
         text: text(r, "text", 500),
@@ -75,7 +71,7 @@ pub fn chatters(v: &Value) -> (u64, Vec<Box<str>>) {
     .iter()
     .take(MAX_CHATTERS)
     .map(|c| text(c, "user_login", 25).to_ascii_lowercase())
-    .filter(|l| login_ok(l))
+    .filter(|l| ident::twitch_login(l))
     .map(Into::into)
     .collect();
   out.sort_unstable();

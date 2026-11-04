@@ -1,5 +1,6 @@
 // pinned lines: `GET /api/pin?platform=&channel=` for each joined twitch/kick room (on join and after a
 // reconnect, which may have missed a `pin:*` frame). one request at a time; the server caches 5s
+use crate::model::ident;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -26,11 +27,6 @@ pub fn name(p: Platform) -> Option<&'static str> {
   }
 }
 
-pub fn valid_channel(c: &str) -> bool {
-  (1..=50).contains(&c.len())
-    && c.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
-}
-
 pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Ask>, out: Out) {
   let mut queue: VecDeque<Ask> = VecDeque::new();
   let mut last: HashMap<(u8, Box<str>), Instant> = HashMap::new();
@@ -49,7 +45,7 @@ pub async fn run(http: reqwest::Client, mut rx: UnboundedReceiver<Ask>, out: Out
     }
     let Some((p, ch)) = queue.pop_front() else { continue };
     let Some(plat) = name(p) else { continue };
-    if !valid_channel(&ch) || last.get(&(p as u8, ch.clone())).is_some_and(|t| t.elapsed() < MIN_GAP) {
+    if !ident::room_key(&ch) || last.get(&(p as u8, ch.clone())).is_some_and(|t| t.elapsed() < MIN_GAP) {
       continue;
     }
     if last.len() >= MAX_SEEN {
@@ -74,7 +70,7 @@ pub fn frame(v: &Value, set: bool) -> Option<NetEvent> {
     _ => return None,
   };
   let key: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
-  if !valid_channel(&key) {
+  if !ident::room_key(&key) {
     return None;
   }
   let pin = if set { Some(pin::parse(v.get("pin")?)?) } else { None };
@@ -94,6 +90,6 @@ mod tests {
     assert!(frame(&json!({"platform": "youtube", "channel": "x"}), false).is_none());
     assert!(frame(&json!({"platform": "twitch", "channel": "bad name"}), false).is_none());
     assert!(frame(&json!({"platform": "twitch", "channel": "x"}), true).is_none());
-    assert!(!valid_channel(&"a".repeat(51)));
+    assert!(frame(&json!({"platform": "twitch", "channel": "a".repeat(51)}), false).is_none());
   }
 }

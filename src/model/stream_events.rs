@@ -1,6 +1,7 @@
 // stream state lines (ext main.js stream-event handler + lib/stream-event-text.js): "went live — game",
 // "switched to game", "went offline", and the chat-spike line. pure, clock passed in, so the pairing
 // and the ext's anti-wall guards are testable. the ui decides which kinds to show (ext toggles)
+use super::ident;
 use std::collections::{HashMap, HashSet};
 
 use crate::model::message::Platform;
@@ -66,7 +67,7 @@ pub fn follow_colors(v: &serde_json::Value) -> Vec<(Box<str>, u32)> {
   map
     .iter()
     .take(MAX_COLORS)
-    .filter(|(k, _)| (1..=25).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    .filter(|(k, _)| ident::twitch_login(k))
     .filter_map(|(k, c)| Some((k.to_ascii_lowercase().into(), crate::model::color::parse_hex(c.as_str()?)?)))
     .collect()
 }

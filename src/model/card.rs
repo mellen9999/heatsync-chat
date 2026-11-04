@@ -2,6 +2,7 @@
 // account age, type, heat, posts, followers, who follows whom, how long they've followed this channel,
 // and how much the archive has seen of them. every part may be missing; a missing part shows nothing
 // (never a guess: "not following" only when the server said so)
+use super::ident;
 use serde_json::Value;
 
 use crate::util::time::parse_iso;
@@ -159,10 +160,7 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .and_then(|p| ["/twitch_user_id", "/twitch_id"].iter().find_map(|k| p.pointer(k)))
     .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
     .filter(|n| *n > 0);
-  let twitch_name = real
-    .and_then(|p| text(p, "/twitch_username"))
-    .filter(|n| (1..=25).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
-    .map(Into::into);
+  let twitch_name = real.and_then(|p| text(p, "/twitch_username")).filter(|n| ident::twitch_login(n)).map(Into::into);
   let avatar = real
     .and_then(|p| ["/twitch_profile_pic", "/kick_profile_pic", "/profile_image_url"].iter().find_map(|k| text(p, k)))
     .or_else(|| text(v, "/chatter/avatarUrl"))

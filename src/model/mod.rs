@@ -16,6 +16,7 @@ pub mod find;
 pub mod frecency;
 pub mod gifs;
 pub mod held;
+pub mod ident;
 pub mod ime;
 pub mod keys;
 pub mod line;

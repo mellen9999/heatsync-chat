@@ -1,6 +1,8 @@
 // twitch's mod suite commands (ext input.js mod suite): /warn <user> <reason>, /shoutout <user> (/so)
 // and /shield [on|off] (bare flips it). heatsync's server makes the helix calls (/api/mod/warn,
 // /shoutout, /shield) and is the real moderator check
+use super::ident;
+
 pub const MAX_REASON: usize = 500;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -14,7 +16,7 @@ pub enum Cmd {
 // a twitch login as typed: `@` dropped, lowercased, 1-25 of a-z 0-9 _
 pub fn login(s: &str) -> Option<Box<str>> {
   let l = s.trim().trim_start_matches('@').to_ascii_lowercase();
-  (!l.is_empty() && l.len() <= 25 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')).then(|| l.into())
+  ident::twitch_login(&l).then(|| l.into())
 }
 
 // Some(Ok) / Some(Err(usage)) for ours, None for anything else

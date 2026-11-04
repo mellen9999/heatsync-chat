@@ -5,6 +5,7 @@
 // kept per link for the session (capped); a failure is kept too, so a dead link is asked once. a heatsync
 // chat-log permalink (`/search/logs/<platform>/<channel>/<day>?m=<id>`) asks the archive instead and draws
 // the quoted line (ext logEmbed)
+use super::ident;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -42,16 +43,12 @@ pub struct Preview {
   pub ts: i64,
 }
 
-fn slug(s: &str, max: usize) -> bool {
-  !s.is_empty() && s.len() <= max && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
 // a heatsync chat-log permalink: (platform, channel, message id)
 pub fn log_parts(url: &str) -> Option<(&'static str, String, String)> {
   let rest = url.get(..8).filter(|p| p.eq_ignore_ascii_case("https://")).map(|_| &url[8..])?;
   let (host, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
   let host = host.to_ascii_lowercase();
-  if host != "heatsync.org" && !host.strip_suffix(".heatsync.org").is_some_and(|h| slug(h, 63)) {
+  if host != "heatsync.org" && !host.strip_suffix(".heatsync.org").is_some_and(|h| ident::slug(h, 63)) {
     return None;
   }
   let (path, query) = tail.split_once('?').unwrap_or((tail, ""));
@@ -62,7 +59,7 @@ pub fn log_parts(url: &str) -> Option<(&'static str, String, String)> {
   };
   let platform = ["twitch", "kick", "youtube"].into_iter().find(|k| k.eq_ignore_ascii_case(p))?;
   let id = query.split(['&', '#']).find_map(|kv| kv.strip_prefix("m="))?;
-  (slug(c, 50) && slug(id, 64)).then(|| (platform, c.to_ascii_lowercase(), id.to_owned()))
+  (ident::slug(c, 50) && ident::slug(id, 64)).then(|| (platform, c.to_ascii_lowercase(), id.to_owned()))
 }
 
 // where to ask about `url`

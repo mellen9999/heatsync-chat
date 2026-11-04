@@ -1,6 +1,7 @@
 // the ext's small composer commands: /set, /tab, /user, /lclear (the faces live in model::quick)
 use super::App;
 use super::pop::Subject;
+use crate::model::ident;
 use crate::model::message::Platform;
 use crate::model::quick;
 use crate::model::schema::Ctl;
@@ -55,7 +56,7 @@ impl App {
   // /user <name>: their card, on this tab's platform (twitch when it has none)
   pub(super) fn user_cmd(&mut self, name: &str) {
     let login = name.trim().trim_start_matches('@').to_ascii_lowercase();
-    if login.is_empty() || login.len() > 25 || !login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+    if !ident::twitch_login(&login) {
       return self.say("usage: /user <name>");
     }
     let Some(t) = self.tabs.get(self.active) else { return };

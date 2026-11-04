@@ -1,5 +1,6 @@
 // what plays as a video rather than opens as a page: youtube videos, twitch clips and vods, direct video
 // files; and a channel's live stream page. channel and other pages stay links (the browser knows them)
+use super::ident;
 use super::message::Platform;
 
 const FILES: [&str; 4] = [".mp4", ".webm", ".mov", ".mkv"];
@@ -20,10 +21,6 @@ fn split(url: &str) -> Option<(String, &str)> {
   Some((host, &rest[end..]))
 }
 
-fn id_char(b: u8) -> bool {
-  b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
-}
-
 // the 11-character video id of a youtube watch / youtu.be / shorts / live / embed link (ext
 // extractYoutubeVideoId); a channel link has none
 pub fn yt_id(url: &str) -> Option<&str> {
@@ -38,7 +35,7 @@ pub fn yt_id(url: &str) -> Option<&str> {
     }
     _ => return None,
   };
-  let id = &tail[..tail.bytes().position(|b| !id_char(b)).unwrap_or(tail.len())];
+  let id = &tail[..tail.bytes().position(|b| !ident::slug_byte(b)).unwrap_or(tail.len())];
   (id.len() == 11).then_some(id)
 }
 
@@ -60,7 +57,7 @@ pub fn playable(url: &str) -> bool {
 
 // a channel's live page, as the players take it
 pub fn stream(platform: Platform, key: &str) -> Option<String> {
-  let ok = |s: &str| !s.is_empty() && s.len() <= 100 && s.bytes().all(|b| id_char(b) || b == b'.');
+  let ok = |s: &str| !s.is_empty() && s.len() <= 100 && s.bytes().all(|b| ident::slug_byte(b) || b == b'.');
   match platform {
     Platform::Twitch => ok(key).then(|| format!("https://www.twitch.tv/{key}")),
     Platform::Kick => ok(key).then(|| format!("https://kick.com/{key}")),

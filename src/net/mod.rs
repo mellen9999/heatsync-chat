@@ -30,6 +30,7 @@ pub mod update;
 pub mod upload;
 mod youtube;
 
+use crate::model::ident;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -797,7 +798,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Join(ch) => {
         let tab = open.join(&ch);
         tokio::spawn(recent::fetch(http.clone(), ch.clone(), tab.clone(), out.clone()));
-        if irc::valid_channel(&ch) {
+        if ident::twitch_room(&ch) {
           tokio::spawn(channel_badges(http.clone(), ch.clone(), tab.clone(), out.clone()));
           tokio::spawn(links::discover(http.clone(), ch.clone(), tab, out.clone()));
           let _ = hs_tx.send(hs_ws::Cmd::Join(Platform::Twitch, ch.clone()));

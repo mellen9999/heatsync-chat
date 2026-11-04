@@ -1,4 +1,5 @@
 // recent twitch history on join, via heatsync's robotty proxy (raw irc lines)
+use crate::model::ident;
 use std::collections::HashMap;
 
 use serde::Deserialize;
@@ -26,7 +27,7 @@ struct Recent {
 // one ask for a channel's last `limit` lines; Err is the technical reason (stderr, not the screen)
 async fn get(http: &reqwest::Client, ch: &str, limit: usize) -> Result<Vec<Chat>, String> {
   // the name goes into the url: only a real channel name does
-  if !irc::valid_channel(ch) {
+  if !ident::twitch_room(ch) {
     return Ok(Vec::new());
   }
   let url = format!(

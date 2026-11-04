@@ -1,5 +1,6 @@
 // add/edit/remove-channel rules, ported from the ext's channel-mgmt (channelAddError, the form's
 // charset gates, tab-registry reserved ids). pure: no ui, no net
+use super::ident;
 use crate::model::line::Line;
 
 // ids a channel may never take: the ext's page tabs, plus this app's synthetic flood tab
@@ -86,8 +87,7 @@ pub fn yt_key(raw: &str) -> Result<String, Err> {
     None => v,
   };
   let name = v.trim_start_matches('@');
-  let ok = (3..=30).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b));
-  if !ok {
+  if !ident::yt_handle(name) {
     return Err(Err::Invalid);
   }
   if name.len() >= 22 && name.starts_with("UC") {
@@ -108,12 +108,7 @@ impl Spec {
     if twitch.is_empty() && kick.is_empty() && youtube.is_empty() {
       return Err(Err::Empty);
     }
-    let gate = |s: &str, dash: bool| {
-      s.is_empty()
-        || ((1..=25).contains(&s.len())
-          && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || (dash && b == b'-')))
-    };
-    if !gate(&twitch, false) || !gate(&kick, true) {
+    if !(twitch.is_empty() || ident::twitch_room(&twitch)) || !(kick.is_empty() || ident::kick_slug(&kick)) {
       return Err(Err::Invalid);
     }
     Ok(Spec { twitch, kick, youtube })

@@ -1,6 +1,7 @@
 // your mute and block lists on heatsync (ext background.js: fetchServerMutes, fetchServerBlocks,
 // syncMuteToServer). mutes sync both ways while you are logged in; blocks are only read from the
 // server (the ext never writes them there), so a block made here stays on this machine
+use crate::model::ident;
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out, http};
@@ -9,7 +10,7 @@ use crate::util::time::parse_iso;
 const MAX_BODY: usize = 2 << 20;
 // the server accepts [A-Za-z0-9_-] up to 32; anything else is kept locally only
 pub fn syncable(name: &str) -> bool {
-  !name.is_empty() && name.len() <= 32 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+  ident::slug(name, 32)
 }
 
 pub enum Op {

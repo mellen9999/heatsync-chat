@@ -1,6 +1,7 @@
 // the lists that open over the message box as you type (ext input.js dropdowns): `:ke` (2+ letters)
 // lists emotes, `@` lists people, a lone `/word` lists commands. up/down move, tab or enter picks,
 // esc closes until the text changes
+use super::ident;
 use std::ops::Range;
 
 use super::complete::Pick;
@@ -38,10 +39,6 @@ impl Suggest {
   }
 }
 
-fn name_byte(b: u8) -> bool {
-  b.is_ascii_alphanumeric() || b == b'_'
-}
-
 // what the text before the cursor asks for: the list, the bytes a pick replaces, the query (with its `:`/`@`/`/`)
 pub fn trigger(text: &str, cursor: usize) -> Option<(Kind, Range<usize>)> {
   let t = text.as_bytes();
@@ -49,7 +46,7 @@ pub fn trigger(text: &str, cursor: usize) -> Option<(Kind, Range<usize>)> {
     return Some((Kind::Command, 0..text.len()));
   }
   let head = &t[..cursor];
-  let run = head.iter().rev().take_while(|b| name_byte(**b)).count();
+  let run = head.iter().rev().take_while(|b| ident::name_byte(**b)).count();
   let mark = cursor.checked_sub(run + 1)?;
   match head[mark] {
     b':' if run >= 2 => Some((Kind::Emote, mark..cursor)),

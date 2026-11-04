@@ -2,6 +2,7 @@
 // SAFETY). a kick numeric id can equal an unrelated twitch id, so the platform is part of the key
 // everywhere (cache, art, queues) and a bare number never crosses over. wire form = what
 // `/api/paints` and `/api/cosmetics/batch` take: `123`, `kick_123`, `yt_UC…`, or a native users.id
+use crate::model::ident;
 use crate::model::message::Message;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -46,10 +47,7 @@ impl PaintId {
       "twitch" => digits(id).map(PaintId::Twitch),
       "kick" => digits(id).map(PaintId::Kick),
       "youtube" => uc(id).then(|| PaintId::Youtube(id.into())),
-      "heatsync" => {
-        (id.len() <= 64 && !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
-          .then(|| PaintId::Native(id.into()))
-      }
+      "heatsync" => ident::slug(id, 64).then(|| PaintId::Native(id.into())),
       _ => None,
     }
   }

@@ -1,6 +1,7 @@
 // heatsync's anonymous websocket: kick + youtube chat relay, stream/pin/moment events.
 // hardening per docs/contract.md: backoff reset only after a stable session, idle watchdog,
 // server:shutdown spread without a backoff charge, kick `_seq` resume, yt re-subscribe on reconnect
+use crate::model::ident;
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
@@ -42,10 +43,6 @@ pub enum Cmd {
 
 fn plat(p: Platform) -> &'static str {
   p.name()
-}
-
-pub fn valid_key(k: &str) -> bool {
-  (1..=100).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.@".contains(&b))
 }
 
 #[derive(Default)]
@@ -132,7 +129,7 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
 // update desired state; returns the frame to send if connected
 fn apply(st: &mut State, c: Cmd) -> Option<Value> {
   match c {
-    Cmd::Join(p, ch) if valid_key(&ch) && st.rooms.len() < MAX_ROOMS => st
+    Cmd::Join(p, ch) if ident::relay_key(&ch) && st.rooms.len() < MAX_ROOMS => st
       .rooms
       .insert((plat(p), ch.clone()))
       .then(|| json!({"type": "channel:join", "platform": plat(p), "channel": &*ch})),
@@ -149,7 +146,7 @@ fn apply(st: &mut State, c: Cmd) -> Option<Value> {
       None
     }
     Cmd::UiSync(patch) => Some(json!({"type": "ui-state:sync", "patch": patch})),
-    Cmd::YtSub(h) if valid_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)),
+    Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
       st.yt_status.remove(&h);
@@ -293,7 +290,7 @@ fn room_platform(p: &str) -> Option<Platform> {
 }
 
 fn kick_room(v: &Value) -> Option<Box<str>> {
-  v.get("_ch").and_then(Value::as_str)?.strip_prefix("kick/").filter(|c| valid_key(c)).map(Into::into)
+  v.get("_ch").and_then(Value::as_str)?.strip_prefix("kick/").filter(|c| ident::relay_key(c)).map(Into::into)
 }
 
 // whose cosmetics changed, from a `cosmetic:changed` frame. a bare id is a users.id: a twitch chatter,
@@ -323,7 +320,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     "kick-chat-message" => {
       let data = v.get("data")?;
       let key = kick_room(v)
-        .or_else(|| data.get("channel").and_then(Value::as_str).filter(|c| valid_key(c)).map(Into::into))?;
+        .or_else(|| data.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c)).map(Into::into))?;
       // only rooms we are in: a stray frame must not pin a slot in the (capped) resume map
       if let (Some(seq), true) = (v.get("_seq").and_then(Value::as_u64), st.rooms.contains(&("kick", key.clone()))) {
         st.kick_seq.insert(key.clone(), seq);
@@ -332,17 +329,17 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Relay { platform: Platform::Kick, key, msgs: vec![m], history: false })
     }
     "kick-chat-backfill" => {
-      let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| valid_key(c))?.into();
+      let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
       let msgs = relay::batch(v.get("messages"), relay::kick);
       send(NetEvent::Relay { platform: Platform::Kick, key, msgs, history: true })
     }
     "kick-moderation" => {
-      let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| valid_key(c))?.into();
+      let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
       let login: Box<str> = v.get("username").and_then(Value::as_str)?.to_lowercase().into();
       send(NetEvent::RelayClear { platform: Platform::Kick, key, login })
     }
     "youtube:chat" => {
-      let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| valid_key(c))?.into();
+      let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
       // a fresh subscribe replays the whole backlog; history comes from /api/recent instead. after a
       // drop that backlog is the way to see what was said meanwhile: it fills the gap, by id
       if v.get("replay").and_then(Value::as_bool) == Some(true) {
@@ -359,7 +356,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Relay { platform: Platform::Youtube, key, msgs, history: false })
     }
     "youtube:status" => {
-      let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| valid_key(c))?.into();
+      let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
       let status: Box<str> = v.get("status").and_then(Value::as_str)?.chars().take(32).collect::<String>().into();
       if st.yt_status.get(&key) == Some(&status) {
         return None;
@@ -399,7 +396,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let ty = ty.strip_prefix("follow:").unwrap_or(ty);
       let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
       let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
-      if !valid_key(&channel) || !(followed || st.rooms.contains(&(plat(platform), channel.clone()))) {
+      if !ident::relay_key(&channel) || !(followed || st.rooms.contains(&(plat(platform), channel.clone()))) {
         return None;
       }
       let text = |k: &str| stream_events::clean(v.get(k).and_then(Value::as_str).unwrap_or(""));
@@ -423,7 +420,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let platform = room_platform(v.get("platform").and_then(Value::as_str).unwrap_or("twitch"))?;
       let key: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
       let num = |k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(f64::NAN);
-      if !valid_key(&key) {
+      if !ident::relay_key(&key) {
         return None;
       }
       let text = stream_events::moment_text(&key, num("rate"), num("baseline"))?.into();

@@ -1,10 +1,10 @@
 // a channel's prediction from twitch's public web gql, no login, 5s at most (ext fetchPrediction)
 use super::{NetEvent, Out};
+use crate::model::ident;
 
 pub async fn fetch(http: reqwest::Client, chan: Box<str>, out: Out) {
   // a twitch login: nothing that could bend the query (it is a variable anyway)
-  let ok = !chan.is_empty() && chan.len() <= 25 && chan.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-  let res = if ok { ask(&http, &chan).await } else { Err(()) };
+  let res = if ident::twitch_login(&chan) { ask(&http, &chan).await } else { Err(()) };
   out.send(NetEvent::Pred { chan, res });
 }
 

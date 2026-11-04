@@ -2,6 +2,7 @@
 // heatsync's archive and shown oldest first, newest at the bottom. the request, the hostile page parse,
 // the cursor paging with its caps, the scope (this channel / all) and the permalink live here;
 // app/logs.rs drives it. every byte of a page is hostile: bounded, typed, urls allowlisted
+use super::ident;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde_json::Value;
@@ -95,18 +96,14 @@ pub struct Page {
 // a room name as the archive keys it: no `#`, no `@`, lowercase, one bounded word
 pub fn room(s: &str) -> Option<Box<str>> {
   let s = s.trim().trim_start_matches(['#', '@']).to_ascii_lowercase();
-  let ok = !s.is_empty() && s.len() <= 50 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-  ok.then(|| s.into())
+  ident::room_key(&s).then(|| s.into())
 }
 
 // the archive's own name for a person: twitch/kick login, a youtube `@handle`
 pub fn archive_name(platform: Platform, login: &str) -> Option<Box<str>> {
   let l = login.trim().to_ascii_lowercase();
   let bare = l.trim_start_matches('@');
-  let ok = !bare.is_empty()
-    && bare.len() <= 40
-    && bare.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.');
-  match (ok, platform) {
+  match (ident::archive_login(bare), platform) {
     (false, _) => None,
     (true, Platform::Youtube) => Some(format!("@{bare}").into()),
     (true, _) => Some(bare.into()),
@@ -178,9 +175,7 @@ fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
 fn emote_url(src: &str) -> Option<Box<str>> {
   if let Some(path) = src.strip_prefix("/e/") {
     let (prov, id) = path.split_once('/')?;
-    let ok = ["7tv", "bttv", "ffz", "hs", "twitch", "kick"].contains(&prov)
-      && (1..=64).contains(&id.len())
-      && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    let ok = ["7tv", "bttv", "ffz", "hs", "twitch", "kick"].contains(&prov) && ident::slug(id, 64);
     return ok.then(|| format!("{PUBLIC}/e/{prov}/{id}").into());
   }
   allowed(src).then(|| src.into())

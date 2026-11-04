@@ -3,6 +3,7 @@
 // when that someone has actually spoken, and the word is not an everyday one ("bruh", "what").
 // one table for the whole window, per platform, so a twitch and a kick chatter sharing a name never
 // trade colors or paints. bounded; evicted names are simply learned again from their next line
+use super::ident;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -47,10 +48,6 @@ fn edge(b: u8) -> bool {
   matches!(b, b'.' | b',' | b'!' | b'?' | b';' | b':' | b'(' | b')' | b'[' | b']' | b'"' | b'\'')
 }
 
-fn name_byte(b: u8) -> bool {
-  b.is_ascii_alphanumeric() || b == b'_'
-}
-
 // one name inside a word: the whole of it (with its `@`), whether it had one, and the name alone
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
@@ -76,7 +73,7 @@ pub fn names(word: &str) -> Vec<Found> {
     }
     let at = b[start] == b'@';
     let name = start + at as usize..i;
-    if (NAME_MIN..=NAME_MAX).contains(&name.len()) && b[name.clone()].iter().all(|&c| name_byte(c)) {
+    if (NAME_MIN..=NAME_MAX).contains(&name.len()) && b[name.clone()].iter().all(|&c| ident::name_byte(c)) {
       out.push(Found { full: start..i, at, name });
     }
   }

@@ -1,4 +1,5 @@
 // twitch irc: line parser (pure) + one anonymous websocket session per process
+use crate::model::ident;
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
 
@@ -280,7 +281,7 @@ const MAX_SEND: usize = 500;
 fn privmsg(chan: &str, text: &str, reply: Option<&str>) -> Option<String> {
   let text: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_SEND).collect();
   let text = text.trim();
-  if !valid_channel(chan) || text.is_empty() {
+  if !ident::twitch_room(chan) || text.is_empty() {
     return None;
   }
   let tag = match reply.filter(|id| id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')) {
@@ -298,10 +299,6 @@ fn auth_rejected(l: &Line) -> bool {
         .iter()
         .any(|k| t.contains(k))
     })
-}
-
-pub fn valid_channel(c: &str) -> bool {
-  (1..=25).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 // owns the joined set; reconnects forever with backoff until the ui drops its sender
@@ -405,7 +402,7 @@ fn unsent(out: &Out, chan: Box<str>, why: &str) {
 
 fn apply(chans: &mut BTreeSet<Box<str>>, c: Cmd) -> Option<String> {
   match c {
-    Cmd::Join(ch) if valid_channel(&ch) => chans.insert(ch.clone()).then(|| format!("JOIN #{ch}")),
+    Cmd::Join(ch) if ident::twitch_room(&ch) => chans.insert(ch.clone()).then(|| format!("JOIN #{ch}")),
     Cmd::Part(ch) => chans.remove(&ch).then(|| format!("PART #{ch}")),
     _ => None,
   }
@@ -711,13 +708,5 @@ mod tests {
     assert_eq!(privmsg("forsen", "yo", Some("a b;x=1")).as_deref(), Some("PRIVMSG #forsen :yo"));
     assert_eq!(privmsg("forsen", "   ", None), None);
     assert_eq!(privmsg("Bad Chan", "x", None), None);
-  }
-
-  #[test]
-  fn channel_validation() {
-    assert!(valid_channel("forsen_2"));
-    assert!(!valid_channel("Forsen"));
-    assert!(!valid_channel("a b"));
-    assert!(!valid_channel(""));
   }
 }

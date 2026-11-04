@@ -3,6 +3,7 @@
 // (`automod:update`) over the socket; the watch call hands back what is still held. the row offers
 // allow / deny until a mod settles it or twitch lets it lapse an hour after holding it.
 // every frame is hostile: ids are checked, words bounded, control chars dropped
+use super::ident;
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -117,13 +118,13 @@ fn word(v: &Value, k: &str, max: usize) -> String {
 
 // a message id: what twitch hands out (a uuid), nothing that could break a url or a line
 fn valid_id(s: &str) -> bool {
-  (1..=MAX_ID).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+  ident::slug(s, MAX_ID)
 }
 
 // a twitch login
 fn login(v: &Value, k: &str) -> Option<Box<str>> {
   let s = v.get(k).and_then(Value::as_str)?.to_ascii_lowercase();
-  ((1..=25).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')).then(|| s.into())
+  ident::twitch_login(&s).then(|| s.into())
 }
 
 fn num_id(v: &Value, k: &str) -> Box<str> {

@@ -1,16 +1,13 @@
 // who counts as "you" and which lines mention you (ext mentions.js isMention): the sender is not
 // you, a reply to your line, `@name` anywhere, or `name` as a whole word, case-insensitive.
 // names are your heatsync name plus the twitch / kick / youtube names linked to it
+use super::ident;
 use crate::model::message::Message;
 
 #[derive(Default)]
 pub struct Mentions {
   // lowercase, unique, word characters only (a name with anything else could not be matched safely)
   names: Vec<Box<str>>,
-}
-
-fn word(b: u8) -> bool {
-  b.is_ascii_alphanumeric() || b == b'_'
 }
 
 // `\bname\b`, ascii case-insensitive
@@ -20,7 +17,9 @@ fn whole_word(text: &str, name: &str) -> bool {
     return false;
   }
   t.windows(n.len()).enumerate().any(|(i, w)| {
-    w.eq_ignore_ascii_case(n) && (i == 0 || !word(t[i - 1])) && t.get(i + n.len()).is_none_or(|&b| !word(b))
+    w.eq_ignore_ascii_case(n)
+      && (i == 0 || !ident::name_byte(t[i - 1]))
+      && t.get(i + n.len()).is_none_or(|&b| !ident::name_byte(b))
   })
 }
 
@@ -35,7 +34,7 @@ impl Mentions {
     self.names.clear();
     for n in names {
       let n = n.trim().to_ascii_lowercase();
-      if (1..=64).contains(&n.len()) && n.bytes().all(word) && !self.names.iter().any(|x| **x == *n) {
+      if (1..=64).contains(&n.len()) && n.bytes().all(ident::name_byte) && !self.names.iter().any(|x| **x == *n) {
         self.names.push(n.into());
       }
     }

@@ -2,6 +2,7 @@
 // to and by you, `hh:mm [T] you → them: text` (`[H]` for a dm). the server keeps whispers (it holds the
 // EventSub subscription) and pushes `whisper:new`; sends go through /api/twitch/whisper. dms are
 // `dm:new` pushes and POST /api/dm. pure: parsing, dedupe, caps, row text
+use super::ident;
 use std::collections::{HashSet, VecDeque};
 
 use serde_json::Value;
@@ -141,11 +142,7 @@ pub fn user_id(v: Option<&Value>) -> Option<Box<str>> {
     Value::Number(n) => n.to_string(),
     _ => return None,
   };
-  (1..=64)
-    .contains(&s.len())
-    .then_some(s)
-    .filter(|s| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
-    .map(Into::into)
+  ident::slug(&s, 64).then(|| s.into())
 }
 
 // a `dm:new` frame (`other` None: from them, to us) or one row of GET /api/dm/:userId, where `other`
@@ -375,10 +372,6 @@ pub enum Cmd {
   Usage,
 }
 
-fn valid_login(s: &str) -> bool {
-  (1..=25).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-}
-
 pub fn command(line: &str) -> Option<Cmd> {
   let line = line.trim();
   let (head, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
@@ -388,7 +381,7 @@ pub fn command(line: &str) -> Option<Cmd> {
       let via = if head.eq_ignore_ascii_case("/dm") { Via::Heatsync } else { Via::Twitch };
       let (user, text) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
       let user = user.trim_start_matches('@');
-      if !valid_login(user) {
+      if !ident::twitch_login(user) {
         return Some(Cmd::Usage);
       }
       let text = text.trim();
