@@ -33,6 +33,8 @@ pub struct Bar<'a> {
   // e.g. ("[K] ", GREEN) when the tab merges platforms
   pub target: Option<(&'a str, u32)>,
   pub hint: &'a str,
+  // the hint's color: dim, or red/yellow when the room won't let you chat
+  pub hint_ink: u32,
   // the first `link` bytes of the hint are a button (underlined; reversed while the pointer is on it)
   pub link: usize,
   pub link_on: bool,
@@ -153,7 +155,7 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
     if lead > at {
       spans.push(Span { range: at..lead, ink: Ink(theme::WHITE), bold: false });
     }
-    spans.push(Span { range: lead..s.len(), ink: Ink(theme::DIM), bold: false });
+    spans.push(Span { range: lead..s.len(), ink: Ink(b.hint_ink), bold: false });
   } else {
     let (t, cur) = (&b.line.text, b.line.cursor);
     // the composition goes in at the cursor: before a chip it starts, after one it ends or sits in

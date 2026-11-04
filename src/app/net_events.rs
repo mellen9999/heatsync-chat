@@ -180,6 +180,7 @@ impl App {
         let row = removed(Platform::Twitch, Removed::User(&login, secs));
         self.mod_log(Platform::Twitch, ch, row.body.to_string());
         self.tabs[i].chat().push(row);
+        self.lock_clearchat(ch, &login, secs);
       }
       Chat::ClearAll => tab.push(removed(Platform::Twitch, Removed::All)),
       Chat::Room { id, modes } => {
@@ -192,6 +193,8 @@ impl App {
         return;
       }
       Chat::Mod(on) => return self.on_mod_state(ch, on),
+      Chat::Lock(c) => return self.lock_told(Platform::Twitch, ch, Some(c)),
+      Chat::Sent => return self.lock_told(Platform::Twitch, ch, None),
     }
     if i == self.active {
       self.wake();
@@ -368,6 +371,7 @@ impl App {
         // a different login starts with a clean whispers tab
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
+          self.locks.clear_all();
           // the new account's own seen times arrive with SeenGet below
           self.unseen = Default::default();
           // nothing pending belongs to the new account
@@ -479,6 +483,7 @@ impl App {
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::CatchUp { platform, key, msgs } => self.on_catch_up(platform, &key, msgs),
       NetEvent::LoginWait(on) => self.login_wait = on,
+      NetEvent::Lock(p, key, cause) => self.lock_told(p, &key, cause),
       NetEvent::RelayClear { platform, key, login, secs } => {
         // a removal must find every line: what is still waiting shows first
         let waiting = self.pacer.flush(&key);

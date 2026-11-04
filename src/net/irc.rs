@@ -154,6 +154,10 @@ pub enum Chat {
   Room { id: Box<str>, modes: Vec<crate::model::modes::Set> },
   // our own badges here say we moderate (or own) the channel
   Mod(bool),
+  // a line we sent was refused for a reason that lasts (banned, timed out, a mode we don't meet)
+  Lock(crate::model::lock::Cause),
+  // a line we sent got through: whatever kept us out is over
+  Sent,
 }
 
 // USERSTATE's badges: a moderator or the broadcaster can use the mod tools
@@ -524,7 +528,7 @@ async fn session(
             // our line went through: show it the way others see it
             "USERSTATE" if line.tag("id").is_some() => {
               let ch = line.channel().unwrap_or("");
-              if !out.chat(ch.into(), Chat::Mod(can_mod(&line))) {
+              if !out.chat(ch.into(), Chat::Mod(can_mod(&line))) || !out.chat(ch.into(), Chat::Sent) {
                 return End::Quit;
               }
               if let Some(i) = pending.iter().position(|p| &*p.chan == ch) {
@@ -541,6 +545,13 @@ async fn session(
             "NOTICE" if line.tag("msg-id").is_some_and(|id| id.starts_with("msg_")) => {
               if let Some(i) = line.channel().and_then(|ch| pending.iter().position(|p| &*p.chan == ch)) {
                 pending.remove(i);
+              }
+              // the box keeps saying why (model::lock); the notice line itself still goes out below
+              let cause = line.tag("msg-id").and_then(|id| crate::model::lock::from_notice(&id, line.trailing().unwrap_or("")));
+              if let (Some(c), Some(ch)) = (cause, line.channel())
+                && !out.chat(ch.into(), Chat::Lock(c))
+              {
+                return End::Quit;
               }
             }
             _ => {}

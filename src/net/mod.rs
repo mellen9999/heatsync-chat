@@ -82,6 +82,8 @@ pub enum NetEvent {
     login: Box<str>,
     secs: Option<u32>,
   },
+  // a send on kick was refused for a reason that lasts, or went through (None): the box keeps saying why
+  Lock(Platform, Box<str>, Option<crate::model::lock::Cause>),
   YtStatus {
     key: Box<str>,
     status: Box<str>,

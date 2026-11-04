@@ -57,6 +57,11 @@ impl App {
     if std::mem::take(&mut self.input_dirty) {
       self.sync_suggest();
       let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
+      // a lock shows in the empty box even while inserting (vi), and its countdown re-arms a redraw each second
+      let locked = self.lock_here().filter(|_| self.prompt.is_none() && self.line.text.is_empty());
+      self.lock_sec = locked
+        .and_then(|l| l.flips_in(super::now_ms()))
+        .map(|ms| Instant::now() + Duration::from_millis(ms.max(1) as u64));
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
       let hint = match &self.prompt {
         Some(_) if self.find.on && self.logs_shown().is_some() => {
@@ -64,7 +69,7 @@ impl App {
         }
         Some(_) if self.find.on => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
         Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
-        None if show_hint => self.hint(),
+        None if show_hint || locked.is_some() => self.hint(),
         None => String::new(),
       };
       // the picture view is no place to type (ext): the box steps aside
@@ -80,6 +85,7 @@ impl App {
         mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
         target: tag,
         hint: &hint,
+        hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
         link: if self.prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) {
           LOGIN_HINT.len()
         } else {

@@ -484,6 +484,14 @@ impl State {
       None => Some("log in to send (ctrl-l)".to_owned()),
       Some(t) => kick_send(&self.http, t, &chan, &text, reply.as_deref()).await.err(),
     };
+    // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
+    let told = match why.as_deref() {
+      None => Some(None),
+      Some(w) => crate::model::lock::from_kick(w).map(Some),
+    };
+    if let Some(cause) = told {
+      self.out.send(NetEvent::Lock(Platform::Kick, chan.clone(), cause));
+    }
     if let Some(why) = why {
       let m = Message::system(now_ms(), Platform::Kick, format!("not sent: {why}"));
       self.out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });

@@ -125,6 +125,7 @@ impl App {
 
   // ROOMSTATE: the room's modes as twitch has them (all on joining, then each change)
   pub(super) fn modes_seen(&mut self, chan: &str, sets: Vec<Set>) {
+    self.lock_modes(chan, &sets);
     if sets.is_empty() {
       return;
     }

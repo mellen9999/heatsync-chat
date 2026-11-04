@@ -1,7 +1,7 @@
 // one chat line, platform-neutral. body is the user's text; emote spans index into it
 use std::ops::Range;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Platform {
   Twitch,
   Kick,

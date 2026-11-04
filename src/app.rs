@@ -34,6 +34,7 @@ mod input;
 mod keys;
 mod layout;
 mod link;
+mod lock;
 mod logs;
 mod media_peek;
 mod mentions;
@@ -292,6 +293,9 @@ pub struct App {
   // the pinned-lines bar and the prediction banner under the tabs
   pin_bar: pin::PinBar,
   pred_bar: pred::PredBar,
+  // why you can't chat in each room, and when the box's countdown next changes a digit
+  locks: crate::model::lock::Locks,
+  lock_sec: Option<Instant>,
   moments: Moments,
   // followed streamers' twitch colors (`follow:colors`), by lowercase login
   follow_colors: std::collections::HashMap<Box<str>, u32>,
@@ -456,6 +460,8 @@ impl App {
       login_wait: false,
       pin_bar: Default::default(),
       pred_bar: Default::default(),
+      locks: Default::default(),
+      lock_sec: None,
       moments: Moments::default(),
       follow_colors: Default::default(),
       mentions: Mentions::default(),
@@ -743,6 +749,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.pred_bar.sec.is_some_and(|t| t <= now) {
       self.pred_second();
     }
+    if self.lock_sec.is_some_and(|t| t <= now) {
+      self.lock_second();
+    }
     if self.pred_due(now).is_some_and(|t| t <= now) {
       self.pred_tick(now);
     }
@@ -768,6 +777,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.ui_state_due(),
       self.pred_due(now),
       self.pred_bar.sec.filter(|_| !self.occluded),
+      self.lock_sec.filter(|_| !self.occluded),
     ]
     .into_iter()
     .flatten()

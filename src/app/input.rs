@@ -31,6 +31,10 @@ impl App {
     let lead = if self.set.vi { "i type" } else { "type to chat" };
     let Some(me) = &self.me else { return format!("{LOGIN_HINT} · {lead}") };
     let Some((p, ..)) = self.target() else { return lead.into() };
+    // locked out of this room: the box says why (and for how long) instead of inviting you to type
+    if let Some(l) = self.lock_here() {
+      return l.text(super::now_ms());
+    }
     match me.name_on(p) {
       Some(name) => format!("{lead} as {name}"),
       None => format!("{} isn't linked · ctrl-l to link it", p.name()),
@@ -204,6 +208,10 @@ impl App {
       return self.say("mentions is read-only. open a line to answer it");
     }
     let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
+    // a timeout has an end we know: say how long instead of sending a line that is sure to bounce (words stay)
+    if let Some(l) = self.lock_here().filter(|l| l.blocks()) {
+      return self.say(l.text(super::now_ms()));
+    }
     if let Some(text) = self.line.take() {
       let reply = self.reply.take();
       if let Some(v) = self.view() {
