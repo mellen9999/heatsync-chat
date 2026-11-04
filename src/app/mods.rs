@@ -56,7 +56,7 @@ impl App {
     color: u32,
     msg_id: &str,
   ) -> Option<Subject> {
-    if m.kind == crate::model::message::Kind::System || login.is_empty() {
+    if !m.kind.said() || login.is_empty() {
       return None;
     }
     let t = self.tabs.get(self.active)?;

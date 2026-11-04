@@ -3477,6 +3477,65 @@ mod live {
     assert!(app.reply.is_some(), "r on the picked line starts a reply");
   }
 
+  // a went-live line in every tab is news, not chat: never picked, menued or replied to (scratch HOME as above)
+  #[test]
+  #[ignore]
+  fn headless_stream_line_is_not_a_chat_line() {
+    use crate::model::stream_events::{Line, Tone};
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(chat);
+    let say = |app: &mut App, id: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "hello there");
+      m.kind = crate::model::message::Kind::Chat;
+      m.id = id.into();
+      m.nick = "bob".into();
+      m.login = "bob".into();
+      app.on_chat("forsen", Chat::Msg(m));
+    };
+    say(&mut app, "a1");
+    app.on_stream(Line {
+      platform: Platform::Twitch,
+      channel: "xqc".into(),
+      text: "[xqc] ◆ went live — Chess".into(),
+      tone: Tone::Online,
+      name: "xQc".into(),
+      color: Some(0xff0000),
+      verb: "◆ went live — ".into(),
+      game: "Chess".into(),
+    });
+    say(&mut app, "a2");
+    app.redraw();
+    let area = app.chat_area();
+    // every row: a right-click picks a real line or nothing, never the stream line
+    let mut picked = Vec::new();
+    for y in (area.y..area.bottom()).step_by(2) {
+      app.tabs[chat].view.deselect();
+      (app.pop, app.menu, app.pointer) = (None, None, (area.x + 200, y));
+      app.right_click();
+      let id = app.tabs[chat].view.selected().map(|m| m.id.clone());
+      assert!(id.as_deref() != Some(""), "the stream line was picked at y {y}");
+      assert_eq!(app.pop.is_some(), id.is_some(), "a menu only for a picked line (y {y})");
+      picked.extend(id);
+    }
+    assert!(picked.iter().any(|i| &**i == "a1") && picked.iter().any(|i| &**i == "a2"), "{picked:?}");
+    // k from the newest steps over it, and r replies to a real line
+    app.tabs[chat].view.deselect();
+    (app.pop, app.menu, app.mode) = (None, None, Mode::Normal);
+    app.select_move(-1);
+    app.select_move(-1);
+    assert_eq!(app.tabs[chat].view.selected().map(|m| m.id.clone()).as_deref(), Some("a1"));
+    app.key_normal(Key::Character("r"));
+    assert!(app.reply.is_some(), "r replies");
+  }
+
   // a feed post lands as a line in a chat tab; its >>id opens the thread right there, the tab reads
   // `← back`, chat keeps landing underneath, and back puts the chat where it was (scratch HOME as above):
   //   ... cargo test -j2 --release headless_thread_takeover -- --ignored

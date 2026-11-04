@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::model::automod::{self, Automod};
-use crate::model::message::{Kind, Message, flag};
+use crate::model::message::{Message, flag};
 use crate::model::reasons::Reasons;
 use crate::model::rules::{Line, Rules, Verdict};
 use crate::store;
@@ -101,7 +101,7 @@ impl Filters {
   // of the previous line that was shown, for hide duplicates
   pub fn judge(&self, m: &Message, now: i64, tab_hidden: &HashSet<Box<str>>, last: &mut Box<str>) -> u8 {
     // notices and stream lines are never filtered
-    if m.kind == Kind::System {
+    if !m.kind.said() {
       return 0;
     }
     let who = key(&m.login);
@@ -419,7 +419,7 @@ mod tests {
 
   fn line(login: &str, body: &str) -> Message {
     let mut m = Message::system(0, Platform::Twitch, "");
-    m.kind = Kind::Chat;
+    m.kind = crate::model::message::Kind::Chat;
     m.login = login.into();
     m.nick = login.into();
     m.body = body.into();

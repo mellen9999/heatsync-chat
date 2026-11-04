@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use super::message::{Kind, Message, Platform};
+use super::message::{Message, Platform};
 use crate::cosmetics::id::PaintId;
 use crate::ui::theme;
 
@@ -130,7 +130,7 @@ impl Chatters {
   // a chat line was heard: its sender is a known person now, in their own color. true = this line
   // is the first to say whose they are (their older lines without an id can wear their paint now)
   pub fn heard(&mut self, m: &Message) -> bool {
-    if m.kind == Kind::System || m.login.is_empty() || m.login.len() > NAME_MAX {
+    if !m.kind.said() || m.login.is_empty() || m.login.len() > NAME_MAX {
       return false;
     }
     let paint = PaintId::of_message(m);
@@ -275,7 +275,7 @@ mod tests {
 
   fn msg(p: Platform, login: &str, color: u32, uid: &str) -> Message {
     let mut m = Message::system(0, p, String::new());
-    m.kind = Kind::Chat;
+    m.kind = crate::model::message::Kind::Chat;
     m.login = login.into();
     m.user_id = uid.into();
     m.color = color;

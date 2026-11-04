@@ -6,7 +6,7 @@ use super::App;
 use super::engage::{PostCtx, engage_rows, own_rows};
 use crate::cosmetics::id::PaintId;
 use crate::model::filter::{self, DEFAULT_MUTE_MS};
-use crate::model::message::{Kind as MsgKind, Platform};
+use crate::model::message::Platform;
 use crate::model::modcmd::{DURATIONS, Verb};
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
@@ -433,7 +433,7 @@ impl App {
     else {
       return;
     };
-    let Some(m) = t.view.selected().filter(|m| m.kind != MsgKind::System) else { return };
+    let Some(m) = t.view.selected().filter(|m| m.kind.said()) else { return };
     let (chat_tab, head) = (t.kind == Kind::Chat, m.nick.to_string());
     // a feed post: its rows, and (in the feed, a thread) the reply that answers the thread. in a chat
     // tab its id is no platform message id, so there is no reply to send

@@ -1,7 +1,7 @@
 // who counts as "you" and which lines mention you (ext mentions.js isMention): the sender is not
 // you, a reply to your line, `@name` anywhere, or `name` as a whole word, case-insensitive.
 // names are your heatsync name plus the twitch / kick / youtube names linked to it
-use crate::model::message::{Kind, Message};
+use crate::model::message::Message;
 
 #[derive(Default)]
 pub struct Mentions {
@@ -46,7 +46,7 @@ impl Mentions {
   }
 
   pub fn hit(&self, m: &Message) -> bool {
-    if self.names.is_empty() || m.kind == Kind::System {
+    if self.names.is_empty() || !m.kind.said() {
       return false;
     }
     // your own lines never ping you
@@ -67,7 +67,7 @@ mod tests {
 
   fn line(login: &str, body: &str) -> Message {
     let mut m = Message::system(1, Platform::Twitch, "x");
-    m.kind = Kind::Chat;
+    m.kind = crate::model::message::Kind::Chat;
     m.login = login.into();
     m.nick = login.into();
     m.body = body.into();

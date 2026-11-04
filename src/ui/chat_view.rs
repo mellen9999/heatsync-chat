@@ -529,7 +529,7 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
   if let Some(f) = find {
     // a painted name is drawn from its own bitmap: leave it be
     let name = if painted.is_some() { 0..0 } else { nick.clone() };
-    let words = if m.kind == Kind::System { 0..s.len() } else { words_at.clone() };
+    let words = if !m.kind.said() { 0..s.len() } else { words_at.clone() };
     hits(f, &s, &name, words, &mut spans);
   }
   let line = (res.text.line_px * res.look.spacing).round();
@@ -1228,7 +1228,7 @@ impl ChatView {
 
   pub fn push(&mut self, mut msg: Message) {
     // seen is marked even with the glow off, so toggling it on doesn't light up regulars
-    if msg.kind != Kind::System && msg.system.is_none() {
+    if msg.kind.said() && msg.system.is_none() {
       let who = if msg.login.is_empty() { &msg.nick } else { &msg.login };
       if self.seen.first(who) && !msg.has(flag::FIRST) {
         msg.flags |= flag::NEW;
@@ -1290,14 +1290,14 @@ impl ChatView {
 
   // lines on show (system notices don't count as matches)
   pub fn found(&self) -> usize {
-    self.rows.iter().filter(|r| !r.hidden() && r.msg.kind != Kind::System).count()
+    self.rows.iter().filter(|r| !r.hidden() && r.msg.kind.said()).count()
   }
 
   // n / N: the next or previous match, wrapping; (place, of) for the status line. starts at the oldest (n)
   // or newest (N) like the ext
   pub fn search_step(&mut self, dir: i32, res: &mut Res, view_h: i32) -> Option<(usize, usize)> {
     let hits: Vec<usize> =
-      (0..self.rows.len()).filter(|&i| !self.rows[i].hidden() && self.rows[i].msg.kind != Kind::System).collect();
+      (0..self.rows.len()).filter(|&i| !self.rows[i].hidden() && self.rows[i].msg.kind.said()).collect();
     let n = hits.len() as i32;
     if n == 0 {
       return None;
@@ -1462,7 +1462,7 @@ impl ChatView {
       .rows
       .iter()
       .rev()
-      .filter(|r| r.msg.kind != Kind::System && !r.msg.nick.is_empty())
+      .filter(|r| r.msg.kind.said() && !r.msg.nick.is_empty())
       .map(|r| &*r.msg.nick)
       .filter(|n| seen.insert(*n))
       .take(300)
@@ -1474,7 +1474,7 @@ impl ChatView {
     let mut seen = HashSet::new();
     (self.rows.iter().rev())
       .take_while(|r| r.msg.ts >= since)
-      .filter(|r| r.msg.kind != Kind::System && !r.msg.nick.is_empty() && !r.muted())
+      .filter(|r| r.msg.kind.said() && !r.msg.nick.is_empty() && !r.muted())
       .map(|r| &*r.msg.nick)
       .filter(|n| seen.insert(*n))
       .take(cap)
@@ -1611,7 +1611,7 @@ impl ChatView {
     while left > 0 {
       i += step;
       let Some(r) = usize::try_from(i).ok().and_then(|j| self.rows.get(j)) else { break };
-      if r.msg.kind != Kind::System && !r.hidden() {
+      if r.msg.kind.said() && !r.hidden() {
         found = Some(i as usize);
         left -= 1;
       }
@@ -1678,7 +1678,7 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        if self.rows[i].msg.kind == Kind::System {
+        if !self.rows[i].msg.kind.said() {
           return false;
         }
         self.selected = Some(self.rows[i].seq);
@@ -1739,7 +1739,7 @@ impl ChatView {
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
         let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-        if m.kind == Kind::System || muted {
+        if !m.kind.said() || muted {
           return None;
         }
         let mut laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
@@ -1898,7 +1898,7 @@ impl ChatView {
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
         let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-        if m.kind == Kind::System {
+        if !m.kind.said() {
           return None;
         }
         let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
@@ -1937,7 +1937,7 @@ impl ChatView {
       .rows
       .iter()
       .rev()
-      .filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System && !r.msg.body.is_empty())
+      .filter(|r| &*r.msg.login == login && r.msg.kind.said() && !r.msg.body.is_empty())
       .take(n)
       .map(|r| (r.msg.ts, r.msg.body.clone()))
       .collect();

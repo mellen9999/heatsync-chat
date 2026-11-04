@@ -25,6 +25,16 @@ pub enum Kind {
   Action,
   // server/system line (timeouts, subs, raids, notices)
   System,
+  // a stream line (went live, switched game, offline): drawn under the streamer's name like a /me,
+  // but nobody said it, so it is never picked, replied to, moderated, logged or counted as chat
+  Event,
+}
+
+impl Kind {
+  // a person's line, as opposed to a notice or a stream line
+  pub fn said(self) -> bool {
+    matches!(self, Kind::Chat | Kind::Action)
+  }
 }
 
 pub mod flag {

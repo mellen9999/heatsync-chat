@@ -446,7 +446,7 @@ impl Logs {
   // a line the person says while it is open, at the bottom. false = not for this view (a search is
   // showing results, another room, or already here)
   pub fn push_live(&mut self, channel: &str, mut msg: Message) -> Option<Row> {
-    if self.query.is_some() || msg.kind == Kind::System || msg.body.is_empty() || msg.ts <= 0 {
+    if self.query.is_some() || !msg.kind.said() || msg.body.is_empty() || msg.ts <= 0 {
       return None;
     }
     let channel = room(channel)?;

@@ -18,7 +18,7 @@ pub(super) struct Count {
 impl App {
   // a live line landed in tab `i`, from room `room`
   pub(super) fn tally(&mut self, i: usize, room: &str, m: &Message) {
-    if !self.set.stream_stats || m.has(flag::HISTORY) || m.kind == crate::model::message::Kind::System {
+    if !self.set.stream_stats || m.has(flag::HISTORY) || !m.kind.said() {
       return;
     }
     let now = now_ms();

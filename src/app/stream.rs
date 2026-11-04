@@ -24,7 +24,7 @@ fn color(t: Tone) -> u32 {
 fn row(l: &Line, color: u32, user_id: Option<u64>) -> Message {
   let ink = self::color(l.tone);
   let mut m = Message::system(now_ms(), l.platform, "");
-  m.kind = MsgKind::Action;
+  m.kind = MsgKind::Event;
   m.login = l.channel.clone();
   m.nick = l.name.clone();
   m.color = color;
