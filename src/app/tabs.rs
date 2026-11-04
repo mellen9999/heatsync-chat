@@ -103,6 +103,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
     event: false,
     sources,
     target: 0,
+    send: Default::default(),
     under: None,
     count: Default::default(),
     stats: Default::default(),
@@ -288,7 +289,7 @@ impl App {
       }
       ChanCmd::Part => self.say("no channel to leave"),
       ChanCmd::Watch => match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()) {
-        Some(t) => self.watch(self.active, t.target),
+        Some(t) => self.watch(self.active, t.focus()),
         None => self.say("no channel to watch here"),
       },
     }

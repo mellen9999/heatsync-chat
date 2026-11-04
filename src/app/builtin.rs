@@ -45,6 +45,7 @@ fn make(kind: Kind) -> Tab {
     event: false,
     sources: Vec::new(),
     target: 0,
+    send: Default::default(),
     under: None,
     count: Default::default(),
     stats: Default::default(),

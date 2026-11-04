@@ -1,12 +1,11 @@
 // the message box: its hint, its mode, sending what is typed, and the slash commands that are ours
 
-use super::{App, LOGIN_HINT, Tag, screen};
+use super::{App, LOGIN_HINT, screen};
 use crate::model::message::Platform;
 use crate::model::settings::{Local, local_cmd};
 use crate::model::tabs::Kind;
 use crate::model::vi::Mode;
 use crate::model::{chan, whisper};
-use crate::net::Cmd;
 
 impl App {
   pub(super) fn hint(&self) -> String {
@@ -30,10 +29,14 @@ impl App {
     }
     let lead = if self.set.vi { "i type" } else { "type to chat" };
     let Some(me) = &self.me else { return format!("{LOGIN_HINT} · {lead}") };
-    let Some((p, ..)) = self.target() else { return lead.into() };
+    let Some((p, _)) = self.target() else { return lead.into() };
     // locked out of this room: the box says why (and for how long) instead of inviting you to type
     if let Some(l) = self.lock_here() {
       return l.text(super::now_ms());
+    }
+    // every feed the send reaches needs your account on it
+    if let Some((unlinked, _)) = self.legs().into_iter().find(|(l, _)| me.name_on(*l).is_none()) {
+      return format!("{} isn't linked · ctrl-l to link it", unlinked.name());
     }
     match me.name_on(p) {
       Some(name) => format!("{lead} as {name}"),
@@ -46,16 +49,11 @@ impl App {
     self.set.auto_hide && self.line.text.is_empty() && !self.ime.composing() && self.prompt.is_none()
   }
 
-  // where the input sends: the tab's target source, tagged when the tab merges platforms
-  pub(super) fn target(&self) -> Option<(Platform, &str, Option<Tag>)> {
+  // the feed the box speaks as (a send may reach more: `legs`)
+  pub(super) fn target(&self) -> Option<(Platform, &str)> {
     let t = self.tabs.get(self.active)?;
-    let (p, key) = t.sources.get(t.target)?;
-    let tag = match p {
-      Platform::Twitch => ("[T] ", crate::ui::theme::TWITCH),
-      Platform::Kick => ("[K] ", crate::ui::theme::GREEN),
-      Platform::Youtube => ("[Y] ", crate::ui::theme::RED),
-    };
-    Some((*p, key, (t.sources.len() > 1).then_some(tag)))
+    let (p, key) = t.sources.get(t.focus())?;
+    Some((*p, key))
   }
 
   pub(super) fn set_mode(&mut self, m: Mode) {
@@ -207,19 +205,36 @@ impl App {
     if self.kind() == Kind::Mentions {
       return self.say("mentions is read-only. open a line to answer it");
     }
-    let Some((platform, chan)) = self.target().map(|(p, k, _)| (p, Box::<str>::from(k))) else { return };
-    // a timeout has an end we know: say how long instead of sending a line that is sure to bounce (words stay)
-    if let Some(l) = self.lock_here().filter(|l| l.blocks()) {
-      return self.say(l.text(super::now_ms()));
+    let legs: Vec<(Platform, Box<str>)> = self.legs().into_iter().map(|(p, k)| (p, k.into())).collect();
+    if legs.is_empty() {
+      return;
+    }
+    // a timeout has an end we know: say how long instead of sending a line that is sure to bounce. the feeds
+    // that aren't timed out still get it, and the ones skipped are named (all of them: the words stay)
+    let now = super::now_ms();
+    let (open, shut): (Vec<_>, Vec<_>) =
+      legs.into_iter().partition(|(p, k)| self.me.is_none() || !self.locks.get(*p, k, now).is_some_and(|l| l.blocks()));
+    if open.is_empty() {
+      let (p, k) = &shut[0];
+      if let Some(l) = self.locks.get(*p, k, now) {
+        self.say(l.text(now));
+      }
+      return;
     }
     if let Some(text) = self.line.take() {
+      for (p, k) in &shut {
+        if let Some(l) = self.locks.get(*p, k, now) {
+          let why = l.text(now);
+          self.say(format!("skipped {}: {why}", p.name()));
+        }
+      }
       let reply = self.reply.take();
       if let Some(v) = self.view() {
         v.deselect();
       }
       let text = crate::model::emoji::convert(&text).into_owned();
       self.auto_add(&text);
-      self.net.send(Cmd::Send { platform, chan, text, reply });
+      self.fan_out(&open, &text, reply);
       if let Some(v) = self.view() {
         v.scroll_to_bottom();
       }

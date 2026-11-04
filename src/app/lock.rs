@@ -8,13 +8,19 @@ use crate::model::tabs::Kind;
 use crate::ui::theme;
 
 impl App {
-  // the lock on the leg the box sends to (chat tabs only; a signed-out box has nothing to be locked from)
+  // the lock on the feeds the box sends to (chat tabs only; a signed-out box has nothing to be locked from).
+  // with several feeds the box only speaks when every one is locked: while one is open the line can still go
   pub(super) fn lock_here(&self) -> Option<Lock> {
     if self.me.is_none() || self.kind() != Kind::Chat || self.logs_shown().is_some() || self.feedish() {
       return None;
     }
-    let (p, key, _) = self.target()?;
-    self.locks.get(p, key, now_ms()).copied()
+    let now = now_ms();
+    let legs = self.legs();
+    let locks: Vec<Lock> = legs.iter().filter_map(|(p, k)| self.locks.get(*p, k, now).copied()).collect();
+    if locks.len() < legs.len() {
+      return None;
+    }
+    locks.into_iter().next()
   }
 
   // red = out of the room, yellow = a rule of the room
@@ -172,11 +178,13 @@ mod tests {
     let (mut app, _rx) = boot(&["forsen kick:xqc"]);
     app.on_net(NetEvent::Lock(Platform::Kick, "xqc".into(), Some(Cause::Banned)));
     app.redraw();
-    // the box sends to the first leg (twitch): not locked
+    // the box sends to both legs: twitch is open, so it doesn't speak of kick's ban
     assert_eq!(app.target().map(|t| t.0), Some(Platform::Twitch));
     assert!(app.lock_here().is_none());
-    app.tabs[app.active].target = 1;
-    app.input_dirty = true;
+    // twitch alone: not locked. kick alone: the box says why
+    app.cycle_send();
+    assert!(app.lock_here().is_none());
+    app.cycle_send();
     assert_eq!(app.target().map(|t| t.0), Some(Platform::Kick));
     assert_eq!(app.lock_here().map(|l| l.cause), Some(Cause::Banned));
     // a kick send that went through frees it

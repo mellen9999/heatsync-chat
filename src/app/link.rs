@@ -42,7 +42,7 @@ impl App {
 
   // space w: the channel this tab sends to
   pub(super) fn watch_here(&mut self) {
-    match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()).map(|t| t.target) {
+    match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()).map(|t| t.focus()) {
       Some(n) => self.watch(self.active, n),
       None => self.say("no channel to watch here"),
     }

@@ -1,6 +1,7 @@
 // a key went down: the open layer takes it, else the box's mode (insert types, normal is vim on the box or the chat's own keys)
 
 use super::{App, screen};
+use crate::model::message::Platform;
 use crate::model::tabs::Kind;
 use crate::model::vi::{Action, Mode, Vi};
 use crate::net::{Cmd, Reply};
@@ -77,11 +78,7 @@ impl App {
       Key::Character("k") if ctrl => l.clear_to_end(),
       Key::Character("z") if ctrl => l.undo(),
       Key::Character("Z" | "y") if ctrl => l.redo(),
-      Key::Character("n") if ctrl => {
-        if let Some(t) = self.tabs.get_mut(self.active) {
-          t.target = (t.target + 1) % t.sources.len().max(1);
-        }
-      }
+      Key::Character("n") if ctrl => self.cycle_send(),
       Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !alt => {
         // mid-composition the input method owns the text; its commit arrives as an ime event
         if let Some(t) = text.filter(|_| self.ime.accepts_key_text()) {
@@ -117,6 +114,14 @@ impl App {
         if let Some(i) = self.nth_visible(if n == 0 { 9 } else { n - 1 }) {
           self.select(i);
         }
+      }
+      Key::Character(c @ ("t" | "k" | "y")) if alt && !ctrl => {
+        let p = match c {
+          "t" => Platform::Twitch,
+          "k" => Platform::Kick,
+          _ => Platform::Youtube,
+        };
+        return self.toggle_send(p);
       }
       Key::Named(NamedKey::PageDown) => self.scroll(-half * 2),
       Key::Named(NamedKey::PageUp) => self.scroll(half * 2),
@@ -282,8 +287,8 @@ impl App {
     if m.id.is_empty() {
       return self.say("that line can't be replied to");
     }
-    let reply = Reply { id: m.id.clone(), nick: m.nick.clone(), text: m.body.clone() };
     let p = m.platform;
+    let reply = Reply { platform: p, id: m.id.clone(), nick: m.nick.clone(), text: m.body.clone() };
     if let Some(i) = t.sources.iter().position(|s| s.0 == p) {
       t.target = i;
     }

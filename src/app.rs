@@ -57,6 +57,7 @@ mod render;
 mod resume;
 mod rover;
 mod screen;
+mod sendto;
 mod stats;
 mod status;
 mod stream;
@@ -70,6 +71,8 @@ mod tests_input;
 mod tests_pickers;
 #[cfg(test)]
 mod tests_screens;
+#[cfg(test)]
+mod tests_sendto;
 #[cfg(test)]
 mod tests_store;
 #[cfg(test)]
@@ -126,9 +129,6 @@ struct Gfx {
   surface: Surface<Rc<Window>, Rc<Window>>,
 }
 
-// platform tag text + color shown before the input on merged tabs
-type Tag = (&'static str, u32);
-
 struct Tab {
   name: Box<str>,
   kind: Kind,
@@ -138,8 +138,10 @@ struct Tab {
   event: bool,
   // every feed merged into this tab: (platform, routing key)
   sources: Vec<(Platform, Box<str>)>,
-  // which source the input sends to (ctrl-n cycles on merged tabs)
+  // the source the box speaks as (completions, the hint, watch): one of the feeds a send reaches
   target: usize,
+  // which feeds a send reaches (ctrl-n and alt-t/k/y on merged tabs); synced in the tab's entry
+  send: crate::model::sendto::Targets,
   // something took the tab over (a feed thread): `view` shows it, the tab's own lines wait here, still
   // filling, and the label reads `← back` until it closes
   under: Option<ChatView>,
@@ -305,6 +307,8 @@ pub struct App {
   mentions: Mentions,
   // what you sent through heatsync.org lately: its echo wears [H]
   origins: crate::model::origin::Origins,
+  // sends to several feeds, so their echoes fold into one line
+  sentfold: crate::model::sentfold::Sent,
   focused: bool,
   whisper: whispers::Whispers,
   unseen: crate::model::unseen::Unseen,
@@ -338,6 +342,7 @@ impl App {
         event: false,
         sources: Vec::new(),
         target: 0,
+        send: Default::default(),
         under: None,
         count: Default::default(),
         stats: Default::default(),
@@ -469,6 +474,7 @@ impl App {
       follow_colors: Default::default(),
       mentions: Mentions::default(),
       origins: Default::default(),
+      sentfold: Default::default(),
       focused: true,
       whisper: Default::default(),
       unseen: Default::default(),

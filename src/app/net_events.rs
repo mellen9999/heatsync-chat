@@ -38,6 +38,12 @@ impl App {
   }
 
   pub(super) fn on_relay(&mut self, p: Platform, key: &str, mut msgs: Vec<Message>, history: bool) {
+    // your own line sent to several feeds comes back from each: one shows, the other feeds' copies fold into it
+    if !history {
+      let (sent, mine) = (&mut self.sentfold, &self.mentions);
+      let now = now_ms();
+      msgs.retain(|m| !(m.kind.said() && mine.mine(m) && sent.folds(now, p, &m.body)));
+    }
     for m in &mut msgs {
       if history {
         m.flags |= flag::HISTORY;
@@ -139,6 +145,9 @@ impl App {
   pub(super) fn on_chat(&mut self, ch: &str, ev: Chat) {
     let ev = match ev {
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
+        if self.echo_folded(Platform::Twitch, &m) {
+          return;
+        }
         if self.res.chatters.heard(&m) {
           for v in self.tabs.iter_mut().flat_map(Tab::views) {
             v.adopt_id(&m.login, &m.user_id);

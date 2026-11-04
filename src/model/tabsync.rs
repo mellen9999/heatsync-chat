@@ -13,6 +13,7 @@ use std::collections::VecDeque;
 use serde_json::{Map, Value, json};
 
 use crate::model::chan::{self, Spec};
+use crate::model::sendto::Targets;
 
 // the server refuses a longer list (handleMultichatSync)
 pub const MAX_CHANNELS: usize = 50;
@@ -177,6 +178,34 @@ impl TabSync {
     self.pending.clear();
     self.set_list(f.list);
     Some(self.tabs())
+  }
+
+  // what the account says a tab sends to (the ext's `sendTargets` in its entry); untouched when it has none
+  pub fn targets_of(&self, s: &Spec) -> Targets {
+    let e = self.list.iter().find(|e| e.tab && spec(&e.raw) == *s);
+    Targets::from_value(e.and_then(|e| e.raw.get("sendTargets")))
+  }
+
+  // the tabs' choices written into their entries, in the ext's shape (other keys stay). Some(the list to
+  // send) when an entry changed, None when the account has them already or a tab has no entry yet
+  pub fn apply_targets(&mut self, want: &[(Spec, Targets)]) -> Option<Vec<Value>> {
+    let mut changed = false;
+    for (s, t) in want {
+      if let Some(e) = self.list.iter_mut().find(|e| e.tab && spec(&e.raw) == *s) {
+        let before = e.raw.clone();
+        t.write(&mut e.raw);
+        changed |= e.raw != before;
+      }
+    }
+    if !changed {
+      return None;
+    }
+    let vals = self.values();
+    if self.pending.len() == MAX_PENDING {
+      self.pending.pop_front();
+    }
+    self.pending.push_back(vals.clone());
+    Some(vals)
   }
 
   // the list to send for your channel tabs (in order), or None when the account has it already
@@ -430,6 +459,32 @@ mod tests {
     // removed: gone, everything else as it was
     let out = s.outbound(&[tabs[0].clone()], 9).unwrap();
     assert_eq!(out, [list[0].clone(), list[1].clone()]);
+  }
+
+  #[test]
+  fn a_tabs_send_choice_is_read_and_written_in_the_exts_shape() {
+    use crate::model::message::Platform;
+    let mut s = TabSync::default();
+    let list = json!([
+      {"id": "forsen", "twitch": "forsen", "kick": "forsen", "sendTargets": {"kick": false}, "preview": true},
+      {"id": "xqc", "twitch": "xqc"},
+    ]);
+    s.inbound("me", fr(list, None));
+    let (f, x) = (sp("forsen", "forsen", ""), sp("xqc", "", ""));
+    let both = [Platform::Twitch, Platform::Kick];
+    assert_eq!(s.targets_of(&f).resolve(&both), [Platform::Twitch]);
+    assert_eq!(s.targets_of(&x), Targets::default());
+    // flipping it here writes the ext's keys, keeps the rest, and goes up once
+    let t = s.targets_of(&f).toggled(&both, Platform::Kick).unwrap();
+    let out = s.apply_targets(&[(f.clone(), t), (x.clone(), Targets::default())]).unwrap();
+    assert_eq!(out[0]["sendTargets"], json!({"kick": true}));
+    assert_eq!(out[0]["preview"], json!(true));
+    assert_eq!(out[1], json!({"id": "xqc", "twitch": "xqc"}), "an untouched tab writes nothing");
+    assert_eq!(s.apply_targets(&[(f.clone(), t)]), None, "nothing new, nothing sent");
+    // our own echo of it changes nothing; reordering carries the choice with its entry
+    assert!(s.inbound("me", fr(Value::Array(out), None)).is_none());
+    let out = s.outbound(&[x, f], 0).unwrap();
+    assert_eq!(out[1]["sendTargets"], json!({"kick": true}));
   }
 
   #[test]

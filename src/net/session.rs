@@ -474,7 +474,7 @@ impl State {
       Some(t) => super::youtube::send(&self.http, t, &chan, &text).await.err(),
     };
     if let Some(why) = why {
-      let m = Message::system(now_ms(), Platform::Youtube, format!("not sent: {why}"));
+      let m = Message::system(now_ms(), Platform::Youtube, format!("not sent to youtube: {why}"));
       self.out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
     }
   }
@@ -493,7 +493,7 @@ impl State {
       self.out.send(NetEvent::Lock(Platform::Kick, chan.clone(), cause));
     }
     if let Some(why) = why {
-      let m = Message::system(now_ms(), Platform::Kick, format!("not sent: {why}"));
+      let m = Message::system(now_ms(), Platform::Kick, format!("not sent to kick: {why}"));
       self.out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });
     }
   }

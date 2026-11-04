@@ -383,8 +383,10 @@ pub fn retrying(out: &Out, why: &str, attempt: u32, wait: Duration) {
   }
 }
 
-// the line being answered: its platform message id, and @nick + its words for our own echo
+// the line being answered: its platform, its message id, and @nick + its words for our own echo
 pub struct Reply {
+  // the platform the line came from: only its own leg threads the reply
+  pub platform: Platform,
   pub id: Box<str>,
   pub nick: Box<str>,
   pub text: Box<str>,

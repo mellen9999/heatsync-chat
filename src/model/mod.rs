@@ -46,6 +46,8 @@ pub mod reasons;
 pub mod rules;
 pub mod schema;
 pub mod seen;
+pub mod sendto;
+pub mod sentfold;
 pub mod settings;
 pub mod slash;
 pub mod stats;

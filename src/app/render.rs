@@ -1,6 +1,7 @@
 // the frame: what a redraw paints, how it reaches the window, and the canvas following the window's size
 
 use super::{ANIM_MIN_MS, App, LOGIN_HINT, Tab, screen};
+use crate::model::message::Platform;
 use crate::model::settings::Counter;
 use crate::model::tabs::Kind;
 use crate::model::vi::Mode;
@@ -75,21 +76,22 @@ impl App {
       // the picture view is no place to type (ext): the box steps aside
       let hidden = self.hidden() || self.img_view.is_some();
       let tag = match &self.prompt {
-        Some(_) if self.find.on => Some(("find: ", crate::ui::theme::YELLOW)),
-        Some(_) => Some(("path: ", crate::ui::theme::YELLOW)),
-        None => self.target().and_then(|t| t.2),
+        Some(_) if self.find.on => vec![("find: ", crate::ui::theme::YELLOW)],
+        Some(_) => vec![("path: ", crate::ui::theme::YELLOW)],
+        None => self.send_tag(),
       };
       let reply = self.reply.as_ref().filter(|_| self.prompt.is_none()).map(|r| &*r.nick);
       // past what the platform takes, the words go red (ext updateCharCount)
       let typed = &self.line.text;
-      let over = match (&self.prompt, self.target()) {
-        (None, Some((p, ..))) => typed.char_indices().nth(p.max_chars()).map_or(typed.len(), |(i, _)| i),
+      let legs: Vec<Platform> = self.legs().into_iter().map(|l| l.0).collect();
+      let over = match (&self.prompt, legs.is_empty()) {
+        (None, false) => typed.char_indices().nth(crate::model::sendto::limit(&legs)).map_or(typed.len(), |(i, _)| i),
         _ => usize::MAX,
       };
       let bar = input_bar::Bar {
         line: self.prompt.as_ref().unwrap_or(&self.line),
         mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
-        target: tag,
+        target: &tag,
         hint: &hint,
         hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
         over,

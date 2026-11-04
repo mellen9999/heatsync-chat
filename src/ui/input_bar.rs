@@ -31,7 +31,8 @@ pub struct Bar<'a> {
   pub line: &'a Line,
   pub mode: Mode,
   // e.g. ("[K] ", GREEN) when the tab merges platforms
-  pub target: Option<(&'a str, u32)>,
+  // the tag before the line, in pieces each with its own ink (a trailing space is not inked)
+  pub target: &'a [(&'a str, u32)],
   pub hint: &'a str,
   // the hint's color: dim, or red/yellow when the room won't let you chat
   pub hint_ink: u32,
@@ -132,9 +133,10 @@ fn span_rect(l: &TextLayout, range: Range<usize>, ox: f32, oy: f32) -> Option<Re
 fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   let mut s = String::new();
   let mut spans = Vec::with_capacity(2);
-  if let Some((tag, ink)) = b.target {
+  for (tag, ink) in b.target {
+    let a = s.len();
     s.push_str(tag);
-    spans.push(Span { range: 0..tag.len().saturating_sub(1), ink: Ink(ink), bold: true });
+    spans.push(Span { range: a..a + tag.trim_end().len(), ink: Ink(*ink), bold: true });
   }
   if b.edit {
     let a = s.len();

@@ -5,6 +5,7 @@
 use super::tabs::{make_tab, seat_hosts, spec_of};
 use super::{App, Tab};
 use crate::model::chan::Spec;
+use crate::model::sendto::Targets;
 use crate::model::tabs::Kind;
 use crate::model::tabsync::{Frame, TabSync};
 use crate::net::Cmd;
@@ -66,9 +67,39 @@ impl App {
       self.tabsync.owed = true;
       return;
     }
+    let mut sent = false;
     if let Some(list) = self.tabsync.outbound(&self.channel_specs(), now_ms()) {
       self.net.send(Cmd::Hs(HsCmd::TabSync(list)));
+      sent = true;
+    }
+    // a tab's send choice goes into its entry, a new one included
+    if let Some(list) = self.tabsync.apply_targets(&self.channel_targets()) {
+      self.net.send(Cmd::Hs(HsCmd::TabSync(list)));
+      sent = true;
+    }
+    if sent {
       let _ = store::write(SAVED, &self.tabsync.saved(&user));
+    }
+  }
+
+  fn channel_targets(&self) -> Vec<(Spec, Targets)> {
+    self.tabs.iter().filter(|t| is_channel(t)).map(|t| (spec_of(t), t.send)).collect()
+  }
+
+  // the active tab's send choice changed (ctrl-n, alt-t/k/y): into its entry and up to the account
+  pub(super) fn send_targets_up(&mut self) {
+    self.tab_sync_push();
+  }
+
+  // the account's choices onto the tabs we have, whatever else its frame changed
+  fn pull_targets(&mut self) {
+    let sync = &self.tabsync;
+    for t in self.tabs.iter_mut().filter(|t| is_channel(t)) {
+      let got = sync.targets_of(&spec_of(t));
+      if got != t.send {
+        t.send = got;
+        t.target = t.legs().first().copied().unwrap_or(0);
+      }
     }
   }
 
@@ -78,6 +109,8 @@ impl App {
     let Some(want) = self.tabsync.inbound(&user, f) else { return };
     let _ = store::write(SAVED, &self.tabsync.saved(&user));
     self.lay_tabs(&want);
+    self.pull_targets();
+    self.input_dirty = true;
   }
 
   // make the channel tabs these, in this order: a tab already open keeps its lines, a new one joins, a gone
