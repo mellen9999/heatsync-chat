@@ -9,6 +9,17 @@ pub fn offline(what: &str, why: impl std::fmt::Display) -> String {
   format!("can't reach {what}")
 }
 
+// an http status as a short, plain sentence for the screen (when the server gave no words of its own)
+pub fn plain_status(code: u16) -> String {
+  match code {
+    401 => "you're logged out, log in again (ctrl-l)".into(),
+    403 => "heatsync said no".into(),
+    429 => "slow down, try again in a bit".into(),
+    500.. => "heatsync is having trouble, try again soon".into(),
+    _ => format!("that didn't work (heatsync said {code})"),
+  }
+}
+
 // the body whatever its status (callers that read an error body), abandoned as soon as it passes `max`
 pub async fn read(mut r: reqwest::Response, max: usize) -> Result<Vec<u8>, String> {
   if r.content_length().is_some_and(|n| n > max as u64) {
@@ -95,6 +106,18 @@ mod tests {
     assert_eq!(capped(c.get(&u).send().await, 10).await.unwrap_err(), "http 404");
     let u = serve("200 OK", br#"{"a":1}"#.to_vec(), false).await;
     assert_eq!(capped_json(c.get(&u).send().await, 100).await.unwrap()["a"], 1);
+  }
+
+  #[test]
+  fn statuses_read_plain_for_the_screen() {
+    for code in [0u16, 400, 401, 403, 404, 429, 500, 503, 599] {
+      let s = plain_status(code);
+      assert!(!s.starts_with("http"), "{code}: {s}");
+      assert_eq!(s, s.to_lowercase(), "{code}: lowercase");
+    }
+    assert!(plain_status(503).contains("try again"));
+    assert!(plain_status(401).contains("ctrl-l"));
+    assert_eq!(offline("twitch", "connection refused (os error 111)"), "can't reach twitch");
   }
 
   #[test]

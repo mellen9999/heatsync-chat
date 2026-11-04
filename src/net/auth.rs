@@ -31,7 +31,9 @@ fn b64url(b: &[u8]) -> String {
 
 fn random(n: usize) -> Result<Vec<u8>, String> {
   let mut b = vec![0u8; n];
-  SystemRandom::new().fill(&mut b).map_err(|_| "no system randomness".to_string())?;
+  SystemRandom::new()
+    .fill(&mut b)
+    .map_err(|_| "couldn't start the login (no randomness on this system)".to_string())?;
   Ok(b)
 }
 
@@ -119,8 +121,12 @@ fn login_url(provider: Provider, port: u16, p: &Pkce, pack: &str, link: Option<&
 
 // trades the signed-in session for a one-time ticket that lets a browser flow link onto this account
 async fn link_ticket(http: &reqwest::Client, token: &str) -> Result<String, String> {
-  let r =
-    http.post(format!("{ORIGIN}/api/auth/native-link")).bearer_auth(token).send().await.map_err(|e| e.to_string())?;
+  let r = http
+    .post(format!("{ORIGIN}/api/auth/native-link"))
+    .bearer_auth(token)
+    .send()
+    .await
+    .map_err(|e| http::offline("heatsync", e))?;
   let ok = r.status().is_success();
   let expired = is_expired(r.status().as_u16());
   let v = body(r).await.unwrap_or(Value::Null);
@@ -145,8 +151,8 @@ pub async fn login(
     None => None,
   };
   let p = pkce()?;
-  let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("loopback: {e}"))?;
-  let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+  let listener = TcpListener::bind("127.0.0.1:0").await.map_err(no_port)?;
+  let port = listener.local_addr().map_err(no_port)?.port();
   let done = if ticket.is_some() {
     "linked. you can close this tab"
   } else {
@@ -191,6 +197,12 @@ async fn wait_for_callback(listener: TcpListener, state: &str, done: &str, wait:
   .map_err(|_| "login timed out".to_string())
 }
 
+// the login needs a local port for the browser to come back to
+fn no_port(e: std::io::Error) -> String {
+  eprintln!("login loopback: {e}");
+  "couldn't start the login (no free local port)".to_string()
+}
+
 async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<String, String> {
   let r = http
     .post(format!("{ORIGIN}/api/auth/native-exchange"))
@@ -198,7 +210,7 @@ async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<
     .body(json!({ "code": code, "verifier": verifier }).to_string())
     .send()
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| http::offline("heatsync", e))?;
   let ok = r.status().is_success();
   let v = body(r).await?;
   match v.get("token").and_then(Value::as_str) {
@@ -208,7 +220,10 @@ async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<
 }
 
 async fn body(r: reqwest::Response) -> Result<Value, String> {
-  http::read_json(r, MAX_REPLY).await
+  http::read_json(r, MAX_REPLY).await.map_err(|e| {
+    eprintln!("heatsync reply: {e}");
+    "heatsync sent back something unreadable".to_string()
+  })
 }
 
 // a jwt: three base64url segments, bounded
@@ -223,7 +238,10 @@ fn open_browser(url: &str) -> Result<(), String> {
     .stderr(std::process::Stdio::null())
     .spawn()
     .map(drop)
-    .map_err(|e| format!("couldn't open a browser (xdg-open: {e})"))
+    .map_err(|e| {
+      eprintln!("login browser: {e}");
+      "couldn't open your browser, so the login can't start".to_string()
+    })
 }
 
 pub struct Me {

@@ -265,7 +265,7 @@ async fn session(
       }
       _ = beat.tick() => {
         if last_rx.elapsed() > IDLE_LIMIT {
-          out.status("heatsync silent, reconnecting");
+          out.status("heatsync went quiet, reconnecting");
           return End::Reconnect;
         }
         if tx.send(Ws::text(r#"{"type":"presence:heartbeat"}"#)).await.is_err() {

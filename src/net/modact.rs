@@ -115,7 +115,7 @@ async fn act(http: &reqwest::Client, token: &str, r: &Req) -> Result<(), Fail> {
     .body(body(r, &room, user.as_deref()).to_string())
     .send()
     .await
-    .map_err(|e| Fail::Other(e.to_string()))?;
+    .map_err(|e| Fail::Other(http::offline("heatsync", e)))?;
   let status = resp.status().as_u16();
   let v: Value = http::read_json(resp, MAX_REPLY).await.unwrap_or(Value::Null);
   classify(status, &v)
@@ -134,7 +134,7 @@ pub fn classify(status: u16, v: &Value) -> Result<(), Fail> {
     429 => Fail::Other("slow down".into()),
     0 => Fail::Other("no answer from heatsync".into()),
     403 => Fail::Other("you're not a mod here".into()),
-    _ if err.is_empty() => Fail::Other(format!("http {status}")),
+    _ if err.is_empty() => Fail::Other(http::plain_status(status)),
     _ => Fail::Other(err.chars().take(100).collect()),
   })
 }

@@ -517,7 +517,7 @@ async fn kick_send(
     .body(body.to_string())
     .send()
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| http::offline("heatsync", e))?;
   if r.status().is_success() {
     return Ok(());
   }
@@ -529,7 +529,7 @@ async fn kick_send(
     Some("token_expired") => "kick login expired, re-link on heatsync.org".into(),
     Some("rate_limited") => "slow down".into(),
     _ => {
-      v.get("error").and_then(Value::as_str).map_or_else(|| format!("http {code}"), |e| e.chars().take(100).collect())
+      v.get("error").and_then(Value::as_str).map_or_else(|| http::plain_status(code), |e| e.chars().take(100).collect())
     }
   })
 }

@@ -29,8 +29,7 @@ pub fn explain(code: Option<&str>, status: u16) -> String {
     Some("rate_limited") => "slow down".into(),
     Some("rejected") => "youtube refused the message (slow mode, members only, or you're banned here)".into(),
     Some("upstream") => "youtube isn't answering, try again".into(),
-    _ if status == 401 => "session expired, log in again (ctrl-l)".into(),
-    _ => format!("couldn't send (http {status})"),
+    _ => format!("couldn't send: {}", http::plain_status(status)),
   }
 }
 
@@ -50,7 +49,7 @@ pub async fn send(http: &reqwest::Client, token: &str, chan: &str, text: &str) -
     .body(body(chan, text).to_string())
     .send()
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| http::offline("heatsync", e))?;
   if r.status().is_success() {
     return Ok(());
   }
@@ -97,9 +96,9 @@ mod tests {
 
   #[test]
   fn unknown_failures_stay_plain() {
-    assert_eq!(explain(None, 401), "session expired, log in again (ctrl-l)");
-    assert_eq!(explain(Some("???"), 500), "couldn't send (http 500)");
-    assert_eq!(explain(None, 502), "couldn't send (http 502)");
+    assert_eq!(explain(None, 401), "couldn't send: you're logged out, log in again (ctrl-l)");
+    assert_eq!(explain(Some("???"), 500), "couldn't send: heatsync is having trouble, try again soon");
+    assert_eq!(explain(None, 502), "couldn't send: heatsync is having trouble, try again soon");
   }
 
   #[test]

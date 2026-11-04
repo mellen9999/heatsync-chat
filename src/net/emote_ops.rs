@@ -28,9 +28,9 @@ pub enum EmoteCmd {
 async fn read(mut r: reqwest::Response, max: usize) -> Result<(u16, Value), String> {
   let code = r.status().as_u16();
   let mut buf = Vec::new();
-  while let Some(c) = r.chunk().await.map_err(|e| e.to_string())? {
+  while let Some(c) = r.chunk().await.map_err(|e| super::http::offline("heatsync", e))? {
     if buf.len() + c.len() > max {
-      return Err("response too large".into());
+      return Err("heatsync sent back too much".into());
     }
     buf.extend_from_slice(&c);
   }
@@ -38,7 +38,9 @@ async fn read(mut r: reqwest::Response, max: usize) -> Result<(u16, Value), Stri
 }
 
 fn why(code: u16, v: &Value) -> String {
-  v.get("error").and_then(Value::as_str).map_or_else(|| format!("http {code}"), |e| e.chars().take(100).collect())
+  v.get("error")
+    .and_then(Value::as_str)
+    .map_or_else(|| super::http::plain_status(code), |e| e.chars().take(100).collect())
 }
 
 fn ok(code: u16) -> bool {
@@ -191,7 +193,7 @@ async fn add(
 }
 
 async fn result(r: Result<reqwest::Response, reqwest::Error>) -> Result<Value, String> {
-  let (code, v) = read(r.map_err(|e| e.to_string())?, MAX_LIST).await?;
+  let (code, v) = read(r.map_err(|e| super::http::offline("heatsync", e))?, MAX_LIST).await?;
   if ok(code) { Ok(v) } else { Err(why(code, &v)) }
 }
 

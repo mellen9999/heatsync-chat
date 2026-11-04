@@ -92,7 +92,7 @@ pub fn classify(status: u16, v: Value) -> Result<Value, Fail> {
     400 | 404 => Fail::Gone,
     403 => Fail::NotMod,
     429 => Fail::Other("slow down".into()),
-    _ => Fail::Other(format!("http {status}").into()),
+    _ => Fail::Other(super::http::plain_status(status).into()),
   })
 }
 
@@ -112,6 +112,6 @@ mod tests {
     assert_eq!(classify(401, json!({"error": "unauthorized"})), Err(Fail::Auth));
     assert_eq!(classify(404, json!({"error": "gone"})), Err(Fail::Gone));
     assert_eq!(classify(403, json!({"error": "not_moderator"})), Err(Fail::NotMod));
-    assert_eq!(classify(502, Value::Null), Err(Fail::Other("http 502".into())));
+    assert_eq!(classify(502, Value::Null), Err(Fail::Other("heatsync is having trouble, try again soon".into())));
   }
 }

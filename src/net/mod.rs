@@ -701,7 +701,10 @@ impl Net {
     let spawned = std::thread::Builder::new().name("net".into()).spawn(move || {
       let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
-        Err(e) => return out.status(format!("network runtime failed: {e}")),
+        Err(e) => {
+          eprintln!("network runtime: {e}");
+          return out.status("can't start the network, restart heatsync-chat");
+        }
       };
       let o = out.clone();
       if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rt.block_on(main(rx, o)))).is_err() {
@@ -944,6 +947,23 @@ mod tests {
       let _ = s.write_all(reply.as_bytes()).await;
     });
     addr
+  }
+
+  #[test]
+  fn an_outage_is_a_few_plain_lines_that_say_what_happens_next() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    for attempt in 1..=10 {
+      retrying(&out, "can't reach twitch", attempt, Duration::from_millis(7600));
+    }
+    let said: Vec<String> =
+      rx.try_iter().filter_map(|e| if let NetEvent::Status(s) = e { Some(s) } else { None }).collect();
+    assert_eq!(said.len(), 5, "attempts 1, 2, 3, 5 and 10: {said:?}");
+    assert_eq!(said[0], "can't reach twitch, trying again in 8s");
+    assert_eq!(secs(Duration::from_millis(100)), 1, "never 0s");
+    for s in &said {
+      assert_eq!(*s, s.to_lowercase());
+    }
   }
 
   #[test]

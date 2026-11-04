@@ -50,7 +50,10 @@ pub fn play(url: &str, status: impl FnOnce(String) + Send + 'static) -> Result<(
     .stdout(Stdio::null())
     .stderr(Stdio::null())
     .spawn()
-    .map_err(|e| format!("couldn't start mpv ({e})"))?;
+    .map_err(|e| {
+      eprintln!("mpv: {e}");
+      "couldn't start mpv".to_string()
+    })?;
   let url = url.to_owned();
   std::thread::spawn(move || {
     // 1: mpv failed, 2: it couldn't play the link. a quit or a closed window is 0
@@ -72,7 +75,10 @@ pub fn open_url(url: &str) -> Result<(), String> {
     .stdout(Stdio::null())
     .stderr(Stdio::null())
     .spawn()
-    .map_err(|e| format!("couldn't open the link (xdg-open: {e})"))?;
+    .map_err(|e| {
+      eprintln!("xdg-open: {e}");
+      "couldn't open the link, this system has no link opener (xdg-open)".to_string()
+    })?;
   // reap it so it never lingers as a zombie
   std::thread::spawn(move || _ = child.wait());
   Ok(())
