@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use serde_json::Value;
 
 use super::message::{Extra, HsEmote, Kind, Message, Placed, Platform, Seg, flag};
-use crate::heatsync::valid_name;
+use crate::heatsync::{inventory_url, valid_name};
 use crate::images::url::allowed;
 use crate::model::color;
 use crate::ui::theme;
@@ -209,7 +209,9 @@ fn html_emotes(html: &str, message: &str) -> (Box<[Placed]>, Box<[HsEmote]>) {
     let (Some(src), Some(alt)) = (attr(tag, "src"), attr(tag, "alt")) else { return none() };
     let mut word = String::new();
     unescape(alt, &mut word);
-    let url = emote_url(src);
+    // a heatsync inventory emote is not the render's to hand us: the word stays plain text and draws
+    // only if the sender's own set has it (the one gate, ui::chat_view::resolve)
+    let url = emote_url(src).filter(|u| !inventory_url(u));
     let start = plain.len() as u32;
     plain.push_str(&word);
     let Some(url) = url.filter(|_| valid_name(&word) && placed.len() + over.len() < MAX_EMOTES) else { continue };
@@ -625,7 +627,7 @@ mod tests {
 
   #[test]
   fn emotes_come_from_the_servers_render_and_only_when_it_matches_the_text() {
-    let html = "hi <img class=\"hs-archive-emote\" src=\"/e/7tv/01ABC\" alt=\"LUL\" title=\"LUL\"> &amp; <img class=\"hs-archive-emote zw\" src=\"/e/hs/zz-1\" alt=\"wide\"> x";
+    let html = "hi <img class=\"hs-archive-emote\" src=\"/e/7tv/01ABC\" alt=\"LUL\" title=\"LUL\"> &amp; <img class=\"hs-archive-emote zw\" src=\"/e/7tv/zz-1\" alt=\"wide\"> x";
     let msg = "hi LUL & wide x";
     let (placed, over) = html_emotes(html, msg);
     assert_eq!(placed.len(), 1);
@@ -659,6 +661,25 @@ mod tests {
     let many = "<img src=\"/e/7tv/1\" alt=\"A\">".repeat(80);
     let (p, _) = html_emotes(&many, &"A".repeat(80));
     assert_eq!(p.len(), MAX_EMOTES, "bounded");
+  }
+
+  // privacy invariant: a heatsync emote draws iff the SENDER's own set has it. the render's `/e/hs/…`
+  // images (and uploads, the cdn) are therefore plain words here, zero-width ones too; the provider
+  // mirrors stay the channel's emotes
+  #[test]
+  fn the_renders_heatsync_inventory_emotes_are_not_trusted() {
+    let html = "<img src=\"/e/hs/abc\" alt=\"kek\"> <img class=\"zw\" src=\"/e/hs/zz\" alt=\"wide\"> \
+      <img src=\"https://cdn.heatsync.org/uploads/a.webp\" alt=\"up\"> \
+      <img src=\"https://heatsync.org/uploads/b.webp\" alt=\"up2\"> <img src=\"/e/ffz/7\" alt=\"LUL\">";
+    let (placed, over) = html_emotes(html, "kek wide up up2 LUL");
+    assert!(over.is_empty(), "no zero-width inventory overlay");
+    assert_eq!(placed.len(), 1, "only the provider mirror");
+    assert_eq!(&*placed[0].1, "https://heatsync.org/e/ffz/7");
+    let v = json!({"message": "kek wide", "timestamp": "2026-10-30T20:00:00Z",
+      "message_html": "<img src=\"/e/hs/abc\" alt=\"kek\"> <img class=\"zw\" src=\"/e/hs/zz\" alt=\"wide\">"});
+    let m = parse_row(&v, &who()).unwrap().msg;
+    assert_eq!(&*m.body, "kek wide");
+    assert!(m.emotes.is_empty() && m.hs.is_empty(), "the words are left for the sender's own set to claim");
   }
 
   #[test]

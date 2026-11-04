@@ -1120,7 +1120,10 @@ fn body(
 // the word at body bytes a..b as an emote: twitch's own by position, else by name
 fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &str) -> Option<Found> {
   let sender = (m.platform == Platform::Twitch).then(|| m.user_id.parse::<u64>().ok()).flatten();
-  match m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b) {
+  // a placed emote is the platform's own (twitch tags, kick tokens, an archive's provider mirrors). a
+  // heatsync inventory image never is, whoever placed it: it goes through `resolve` like any other word
+  let placed = m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b);
+  match placed.filter(|(_, url)| !crate::heatsync::inventory_url(url)) {
     Some((_, url)) => Some((url.clone(), (0, 0), false, Scope::Native)),
     None if word.is_empty() => None,
     None => resolve(res, chan, m, sender, word),
@@ -3120,6 +3123,47 @@ mod tests {
     own.flags |= flag::OWN;
     assert_eq!(resolve(&mut res, "c", &own, None, "delloreat").map(|f| f.0.to_string()).as_deref(), Some(url));
     assert!(resolve(&mut res, "c", &plain("b", "delloreat"), None, "delloreat").is_none(), "someone else's line");
+  }
+
+  // privacy invariant, archived lines: the archive's own render may name a heatsync emote, but it draws
+  // only while the SENDER's set has it (in its window, with the switch on) — the one gate. a provider
+  // emote in the same render draws as before
+  #[test]
+  fn archived_heatsync_emotes_draw_only_from_the_senders_own_set() {
+    use crate::model::logs::{Who, parse_row};
+    let mut res = Res::new(1.0);
+    let who = Who { platform: Platform::Twitch, login: "bob".into(), nick: "bob".into(), user_id: "42".into() };
+    let row = serde_json::json!({"message": "kek LUL", "timestamp": "2026-10-30T22:30:00.000Z",
+      "message_html": "<img src=\"/e/hs/abc\" alt=\"kek\"> <img src=\"/e/7tv/9\" alt=\"LUL\">"});
+    let m = parse_row(&row, &who).unwrap().msg;
+    let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 400, NO_OPTS).boxes.len();
+    assert_eq!(n(&mut res, &m), 1, "the render's word is not enough: kek stays text, LUL is the channel's");
+    res.senders.lookup(42, "kek", m.ts);
+    let owns = |from: &str| {
+      let row = serde_json::json!({"custom_name": "kek", "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32,
+        "height": 32, "added_at": from});
+      crate::heatsync::senders::parse_set(&serde_json::json!([row]))
+    };
+    // they added it after this line: not theirs yet
+    res.senders.put(42, owns("2026-11-01T00:00:00.000Z"));
+    assert_eq!(n(&mut res, &m), 1);
+    res.senders.put(42, owns("2026-10-30T22:26:51.099Z"));
+    assert_eq!(n(&mut res, &m), 2, "theirs when they said it");
+    res.look.inventory_emotes = false;
+    assert_eq!(n(&mut res, &m), 1, "the switch off: only the channel's");
+    res.look.inventory_emotes = true;
+    // someone else's set never reaches this sender's line
+    let mut other = m.clone();
+    other.user_id = "43".into();
+    assert_eq!(n(&mut res, &other), 1);
+    // and a heatsync image placed on a line by position (any producer) goes the same road
+    let mut placed = plain("p", "kek hi");
+    placed.user_id = "44".into();
+    placed.ts = m.ts;
+    placed.emotes = Box::new([(0..3, "https://heatsync.org/e/hs/abc".into())]);
+    assert_eq!(n(&mut res, &placed), 0, "not 44's");
+    placed.emotes = Box::new([(0..3, "https://heatsync.org/e/7tv/abc".into())]);
+    assert_eq!(n(&mut res, &placed), 1, "a provider mirror placed by position is native");
   }
 
   // linksEnabled: off, a url is plain text, not a link and not a partial one either
