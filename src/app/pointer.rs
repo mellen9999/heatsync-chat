@@ -6,6 +6,19 @@ use crate::model::tabs::Kind;
 use crate::model::vi::Mode;
 use crate::ui::input_bar;
 
+// which of the buttons the pointer is on: the logo and upload buttons and the "log in" link in the input
+// box, then the tab bar's + gear ? and update buttons
+#[derive(Default)]
+pub(super) struct Hover {
+  pub(super) btn: bool,
+  pub(super) up: bool,
+  pub(super) link: bool,
+  pub(super) plus: bool,
+  pub(super) gear: bool,
+  pub(super) keys: bool,
+  pub(super) update: bool,
+}
+
 impl App {
   // click a line to select it; click the input to type
   pub(super) fn click(&mut self) {
@@ -96,8 +109,8 @@ impl App {
   // the pointer moved: the box's buttons light up while it is on them
   pub(super) fn input_hover(&mut self) {
     let (over, up, link) = (self.over_button(), self.over_upload(), self.over_login());
-    if over != self.btn_hover || up != self.up_hover || link != self.link_hover {
-      (self.btn_hover, self.up_hover, self.link_hover) = (over, up, link);
+    if over != self.hover.btn || up != self.hover.up || link != self.hover.link {
+      (self.hover.btn, self.hover.up, self.hover.link) = (over, up, link);
       self.input_dirty = true;
       self.wake();
     }

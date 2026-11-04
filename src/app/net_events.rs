@@ -230,7 +230,7 @@ impl App {
       NetEvent::Lists(l) => self.on_lists(l),
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
       NetEvent::Whispers { items, live, epoch } => {
-        if whisper::current(epoch, self.whisper_epoch) {
+        if whisper::current(epoch, self.whisper.epoch) {
           self.on_whispers(items, live)
         }
       }

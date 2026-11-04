@@ -10,6 +10,14 @@ use crate::ui::canvas::Rect;
 use crate::ui::card::View;
 use crate::ui::{peek, theme};
 
+// #tag hover cards: what heatsync said, the open one, and when a resting pointer asks
+#[derive(Default)]
+pub(super) struct TagUi {
+  pub(super) cards: tagcard::Cards,
+  pub(super) peek: Option<TagPeek>,
+  pub(super) due: Option<Instant>,
+}
+
 // ext TAG_CARD_HOVER_MS
 const REST: Duration = Duration::from_millis(120);
 
@@ -40,7 +48,7 @@ impl App {
       self.hide_tag_peek();
       return false;
     };
-    if self.tag_peek.as_ref().is_some_and(|p| p.spot == spot) {
+    if self.tag.peek.as_ref().is_some_and(|p| p.spot == spot) {
       return true;
     }
     self.hide_peek();
@@ -48,35 +56,35 @@ impl App {
       t.release(&mut self.res);
       self.tip_next = None;
     }
-    self.tag_due = self.tag_cards.get(&tag).is_none().then(|| Instant::now() + REST);
-    self.tag_peek = Some(TagPeek { tag, spot, at: self.pointer });
+    self.tag.due = self.tag.cards.get(&tag).is_none().then(|| Instant::now() + REST);
+    self.tag.peek = Some(TagPeek { tag, spot, at: self.pointer });
     self.tip_repaint();
     true
   }
 
   pub(super) fn tag_due(&self) -> Option<Instant> {
-    self.tag_due
+    self.tag.due
   }
 
   // the pointer rested on it: ask
   pub(super) fn tag_fire(&mut self) {
-    self.tag_due = None;
-    let Some(tag) = self.tag_peek.as_ref().map(|p| p.tag.clone()) else { return };
-    if self.tag_cards.want(&tag) {
+    self.tag.due = None;
+    let Some(tag) = self.tag.peek.as_ref().map(|p| p.tag.clone()) else { return };
+    if self.tag.cards.want(&tag) {
       self.net.send(Cmd::TagCard(tag));
     }
   }
 
   pub(super) fn hide_tag_peek(&mut self) {
-    self.tag_due = None;
-    if self.tag_peek.take().is_some() {
+    self.tag.due = None;
+    if self.tag.peek.take().is_some() {
       self.tip_repaint();
     }
   }
 
   pub(super) fn on_tag_card(&mut self, tag: Box<str>, res: Result<Option<tagcard::Card>, ()>) {
-    self.tag_cards.put(&tag, res);
-    if self.tag_peek.as_ref().is_some_and(|p| p.tag.eq_ignore_ascii_case(&tag)) {
+    self.tag.cards.put(&tag, res);
+    if self.tag.peek.as_ref().is_some_and(|p| p.tag.eq_ignore_ascii_case(&tag)) {
       self.tip_repaint();
     }
   }
@@ -91,8 +99,8 @@ impl App {
 
   pub(super) fn draw_tag_peek(&mut self) -> Option<Rect> {
     let bounds = self.chat_area();
-    let p = self.tag_peek.as_ref()?;
-    let card = self.tag_cards.get(&p.tag)?;
+    let p = self.tag.peek.as_ref()?;
+    let card = self.tag.cards.get(&p.tag)?;
     let nick = format!("#{}", card.name);
     let v = View {
       hint: "",
@@ -144,7 +152,7 @@ mod tests {
     assert!(app.canvas.px.contains(&theme::MAGENTA), "drawn magenta");
     app.pointer = hits[0].0;
     app.tip_hover();
-    assert!(app.tag_peek.is_some() && app.tag_due.is_some(), "rests first");
+    assert!(app.tag.peek.is_some() && app.tag.due.is_some(), "rests first");
     app.tag_fire();
     let asks =
       std::iter::from_fn(|| rx.try_recv().ok()).filter(|c| matches!(c, Cmd::TagCard(t) if &**t == "rust")).count();
@@ -157,9 +165,9 @@ mod tests {
     // off the tag: gone; back on it: shown at once, nothing asked
     app.pointer = (area.x + 1, area.bottom() - 1);
     app.tip_hover();
-    assert!(app.tag_peek.is_none());
+    assert!(app.tag.peek.is_none());
     app.pointer = hits[0].0;
     app.tip_hover();
-    assert!(app.tag_peek.is_some() && app.tag_due.is_none());
+    assert!(app.tag.peek.is_some() && app.tag.due.is_none());
   }
 }

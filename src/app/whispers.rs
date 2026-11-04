@@ -7,9 +7,17 @@ use super::App;
 use super::card::Load;
 use crate::model::message::Platform;
 use crate::model::tabs::Kind;
-use crate::model::whisper::{self, Cmd as Slash, Status, Via, Whisper, Who};
-use crate::net::Cmd;
-use crate::net::social;
+use crate::model::whisper::{self, Cmd as Slash, Status, Timeline, Via, Whisper, Who};
+use crate::net::{Cmd, social};
+
+// the whispers timeline, whether this login's history was asked for, and a counter bumped on every login
+// change so a history read from an earlier one is dropped
+#[derive(Default)]
+pub(super) struct Whispers {
+  pub(super) timeline: Timeline,
+  pub(super) loaded: bool,
+  pub(super) epoch: u32,
+}
 
 const NEED_LOGIN: &str = "log in to heatsync.org to send whispers and dms (ctrl-l)";
 // heatsync caps a dm at 500 characters
@@ -33,17 +41,17 @@ impl App {
   pub(super) fn whispers_load(&mut self) {
     let Some(me) = &self.me else { return };
     let id = me.twitch_id;
-    if !self.whispers_loaded {
-      self.whispers_loaded = true;
-      self.net.send(Cmd::Social(social::Cmd::WhisperHistory { me: id, epoch: self.whisper_epoch }));
+    if !self.whisper.loaded {
+      self.whisper.loaded = true;
+      self.net.send(Cmd::Social(social::Cmd::WhisperHistory { me: id, epoch: self.whisper.epoch }));
     }
   }
 
   // a different login (or none): the old person's whispers must not stay on screen
   pub(super) fn whispers_reset(&mut self) {
-    self.whispers = Default::default();
-    self.whispers_loaded = false;
-    self.whisper_epoch = self.whisper_epoch.wrapping_add(1);
+    self.whisper.timeline = Default::default();
+    self.whisper.loaded = false;
+    self.whisper.epoch = self.whisper.epoch.wrapping_add(1);
     if let Some(i) = self.tab_of(Kind::Whispers) {
       self.tabs[i].chat().clear();
       self.tabs[i].unread = false;
@@ -66,19 +74,19 @@ impl App {
     let Some(i) = self.tab_of(Kind::Whispers) else { return };
     let mut fresh = false;
     for w in items {
-      fresh |= self.whispers.add(w).is_some();
+      fresh |= self.whisper.timeline.add(w).is_some();
     }
     if !fresh {
       return;
     }
     if live {
-      let rows: Vec<_> = self.whispers.iter().rev().take(1).map(whisper::message).collect();
+      let rows: Vec<_> = self.whisper.timeline.iter().rev().take(1).map(whisper::message).collect();
       for m in rows {
         self.tabs[i].chat().push(m);
       }
     } else {
       // history lands in time order among whatever is already here
-      let rows: Vec<_> = self.whispers.iter().map(whisper::message).collect();
+      let rows: Vec<_> = self.whisper.timeline.iter().map(whisper::message).collect();
       let v = self.tabs[i].chat();
       v.clear();
       for m in rows {
@@ -103,7 +111,7 @@ impl App {
       Status::Failed(f) => Some(whisper::fail_text(f)),
       _ => None,
     };
-    let Some(w) = self.whispers.settle(key, status, who).cloned() else { return };
+    let Some(w) = self.whisper.timeline.settle(key, status, who).cloned() else { return };
     self.put_row(&w);
     match failed {
       // the ext surfaces the tab on a failure, where the row carries the retry
@@ -125,7 +133,7 @@ impl App {
     match c {
       Slash::Usage => self.say("usage: /w user msg · /dm user msg · /r msg"),
       Slash::To(via, login, text) => {
-        let who = self.whispers.known(via, &login).unwrap_or(Who {
+        let who = self.whisper.timeline.known(via, &login).unwrap_or(Who {
           via,
           id: "".into(),
           name: login.clone(),
@@ -136,7 +144,7 @@ impl App {
           // ext: opens the conversation and points /r at it
           None => {
             let name = who.name.clone();
-            self.whispers.last = Some(who);
+            self.whisper.timeline.last = Some(who);
             if let Some(i) = self.tab_of(Kind::Whispers) {
               self.select(i);
             }
@@ -151,7 +159,7 @@ impl App {
 
   // answer the last person (typed in the tab, or /r)
   pub(super) fn reply_whisper(&mut self, text: String) {
-    match self.whispers.last.clone() {
+    match self.whisper.timeline.last.clone() {
       Some(who) => self.start_whisper(who, text),
       None => self.say(UNKNOWN),
     }
@@ -182,7 +190,7 @@ impl App {
         Some(_) => {}
       }
     }
-    let w = self.whispers.push_out(who, &text).clone();
+    let w = self.whisper.timeline.push_out(who, &text).clone();
     self.put_row(&w);
     self.send_whisper(&w);
     if let Some(i) = self.tab_of(Kind::Whispers)
@@ -226,7 +234,7 @@ impl App {
 
   fn selected_whisper(&self) -> Option<Whisper> {
     let t = self.tabs.get(self.active).filter(|t| t.kind == Kind::Whispers)?;
-    self.whispers.get(whisper::key_of(&t.view.selected()?.id)?).cloned()
+    self.whisper.timeline.get(whisper::key_of(&t.view.selected()?.id)?).cloned()
   }
 
   // Enter / click on a row: a failed send is retried (or re-linked); anything else answers that person
@@ -238,7 +246,7 @@ impl App {
         self.net.send(Cmd::Relink("whispers"));
       }
       Status::Failed(_) => {
-        if let Some(w) = self.whispers.retry(w.key).cloned() {
+        if let Some(w) = self.whisper.timeline.retry(w.key).cloned() {
           self.put_row(&w);
           self.send_whisper(&w);
         }
@@ -251,7 +259,7 @@ impl App {
   // `r`: point replies at the person on the selected row and start typing
   pub(super) fn whisper_reply_selected(&mut self) {
     let Some(w) = self.selected_whisper() else { return };
-    self.whispers.last = Some(w.who);
+    self.whisper.timeline.last = Some(w.who);
     self.enter_insert();
     self.input_dirty = true;
     self.wake();
@@ -260,7 +268,8 @@ impl App {
   // the input bar's label while the whispers tab is up: who a plain line goes to
   pub(super) fn whisper_label(&self) -> Option<String> {
     self
-      .whispers
+      .whisper
+      .timeline
       .last
       .as_ref()
       .map(|w| format!("{} {} ", if w.via == Via::Heatsync { "dm" } else { "whisper" }, w.name))
@@ -335,10 +344,10 @@ mod tests {
     assert!(dms(&mut rx).is_empty());
     assert!(said(&app).contains("too long"));
     // the net says it went through: the person is now known by id
-    let key = app.whispers.iter().next().unwrap().key;
+    let key = app.whisper.timeline.iter().next().unwrap().key;
     let amy = Who { via: Via::Heatsync, id: "77".into(), login: "amy".into(), name: "amy".into(), color: 0xffffff };
     app.on_net(NetEvent::WhisperSent { key, res: Ok(amy) });
-    assert_eq!(app.whispers.iter().next().unwrap().status, Status::Sent);
+    assert_eq!(app.whisper.timeline.iter().next().unwrap().status, Status::Sent);
     // bare /dm opens the tab and points /r at that person; /r then goes by id
     typed(&mut app, "/dm bob");
     assert_eq!(app.kind(), Kind::Whispers);
@@ -349,13 +358,13 @@ mod tests {
     typed(&mut app, "/r again");
     assert_eq!(dms(&mut rx), ["dm amy Some(\"77\") again"], "a known person is not looked up twice");
     // mutual follow: said plainly, the row keeps the retry
-    let key = app.whispers.iter().last().unwrap().key;
+    let key = app.whisper.timeline.iter().last().unwrap().key;
     app.on_net(NetEvent::WhisperSent { key, res: Err(whisper::Fail::Follow("amy".into())) });
     assert!(said(&app).contains("dm failed: dms need a follow both ways. /follow amy first"));
     app.whispers_reset();
     // a name with no heatsync account
     typed(&mut app, "/dm ghost hi");
-    let key = app.whispers.iter().last().unwrap().key;
+    let key = app.whisper.timeline.iter().last().unwrap().key;
     app.on_net(NetEvent::WhisperSent { key, res: Err(whisper::Fail::Other("ghost isn't on heatsync".into())) });
     assert!(said(&app).contains("ghost isn't on heatsync"));
     // a twitch whisper still goes to twitch, and its reply stays a whisper

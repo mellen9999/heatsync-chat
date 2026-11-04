@@ -37,7 +37,7 @@ impl App {
       v.resize(w);
       v.invalidate();
     }
-    self.damage_hist = [None; 2];
+    self.damage.hist = [None; 2];
     self.bar_dirty = true;
     self.input_dirty = true;
     self.trim_soon();

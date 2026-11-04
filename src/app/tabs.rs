@@ -166,7 +166,7 @@ impl App {
     if self.tabs.iter().any(|o| o.sources.iter().any(|s| s.0 == p && s.1 == key)) {
       return;
     }
-    self.pins.forget(p, &key);
+    self.pin_bar.pins.forget(p, &key);
     self.pacer.flush(&key);
     match p {
       Platform::Twitch => {
@@ -394,7 +394,7 @@ impl App {
       None => "add channel".to_owned(),
     };
     let (caret, _) = form::draw(&mut self.canvas, &mut self.res.text, area, f, &title, self.form_hover);
-    self.ime_area = Some(caret);
+    self.ime_win.area = Some(caret);
     Some(area)
   }
 
@@ -442,8 +442,8 @@ impl App {
   pub(super) fn bar_hover(&mut self) {
     let b = self.bar_button();
     let hover = (b == Some(Button::Plus), b == Some(Button::Gear), b == Some(Button::Keys), b == Some(Button::Update));
-    if hover != (self.plus_hover, self.gear_hover, self.keys_hover, self.update_hover) {
-      (self.plus_hover, self.gear_hover, self.keys_hover, self.update_hover) = hover;
+    if hover != (self.hover.plus, self.hover.gear, self.hover.keys, self.hover.update) {
+      (self.hover.plus, self.hover.gear, self.hover.keys, self.hover.update) = hover;
       self.bar_dirty = true;
       self.wake();
     }

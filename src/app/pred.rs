@@ -17,6 +17,19 @@ use crate::ui::canvas::Rect;
 use crate::ui::{pred_bar, sheet::L};
 use crate::util::time::now_ms;
 
+// the prediction banner's last paint: its text and clock, the width, line height, and the pin bar above it
+type Sig = (Option<(String, String)>, i32, i32, i32);
+
+// predictions per twitch channel, the banner's height (0 = none) and what it last drew, and when its
+// clock next reads differently
+#[derive(Default)]
+pub(super) struct PredBar {
+  pub(super) preds: crate::model::pred::Preds,
+  pub(super) h: i32,
+  pub(super) sig: Sig,
+  pub(super) sec: Option<Instant>,
+}
+
 impl App {
   // the channel whose prediction is on screen: the open view's, else the active tab's (banner on)
   fn pred_look(&self) -> Option<Box<str>> {
@@ -34,18 +47,18 @@ impl App {
   // when the next ask is due (None = nothing to watch, or one is out)
   pub(super) fn pred_due(&self, now: Instant) -> Option<Instant> {
     let chan = self.pred_chan()?;
-    self.preds.due(&chan, now)
+    self.pred_bar.preds.due(&chan, now)
   }
 
   pub(super) fn pred_tick(&mut self, now: Instant) {
     let Some(chan) = self.pred_chan() else { return };
-    if !self.preds.due(&chan, now).is_some_and(|t| t <= now) {
+    if !self.pred_bar.preds.due(&chan, now).is_some_and(|t| t <= now) {
       return;
     }
     // a closed tab's channel is forgotten
     let open: Vec<Box<str>> = self.tabs.iter().flat_map(|t| t.sources.iter()).map(|s| s.1.clone()).collect();
-    self.preds.keep(|c| c == &*chan || open.iter().any(|o| **o == *c));
-    self.preds.asked(&chan, now);
+    self.pred_bar.preds.keep(|c| c == &*chan || open.iter().any(|o| **o == *c));
+    self.pred_bar.preds.asked(&chan, now);
     self.net.send(Cmd::Pred(chan));
   }
 
@@ -55,14 +68,14 @@ impl App {
     if !open && self.screen.as_ref().is_none_or(|s| s.page() != Page::Pred || s.of != chan) {
       return;
     }
-    self.preds.got(&chan, res);
+    self.pred_bar.preds.got(&chan, res);
     self.pred_refresh();
     self.wake();
   }
 
   // the countdown crossed a second
   pub(super) fn pred_second(&mut self) {
-    self.pred_sec = None;
+    self.pred_bar.sec = None;
     self.pred_refresh();
     self.wake();
   }
@@ -72,12 +85,12 @@ impl App {
       return None;
     }
     let chan = self.twitch_here()?;
-    pred::banner(self.preds.get(&chan)?.shown(now)?, now)
+    pred::banner(self.pred_bar.preds.get(&chan)?.shown(now)?, now)
   }
 
   pub(super) fn pred_area(&self) -> Rect {
     let b = self.body();
-    Rect::new(b.x, b.y + self.pin_h, b.w, self.pred_h)
+    Rect::new(b.x, b.y + self.pin_bar.h, b.w, self.pred_bar.h)
   }
 
   // repaint the banner if what it shows changed (and re-arm the clock); the chat below re-lays out
@@ -85,26 +98,30 @@ impl App {
     let now = now_ms();
     let b = self.pred_banner(now);
     // the clock: wake when what the banner (or the open view) reads next differs
-    self.pred_sec = self
+    self.pred_bar.sec = self
       .pred_look()
-      .and_then(|c| self.preds.get(&c)?.shown(now)?.tick_in(now))
+      .and_then(|c| self.pred_bar.preds.get(&c)?.shown(now)?.tick_in(now))
       .filter(|_| !self.occluded)
       .map(|ms| Instant::now() + Duration::from_millis(ms));
-    let sig =
-      (b.as_ref().map(|b| (b.body.clone(), b.tail.clone())), self.body().w, self.res.text.line_px as i32, self.pin_h);
-    if sig == self.pred_sig {
+    let sig = (
+      b.as_ref().map(|b| (b.body.clone(), b.tail.clone())),
+      self.body().w,
+      self.res.text.line_px as i32,
+      self.pin_bar.h,
+    );
+    if sig == self.pred_bar.sig {
       return None;
     }
-    self.pred_sig = sig;
-    let old = self.pred_h;
-    self.pred_h = if b.is_some() { self.res.text.line_px as i32 } else { 0 };
-    let area = Rect { h: self.pred_h.max(old), ..self.pred_area() };
+    self.pred_bar.sig = sig;
+    let old = self.pred_bar.h;
+    self.pred_bar.h = if b.is_some() { self.res.text.line_px as i32 } else { 0 };
+    let area = Rect { h: self.pred_bar.h.max(old), ..self.pred_area() };
     self.canvas.fill(area, crate::ui::theme::BLACK);
     let bar = self.pred_area();
     if let Some(b) = &b {
       pred_bar::draw(&mut self.canvas, &mut self.res.text, bar, b);
     }
-    if self.pred_h != old
+    if self.pred_bar.h != old
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       t.view.invalidate();
@@ -115,7 +132,7 @@ impl App {
   // true when the click landed on the banner
   pub(super) fn pred_click(&mut self) -> bool {
     let (x, y) = self.pointer;
-    if self.pred_h == 0 || !self.pred_area().contains(x, y) {
+    if self.pred_bar.h == 0 || !self.pred_area().contains(x, y) {
       return false;
     }
     self.pred_here();
@@ -136,7 +153,7 @@ impl App {
       s.of = chan.clone();
     }
     // what we know now shows at once; a fresh answer follows
-    self.preds.expire(&chan);
+    self.pred_bar.preds.expire(&chan);
     self.pred_refresh();
     self.pred_tick(Instant::now());
   }
@@ -144,7 +161,7 @@ impl App {
   // the view's lines, read fresh from what twitch last said
   pub(super) fn pred_refresh(&mut self) {
     let Some(s) = self.screen.as_ref().filter(|s| s.page() == Page::Pred) else { return };
-    let (title, lines) = (format!("predictions · {}", s.of), lines(self.preds.get(&s.of), now_ms()));
+    let (title, lines) = (format!("predictions · {}", s.of), lines(self.pred_bar.preds.get(&s.of), now_ms()));
     if let Some(s) = &mut self.screen {
       (s.shown, s.title) = (lines, title);
       let (l, _) = s.lines(&self.set);
@@ -158,7 +175,7 @@ impl App {
       return false;
     }
     if let Some(chan) = self.screen.as_ref().map(|s| s.of.clone()) {
-      self.preds.expire(&chan);
+      self.pred_bar.preds.expire(&chan);
       self.pred_tick(Instant::now());
     }
     true
@@ -291,15 +308,15 @@ mod tests {
     app.on_pred("forsen".into(), Ok(answer("ACTIVE", 30_000)));
     assert_eq!(app.pred_due(now), Some(now + pred::LIVE_EVERY), "15s while one is up");
     app.redraw();
-    assert_eq!(app.pred_h, app.res.text.line_px as i32, "the banner takes a row");
+    assert_eq!(app.pred_bar.h, app.res.text.line_px as i32, "the banner takes a row");
     let b = app.pred_banner(now_ms()).unwrap();
     assert!(b.body.starts_with("boss down? · yes 75% vs no 25%") && b.tail.ends_with('s') || b.tail.contains(':'));
-    assert!(app.pred_sec.is_some(), "the clock is running");
+    assert!(app.pred_bar.sec.is_some(), "the clock is running");
     // locked: no clock, still a banner
     app.on_pred("forsen".into(), Ok(answer("LOCKED", 130_000)));
     app.redraw();
     assert_eq!(app.pred_banner(now_ms()).unwrap().tail, "locked");
-    assert!(app.pred_sec.is_none());
+    assert!(app.pred_bar.sec.is_none());
     // a click on the banner opens the view
     let a = app.pred_area();
     app.pointer = (a.x + 5, a.y + 2);
@@ -314,7 +331,7 @@ mod tests {
     assert!(rows[3].starts_with("  ███████████████░░░░░ 3K pts · 4 bettors"), "{}", rows[3]);
     assert_eq!(rows[4], "no | 25%");
     app.redraw();
-    assert_eq!(app.pred_h, 0, "the view replaces the banner");
+    assert_eq!(app.pred_bar.h, 0, "the view replaces the banner");
     // r asks again, esc closes
     app.on_pred("forsen".into(), Ok(None));
     assert!(app.pred_key(&Key::Character("r")));
@@ -322,7 +339,7 @@ mod tests {
     assert_eq!(shown(&app)[0], "no prediction right now");
     app.close_screen();
     app.redraw();
-    assert_eq!(app.pred_h, 0, "nothing live, no banner");
+    assert_eq!(app.pred_bar.h, 0, "nothing live, no banner");
   }
 
   #[test]
@@ -333,7 +350,7 @@ mod tests {
     p.outcomes[1].won = true;
     app.on_pred("forsen".into(), Ok(Some(p)));
     app.redraw();
-    assert_eq!(app.pred_h, 0);
+    assert_eq!(app.pred_bar.h, 0);
     app.pred_here();
     let rows = shown(&app);
     assert_eq!(rows[0], "boss down? | ended");
@@ -349,7 +366,7 @@ mod tests {
     assert!(app.screen.is_none());
     // an answer for a channel no tab holds is dropped
     app.on_pred("gone".into(), Ok(answer("ACTIVE", 0)));
-    assert!(app.preds.get("gone").is_none());
+    assert!(app.pred_bar.preds.get("gone").is_none());
     assert_eq!(pending(&mut rx), 0);
   }
 }

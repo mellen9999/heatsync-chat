@@ -32,7 +32,7 @@ impl App {
 
   pub(super) fn chat_area(&self) -> Rect {
     let b = self.body();
-    let top = b.y + self.pin_h + self.pred_h;
+    let top = b.y + self.pin_bar.h + self.pred_bar.h;
     Rect::new(b.x, top, b.w, (b.bottom() - top - self.input_h).max(0))
   }
 
@@ -67,10 +67,10 @@ impl App {
       v.invalidate();
     }
     self.canvas.fill(self.canvas.bounds(), crate::ui::theme::BLACK);
-    self.pin_sig = Default::default();
-    self.pred_sig = Default::default();
-    self.damage_hist = [None; 2];
-    self.expose = true;
+    self.pin_bar.sig = Default::default();
+    self.pred_bar.sig = Default::default();
+    self.damage.hist = [None; 2];
+    self.damage.expose = true;
     self.bar_dirty = true;
     self.input_dirty = true;
     self.wake();

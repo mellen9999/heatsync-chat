@@ -145,7 +145,7 @@ impl App {
     match self.prompt.as_mut() {
       Some(l) => {
         l.insert(t);
-        if self.finding {
+        if self.find.on {
           self.find_live();
         }
       }

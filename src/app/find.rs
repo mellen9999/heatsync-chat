@@ -8,6 +8,15 @@ use super::App;
 use crate::model::line::Line;
 use crate::model::tabs::Kind;
 
+// the chat search: whether the box is the search (not a path prompt), the search as last kept with enter,
+// and its count ("3/10", "no match") at the input bar's right
+#[derive(Default)]
+pub(super) struct FindUi {
+  pub(super) on: bool,
+  pub(super) query: String,
+  pub(super) note: String,
+}
+
 impl App {
   pub(super) fn find_on(&self) -> bool {
     self.tabs.get(self.active).is_some_and(|t| t.view.searching())
@@ -23,16 +32,16 @@ impl App {
     // asking again edits what you asked before
     let mut l = Line::default();
     // in the chat logs the search is the archive's: it starts from the one in effect
-    l.insert(self.logs_query().unwrap_or(&self.find_q));
+    l.insert(self.logs_query().unwrap_or(&self.find.query));
     self.prompt = Some(l);
-    self.finding = true;
+    self.find.on = true;
     self.input_dirty = true;
     self.wake();
   }
 
   // filter to one person: the tab search open on `@login`, already applied (enter keeps it, esc clears)
   pub(super) fn find_for(&mut self, login: &str) {
-    self.find_q = format!("@{}", login.to_ascii_lowercase());
+    self.find.query = format!("@{}", login.to_ascii_lowercase());
     self.find_open();
     self.find_live();
   }
@@ -41,7 +50,7 @@ impl App {
     let (h, res) = (self.chat_area().h, &mut self.res);
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     let n = t.view.set_search(q, res, h);
-    self.find_note = match (t.view.searching(), n) {
+    self.find.note = match (t.view.searching(), n) {
       (false, _) => String::new(),
       (true, 0) => "no match".into(),
       (true, 1) => "1 found".into(),
@@ -64,12 +73,12 @@ impl App {
 
   // esc: no search, no prompt. true when there was one
   pub(super) fn find_clear(&mut self) -> bool {
-    let was = self.find_on() || self.finding;
+    let was = self.find_on() || self.find.on;
     if self.find_on() {
       self.find_set("");
     }
-    self.find_q.clear();
-    if self.finding {
+    self.find.query.clear();
+    if self.find.on {
       self.close_prompt();
     }
     was
@@ -80,8 +89,8 @@ impl App {
     let (h, res) = (self.chat_area().h, &mut self.res);
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     match t.view.search_step(dir, res, h) {
-      Some((at, of)) => self.find_note = format!("{at}/{of}"),
-      None => self.find_note = "no match".into(),
+      Some((at, of)) => self.find.note = format!("{at}/{of}"),
+      None => self.find.note = "no match".into(),
     }
     self.input_dirty = true;
     self.wake();
@@ -105,15 +114,15 @@ impl App {
         return;
       }
       Key::Named(NamedKey::Enter) => {
-        self.find_q = l.text.clone();
+        self.find.query = l.text.clone();
         self.close_prompt();
         if !self.find_on() {
-          self.find_q.clear();
+          self.find.query.clear();
         }
         return;
       }
       Key::Character("f") if ctrl => {
-        self.find_q = l.text.clone();
+        self.find.query = l.text.clone();
         return self.close_prompt();
       }
       _ if super::tabs::edit_line(l, &key, ctrl) => {}

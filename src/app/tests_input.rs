@@ -331,7 +331,7 @@ fn headless_line_menu() {
   assert!(app.tabs[app.active].view.hidden_user("bob"));
   // filter to opens the search on @bob, applied
   app.find_for("Bob");
-  assert!(app.finding && app.prompt.as_ref().is_some_and(|l| l.text == "@bob"));
+  assert!(app.find.on && app.prompt.as_ref().is_some_and(|l| l.text == "@bob"));
 }
 
 // vi has two modes: normal edits the box, and once a line is picked r/m/c act on it; space leads chat
@@ -413,13 +413,14 @@ fn headless_suggest() {
     app.input_dirty = true;
     app.redraw();
     app
-      .suggest
+      .sug
+      .list
       .as_ref()
       .map(|s| (s.kind, s.items.iter().filter(|p| p.code.is_none()).map(|p| p.name.to_string()).collect::<Vec<_>>()))
   };
   app.line.insert("so :ka");
   assert_eq!(open(&mut app), Some((S::Emote, vec!["Kappa".into(), "KappaPride".into()])));
-  assert!(app.over_input && !app.suggest_rows.is_empty(), "the list is on screen");
+  assert!(app.over_input && !app.sug.rows.is_empty(), "the list is on screen");
   key(&mut app, NamedKey::ArrowDown);
   key(&mut app, NamedKey::Enter);
   assert_eq!(app.line.text, "so KappaPride ");
@@ -435,7 +436,7 @@ fn headless_suggest() {
   app.complete = None;
   // shift-tab on the open list goes backwards: from the top it wraps to the last row
   app.line.insert("so :ka");
-  let last = open(&mut app).and_then(|_| app.suggest.as_ref()?.items.last().map(|p| p.name.to_string())).unwrap();
+  let last = open(&mut app).and_then(|_| app.sug.list.as_ref()?.items.last().map(|p| p.name.to_string())).unwrap();
   app.mods = winit::keyboard::ModifiersState::SHIFT;
   key(&mut app, NamedKey::Tab);
   app.mods = winit::keyboard::ModifiersState::empty();

@@ -3,8 +3,18 @@
 use super::App;
 use crate::model::picker::Focus;
 use crate::model::vi::Mode;
+use crate::ui::canvas::Rect;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::Ime as WinIme;
+
+// the window's side of the input method: whether it currently lets one run, the caret rect, and the
+// rect last sent
+#[derive(Default)]
+pub(super) struct ImeWin {
+  pub(super) on: bool,
+  pub(super) area: Option<Rect>,
+  pub(super) sent: Option<Rect>,
+}
 
 impl App {
   // does the focused thing take typed text (so an input method may run)?
@@ -28,14 +38,14 @@ impl App {
       self.wake();
     }
     let Some(g) = &self.gfx else { return };
-    if want != self.ime_on {
-      self.ime_on = want;
+    if want != self.ime_win.on {
+      self.ime_win.on = want;
       g.window.set_ime_allowed(want);
-      self.ime_sent = None;
+      self.ime_win.sent = None;
     }
-    if want && self.ime_area != self.ime_sent {
-      self.ime_sent = self.ime_area;
-      if let Some(r) = self.ime_area {
+    if want && self.ime_win.area != self.ime_win.sent {
+      self.ime_win.sent = self.ime_win.area;
+      if let Some(r) = self.ime_win.area {
         g.window.set_ime_cursor_area(
           PhysicalPosition::new(r.x, r.y),
           PhysicalSize::new(r.w.max(1) as u32, r.h.max(1) as u32),
@@ -46,7 +56,7 @@ impl App {
 
   pub(super) fn on_ime(&mut self, ev: WinIme) {
     match ev {
-      WinIme::Enabled => self.ime_sent = None,
+      WinIme::Enabled => self.ime_win.sent = None,
       WinIme::Preedit(text, cursor) => {
         if self.wants_text() {
           self.ime.set(&text, cursor);
@@ -67,7 +77,7 @@ impl App {
             self.picker_reveal();
           } else if let Some(p) = &mut self.prompt {
             p.insert(&text);
-            if self.finding {
+            if self.find.on {
               self.find_live();
             }
           } else {

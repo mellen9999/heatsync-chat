@@ -13,21 +13,29 @@ use crate::ui::res::EMOTE_PX;
 use crate::ui::suggest::{self as ui, Row};
 use crate::ui::theme;
 
+// the open `:` `@` `/` list, the text and cursor it was made for, its rows on screen (index, rect)
+#[derive(Default)]
+pub(super) struct SuggestUi {
+  pub(super) list: Option<Suggest>,
+  pub(super) at: (Box<str>, usize),
+  pub(super) rows: Vec<(usize, Rect)>,
+}
+
 impl App {
   // the list for the text as it stands; esc keeps it shut until the text or cursor moves
   pub(super) fn sync_suggest(&mut self) {
     // only while typing in the box itself, and not mid tab-cycle; looked at afresh when that resumes
     if self.prompt.is_some() || self.mode != Mode::Insert || self.complete.is_some() {
-      self.suggest = None;
-      self.suggest_at.1 = usize::MAX;
+      self.sug.list = None;
+      self.sug.at.1 = usize::MAX;
       return;
     }
     let (text, cur) = (&self.line.text, self.line.cursor);
-    if self.suggest_at.1 == cur && *self.suggest_at.0 == **text {
+    if self.sug.at.1 == cur && *self.sug.at.0 == **text {
       return;
     }
-    self.suggest_at = (text.as_str().into(), cur);
-    let old = self.suggest.take();
+    self.sug.at = (text.as_str().into(), cur);
+    let old = self.sug.list.take();
     let Some((kind, range)) = trigger(text, cur) else { return };
     let mut items = self.candidates(&text[range.clone()], kind == Kind::Command);
     items.truncate(kind.max());
@@ -37,12 +45,12 @@ impl App {
     // the same name stays picked as the list narrows
     let was = old.filter(|o| o.kind == kind).and_then(|o| o.items.get(o.sel).map(|p| p.name.clone()));
     let sel = was.and_then(|n| items.iter().position(|p| p.name == n)).unwrap_or(0);
-    self.suggest = Some(Suggest { kind, range, items, sel });
+    self.sug.list = Some(Suggest { kind, range, items, sel });
   }
 
   // keys an open list takes first. true = handled
   pub(super) fn suggest_key(&mut self, key: &Key<&str>) -> bool {
-    let Some(s) = &mut self.suggest else { return false };
+    let Some(s) = &mut self.sug.list else { return false };
     let plain = !self.mods.shift_key() && !self.mods.control_key();
     match key {
       Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) if plain => s.step(*key == Key::Named(NamedKey::ArrowDown)),
@@ -56,7 +64,7 @@ impl App {
         let sel = s.sel;
         self.suggest_pick(sel);
       }
-      Key::Named(NamedKey::Escape) => self.suggest = None,
+      Key::Named(NamedKey::Escape) => self.sug.list = None,
       _ => return false,
     }
     self.input_dirty = true;
@@ -66,7 +74,7 @@ impl App {
 
   // a pick replaces what was typed; the list stays on as the tab cycle
   fn suggest_pick(&mut self, i: usize) {
-    let Some(s) = self.suggest.take() else { return };
+    let Some(s) = self.sug.list.take() else { return };
     self.line.checkpoint(false);
     self.complete =
       Some(Complete { start: s.range.start, end: s.range.end, matches: s.items, at: i, chipped: None, remote: None });
@@ -76,24 +84,24 @@ impl App {
   // a click on a row picks it. true = the press was the list's
   pub(super) fn suggest_click(&mut self) -> bool {
     let (x, y) = self.pointer;
-    let Some(i) = self.suggest.as_ref().and_then(|_| self.suggest_rows.iter().position(|r| r.1.contains(x, y))) else {
+    let Some(i) = self.sug.list.as_ref().and_then(|_| self.sug.rows.iter().position(|r| r.1.contains(x, y))) else {
       return false;
     };
-    let at = self.suggest_rows[i].0;
+    let at = self.sug.rows[i].0;
     self.suggest_pick(at);
     true
   }
 
   // the list, or else the cycle's tooltip, over the bottom of the chat; remembers that it covered it
   pub(super) fn draw_over_input(&mut self) -> Option<Rect> {
-    self.suggest_rows.clear();
+    self.sug.rows.clear();
     let tip = self.complete.as_ref().and_then(Complete::tip);
-    self.over_input = self.input_h > 0 && (self.suggest.is_some() || tip.is_some());
+    self.over_input = self.input_h > 0 && (self.sug.list.is_some() || tip.is_some());
     if !self.over_input {
       return None;
     }
     let input = self.input_area();
-    let Some(s) = &self.suggest else {
+    let Some(s) = &self.sug.list else {
       return Some(ui::tip(&mut self.canvas, &mut self.res.text, input, &tip?));
     };
     let (kind, sel) = (s.kind, s.sel);
@@ -123,7 +131,7 @@ impl App {
     }
     let top = self.chat_area().y;
     let (r, hits) = ui::list(&mut self.canvas, &mut self.res.text, &mut self.res.images, input, top, &rows, sel);
-    self.suggest_rows = hits;
+    self.sug.rows = hits;
     Some(r)
   }
 }

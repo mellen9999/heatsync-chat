@@ -528,7 +528,7 @@ fn headless_chat_logs() {
   crate::bench::dump(&app.canvas);
   // / searches the archive on enter; esc clears it, then esc leaves
   assert!(app.logs_key(Key::Character("/")));
-  assert!(app.finding && app.prompt.is_some());
+  assert!(app.find.on && app.prompt.is_some());
   for c in "lul".chars() {
     let t = c.to_string();
     app.find_key(Key::Character(&t), Some(&t));

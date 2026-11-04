@@ -190,16 +190,16 @@ fn headless_picker_emoji() {
   app.line.insert("so :smi");
   app.input_dirty = true;
   app.redraw();
-  let s = app.suggest.as_ref().expect("the list opens");
+  let s = app.sug.list.as_ref().expect("the list opens");
   assert_eq!(s.kind, S::Emote);
   assert_eq!(&*s.items[0].name, "smirkCat", "emotes first, like the ext");
   let first_emoji = s.items.iter().position(|p| p.code.is_some()).expect("emoji follow");
   assert!(first_emoji >= 1);
   assert_eq!(s.items[first_emoji].code, Some("smile"), "shortest prefix first");
-  assert!(app.over_input && !app.suggest_rows.is_empty());
+  assert!(app.over_input && !app.sug.rows.is_empty());
   dump_frame(&app);
   // the glyph is what goes in the box
-  app.suggest.as_mut().unwrap().sel = first_emoji;
+  app.sug.list.as_mut().unwrap().sel = first_emoji;
   key(&mut app, NamedKey::Enter);
   assert_eq!(app.line.text, "so 😄 ");
   assert!(app.line.chips.is_empty(), "an emoji is text, not a picture chip");

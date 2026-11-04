@@ -80,9 +80,6 @@ mod ux_tests;
 mod whispers;
 mod zoom;
 
-// the prediction banner's last paint: its text and clock, the width, line height, and the pin bar above it
-type PredSig = (Option<(String, String)>, i32, i32, i32);
-
 use crate::cosmetics::id::PaintId;
 use crate::fake::Fake;
 use crate::model::chan::{self, Form};
@@ -94,13 +91,10 @@ use crate::model::line::Line;
 use crate::model::mention::Mentions;
 use crate::model::message::Platform;
 use crate::model::picker::{Picker, Recents};
-use crate::model::pin::Pins;
 use crate::model::settings::Settings;
 use crate::model::stream_events::Moments;
-use crate::model::suggest::Suggest;
 use crate::model::tabs::Kind;
 use crate::model::vi::{Mode, Vi};
-use crate::model::whisper::Timeline;
 use crate::net::auth::Me;
 use crate::net::irc::Chat;
 use crate::net::{Net, NetEvent, Reply};
@@ -172,8 +166,8 @@ pub struct App {
   active: usize,
   net: Net,
   bar_dirty: bool,
-  // the search's count ("3/10", "no match"), at the input bar's right
-  find_note: String,
+  // the chat search: is the box the search, the query last kept, its count
+  find: find::FindUi,
   mods: ModifiersState,
   // vi normal: space was pressed, the next key is a chat command
   chord: Option<char>,
@@ -200,15 +194,13 @@ pub struct App {
   pace_due: Option<Instant>,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
-  // the open `:` `@` `/` list, the text and cursor it was made for, its rows on screen (index, rect)
-  suggest: Option<Suggest>,
-  suggest_at: (Box<str>, usize),
-  suggest_rows: Vec<(usize, Rect)>,
+  sug: suggest::SuggestUi,
   // where the box's text was last drawn (a click places the cursor)
   input_hit: Option<input_bar::Hit>,
-  // the "ctrl-l log in" button of the empty box while logged out, and whether the pointer is on it
+  // the "ctrl-l log in" button of the empty box while logged out
   login_link: Option<Rect>,
-  link_hover: bool,
+  // which button the pointer is on
+  hover: pointer::Hover,
   // an animated emote in the message box changes frame
   input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
@@ -217,19 +209,12 @@ pub struct App {
   peek_due: Option<Instant>,
   cards: peek::Cards,
   pronouns: crate::model::pronouns::Pronouns,
-  // #tag hover cards: what heatsync said, the open one, and when a resting pointer asks
-  tag_cards: crate::model::tagcard::Cards,
-  tag_peek: Option<tagcard::TagPeek>,
-  tag_due: Option<Instant>,
+  tag: tagcard::TagUi,
   // automod holds in rooms we moderate
   held: held::Queue,
   notes: crate::model::notes::Notes,
   occluded: bool,
-  // the window was resized or shown again (after a fullscreen app, a hidden tag): the buffer or the
-  // compositor's copy of it may hold nothing, so the next present sends the whole frame
-  expose: bool,
-  // damage of recent presents, for buffers handed back with age > 1
-  damage_hist: [Option<Rect>; 2],
+  damage: render::Damage,
   // pending heap trim after bursts of parsing (emote sets, history)
   trim_at: Option<Instant>,
   // the message being typed. mode: with vi keys off it is always Insert (a plain text box);
@@ -253,11 +238,9 @@ pub struct App {
   acct: crate::model::sync::Acct,
   hs_authed: bool,
   ui_get_at: Option<Instant>,
-  // input-method composition, whether the window currently lets one run, and the caret rect
+  // input-method composition, and the window's side of it
   ime: Ime,
-  ime_on: bool,
-  ime_area: Option<Rect>,
-  ime_sent: Option<Rect>,
+  ime_win: ime::ImeWin,
   // the floating menu that is open, if any: login and line actions, the user card, the menu on an emote,
   // the menu on a right-clicked tab (overlay.rs)
   overlay: Option<overlay::Overlay>,
@@ -281,14 +264,7 @@ pub struct App {
   bar_hits: Vec<Rect>,
   // the tab index behind each drawn rect (hidden tabs have none)
   bar_map: Vec<usize>,
-  plus_hover: bool,
-  gear_hover: bool,
-  keys_hover: bool,
-  update_hover: bool,
-  // a newer release, once found; installing it; when to look again
-  update: Option<crate::net::update::Release>,
-  updating: bool,
-  update_due: Option<Instant>,
+  upd: update::Update,
   // the title flashing who @'d you while the window is away: their name, and when it next turns
   flash: Option<(Box<str>, bool)>,
   flash_due: Option<Instant>,
@@ -303,42 +279,24 @@ pub struct App {
   // tab-complete's catalog search: the newest ask's number, and what was taken from it (never read by chat)
   catalog_epoch: u32,
   catalog_reg: crate::model::catalog::Registry,
-  // pointer is over the logo button
-  btn_hover: bool,
-  up_hover: bool,
   // the built-in path prompt (no file dialog installed), and an upload or dialog in flight
   prompt: Option<Line>,
-  // that prompt is a chat search, not a path; and the search as last kept with enter
-  finding: bool,
-  find_q: String,
   uploading: bool,
   // a sign-in is waiting on the browser: esc gives it up
   login_wait: bool,
   // the system clipboard, made on first use
   clip: Option<arboard::Clipboard>,
-  // pinned lines per room, the bar's height (0 = none), whether it is open, and what it last drew
-  pins: Pins,
-  pin_h: i32,
-  pin_open: bool,
-  pin_sig: (Option<Box<str>>, bool, i32, i32),
-  // predictions per twitch channel, the banner's height (0 = none) and what it last drew, and when its
-  // clock next reads differently
-  preds: crate::model::pred::Preds,
-  pred_h: i32,
-  pred_sig: PredSig,
-  pred_sec: Option<Instant>,
+  // the pinned-lines bar and the prediction banner under the tabs
+  pin_bar: pin::PinBar,
+  pred_bar: pred::PredBar,
   moments: Moments,
   // followed streamers' twitch colors (`follow:colors`), by lowercase login
   follow_colors: std::collections::HashMap<Box<str>, u32>,
   // names that ping you, and whether the window has focus (notifications only fire when it does not)
   mentions: Mentions,
   focused: bool,
-  // the whispers timeline, and whether this login's history was asked for
-  whispers: Timeline,
-  whispers_loaded: bool,
+  whisper: whispers::Whispers,
   unseen: crate::model::unseen::Unseen,
-  // bumped on every login change: a history read from an earlier one is dropped
-  whisper_epoch: u32,
   // the feed tab's posts and open thread; the text of a post in flight (put back if it fails)
   feed: Feed,
   pending_post: Option<String>,
@@ -414,7 +372,7 @@ impl App {
       active,
       net,
       bar_dirty: true,
-      find_note: String::new(),
+      find: Default::default(),
       mods: ModifiersState::empty(),
       chord: None,
       fake: Fake::new(0x5eed),
@@ -434,24 +392,19 @@ impl App {
       input_next: None,
       input_hit: None,
       login_link: None,
-      link_hover: false,
+      hover: Default::default(),
       over_input: false,
-      suggest: None,
-      suggest_at: ("".into(), 0),
-      suggest_rows: Vec::new(),
+      sug: Default::default(),
       peek: None,
       media_peek: None,
       peek_due: None,
       cards: peek::Cards::default(),
       pronouns: Default::default(),
-      tag_cards: Default::default(),
-      tag_peek: None,
-      tag_due: None,
+      tag: Default::default(),
       held: Default::default(),
       notes: crate::model::notes::Notes::load(),
       occluded: false,
-      expose: false,
-      damage_hist: [None; 2],
+      damage: Default::default(),
       trim_at: None,
       line: Line::default(),
       mode: if set.vi { Mode::Normal } else { Mode::Insert },
@@ -468,9 +421,7 @@ impl App {
       hs_authed: false,
       ui_get_at: None,
       ime: Ime::default(),
-      ime_on: false,
-      ime_area: None,
-      ime_sent: None,
+      ime_win: Default::default(),
       overlay: None,
       form: None,
       welcome,
@@ -482,13 +433,7 @@ impl App {
       screen: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
-      plus_hover: false,
-      gear_hover: false,
-      keys_hover: false,
-      update_hover: false,
-      update: None,
-      updating: false,
-      update_due: Some(Instant::now() + update::FIRST_CHECK),
+      upd: update::Update { release: None, installing: false, due: Some(Instant::now() + update::FIRST_CHECK) },
       flash: None,
       flash_due: None,
       dpi: 1.0,
@@ -499,30 +444,18 @@ impl App {
       frecency: Frecency::load(Recents::load().names(), now_ms()),
       catalog_epoch: 0,
       catalog_reg: Default::default(),
-      btn_hover: false,
-      up_hover: false,
       prompt: None,
-      finding: false,
-      find_q: String::new(),
       clip: None,
       uploading: false,
       login_wait: false,
-      pins: Pins::default(),
-      pin_h: 0,
-      pin_open: false,
-      pin_sig: (None, false, 0, 0),
-      preds: Default::default(),
-      pred_h: 0,
-      pred_sig: Default::default(),
-      pred_sec: None,
+      pin_bar: Default::default(),
+      pred_bar: Default::default(),
       moments: Moments::default(),
       follow_colors: Default::default(),
       mentions: Mentions::default(),
       focused: true,
-      whispers: Timeline::default(),
-      whispers_loaded: false,
+      whisper: Default::default(),
       unseen: Default::default(),
-      whisper_epoch: 0,
       feed: Feed::default(),
       pending_post: None,
       edit: None,
@@ -701,7 +634,7 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::Occluded(o) => {
         self.occluded = o;
         if !o {
-          self.expose = true;
+          self.damage.expose = true;
           self.wake();
         }
       }
@@ -788,7 +721,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.gifs.due().is_some_and(|t| t <= now) {
       self.gifs_tick(now);
     }
-    if self.update_due.is_some_and(|t| t <= now) {
+    if self.upd.due.is_some_and(|t| t <= now) {
       self.update_check();
     }
     if self.pace_due.is_some_and(|t| t <= now) {
@@ -800,7 +733,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.held.due().is_some_and(|t| t <= now) {
       self.held_tick();
     }
-    if self.pred_sec.is_some_and(|t| t <= now) {
+    if self.pred_bar.sec.is_some_and(|t| t <= now) {
       self.pred_second();
     }
     if self.pred_due(now).is_some_and(|t| t <= now) {
@@ -820,14 +753,14 @@ impl ApplicationHandler<NetEvent> for App {
       self.peek_due,
       self.tag_due(),
       self.gifs.due(),
-      self.update_due,
+      self.upd.due,
       self.heat_due,
       self.pace_due,
       self.flash_due,
       self.held.due(),
       self.ui_state_due(),
       self.pred_due(now),
-      self.pred_sec.filter(|_| !self.occluded),
+      self.pred_bar.sec.filter(|_| !self.occluded),
     ]
     .into_iter()
     .flatten()

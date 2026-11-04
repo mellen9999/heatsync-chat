@@ -13,11 +13,20 @@ use crate::util::time::now_ms;
 use std::num::NonZeroU32;
 use std::time::{Duration, Instant};
 
+// what the next present has to send: the window was resized or shown again (after a fullscreen app, a
+// hidden tag), so the buffer or the compositor's copy of it may hold nothing and the whole frame goes;
+// and the damage of recent presents, for buffers handed back with age > 1
+#[derive(Default)]
+pub(super) struct Damage {
+  pub(super) expose: bool,
+  pub(super) hist: [Option<Rect>; 2],
+}
+
 impl App {
   // the vi mode line for what the box is doing right now, and the half-typed command
   pub(super) fn mode_line(&self) -> (Vec<mode_label::Seg>, String) {
     if self.prompt.is_some() {
-      return (Vec::new(), if self.finding { self.find_note.clone() } else { String::new() });
+      return (Vec::new(), if self.find.on { self.find.note.clone() } else { String::new() });
     }
     if let Some(note) = self.rover_note() {
       return (Vec::new(), note);
@@ -27,7 +36,7 @@ impl App {
     let cmd = match self.chord {
       _ if segs.is_empty() || self.mode != Mode::Normal => String::new(),
       Some(' ') => "space".into(),
-      _ => Some(self.vi.showcmd()).filter(|c| !c.is_empty()).unwrap_or_else(|| self.find_note.clone()),
+      _ => Some(self.vi.showcmd()).filter(|c| !c.is_empty()).unwrap_or_else(|| self.find.note.clone()),
     };
     (segs, cmd)
   }
@@ -50,10 +59,10 @@ impl App {
       let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
       let hint = match &self.prompt {
-        Some(_) if self.finding && self.logs_shown().is_some() => {
+        Some(_) if self.find.on && self.logs_shown().is_some() => {
           "type a search · enter finds it · esc cancels".to_owned()
         }
-        Some(_) if self.finding => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
+        Some(_) if self.find.on => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
         Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
         None if show_hint => self.hint(),
         None => String::new(),
@@ -61,7 +70,7 @@ impl App {
       // the picture view is no place to type (ext): the box steps aside
       let hidden = self.hidden() || self.img_view.is_some();
       let tag = match &self.prompt {
-        Some(_) if self.finding => Some(("find: ", crate::ui::theme::YELLOW)),
+        Some(_) if self.find.on => Some(("find: ", crate::ui::theme::YELLOW)),
         Some(_) => Some(("path: ", crate::ui::theme::YELLOW)),
         None => self.target().and_then(|t| t.2),
       };
@@ -76,13 +85,13 @@ impl App {
         } else {
           0
         },
-        link_on: self.link_hover,
+        link_on: self.hover.link,
         reply,
         edit: self.edit.is_some() && self.prompt.is_none(),
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
-        picker_on: self.picker.is_some() || self.btn_hover,
-        upload_on: self.uploading || (self.prompt.is_some() && !self.finding) || self.up_hover,
+        picker_on: self.picker.is_some() || self.hover.btn,
+        upload_on: self.uploading || (self.prompt.is_some() && !self.find.on) || self.hover.up,
         logo: &self.res.logo,
         label: if hidden { &[] } else { &label },
         showcmd: &showcmd,
@@ -100,7 +109,7 @@ impl App {
       if h > 0 {
         let r = self.input_area();
         let (caret, next, hit) = input_bar::draw(&mut self.canvas, &mut self.res.text, &mut self.res.images, r, &bar);
-        self.ime_area = Some(caret);
+        self.ime_win.area = Some(caret);
         self.login_link = hit.link;
         self.input_hit = (self.prompt.is_none() && !self.line.text.is_empty()).then_some(hit);
         self.input_next = next.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
@@ -157,8 +166,8 @@ impl App {
       let bar = self.bar();
       let up = self.update_label();
       let (gear, keys) = (
-        self.gear_hover || self.screen_is(screen::Page::Settings),
-        self.keys_hover || self.screen_is(screen::Page::Keys),
+        self.hover.gear || self.screen_is(screen::Page::Settings),
+        self.hover.keys || self.screen_is(screen::Page::Keys),
       );
       self.bar_hits = tab_bar::draw(
         &mut self.canvas,
@@ -166,7 +175,7 @@ impl App {
         bar,
         &labels,
         if hidden_now { (&label, &showcmd) } else { (&[], "") },
-        tab_bar::Hot { plus: self.plus_hover, gear, keys, update: up.as_deref().map(|l| (l, self.update_hover)) },
+        tab_bar::Hot { plus: self.hover.plus, gear, keys, update: up.as_deref().map(|l| (l, self.hover.update)) },
       );
       self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
@@ -279,7 +288,7 @@ impl App {
 
   pub(super) fn present(&mut self, dirty: Option<Rect>) {
     let whole = self.canvas.bounds();
-    let dirty = if std::mem::take(&mut self.expose) { Some(whole) } else { dirty };
+    let dirty = if std::mem::take(&mut self.damage.expose) { Some(whole) } else { dirty };
     let (Some(g), Some(d)) = (&mut self.gfx, dirty) else {
       return;
     };
@@ -290,10 +299,10 @@ impl App {
     // a reused buffer is `age` presents old: copy this frame's damage plus what it missed since
     let copy = match buf.age() {
       1 => Some(d),
-      2 => self.damage_hist[0].map(|h| union(h, d)),
+      2 => self.damage.hist[0].map(|h| union(h, d)),
       _ => None,
     };
-    self.damage_hist = [Some(d), self.damage_hist[0]];
+    self.damage.hist = [Some(d), self.damage.hist[0]];
     match copy {
       Some(r) => {
         let r = r.intersect(self.canvas.bounds());
@@ -332,9 +341,9 @@ impl App {
   // the canvas at its new size, and everything on it due to paint again
   pub(super) fn resized(&mut self, w: i32, h: i32) {
     self.canvas.resize(w, h);
-    self.damage_hist = [None; 2];
+    self.damage.hist = [None; 2];
     // softbuffer keeps a resized buffer's age though its pixels are new (zeroed): send it all
-    self.expose = true;
+    self.damage.expose = true;
     self.input_dirty = true;
     // the canvas came back zeroed: everything paints again, not only what changed width (a height-only
     // resize, e.g. a new window tiling beside this one, left the chat black but for its animations)
@@ -343,8 +352,8 @@ impl App {
       v.resize(bw);
       v.invalidate();
     }
-    self.pin_sig = Default::default();
-    self.pred_sig = Default::default();
+    self.pin_bar.sig = Default::default();
+    self.pred_bar.sig = Default::default();
     self.bar_dirty = true;
     self.wake();
   }

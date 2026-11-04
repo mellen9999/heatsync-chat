@@ -81,7 +81,7 @@ fn the_question_mark_button_sits_by_the_gear_and_opens_the_key_map() {
   app.pointer = mid(keys);
   app.bar_hover();
   app.redraw();
-  assert!(app.keys_hover && !app.gear_hover);
+  assert!(app.hover.keys && !app.hover.gear);
   assert_eq!(px(&app, keys.x, keys.y), theme::WHITE, "hover reverses it");
   dump(&app, "keys_button_hover");
   app.click();
@@ -145,12 +145,12 @@ fn the_empty_box_offers_log_in_as_a_button_while_logged_out() {
   app.pointer = mid(r);
   app.input_hover();
   app.redraw();
-  assert!(app.link_hover);
+  assert!(app.hover.link);
   assert_eq!(px(&app, r.x + 1, r.y + 1), theme::WHITE, "hover is white");
   dump(&app, "login_link_hover");
   app.pointer = (r.x, r.y - 40);
   app.input_hover();
-  assert!(!app.link_hover);
+  assert!(!app.hover.link);
   // a click asks which platform
   app.pointer = mid(r);
   app.click();
