@@ -33,6 +33,9 @@ pub struct Bar<'a> {
   // e.g. ("[K] ", GREEN) when the tab merges platforms
   pub target: Option<(&'a str, u32)>,
   pub hint: &'a str,
+  // the first `link` bytes of the hint are a button (underlined; reversed while the pointer is on it)
+  pub link: usize,
+  pub link_on: bool,
   // replying to @nick: shown dim before the text
   pub reply: Option<&'a str>,
   // editing your own post: shown dim before its words
@@ -102,6 +105,25 @@ fn hinting(b: &Bar) -> bool {
   b.line.text.is_empty() && b.preedit.is_empty() && !b.hint.is_empty() && b.reply.is_none() && !b.edit
 }
 
+// the hint's button, in bytes: only a whole piece of the hint counts
+fn link_len(b: &Bar) -> usize {
+  if b.hint.is_char_boundary(b.link) { b.link.min(b.hint.len()) } else { 0 }
+}
+
+// where a byte range of the laid-out text landed, in window pixels (the lines it covers, as one box)
+fn span_rect(l: &TextLayout, range: Range<usize>, ox: f32, oy: f32) -> Option<Rect> {
+  let sel = Selection::new(
+    Cursor::from_byte_index(l, range.start, Affinity::Downstream),
+    Cursor::from_byte_index(l, range.end, Affinity::Upstream),
+  );
+  let boxes = sel.geometry(l);
+  let x0 = boxes.iter().map(|(r, _)| r.x0).reduce(f64::min)?;
+  let y0 = boxes.iter().map(|(r, _)| r.y0).reduce(f64::min)?;
+  let x1 = boxes.iter().map(|(r, _)| r.x1).reduce(f64::max)?;
+  let y1 = boxes.iter().map(|(r, _)| r.y1).reduce(f64::max)?;
+  Some(Rect::new((ox as f64 + x0) as i32, (oy as f64 + y0) as i32, (x1 - x0).ceil() as i32, (y1 - y0).ceil() as i32))
+}
+
 fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   let mut s = String::new();
   let mut spans = Vec::with_capacity(2);
@@ -127,7 +149,11 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   let mut boxes = Vec::new();
   if hinting(b) {
     s.push_str(b.hint);
-    spans.push(Span { range: at..s.len(), ink: Ink(theme::DIM), bold: false });
+    let lead = at + link_len(b);
+    if lead > at {
+      spans.push(Span { range: at..lead, ink: Ink(theme::WHITE), bold: false });
+    }
+    spans.push(Span { range: lead..s.len(), ink: Ink(theme::DIM), bold: false });
   } else {
     let (t, cur) = (&b.line.text, b.line.cursor);
     // the composition goes in at the cursor: before a chip it starts, after one it ends or sits in
@@ -167,6 +193,8 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
 
 // where the text was drawn, to turn a click into a cursor
 pub struct Hit {
+  // the hint's button, when it is showing
+  pub link: Option<Rect>,
   l: TextLayout,
   ox: f32,
   oy: f32,
@@ -299,6 +327,19 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
       }
     }
   });
+  // the hint's button: underlined, reversed while the pointer is on it
+  let link = (hinting(b) && link_len(b) > 0).then(|| span_rect(l, g.at..g.at + link_len(b), ox, oy)).flatten();
+  if let Some(r) = link.filter(|r| !r.intersect(area).is_empty()) {
+    let clip = r.intersect(area);
+    if b.link_on {
+      let s = &b.hint[..link_len(b)];
+      let black = text.layout(s, &[Span { range: 0..s.len(), ink: Ink(theme::BLACK), bold: false }], &[], f32::MAX);
+      c.fill(clip, theme::WHITE);
+      text.draw(&black, c, r.x as f32, r.y as f32, clip, |_, _| {});
+    } else {
+      c.fill(Rect::new(r.x, r.bottom() - 1, r.w, 1).intersect(area), theme::WHITE);
+    }
+  }
   if !b.label.is_empty() {
     let s = mode_label::text(b.label);
     let ll = text.layout(&s, &mode_label::spans(b.label), &[], f32::MAX);
@@ -361,6 +402,6 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
   c.fill(Rect::new(cx - arm / 2, cy - bar / 2, arm, bar), fg);
   c.fill(Rect::new(cx - bar / 2, cy - arm / 2, bar, arm), fg);
   let chips = b.chips.iter().map(|c| c.range.clone()).collect();
-  let hit = Hit { l: g.l, ox, oy, at: g.at, runs: g.runs, chips, len: b.line.text.len() };
+  let hit = Hit { link, l: g.l, ox, oy, at: g.at, runs: g.runs, chips, len: b.line.text.len() };
   (Rect::new(x, y, CURSOR_W, h), next, hit)
 }

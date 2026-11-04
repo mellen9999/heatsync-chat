@@ -102,6 +102,8 @@ const FLOOD_TAB: &str = "flood";
 // matches packaging/heatsync-chat.desktop (StartupWMClass) and its icon name
 const APP_ID: &str = "heatsync-chat";
 const SCROLLBACK: usize = 1000;
+// the empty box's first words while logged out: a button
+const LOGIN_HINT: &str = "ctrl-l log in";
 // animation repaint ceiling: 30fps — smooth for emotes, ~35% fewer wakeups than native gif timing
 const ANIM_MIN_MS: u32 = 33;
 const TRIM_AFTER: Duration = Duration::from_secs(2);
@@ -188,6 +190,9 @@ pub struct App {
   suggest_rows: Vec<(usize, Rect)>,
   // where the box's text was last drawn (a click places the cursor)
   input_hit: Option<input_bar::Hit>,
+  // the "ctrl-l log in" button of the empty box while logged out, and whether the pointer is on it
+  login_link: Option<Rect>,
+  link_hover: bool,
   // an animated emote in the message box changes frame
   input_next: Option<Instant>,
   // the name hover popup, when the pointer rested long enough to ask for it, and what heatsync said
@@ -410,6 +415,8 @@ impl App {
       pace_due: None,
       input_next: None,
       input_hit: None,
+      login_link: None,
+      link_hover: false,
       over_input: false,
       suggest: None,
       suggest_at: ("".into(), 0),
@@ -700,7 +707,7 @@ impl App {
       };
     }
     let lead = if self.set.vi { "i type" } else { "type to chat" };
-    let Some(me) = &self.me else { return format!("ctrl-l log in · {lead}") };
+    let Some(me) = &self.me else { return format!("{LOGIN_HINT} · {lead}") };
     let Some((p, ..)) = self.target() else { return lead.into() };
     match me.name_on(p) {
       Some(name) => format!("{lead} as {name}"),
@@ -1187,6 +1194,12 @@ impl App {
         mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
         target: tag,
         hint: &hint,
+        link: if self.prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) {
+          LOGIN_HINT.len()
+        } else {
+          0
+        },
+        link_on: self.link_hover,
         reply,
         edit: self.edit.is_some() && self.prompt.is_none(),
         preedit: self.ime.preedit(),
@@ -1211,9 +1224,12 @@ impl App {
         let r = self.input_area();
         let (caret, next, hit) = input_bar::draw(&mut self.canvas, &mut self.res.text, &mut self.res.images, r, &bar);
         self.ime_area = Some(caret);
+        self.login_link = hit.link;
         self.input_hit = (self.prompt.is_none() && !self.line.text.is_empty()).then_some(hit);
         self.input_next = next.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
         dirty = Some(r);
+      } else {
+        self.login_link = None;
       }
     }
     if let Some(r) = self.sync_pin() {
@@ -1803,6 +1819,9 @@ impl App {
     if self.over_upload() {
       return self.pick_file();
     }
+    if self.over_login() {
+      return self.login();
+    }
     if self.picker.is_some() {
       return self.picker_click();
     }
@@ -1840,6 +1859,22 @@ impl App {
       self.leave_insert();
     }
     self.wake();
+  }
+
+  // the pointer moved: the box's buttons light up while it is on them
+  fn input_hover(&mut self) {
+    let (over, up, link) = (self.over_button(), self.over_upload(), self.over_login());
+    if over != self.btn_hover || up != self.up_hover || link != self.link_hover {
+      (self.btn_hover, self.up_hover, self.link_hover) = (over, up, link);
+      self.input_dirty = true;
+      self.wake();
+    }
+  }
+
+  // the pointer is on the empty box's "ctrl-l log in"
+  fn over_login(&self) -> bool {
+    let (x, y) = self.pointer;
+    self.input_h > 0 && self.login_link.is_some_and(|r| r.contains(x, y))
   }
 
   fn over_button(&self) -> bool {
@@ -2029,13 +2064,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.picker_hover();
         self.cursor_sync();
         self.tip_hover();
-        let (over, up) = (self.over_button(), self.over_upload());
-        if over != self.btn_hover || up != self.up_hover {
-          self.btn_hover = over;
-          self.up_hover = up;
-          self.input_dirty = true;
-          self.wake();
-        }
+        self.input_hover();
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
