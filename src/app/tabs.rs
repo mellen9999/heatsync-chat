@@ -2,6 +2,7 @@
 // right-click menu on a tab. every change joins or leaves live and is saved at once
 use winit::keyboard::{Key, NamedKey};
 
+use super::screen::Page;
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Cmd as ChanCmd, Form, Spec};
 use crate::model::message::Platform;
@@ -14,6 +15,15 @@ use crate::ui::chat_view::ChatView;
 use crate::ui::form::{self, Hit};
 use crate::ui::menu::Menu;
 use crate::ui::union;
+
+// the buttons after the tabs, in the order they are drawn
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Button {
+  Plus,
+  Gear,
+  Keys,
+  Update,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TabAct {
@@ -393,39 +403,52 @@ impl App {
     Rect { h: (b.h - self.input_h).max(0), ..b }
   }
 
-  // position in the drawn bar: shown tabs in order, then the + button, then the gear
+  // position in the drawn bar: shown tabs in order, then the + button, the gear, the ? and the update label
   fn tab_at(&self, x: i32, y: i32) -> Option<usize> {
     self.bar_hits.iter().position(|r| r.contains(x, y))
   }
 
-  pub(super) fn gear_at(&self) -> bool {
-    self.tab_at(self.pointer.0, self.pointer.1) == Some(self.bar_map.len() + 1)
+  // the button under the pointer
+  fn bar_button(&self) -> Option<Button> {
+    let p = self.tab_at(self.pointer.0, self.pointer.1)?.checked_sub(self.bar_map.len())?;
+    [Button::Plus, Button::Gear, Button::Keys, Button::Update].get(p).copied()
+  }
+
+  // a click on the gear or the ? with a screen open: its own screen closes, the other one takes its place.
+  // false = not a click on either
+  pub(super) fn bar_screen_click(&mut self) -> bool {
+    let page = match self.bar_button() {
+      Some(Button::Gear) => Page::Settings,
+      Some(Button::Keys) => Page::Keys,
+      _ => return false,
+    };
+    self.toggle_screen(page);
+    true
   }
 
   pub(super) fn bar_hover(&mut self) {
-    let (x, y) = self.pointer;
-    let at = self.tab_at(x, y);
-    let n = self.bar_map.len();
-    let (plus, gear, up) = (at == Some(n), at == Some(n + 1), at == Some(n + 2));
-    if (plus, gear, up) != (self.plus_hover, self.gear_hover, self.update_hover) {
-      (self.plus_hover, self.gear_hover, self.update_hover) = (plus, gear, up);
+    let b = self.bar_button();
+    let hover = (b == Some(Button::Plus), b == Some(Button::Gear), b == Some(Button::Keys), b == Some(Button::Update));
+    if hover != (self.plus_hover, self.gear_hover, self.keys_hover, self.update_hover) {
+      (self.plus_hover, self.gear_hover, self.keys_hover, self.update_hover) = hover;
       self.bar_dirty = true;
       self.wake();
     }
   }
 
   pub(super) fn bar_click(&mut self) {
-    match self.tab_at(self.pointer.0, self.pointer.1) {
-      Some(p) if p == self.bar_map.len() => self.open_form(None),
-      Some(p) if p == self.bar_map.len() + 1 => self.open_screen(super::screen::Page::Settings),
-      Some(p) if p == self.bar_map.len() + 2 => self.update_press(),
+    match (self.bar_button(), self.tab_at(self.pointer.0, self.pointer.1)) {
+      (Some(Button::Plus), _) => self.open_form(None),
+      (Some(Button::Gear), _) => self.open_screen(Page::Settings),
+      (Some(Button::Keys), _) => self.open_screen(Page::Keys),
+      (Some(Button::Update), _) => self.update_press(),
       // the `← back` tab: a click goes back (the picture first, then a thread)
-      Some(p) if self.bar_map[p] == self.active && self.img_view.is_some() => self.img_close(),
-      Some(p) if self.bar_map[p] == self.active && self.tabs[self.active].under.is_some() => {
+      (_, Some(p)) if self.bar_map[p] == self.active && self.img_view.is_some() => self.img_close(),
+      (_, Some(p)) if self.bar_map[p] == self.active && self.tabs[self.active].under.is_some() => {
         self.takeover_close();
       }
-      Some(p) => self.select(self.bar_map[p]),
-      None => {}
+      (_, Some(p)) => self.select(self.bar_map[p]),
+      (_, None) => {}
     }
   }
 

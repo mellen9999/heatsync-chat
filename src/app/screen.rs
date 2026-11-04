@@ -311,8 +311,12 @@ impl App {
     }
   }
 
+  pub(super) fn screen_is(&self, page: Page) -> bool {
+    self.screen.as_ref().is_some_and(|s| s.page == page)
+  }
+
   pub(super) fn toggle_screen(&mut self, page: Page) {
-    if self.screen.as_ref().is_some_and(|s| s.page == page) {
+    if self.screen_is(page) {
       self.close_screen();
     } else {
       self.open_screen(page);

@@ -263,6 +263,7 @@ pub struct App {
   bar_map: Vec<usize>,
   plus_hover: bool,
   gear_hover: bool,
+  keys_hover: bool,
   update_hover: bool,
   // a newer release, once found; installing it; when to look again
   update: Option<crate::net::update::Release>,
@@ -459,6 +460,7 @@ impl App {
       bar_map: Vec::new(),
       plus_hover: false,
       gear_hover: false,
+      keys_hover: false,
       update_hover: false,
       update: None,
       updating: false,
@@ -1263,17 +1265,17 @@ impl App {
         .collect();
       let bar = self.bar();
       let up = self.update_label();
+      let (gear, keys) = (
+        self.gear_hover || self.screen_is(screen::Page::Settings),
+        self.keys_hover || self.screen_is(screen::Page::Keys),
+      );
       self.bar_hits = tab_bar::draw(
         &mut self.canvas,
         &mut self.res.text,
         bar,
         &labels,
         if hidden_now { (&label, &showcmd) } else { (&[], "") },
-        tab_bar::Hot {
-          plus: self.plus_hover,
-          gear: self.gear_hover || self.screen.is_some(),
-          update: up.as_deref().map(|l| (l, self.update_hover)),
-        },
+        tab_bar::Hot { plus: self.plus_hover, gear, keys, update: up.as_deref().map(|l| (l, self.update_hover)) },
       );
       self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
@@ -1755,12 +1757,12 @@ impl App {
       return self.form_click();
     }
     if self.screen.is_some() {
-      // the tab bar stays live: a tab or the gear closes the screen first
+      // the tab bar stays live: a tab closes the screen first; the gear and the ? swap or close it
       if !self.bar().contains(self.pointer.0, self.pointer.1) {
         return self.screen_click();
       }
-      if self.gear_at() {
-        return self.close_screen();
+      if self.bar_screen_click() {
+        return;
       }
       self.close_screen();
     }

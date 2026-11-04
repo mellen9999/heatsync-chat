@@ -22,10 +22,11 @@ pub struct TabLabel<'a> {
 pub struct Hot<'a> {
   pub plus: bool,
   pub gear: bool,
+  pub keys: bool,
   pub update: Option<(&'a str, bool)>,
 }
 
-// returns each tab's rect, then the `+` rect, then the gear (for clicks). hot: pointer on the `+`, gear on or hovered.
+// returns each tab's rect, then the `+`, the gear and the `?` (for clicks). hot: pointer on a button, or its screen open.
 // an area taller than one line is a column (tabs on the left or right, ext tabPosition): a tab a row,
 // full width, a 1px white edge toward the chat
 pub fn draw(
@@ -81,10 +82,10 @@ pub fn draw(
     }
     hits.push(r);
   }
-  // the two buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
+  // the three buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
   // font that sits lower than the `+`). in a column they share one row
   let w = text.layout(" + ", &[], &[], f32::MAX).width().ceil() as i32;
-  for (glyph, on) in [("+", hot.plus), ("⚙", hot.gear)] {
+  for (glyph, on) in [("+", hot.plus), ("⚙", hot.gear), ("?", hot.keys)] {
     let r = Rect::new(x, y, w, line);
     icon(c, text, r.intersect(inner), glyph, on);
     hits.push(r);
