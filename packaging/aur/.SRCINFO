@@ -1,0 +1,23 @@
+pkgbase = heatsync-chat-bin
+	pkgdesc = twitch, kick and youtube chat in one native window, with heatsync emotes (prebuilt release)
+	pkgver = 0.2.1
+	pkgrel = 1
+	url = https://github.com/mellen9999/heatsync-chat
+	arch = x86_64
+	license = MIT
+	depends = glibc
+	depends = fontconfig
+	depends = libxkbcommon
+	depends = wayland
+	optdepends = libnotify: desktop notification on an @mention
+	optdepends = xdg-utils: open the login page and links
+	optdepends = zenity: file dialog for uploads
+	optdepends = libx11: x11 sessions
+	provides = heatsync-chat=0.2.1
+	conflicts = heatsync-chat
+	options = !strip
+	options = !debug
+	source_x86_64 = heatsync-chat-0.2.1-x86_64.tar.gz::https://github.com/mellen9999/heatsync-chat/releases/download/v0.2.1/heatsync-chat-x86_64-linux.tar.gz
+	sha256sums_x86_64 = 50db889fae18cae6a3c70e5df0f063e9a3761c26afbf072134e2049181994e8d
+
+pkgname = heatsync-chat-bin
