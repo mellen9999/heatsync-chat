@@ -122,7 +122,7 @@ async fn link_ticket(http: &reqwest::Client, token: &str) -> Result<String, Stri
   let r =
     http.post(format!("{ORIGIN}/api/auth/native-link")).bearer_auth(token).send().await.map_err(|e| e.to_string())?;
   let ok = r.status().is_success();
-  let expired = r.status().as_u16() == 401;
+  let expired = is_expired(r.status().as_u16());
   let v = body(r).await.unwrap_or(Value::Null);
   match v.get("ticket").and_then(Value::as_str) {
     Some(t) if ok && t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => Ok(t.to_string()),
@@ -253,9 +253,21 @@ pub enum Check {
   Expired,
 }
 
+// heatsync saying no to the session token itself: a logout, not a hiccup to retry
+fn is_expired(status: u16) -> bool {
+  status == 401
+}
+
 // who the token is; Some(new token) when the server slid the session forward
 pub async fn check(http: &reqwest::Client, token: &str) -> Result<Check, String> {
-  let r = http.get(format!("{ORIGIN}/api/auth/check")).bearer_auth(token).send().await.map_err(|e| e.to_string())?;
+  check_at(http, ORIGIN, token).await
+}
+
+async fn check_at(http: &reqwest::Client, origin: &str, token: &str) -> Result<Check, String> {
+  let r = http.get(format!("{origin}/api/auth/check")).bearer_auth(token).send().await.map_err(|e| e.to_string())?;
+  if is_expired(r.status().as_u16()) {
+    return Ok(Check::Expired);
+  }
   if !r.status().is_success() {
     return Err(format!("http {}", r.status().as_u16()));
   }
@@ -292,19 +304,36 @@ pub async fn check(http: &reqwest::Client, token: &str) -> Result<Check, String>
 }
 
 // the user's twitch irc credential, brokered by heatsync (refreshed server-side)
-// Ok(None) = this account has no twitch linked (a 404 from heatsync), not a failure
-pub async fn chat_token(http: &reqwest::Client, token: &str) -> Result<Option<(String, String)>, String> {
+#[derive(Debug, PartialEq)]
+pub enum Chat {
+  // (oauth token, lowercase login)
+  Ready(String, String),
+  // this account has no twitch linked (a 404 from heatsync), not a failure
+  Unlinked,
+  // heatsync no longer knows the session: a logout, same as a dead `check`
+  Expired,
+}
+
+pub async fn chat_token(http: &reqwest::Client, token: &str) -> Result<Chat, String> {
+  chat_token_at(http, ORIGIN, token).await
+}
+
+async fn chat_token_at(http: &reqwest::Client, origin: &str, token: &str) -> Result<Chat, String> {
   let r = http
-    .get(format!("{ORIGIN}/api/auth/twitch/chat-token"))
+    .get(format!("{origin}/api/auth/twitch/chat-token"))
     .bearer_auth(token)
     .send()
     .await
     .map_err(|e| e.to_string())?;
   let status = r.status().as_u16();
   if status == 404 {
-    return Ok(None);
+    return Ok(Chat::Unlinked);
   }
-  parse_chat_token((200..300).contains(&status), &body(r).await?)
+  if is_expired(status) {
+    return Ok(Chat::Expired);
+  }
+  let got = parse_chat_token((200..300).contains(&status), &body(r).await?)?;
+  Ok(got.map_or(Chat::Unlinked, |(t, u)| Chat::Ready(t, u)))
 }
 
 fn parse_chat_token(ok: bool, v: &Value) -> Result<Option<(String, String)>, String> {
@@ -353,6 +382,42 @@ mod tests {
       parse_chat_token(false, &json!({ "error": "twitch token expired" })),
       Err("twitch token expired".into())
     );
+  }
+
+  // a one-shot local server: the origin to ask, answering `status` with `body`
+  async fn serve(status: &str, body: &str) -> String {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", l.local_addr().unwrap());
+    let reply = format!(
+      "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+      body.len()
+    );
+    tokio::spawn(async move {
+      let (mut s, _) = l.accept().await.unwrap();
+      let mut buf = [0u8; 1024];
+      let _ = s.read(&mut buf).await;
+      let _ = s.write_all(reply.as_bytes()).await;
+    });
+    origin
+  }
+
+  #[tokio::test]
+  async fn a_401_from_heatsync_is_a_logout_not_a_vague_error() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let c = reqwest::Client::new();
+    let o = serve("401 Unauthorized", r#"{"error":"unauthorized"}"#).await;
+    assert!(matches!(check_at(&c, &o, "t").await, Ok(Check::Expired)));
+    let o = serve("401 Unauthorized", "").await;
+    assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Expired));
+    // a server hiccup is still just an error to retry
+    let o = serve("503 Service Unavailable", "{}").await;
+    assert!(check_at(&c, &o, "t").await.is_err());
+    let o = serve("503 Service Unavailable", r#"{"error":"busy"}"#).await;
+    assert_eq!(chat_token_at(&c, &o, "t").await, Err("busy".into()));
+    let o = serve("404 Not Found", "{}").await;
+    assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Unlinked));
+    let o = serve("200 OK", r#"{"token":"abc123","username":"Mellen"}"#).await;
+    assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Ready("abc123".into(), "mellen".into())));
   }
 
   #[test]

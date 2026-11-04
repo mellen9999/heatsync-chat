@@ -21,6 +21,7 @@ pub mod pin;
 pub mod pred;
 mod recent;
 pub mod relay;
+mod retry;
 mod senders;
 mod session;
 pub mod seventv;
@@ -50,6 +51,13 @@ pub enum NetEvent {
   // recent history for a freshly joined channel, oldest first
   Backfill(Box<str>, Vec<Chat>),
   Status(String),
+  // lines that landed while a feed was down, fetched once it's back (twitch irc dropped, a youtube
+  // subscription resumed): the app slots them in by time among what's shown and skips what it has
+  CatchUp {
+    platform: Platform,
+    key: Box<str>,
+    msgs: Vec<Message>,
+  },
   // channel = None for globals
   Emotes(Option<Box<str>>, Provider, Set),
   Image(ImgId, u32, Result<decode::Decoded, String>),
@@ -88,6 +96,8 @@ pub enum NetEvent {
   },
   // logged in as / logged out
   Me(Option<auth::Me>),
+  // a sign-in is waiting on the browser (esc gives it up) / is not any more
+  LoginWait(bool),
   // the server's blocked-emote hashes for this login
   BlockedHashes(Vec<Box<str>>),
   // your twitch sub emotes (empty: none, or logged out)
@@ -332,6 +342,19 @@ pub fn backoff(attempt: u32) -> Duration {
   Duration::from_secs_f64(base * jitter)
 }
 
+// a wait in whole seconds for a status line ("trying again in 8s"), never "0s"
+pub fn secs(d: Duration) -> u64 {
+  d.as_secs_f64().round().max(1.0) as u64
+}
+
+// say a connection is down and when it's tried again: the first few times, then every fifth, so an
+// outage is a few lines in the chat, not a wall of them
+pub fn retrying(out: &Out, why: &str, attempt: u32, wait: Duration) {
+  if attempt <= 3 || attempt.is_multiple_of(5) {
+    out.status(format!("{why}, trying again in {}s", secs(wait)));
+  }
+}
+
 // the line being answered: its platform message id, and @nick + its words for our own echo
 pub struct Reply {
   pub id: Box<str>,
@@ -354,6 +377,8 @@ pub enum Cmd {
   // sign in with this platform
   Login(auth::Provider),
   Link(auth::Provider),
+  // give up the sign-in that's waiting on the browser
+  CancelLogin,
   // link youtube again, this time also asking to post chat as the user (the opt-in)
   AllowYoutubePosting,
   Logout,
@@ -541,91 +566,111 @@ fn image_client() -> Option<reqwest::Client> {
     .ok()
 }
 
+fn provider_name(p: Provider) -> &'static str {
+  match p {
+    Provider::SevenTv => "7tv",
+    Provider::Bttv => "bttv",
+    Provider::Ffz => "ffz",
+    Provider::Twitch => "twitch",
+  }
+}
+
+// a channel's emote sets, one retrying task per provider so a down one doesn't hold up the others.
+// they stop when the tab closes
 async fn channel_emotes(
   http: reqwest::Client,
   ch: Box<str>,
   room: Box<str>,
   stv: mpsc::UnboundedSender<seventv::Cmd>,
+  open: retry::Open,
   out: Out,
 ) {
   if !room.bytes().all(|b| b.is_ascii_digit()) {
     return;
   }
   for (p, u) in providers::channel_urls(&room) {
-    match providers::fetch(&http, &u).await {
-      Ok(v) => {
-        if p == Provider::SevenTv
-          && let Some(set) = providers::seventv_set_id(&v)
-        {
-          // live edits for this channel's set; the broadcaster's own cosmetics too
-          let user = providers::seventv_user_id(&v).zip(room.parse().ok());
-          let _ = stv.send(seventv::Cmd::Watch { ch: ch.clone(), set, user });
-        }
-        if p == Provider::Ffz {
-          out.send(NetEvent::FfzRoomBadges(ch.clone(), badges::fetch::ffz_room(&v)));
-        }
-        out.send(NetEvent::Emotes(Some(ch.clone()), p, providers::parse_channel(p, &v)));
+    let Some(tab) = open.watch(&ch) else { return };
+    let (http, ch, room, stv, out) = (http.clone(), ch.clone(), room.clone(), stv.clone(), out.clone());
+    tokio::spawn(async move {
+      let what = format!("{ch}'s {} emotes", provider_name(p));
+      let Some(v) = retry::until(&out, &what, || tab.alive(), || providers::fetch(&http, &u)).await else { return };
+      if p == Provider::SevenTv
+        && let Some(set) = providers::seventv_set_id(&v)
+      {
+        // live edits for this channel's set; the broadcaster's own cosmetics too
+        let user = providers::seventv_user_id(&v).zip(room.parse().ok());
+        let _ = stv.send(seventv::Cmd::Watch { ch: ch.clone(), set, user });
       }
-      Err(e) => out.status(format!("{p:?} emotes for {ch}: {e}").to_lowercase()),
-    }
+      if p == Provider::Ffz {
+        out.send(NetEvent::FfzRoomBadges(ch.clone(), badges::fetch::ffz_room(&v)));
+      }
+      out.send(NetEvent::Emotes(Some(ch), p, providers::parse_channel(p, &v)));
+    });
   }
 }
 
+// the global badge sources, each tried until it answers
 async fn global_badges(http: reqwest::Client, out: Out) {
-  match badges::fetch::twitch_global(&http).await {
-    Ok(s) => {
-      out.send(NetEvent::TwitchBadges(None, s));
+  let (h, o) = (http.clone(), out.clone());
+  tokio::spawn(async move {
+    if let Some(s) = retry::until(&o, "twitch badges", || true, || badges::fetch::twitch_global(&h)).await {
+      o.send(NetEvent::TwitchBadges(None, s));
     }
-    Err(e) => out.status(format!("twitch badges: {e}")),
-  }
+  });
   type Parse = fn(&serde_json::Value) -> UserBadges;
-  let third: [(Source, &str, Parse); 2] = [
-    (Source::Chatterino, badges::fetch::CHATTERINO, badges::fetch::chatterino),
-    (Source::Ffz, badges::fetch::FFZ_IDS, badges::fetch::ffz),
+  let third: [(Source, &str, &'static str, Parse); 2] = [
+    (Source::Chatterino, badges::fetch::CHATTERINO, "chatterino badges", badges::fetch::chatterino),
+    (Source::Ffz, badges::fetch::FFZ_IDS, "ffz badges", badges::fetch::ffz),
   ];
-  for (src, u, parse) in third {
-    match providers::fetch(&http, u).await {
-      Ok(v) => {
+  for (src, u, what, parse) in third {
+    let (http, out) = (http.clone(), out.clone());
+    tokio::spawn(async move {
+      if let Some(v) = retry::until(&out, what, || true, || providers::fetch(&http, u)).await {
         out.send(NetEvent::UserBadges(src, parse(&v)));
       }
-      Err(e) => out.status(format!("{src:?} badges: {e}").to_lowercase()),
-    }
+    });
   }
 }
 
-async fn channel_badges(http: reqwest::Client, ch: Box<str>, out: Out) {
-  match badges::fetch::twitch_channel(&http, &ch).await {
-    Ok(s) => {
-      out.send(NetEvent::TwitchBadges(Some(ch), s));
-    }
-    Err(e) => out.status(format!("badges for {ch}: {e}")),
+// a channel's own twitch badges, until they arrive or the tab closes
+async fn channel_badges(http: reqwest::Client, ch: Box<str>, tab: retry::Watch, out: Out) {
+  let what = format!("{ch}'s badges");
+  if let Some(s) = retry::until(&out, &what, || tab.alive(), || badges::fetch::twitch_channel(&http, &ch)).await {
+    out.send(NetEvent::TwitchBadges(Some(ch), s));
   }
 }
 
+// every global emote source, each its own retrying task: one down doesn't hold up the rest
 async fn global_emotes(http: reqwest::Client, out: Out) {
   type Parse = fn(&serde_json::Value) -> Set;
   // twitch's: the ext's list (every helix global: LUL, :P) laid over the catalog's twitch rows (the
-  // event unlocks, which that list lacks). either alone is short; one failing still leaves the other
-  let mut twitch = Set::new();
-  for u in [providers::TWITCH_GLOBAL, providers::HEATSYNC_GLOBAL] {
-    match providers::fetch(&http, u).await {
-      Ok(v) => providers::merge(&mut twitch, providers::twitch_global(&v)),
-      Err(e) => out.status(format!("global twitch emotes: {e}")),
-    }
+  // event unlocks, which that list lacks). either alone is short; one failing still leaves the other,
+  // so each landing sends what the two have so far
+  let twitch: Arc<std::sync::Mutex<[Set; 2]>> = Arc::default();
+  for (i, u) in [providers::TWITCH_GLOBAL, providers::HEATSYNC_GLOBAL].into_iter().enumerate() {
+    let (http, out, twitch) = (http.clone(), out.clone(), twitch.clone());
+    tokio::spawn(async move {
+      let Some(v) = retry::until(&out, "twitch emotes", || true, || providers::fetch(&http, u)).await else { return };
+      let mut sets = twitch.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+      sets[i] = providers::twitch_global(&v);
+      let mut all = sets[0].clone();
+      providers::merge(&mut all, sets[1].clone());
+      out.send(NetEvent::Emotes(None, Provider::Twitch, all));
+    });
   }
-  out.send(NetEvent::Emotes(None, Provider::Twitch, twitch));
   let sets: [(Provider, &str, Parse); 3] = [
     (Provider::SevenTv, providers::SEVENTV_GLOBAL, providers::seventv),
     (Provider::Bttv, providers::BTTV_GLOBAL, providers::bttv_global),
     (Provider::Ffz, providers::FFZ_GLOBAL, providers::ffz_global),
   ];
   for (p, u, parse) in sets {
-    match providers::fetch(&http, u).await {
-      Ok(v) => {
+    let (http, out) = (http.clone(), out.clone());
+    tokio::spawn(async move {
+      let what = format!("{} emotes", provider_name(p));
+      if let Some(v) = retry::until(&out, &what, || true, || providers::fetch(&http, u)).await {
         out.send(NetEvent::Emotes(None, p, parse(&v)));
       }
-      Err(e) => out.status(format!("global {p:?} emotes: {e}").to_lowercase()),
-    }
+    });
   }
 }
 
@@ -684,18 +729,27 @@ impl Net {
   }
 }
 
-async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
-  let http = match reqwest::Client::builder()
+// the one client for every api and json fetch
+fn main_client() -> Result<reqwest::Client, reqwest::Error> {
+  reqwest::Client::builder()
     .user_agent(USER_AGENT)
     .connect_timeout(Duration::from_secs(8))
     .timeout(Duration::from_secs(12))
     .build()
-  {
+}
+
+async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
+  let http = match main_client() {
     Ok(c) => c,
-    Err(e) => return out.status(format!("http client failed: {e}")),
+    Err(e) => {
+      eprintln!("http client: {e}");
+      return out.status("can't start the network, restart heatsync-chat");
+    }
   };
+  let open = retry::Open::default();
+  let (sess_tx, sess_rx) = mpsc::unbounded_channel();
   let (irc_tx, irc_rx) = mpsc::unbounded_channel();
-  watch("chat", irc::run(irc_rx, out.clone()), out.clone());
+  watch("chat", irc::run(irc_rx, sess_tx.clone(), http.clone(), out.clone()), out.clone());
   tokio::spawn(global_emotes(http.clone(), out.clone()));
   tokio::spawn(global_badges(http.clone(), out.clone()));
   let (hs_tx, hs_rx) = mpsc::unbounded_channel();
@@ -705,7 +759,6 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let hs_auth = hs_tx.clone();
   let (snd_tx, snd_rx) = mpsc::unbounded_channel();
   watch("sending", senders::run(http.clone(), snd_rx, out.clone()), out.clone());
-  let (sess_tx, sess_rx) = mpsc::unbounded_channel();
   watch("login", session::run(http.clone(), sess_rx, irc_tx.clone(), hs_auth, out.clone()), out.clone());
   let (cos_tx, cos_rx) = mpsc::unbounded_channel();
   watch("paints", cosmetics::run(http.clone(), cos_rx, out.clone()), out.clone());
@@ -714,24 +767,26 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
   watch("7tv", seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()), out.clone());
   let Some(dec) = spawn_decoder(out.clone()) else {
-    return out.status("image decoder failed to start");
+    return out.status("can't start the picture decoder, restart heatsync-chat");
   };
   let Some(img_http) = image_client() else {
-    return out.status("image client failed to start");
+    return out.status("can't start the picture loader, restart heatsync-chat");
   };
   let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
   while let Some(cmd) = rx.recv().await {
     match cmd {
       Cmd::Join(ch) => {
-        tokio::spawn(recent::fetch(http.clone(), ch.clone(), out.clone()));
+        let tab = open.join(&ch);
+        tokio::spawn(recent::fetch(http.clone(), ch.clone(), tab.clone(), out.clone()));
         if irc::valid_channel(&ch) {
-          tokio::spawn(channel_badges(http.clone(), ch.clone(), out.clone()));
-          tokio::spawn(links::discover(http.clone(), ch.clone(), out.clone()));
+          tokio::spawn(channel_badges(http.clone(), ch.clone(), tab.clone(), out.clone()));
+          tokio::spawn(links::discover(http.clone(), ch.clone(), tab, out.clone()));
           let _ = hs_tx.send(hs_ws::Cmd::Join(Platform::Twitch, ch.clone()));
         }
         let _ = irc_tx.send(irc::Cmd::Join(ch));
       }
       Cmd::Part(ch) => {
+        open.part(&ch);
         let _ = stv_tx.send(seventv::Cmd::Unwatch(ch.clone()));
         let _ = hs_tx.send(hs_ws::Cmd::Leave(Platform::Twitch, ch.clone()));
         let _ = irc_tx.send(irc::Cmd::Part(ch));
@@ -747,6 +802,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Link(p) => {
         let _ = sess_tx.send(session::Cmd::Link(p, "base"));
+      }
+      Cmd::CancelLogin => {
+        let _ = sess_tx.send(session::Cmd::CancelLogin);
       }
       Cmd::AllowYoutubePosting => {
         let _ = sess_tx.send(session::Cmd::Link(auth::Provider::Youtube, "post"));
@@ -845,7 +903,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = stv_tx.send(seventv::Cmd::Me(id));
       }
       Cmd::Room(ch, room) => {
-        tokio::spawn(channel_emotes(http.clone(), ch, room, stv_tx.clone(), out.clone()));
+        tokio::spawn(channel_emotes(http.clone(), ch, room, stv_tx.clone(), open.clone(), out.clone()));
       }
       Cmd::Image(id, u, h) => {
         tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));

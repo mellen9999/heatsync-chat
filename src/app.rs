@@ -46,6 +46,7 @@ mod pop;
 mod pred;
 mod pronouns;
 mod quick;
+mod resume;
 mod rover;
 mod screen;
 mod stats;
@@ -302,6 +303,8 @@ pub struct App {
   finding: bool,
   find_q: String,
   uploading: bool,
+  // a sign-in is waiting on the browser: esc gives it up
+  login_wait: bool,
   // the system clipboard, made on first use
   clip: Option<arboard::Clipboard>,
   // pinned lines per room, the bar's height (0 = none), whether it is open, and what it last drew
@@ -497,6 +500,7 @@ impl App {
       find_q: String::new(),
       clip: None,
       uploading: false,
+      login_wait: false,
       pins: Pins::default(),
       pin_h: 0,
       pin_open: false,
@@ -1310,6 +1314,13 @@ impl App {
     if self.res.images.next_tick() {
       self.trim_soon();
     }
+    // pictures that failed a while ago get another go: rows that left one out lay out again and ask
+    if self.res.images.take_revived() {
+      for t in &mut self.tabs {
+        t.views().for_each(ChatView::relayout);
+      }
+      self.wake();
+    }
     if self.form.is_some() {
       self.next_anim = None;
       if let Some(r) = self.draw_form() {
@@ -1649,6 +1660,9 @@ impl App {
       return self.menu_key(k);
     }
     if self.logs_key(k.clone()) {
+      return;
+    }
+    if self.login_esc(&k) {
       return;
     }
     match self.mode {
@@ -2447,6 +2461,8 @@ impl App {
         self.wake();
       }
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
+      NetEvent::CatchUp { platform, key, msgs } => self.on_catch_up(platform, &key, msgs),
+      NetEvent::LoginWait(on) => self.login_wait = on,
       NetEvent::RelayClear { platform, key, login } => {
         // a removal must find every line: what is still waiting shows first
         let waiting = self.pacer.flush(&key);

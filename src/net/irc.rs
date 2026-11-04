@@ -289,6 +289,16 @@ fn privmsg(chan: &str, text: &str, reply: Option<&str>) -> Option<String> {
   Some(format!("{tag}PRIVMSG #{chan} :{text}"))
 }
 
+// twitch's answer to a chat token it won't take (a network-wide NOTICE, no channel)
+fn auth_rejected(l: &Line) -> bool {
+  l.channel().is_none()
+    && l.trailing().is_some_and(|t| {
+      ["authentication failed", "Improperly formatted auth", "Login unsuccessful", "Invalid NICK"]
+        .iter()
+        .any(|k| t.contains(k))
+    })
+}
+
 pub fn valid_channel(c: &str) -> bool {
   (1..=25).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
@@ -299,34 +309,69 @@ enum End {
   Reconnect,
   // identity changed: reconnect now, no backoff
   Relogin,
+  // twitch turned our chat token down (carried, so the session can tell it from a newer one): read
+  // anonymously now, and a fresh token will log us in again
+  Refused(String),
 }
 
-pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
+// how many recent lines a catch-up asks for: more the longer chat was out of reach (~10 a second is a
+// busy channel), never fewer than a hundred or more than the history holds
+fn catch_limit(gap: Duration) -> usize {
+  (gap.as_secs() as usize).saturating_mul(10).clamp(100, super::recent::LIMIT)
+}
+
+pub async fn run(
+  mut rx: mpsc::UnboundedReceiver<Cmd>,
+  sess: mpsc::UnboundedSender<super::session::Cmd>,
+  http: reqwest::Client,
+  out: Out,
+) {
   let mut chans = BTreeSet::new();
   let mut creds: Option<Creds> = None;
   let mut attempts = 0u32;
+  // when we last lost twitch: set once there has been a connection, so the next one fills the gap
+  let mut lost: Option<Instant> = None;
+  let mut pending: VecDeque<Sent> = VecDeque::new();
   loop {
+    let mut why = "can't reach twitch";
     match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         out.status(if creds.is_some() { "twitch connected" } else { "twitch connected (read-only)" });
-        match session(ws, &mut rx, &mut chans, &mut creds, &out).await {
+        if let Some(since) = lost.take() {
+          let chans: Vec<_> = chans.iter().cloned().collect();
+          tokio::spawn(super::recent::catch_up(http.clone(), chans, catch_limit(since.elapsed()), out.clone()));
+        }
+        let end = session(ws, &mut rx, &mut chans, &mut creds, &mut pending, &out).await;
+        // a line still waiting on twitch's word when the socket went: say so rather than let it vanish
+        unsure(&out, &mut pending);
+        lost = Some(Instant::now());
+        match end {
           End::Quit => return,
           End::Relogin => {
             attempts = 0;
             continue;
           }
-          End::Reconnect => {}
+          End::Refused(token) => {
+            let _ = sess.send(super::session::Cmd::ChatRefused(token));
+            attempts = 0;
+            continue;
+          }
+          End::Reconnect => why = "lost twitch",
         }
         if started.elapsed() >= STABLE {
           attempts = 0;
         }
       }
-      Ok(Err(e)) => out.status(format!("twitch connect failed: {e}")),
-      Err(_) => out.status("twitch handshake timed out"),
+      Ok(Err(e)) => {
+        eprintln!("twitch connect: {e}");
+      }
+      Err(_) => eprintln!("twitch connect: handshake timed out"),
     }
     attempts += 1;
-    let wait = sleep(backoff(attempts));
+    let wait = backoff(attempts);
+    super::retrying(&out, why, attempts, wait);
+    let wait = sleep(wait);
     tokio::pin!(wait);
     loop {
       tokio::select! {
@@ -336,12 +381,20 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
             creds = c;
             break;
           }
-          Some(Cmd::Send { chan, .. }) => unsent(&out, chan, "not connected to twitch, message not sent"),
+          Some(Cmd::Send { chan, .. }) => unsent(&out, chan, "twitch is reconnecting, so that wasn't sent"),
           Some(c) => { apply(&mut chans, c); }
           None => return,
         },
       }
     }
+  }
+}
+
+// each line that was waiting on twitch when the socket died: it may or may not have gone out
+fn unsure(out: &Out, pending: &mut VecDeque<Sent>) {
+  for p in pending.drain(..) {
+    let said: String = p.text.chars().take(60).collect();
+    unsent(out, p.chan, &format!("twitch dropped, so this may not have sent: {said}"));
   }
 }
 
@@ -359,12 +412,14 @@ fn apply(chans: &mut BTreeSet<Box<str>>, c: Cmd) -> Option<String> {
 
 type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-// Err = the ui is gone, stop for good. Ok = reconnect
+// runs until the socket ends; `pending` (lines waiting on twitch's word) is the caller's, so what the
+// socket took with it can be told to the user
 async fn session(
   ws: Socket,
   rx: &mut mpsc::UnboundedReceiver<Cmd>,
   chans: &mut BTreeSet<Box<str>>,
   creds: &mut Option<Creds>,
+  pending: &mut VecDeque<Sent>,
   out: &Out,
 ) -> End {
   let (mut tx, mut read) = ws.split();
@@ -374,7 +429,6 @@ async fn session(
   };
   let mut hello =
     vec!["CAP REQ :twitch.tv/tags twitch.tv/commands".to_owned(), format!("PASS {pass}"), format!("NICK {nick}")];
-  let mut pending: VecDeque<Sent> = VecDeque::new();
   let mut me_id: Box<str> = "".into();
   // batched joins stay under the 20-per-10s anon limit for normal tab counts
   let names: Vec<_> = chans.iter().map(|c| format!("#{c}")).collect();
@@ -411,11 +465,10 @@ async fn session(
             "GLOBALUSERSTATE" => {
               me_id = line.tag("user-id").filter(|u| u.bytes().all(|b| b.is_ascii_digit())).unwrap_or_default().into();
             }
-            // a bad/expired token: say so and fall back to reading anonymously
-            "NOTICE" if line.channel().is_none() && line.trailing().is_some_and(|t| t.contains("authentication failed") || t.contains("Improperly formatted auth")) => {
-              out.status("twitch login rejected, reading only");
-              *creds = None;
-              return End::Relogin;
+            // a bad/expired token: say so and fall back to reading anonymously while the session gets a new one
+            "NOTICE" if creds.is_some() && auth_rejected(&line) => {
+              out.status("twitch didn't accept your login, getting a new one (read-only for now)");
+              return End::Refused(creds.take().map(|c| c.token).unwrap_or_default());
             }
             // our line went through: show it the way others see it
             "USERSTATE" if line.tag("id").is_some() => {
@@ -476,7 +529,7 @@ async fn session(
       }
       _ = tick.tick() => {
         if last_rx.elapsed() > SILENCE_LIMIT {
-          out.status("twitch silent, reconnecting");
+          out.status("twitch went quiet, reconnecting");
           return End::Reconnect;
         }
         if tx.send(Ws::text("PING :tmi.twitch.tv")).await.is_err() {
@@ -546,6 +599,49 @@ mod tests {
     assert!(twitch_emotes("25:9-99,5-2,x-y/:/../:0-1", "hi").is_empty());
     let max = usize::MAX;
     assert!(twitch_emotes(&format!("25:0-{max},{max}-{max}"), "hi").is_empty(), "no overflow");
+  }
+
+  #[test]
+  fn twitch_turning_a_login_down_is_told_from_chat() {
+    let notice = |s: &str| format!(":tmi.twitch.tv NOTICE * :{s}");
+    for said in ["Login authentication failed", "Improperly formatted auth", "Login unsuccessful", "Invalid NICK"] {
+      let raw = notice(said);
+      assert!(auth_rejected(&parse(&raw).unwrap()), "{said}");
+    }
+    // a room's own notice that happens to mention a login is not twitch refusing ours
+    let room = ":tmi.twitch.tv NOTICE #c :Login authentication failed";
+    assert!(!auth_rejected(&parse(room).unwrap()));
+    let other = notice("This room is now in slow mode");
+    assert!(!auth_rejected(&parse(&other).unwrap()));
+  }
+
+  #[test]
+  fn a_catch_up_asks_for_more_the_longer_chat_was_gone() {
+    assert_eq!(catch_limit(Duration::from_secs(0)), 100);
+    assert_eq!(catch_limit(Duration::from_secs(30)), 300);
+    assert_eq!(catch_limit(Duration::from_secs(86_400)), super::super::recent::LIMIT);
+  }
+
+  #[test]
+  fn lines_waiting_on_twitch_when_the_socket_died_say_so() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut pending: VecDeque<Sent> = VecDeque::new();
+    pending.push_back(Sent { chan: "xqc".into(), text: "hello chat".into(), reply: None });
+    pending.push_back(Sent { chan: "forsen".into(), text: "x".repeat(300), reply: None });
+    unsure(&out, &mut pending);
+    assert!(pending.is_empty());
+    let lines: Vec<(Box<str>, String)> = rx
+      .try_iter()
+      .filter_map(|e| match e {
+        crate::net::NetEvent::Chat(ch, Chat::Msg(m)) => Some((ch, m.body.to_string())),
+        _ => None,
+      })
+      .collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(&*lines[0].0, "xqc");
+    assert_eq!(lines[0].1, "twitch dropped, so this may not have sent: hello chat");
+    assert!(lines[1].1.len() < 120, "a long line is cut: {}", lines[1].1.len());
   }
 
   #[test]

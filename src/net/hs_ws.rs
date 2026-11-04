@@ -12,7 +12,7 @@ use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::http::ws_config;
-use super::{NetEvent, Out, backoff};
+use super::{NetEvent, Out, backoff, retrying};
 use super::{pin, relay, senders};
 use crate::cosmetics::id::PaintId;
 use crate::heatsync::valid_name;
@@ -57,6 +57,11 @@ struct State {
   yt_status: HashMap<Box<str>, Box<str>>,
   gate: Gate,
   token: Option<String>,
+  // a socket has run before, so the next one is a comeback
+  resumed: bool,
+  // youtube feeds this socket re-subscribed after a drop: their replayed backlog fills the gap
+  // (lowercase). on a first socket the replay is dropped, history comes from /api/recent
+  catching: BTreeSet<Box<str>>,
 }
 
 enum End {
@@ -71,12 +76,18 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
   let mut st = State::default();
   st.gate.start(crate::util::time::now_ms());
   let mut attempts = 0u32;
+  // the user was told heatsync can't be reached, so they're told when it's back
+  let mut told = false;
   loop {
     let mut wait = None;
     match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
+        if std::mem::take(&mut told) {
+          out.status("heatsync is back");
+        }
         let ended = session(ws, &mut rx, &mut st, &pins, &out).await;
+        st.resumed = true;
         // nothing is signed in on the next socket until it says so
         out.send(NetEvent::HsAuth(false));
         match ended {
@@ -91,12 +102,18 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
           attempts = 0;
         }
       }
-      Ok(Err(e)) => out.status(format!("heatsync connect failed: {e}")),
-      Err(_) => out.status("heatsync handshake timed out"),
+      Ok(Err(e)) => eprintln!("heatsync connect: {e}"),
+      Err(_) => eprintln!("heatsync connect: handshake timed out"),
     }
     let wait = wait.unwrap_or_else(|| {
       attempts += 1;
-      backoff(attempts)
+      let wait = backoff(attempts);
+      // a drop that connects again at once is not worth a line; trouble connecting is
+      if attempts > 1 {
+        told = true;
+        retrying(&out, "can't reach heatsync", attempts - 1, wait);
+      }
+      wait
     });
     let t = sleep(wait);
     tokio::pin!(t);
@@ -143,6 +160,11 @@ fn apply(st: &mut State, c: Cmd) -> Option<Value> {
   }
 }
 
+// the youtube feeds a new socket subscribes again after an earlier one ran (lowercase, as frames name them)
+fn resubscribed(st: &State) -> BTreeSet<Box<str>> {
+  if st.resumed { st.yt.iter().map(|h| h.to_ascii_lowercase().into()).collect() } else { BTreeSet::new() }
+}
+
 fn authenticate(token: &String) -> Value {
   json!({"type": "authenticate", "token": token})
 }
@@ -169,6 +191,7 @@ async fn session(
     hello.push(json!({"type": "ack:channels", "channels": acks}));
   }
   hello.extend(st.yt.iter().map(|h| yt_sub(h)));
+  st.catching = resubscribed(st);
   for f in hello {
     if tx.send(Ws::text(f.to_string())).await.is_err() {
       return End::Reconnect;
@@ -319,11 +342,19 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::RelayClear { platform: Platform::Kick, key, login })
     }
     "youtube:chat" => {
-      // a fresh subscribe replays the whole backlog; history comes from /api/recent instead
-      if v.get("replay").and_then(Value::as_bool) == Some(true) {
-        return None;
-      }
       let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| valid_key(c))?.into();
+      // a fresh subscribe replays the whole backlog; history comes from /api/recent instead. after a
+      // drop that backlog is the way to see what was said meanwhile: it fills the gap, by id
+      if v.get("replay").and_then(Value::as_bool) == Some(true) {
+        if !st.catching.contains(&*key.to_ascii_lowercase()) {
+          return None;
+        }
+        let msgs: Vec<_> =
+          relay::batch(v.get("messages"), relay::youtube).into_iter().filter(|m| !m.id.is_empty()).collect();
+        return (!msgs.is_empty())
+          .then(|| send(NetEvent::CatchUp { platform: Platform::Youtube, key, msgs }))
+          .flatten();
+      }
       let msgs = relay::batch(v.get("messages"), relay::youtube);
       send(NetEvent::Relay { platform: Platform::Youtube, key, msgs, history: false })
     }
@@ -472,6 +503,37 @@ mod tests {
     apply(&mut st, Cmd::Join(Platform::Twitch, "zbra".into()));
     dispatch(&grid, &mut st, &out);
     assert!(matches!(rx.try_recv(), Ok(NetEvent::Stream(_))), "its own tab still hears it");
+  }
+
+  #[test]
+  fn a_youtube_replay_fills_the_gap_after_a_drop_but_is_dropped_on_a_first_socket() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    apply(&mut st, Cmd::YtSub("@Chan".into()));
+    let replay = json!({"type": "youtube:chat", "channelId": "@chan", "replay": true,
+      "messages": [{"id": "m1", "user": "al", "text": "hi", "timestamp": 5}, {"user": "bo", "text": "no id"}]});
+    // first socket: the backlog is history's job (/api/recent), not ours
+    assert!(resubscribed(&st).is_empty());
+    dispatch(&replay, &mut st, &out);
+    assert!(rx.try_recv().is_err());
+    // after a drop the same replay is what was said meanwhile: kept by id, the id-less line is not
+    st.resumed = true;
+    st.catching = resubscribed(&st);
+    assert!(st.catching.contains("@chan"));
+    dispatch(&replay, &mut st, &out);
+    let Ok(NetEvent::CatchUp { platform, key, msgs }) = rx.try_recv() else { panic!("no catch-up") };
+    assert_eq!((platform, &*key, msgs.len()), (Platform::Youtube, "@chan", 1));
+    assert_eq!(&*msgs[0].id, "m1");
+    // a feed that wasn't re-subscribed (added since) is still dropped, and live batches go as before
+    let other = json!({"type": "youtube:chat", "channelId": "@new", "replay": true,
+      "messages": [{"id": "x", "user": "al", "text": "hi"}]});
+    dispatch(&other, &mut st, &out);
+    assert!(rx.try_recv().is_err());
+    let live =
+      json!({"type": "youtube:chat", "channelId": "@chan", "messages": [{"id": "m2", "user": "al", "text": "yo"}]});
+    dispatch(&live, &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::Relay { history: false, .. })));
   }
 
   #[test]

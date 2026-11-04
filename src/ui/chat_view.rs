@@ -212,7 +212,6 @@ pub struct ChatView {
   rows: VecDeque<Row>,
   cap: usize,
   seq_back: i64,
-  seq_front: i64,
   pub width: i32,
   // px scrolled up from the bottom; 0 = pinned to newest
   scroll: i32,
@@ -1197,7 +1196,6 @@ impl ChatView {
       rows: VecDeque::with_capacity(cap.min(1024)),
       cap,
       seq_back: 0,
-      seq_front: 0,
       width: MIN_W,
       scroll: 0,
       pending: 0,
@@ -1232,6 +1230,12 @@ impl ChatView {
     self.rows.len()
   }
 
+  // the words of every line, oldest first (probes)
+  #[cfg(test)]
+  pub fn bodies(&self) -> Vec<String> {
+    self.rows.iter().map(|r| r.msg.body.to_string()).collect()
+  }
+
   pub fn push(&mut self, mut msg: Message) {
     // seen is marked even with the glow off, so toggling it on doesn't light up regulars
     if msg.kind.said() && msg.system.is_none() {
@@ -1256,13 +1260,58 @@ impl ChatView {
     let room = self.cap.saturating_sub(self.rows.len());
     let fresh: Vec<Message> = history.into_iter().filter(|m| m.id.is_empty() || !have.contains(&*m.id)).collect();
     let skip = fresh.len().saturating_sub(room);
+    // seq is one unbroken run (index_of counts on it): history takes the numbers just before the oldest
+    // line, or just before the next live one when there is none yet
+    let mut front = self.rows.front().map_or(self.seq_back + 1, |r| r.seq);
     for msg in fresh.into_iter().skip(skip).rev() {
-      self.seq_front -= 1;
+      front -= 1;
       let miss = self.missed(&msg);
-      self.rows.push_front(Row { seq: self.seq_front, msg, height: 0, laid: None, look: 0, miss });
+      self.rows.push_front(Row { seq: front, msg, height: 0, laid: None, look: 0, miss });
     }
     self.refilter();
     self.stale = true;
+  }
+
+  // lines that landed while the feed was down, fetched once it was back: each goes where its time puts it
+  // among the lines already here (new ones may have come in since), and one we already have (same id) is
+  // skipped. an older line than the oldest shown is history's job, not a gap's. returns how many went in
+  pub fn fill_gap(&mut self, msgs: Vec<Message>) -> usize {
+    let mut have: HashSet<Box<str>> = self.rows.iter().map(|r| r.msg.id.clone()).filter(|id| !id.is_empty()).collect();
+    let oldest = self.rows.front().map(|r| r.msg.ts);
+    let mut fresh: Vec<Message> = msgs
+      .into_iter()
+      .filter(|m| !m.id.is_empty() && oldest.is_none_or(|t| m.ts >= t) && have.insert(m.id.clone()))
+      .collect();
+    if fresh.is_empty() {
+      return 0;
+    }
+    fresh.sort_by_key(|m| m.ts);
+    let n = fresh.len();
+    // the picked line is followed by position through the shuffle
+    let mut picked = self.selected.and_then(|s| self.index_of(s));
+    let base = self.rows.front().map_or(0, |r| r.seq);
+    for mut msg in fresh {
+      msg.flags |= flag::HISTORY;
+      let at = self.rows.iter().rposition(|r| r.msg.ts <= msg.ts).map_or(0, |i| i + 1);
+      let miss = self.missed(&msg);
+      self.rows.insert(at, Row { seq: 0, msg, height: 0, laid: None, look: 0, miss });
+      if let Some(p) = picked.as_mut().filter(|p| at <= **p) {
+        *p += 1;
+      }
+    }
+    while self.rows.len() > self.cap {
+      self.rows.pop_front();
+      picked = picked.and_then(|p| p.checked_sub(1));
+    }
+    // seq stays one run (the lookups count on it), so the rows after a slotted-in line move up by one
+    for (i, r) in self.rows.iter_mut().enumerate() {
+      r.seq = base + i as i64;
+    }
+    self.seq_back = base + self.rows.len() as i64 - 1;
+    self.selected = picked.map(|p| base + p as i64);
+    self.refilter();
+    self.stale = true;
+    n
   }
 
   // the search says this line is not one of its matches
@@ -1435,7 +1484,6 @@ impl ChatView {
     self.scroll = 0;
     self.pending = 0;
     self.seq_back = 0;
-    self.seq_front = 0;
     self.stale = true;
   }
 
@@ -3368,5 +3416,62 @@ mod tests {
     assert_eq!(&*v.selected().unwrap().id, "b");
     v.reload(vec![plain("q", "only")]);
     assert!(v.selected().is_none());
+  }
+
+  fn at(id: &str, ts: i64) -> Message {
+    let mut m = plain(id, id);
+    m.ts = ts;
+    m
+  }
+
+  fn ids(v: &ChatView) -> Vec<String> {
+    v.rows.iter().map(|r| r.msg.id.to_string()).collect()
+  }
+
+  #[test]
+  fn a_gap_is_filled_in_time_order_without_doubling_a_line() {
+    let mut v = ChatView::new(50, "c".into());
+    for (id, ts) in [("a", 10), ("b", 20), ("e", 50), ("f", 60)] {
+      v.push(at(id, ts));
+    }
+    // the socket was down for b..e: c and d were said meanwhile; b and e came through
+    let n = v.fill_gap(vec![at("b", 20), at("c", 30), at("d", 40), at("e", 50), at("old", 1), at("", 35)]);
+    assert_eq!(n, 2, "only c and d are new: b/e are had, `old` is older than the view, no id can't be placed");
+    assert_eq!(ids(&v), ["a", "b", "c", "d", "e", "f"]);
+    assert!(v.rows[2].msg.has(flag::HISTORY));
+    // asking again changes nothing
+    assert_eq!(v.fill_gap(vec![at("c", 30), at("d", 40)]), 0);
+    assert_eq!(v.len(), 6);
+    // later pushes carry on from the renumbered run
+    v.push(at("g", 70));
+    assert_eq!(ids(&v).last().map(String::as_str), Some("g"));
+    let seqs: Vec<i64> = v.rows.iter().map(|r| r.seq).collect();
+    assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
+  }
+
+  #[test]
+  fn a_gap_fill_keeps_the_picked_line_and_the_cap() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(5, "c".into());
+    v.resize(400);
+    for (id, ts) in [("a", 10), ("d", 40), ("e", 50)] {
+      v.push(at(id, ts));
+    }
+    assert!(v.select_id("e", &mut res, 200));
+    v.fill_gap(vec![at("b", 20), at("c", 30), at("x", 45)]);
+    assert_eq!(ids(&v), ["b", "c", "d", "x", "e"], "six lines in a view of five: the oldest goes");
+    assert_eq!(&*v.selected().unwrap().id, "e", "the pick moves with its line");
+  }
+
+  #[test]
+  fn history_then_live_lines_can_be_picked() {
+    let mut res = Res::new(1.0);
+    let mut v = ChatView::new(50, "c".into());
+    v.resize(400);
+    v.prepend(vec![at("h1", 1), at("h2", 2)]);
+    v.push(at("l1", 10));
+    v.push(at("l2", 11));
+    assert!(v.select_id("l2", &mut res, 200));
+    assert_eq!(&*v.selected().unwrap().id, "l2");
   }
 }

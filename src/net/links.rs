@@ -1,15 +1,16 @@
 // auto-multichat: a twitch channel's publicly linked kick/youtube accounts, and their recent history
 use serde_json::Value;
 
+use super::retry::{self, Watch};
 use super::{NetEvent, ORIGIN, Out, hs_ws::valid_key, relay};
 use crate::emotes::providers::fetch;
 use crate::model::{chan, message::Platform};
 
-pub async fn discover(http: reqwest::Client, tab: Box<str>, out: Out) {
-  let v = match fetch(&http, &format!("{ORIGIN}/api/profile/{tab}?platform=twitch")).await {
-    Ok(v) => v,
-    Err(e) => return out.status(format!("links for {tab}: {e}")),
-  };
+// the kick / youtube accounts linked to a twitch tab, asked again until heatsync answers (or the tab closes)
+pub async fn discover(http: reqwest::Client, tab: Box<str>, open: Watch, out: Out) {
+  let what = format!("{tab}'s linked accounts");
+  let url = format!("{ORIGIN}/api/profile/{tab}?platform=twitch");
+  let Some(v) = retry::until(&out, &what, || open.alive(), || fetch(&http, &url)).await else { return };
   let p = v.get("profile").unwrap_or(&Value::Null);
   let s = |k: &str| p.get(k).and_then(Value::as_str).filter(|s| valid_key(s)).map(|s| s.to_ascii_lowercase().into());
   let kick = s("kick_username");
@@ -31,13 +32,14 @@ pub async fn backfill(http: reqwest::Client, platform: Platform, key: Box<str>, 
   if !valid_key(&archive) {
     return;
   }
-  match fetch(&http, &format!("{ORIGIN}/api/recent/{path}/{archive}?limit=50")).await {
-    Ok(v) => {
-      let msgs = relay::batch(v.get("messages"), parse);
-      if !msgs.is_empty() {
-        out.send(NetEvent::Relay { platform, key, msgs, history: true });
-      }
+  let url = format!("{ORIGIN}/api/recent/{path}/{archive}?limit=50");
+  let what = format!("{path} history for {key}");
+  if let Some(v) = retry::until_n(&out, &what, BACKFILL_TRIES, || true, || fetch(&http, &url)).await {
+    let msgs = relay::batch(v.get("messages"), parse);
+    if !msgs.is_empty() {
+      out.send(NetEvent::Relay { platform, key, msgs, history: true });
     }
-    Err(e) => out.status(format!("{path} history for {key}: {e}")),
   }
 }
+
+const BACKFILL_TRIES: u32 = 5;

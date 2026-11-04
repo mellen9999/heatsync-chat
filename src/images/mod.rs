@@ -31,6 +31,9 @@ struct Slot {
   max_w: u32,
   // size once decoded, kept after the frames are dropped so rows hold their height
   dims: (u32, u32),
+  // how many times in a row it failed, and when (ms since epoch): a failure is tried again later
+  fails: u8,
+  failed_ms: u64,
 }
 
 pub struct Images {
@@ -43,12 +46,17 @@ pub struct Images {
   scale: f32,
   wanted: Vec<(ImgId, Box<str>, u32)>,
   swept_ms: u64,
+  // a failed picture was given another chance since the app last asked
+  revived: bool,
 }
 
 pub const DEFAULT_CAP: usize = 24 << 20;
 // off-screen emotes re-decode from disk in ~1ms, so holding them in ram buys nothing
 const IDLE_MS: u64 = 60_000;
 const SWEEP_MS: u64 = 10_000;
+// a picture that failed (offline, a 5xx, a bad file) is tried again after this, doubling each time it
+// fails again, up to 8×: 2, 4, 8, 16 minutes
+const RETRY_FAILED_MS: u64 = 120_000;
 
 impl Images {
   pub fn new(scale: f32) -> Self {
@@ -62,6 +70,7 @@ impl Images {
       scale,
       wanted: Vec::new(),
       swept_ms: 0,
+      revived: false,
     }
   }
 
@@ -98,6 +107,8 @@ impl Images {
       guessed_w: 0,
       max_w: 0,
       dims: (0, 0),
+      fails: 0,
+      failed_ms: 0,
     });
     self.by_url.insert(key, id);
     id
@@ -222,6 +233,7 @@ impl Images {
     }
     match res {
       Ok(d) => {
+        s.fails = 0;
         let relayout = d.w != s.guessed_w;
         s.dims = (d.w, d.h);
         self.bytes += d.bytes();
@@ -231,6 +243,8 @@ impl Images {
       }
       Err(_) => {
         s.state = State::Failed;
+        s.fails = s.fails.saturating_add(1);
+        s.failed_ms = self.epoch.elapsed().as_millis() as u64;
         false
       }
     }
@@ -245,8 +259,21 @@ impl Images {
       return false;
     }
     self.swept_ms = now;
+    self.sweep(now)
+  }
+
+  // true once if a failed picture was given another chance (rows that left it out must lay out again)
+  pub fn take_revived(&mut self) -> bool {
+    std::mem::take(&mut self.revived)
+  }
+
+  fn sweep(&mut self, now: u64) -> bool {
     let before = self.bytes;
     for s in &mut self.slots {
+      if matches!(s.state, State::Failed) && now >= s.failed_ms + (RETRY_FAILED_MS << (s.fails.max(1) - 1).min(3)) {
+        s.state = State::Idle;
+        self.revived = true;
+      }
       if s.seen_ms + IDLE_MS < now
         && let State::Ready(d) = &s.state
       {
@@ -282,5 +309,57 @@ impl Images {
 
   pub fn bytes(&self) -> usize {
     self.bytes
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // one picture asked for and failed at `at` ms
+  fn failed_at(im: &mut Images, id: ImgId, at: u64) {
+    let h = im.target(&im.slots[id as usize]);
+    im.slots[id as usize].state = State::Loading;
+    assert!(!im.loaded(id, h, Err("http 503".into())));
+    im.slots[id as usize].failed_ms = at;
+  }
+
+  #[test]
+  fn a_failed_picture_is_tried_again_later_not_never() {
+    let mut im = Images::new(1.0);
+    let id = im.id("https://cdn.7tv.app/emote/x/1x.webp", 28);
+    failed_at(&mut im, id, 1_000);
+    assert!(im.failed(id));
+    // soon after: still failed, no retry (a down server isn't hammered)
+    im.sweep(1_000 + 60_000);
+    assert!(im.failed(id) && !im.take_revived());
+    // a couple of minutes on: it goes back to idle, and the app is told to lay rows out again
+    im.sweep(1_000 + RETRY_FAILED_MS);
+    assert!(!im.failed(id));
+    assert!(im.take_revived());
+    assert!(!im.take_revived(), "told once");
+    // drawing it asks for it again
+    assert!(im.frame(id).is_none());
+    assert_eq!(im.take_wanted().len(), 1);
+  }
+
+  #[test]
+  fn a_picture_that_keeps_failing_waits_longer_each_time() {
+    let mut im = Images::new(1.0);
+    let id = im.id("https://cdn.7tv.app/emote/y/1x.webp", 28);
+    for round in 0..4u32 {
+      failed_at(&mut im, id, 0);
+      let wait = RETRY_FAILED_MS << round;
+      im.sweep(wait - 1);
+      assert!(im.failed(id), "round {round}: not before {wait}ms");
+      im.sweep(wait);
+      assert!(!im.failed(id), "round {round}: at {wait}ms");
+    }
+    // the wait stops growing at 8 times the first
+    for _ in 0..4 {
+      failed_at(&mut im, id, 0);
+    }
+    im.sweep(RETRY_FAILED_MS * 8);
+    assert!(!im.failed(id));
   }
 }

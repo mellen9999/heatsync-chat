@@ -3,6 +3,12 @@
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
+// a failed request for the screen: plain words, the technical reason goes to stderr
+pub fn offline(what: &str, why: impl std::fmt::Display) -> String {
+  eprintln!("{what}: {why}");
+  format!("can't reach {what}")
+}
+
 // the body whatever its status (callers that read an error body), abandoned as soon as it passes `max`
 pub async fn read(mut r: reqwest::Response, max: usize) -> Result<Vec<u8>, String> {
   if r.content_length().is_some_and(|n| n > max as u64) {
