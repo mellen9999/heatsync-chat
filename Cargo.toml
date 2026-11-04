@@ -26,6 +26,11 @@ gif = "0.14"
 png = "0.18"
 arboard = { version = "3.7.0", default-features = false, features = ["image-data", "wayland-data-control"] }
 
+# the aarch64 build is cross-linked by zig, which has no fontconfig to link against: that one finds
+# libfontconfig when the app starts (no fonts, not a crash, where it's missing). x86_64 is untouched
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

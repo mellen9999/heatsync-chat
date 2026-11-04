@@ -827,6 +827,7 @@ name = "heatsync-chat"
 version = "0.2.1"
 dependencies = [
  "arboard",
+ "fontique",
  "futures-util",
  "gif",
  "icu_segmenter",
