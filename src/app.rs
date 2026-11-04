@@ -297,6 +297,8 @@ pub struct App {
   follow_colors: std::collections::HashMap<Box<str>, u32>,
   // names that ping you, and whether the window has focus (notifications only fire when it does not)
   mentions: Mentions,
+  // what you sent through heatsync.org lately: its echo wears [H]
+  origins: crate::model::origin::Origins,
   focused: bool,
   whisper: whispers::Whispers,
   unseen: crate::model::unseen::Unseen,
@@ -457,6 +459,7 @@ impl App {
       moments: Moments::default(),
       follow_colors: Default::default(),
       mentions: Mentions::default(),
+      origins: Default::default(),
       focused: true,
       whisper: Default::default(),
       unseen: Default::default(),

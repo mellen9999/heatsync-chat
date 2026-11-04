@@ -571,6 +571,18 @@ impl ChatView {
     }
   }
 
+  // tag the recent lines `f` picks as sent through heatsync (an echo that beat the site's word)
+  pub fn mark_origin(&mut self, f: impl Fn(&Message) -> bool) -> bool {
+    let mut any = false;
+    for r in self.rows.iter_mut().rev().take(60).filter(|r| !r.msg.x.as_ref().is_some_and(|x| x.origin) && f(&r.msg)) {
+      r.msg.extra().origin = true;
+      Self::touch(r);
+      any = true;
+    }
+    self.stale |= any;
+    any
+  }
+
   pub fn clear_user(&mut self, login: &str) {
     for r in self.rows.iter_mut().filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System) {
       r.msg.flags |= flag::CLEARED;

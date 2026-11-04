@@ -114,6 +114,11 @@ fn kick_text(raw: &str) -> (String, Vec<Placed>) {
   (out, emotes)
 }
 
+// kick text as it reads once its emote tokens are names (what a kick line's body holds)
+pub fn unkick(raw: &str) -> String {
+  kick_text(raw).0
+}
+
 // live `kick-chat-message.data` / backfill rows / `/api/recent/kick` rows
 pub fn kick(v: &Value) -> Option<Message> {
   let login = str_of(v, "username").or_else(|| str_of(v, "sender"))?;

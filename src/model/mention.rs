@@ -44,12 +44,17 @@ impl Mentions {
     !who.is_empty() && self.names.iter().any(|n| n.eq_ignore_ascii_case(who))
   }
 
+  // a line said by you, under any of your linked names
+  pub fn mine(&self, m: &Message) -> bool {
+    self.is_me(&m.login) || self.is_me(&m.nick)
+  }
+
   pub fn hit(&self, m: &Message) -> bool {
     if self.names.is_empty() || !m.kind.said() {
       return false;
     }
     // your own lines never ping you
-    if self.is_me(&m.login) || self.is_me(&m.nick) {
+    if self.mine(m) {
       return false;
     }
     if m.reply_to.as_deref().is_some_and(|r| self.is_me(r)) {

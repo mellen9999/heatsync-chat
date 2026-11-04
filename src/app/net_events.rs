@@ -2,6 +2,7 @@
 
 use super::{App, FLOOD_TAB, Tab};
 use crate::model::message::{Message, Platform, flag};
+use crate::model::origin::RACE_MS;
 use crate::model::settings::Counter;
 use crate::model::whisper;
 use crate::net::hs_ws::Cmd as HsCmd;
@@ -43,6 +44,7 @@ impl App {
       }
       self.res.chatters.heard(m);
       self.scan_mention(p, key, m);
+      self.hs_origin(m);
     }
     // youtube's batches drip out at their real pace (model::pace); the rest waits for pace_due
     if p == Platform::Youtube && !history {
@@ -50,6 +52,27 @@ impl App {
       self.pace_next();
     }
     self.relay_show(p, key, msgs, history);
+  }
+
+  // your own line, sent through heatsync.org: tagged [H]
+  fn hs_origin(&self, m: &mut Message) {
+    if m.kind.said() && self.mentions.mine(m) && self.origins.sent(now_ms(), &m.body) {
+      m.extra().origin = true;
+    }
+  }
+
+  // heatsync.org says you sent this: remember it, and tag an echo that already landed
+  fn on_origin(&mut self, text: Box<str>) {
+    let now = now_ms();
+    let me = &self.mentions;
+    let mut any = false;
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      any |= v.mark_origin(|m| m.kind.said() && now - m.ts < RACE_MS && me.mine(m) && m.body.trim() == text.trim());
+    }
+    self.origins.note(now, text);
+    if any {
+      self.wake();
+    }
   }
 
   // lines for every tab carrying that channel: history at the top, live at the bottom
@@ -125,6 +148,7 @@ impl App {
           crate::net::relay::merge_hs(&mut m.hs, &refs);
         }
         self.scan_mention(Platform::Twitch, ch, &mut m);
+        self.hs_origin(&mut m);
         self.logs_live(Platform::Twitch, ch, &m);
         Chat::Msg(m)
       }
@@ -275,6 +299,7 @@ impl App {
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
+      NetEvent::Origin(text) => self.on_origin(text),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
       NetEvent::Emotes(ch, p, set) => {

@@ -100,6 +100,8 @@ pub struct Extra {
   pub notice: Notice,
   // a cheer: the `N bits` chip before the badges
   pub bits: u32,
+  // your own line sent through heatsync.org (model::origin): tagged [H] in heatsync orange
+  pub origin: bool,
 }
 
 // one picture (a video's still) and the video it plays

@@ -1194,3 +1194,29 @@ fn event_rows_wear_their_color() {
   // the sub's words are magenta, not the dim of a plain notice
   assert!(count(theme::MAGENTA) > rows[0] as usize * MARK_W as usize + 20);
 }
+
+// a line sent through heatsync.org wears [H] in heatsync orange even with platform tags off
+#[test]
+fn a_heatsync_send_wears_its_tag() {
+  let mut res = Res::new(1.0);
+  res.look.tags = false;
+  let mut m = said("mellen", "gg");
+  let plain = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  assert_eq!(plain.nick.start, 0, "no tag");
+  m.extra().origin = true;
+  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  assert_eq!(l.nick.start, "[H]".len(), "the tag before the name");
+  let mut v = ChatView::new(10, "c".into());
+  v.zebra = false;
+  v.resize(400);
+  v.push(m);
+  let area = Rect::new(0, 0, 400, 40);
+  let mut c = Canvas::new(400, 40);
+  v.draw(&mut c, &mut res, area, area);
+  if let Some(path) = std::env::var_os("HSC_DUMP") {
+    let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+    c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+    let _ = std::fs::write(path, out);
+  }
+  assert!(c.px.iter().filter(|&&p| p == theme::HEATSYNC).count() > 20);
+}

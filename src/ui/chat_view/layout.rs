@@ -118,8 +118,11 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     s.push(' ');
   }
   let mut ib = Vec::new();
-  if tags {
+  // a line sent through heatsync.org says so even where platform tags are off (ext: [H] is never the host)
+  let hs = x.is_some_and(|x| x.origin);
+  if tags || hs {
     let (t, c) = match m.platform {
+      _ if hs => ("[H]", theme::HEATSYNC),
       Platform::Twitch => ("[T]", theme::TWITCH),
       Platform::Kick => ("[K]", theme::GREEN),
       Platform::Youtube => ("[Y]", theme::RED),

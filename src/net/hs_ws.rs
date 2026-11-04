@@ -479,6 +479,8 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       }
       st.gate.redeem(crate::util::time::now_ms(), platform, channel, v).and_then(|l| send(NetEvent::Stream(l)))
     }
+    // pushed only to your own sockets: a line you sent from heatsync.org
+    "chat:origin_broadcast" => crate::model::origin::text(v).and_then(|t| send(NetEvent::Origin(t))),
     "follow:colors" => {
       let colors = stream_events::follow_colors(v);
       (!colors.is_empty()).then(|| send(NetEvent::FollowColors(colors))).flatten()

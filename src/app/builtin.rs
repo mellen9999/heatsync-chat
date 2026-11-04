@@ -137,6 +137,38 @@ mod tests {
     assert!(app.tabs[i].unread);
   }
 
+  // your own line sent through heatsync.org wears [H], whether its echo lands before or after the site's
+  // word; someone else saying the same words does not
+  #[test]
+  fn a_line_sent_through_heatsync_is_tagged() {
+    use crate::model::message::{Kind as MsgKind, Message, Platform};
+    use crate::net::irc::Chat;
+    use crate::net::{Net, NetEvent};
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.mentions.set(["mellen"]);
+    let line = |who: &str, words: &str| {
+      let mut m = Message::system(crate::util::time::now_ms(), Platform::Twitch, words);
+      (m.kind, m.login, m.nick) = (MsgKind::Chat, who.into(), who.into());
+      Chat::Msg(m)
+    };
+    let i = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    let tagged = |app: &App| app.tabs[i].view.last_msg().unwrap().x.as_ref().is_some_and(|x| x.origin);
+    // the echo first, then the site's word
+    app.on_chat("forsen", line("mellen", "first"));
+    assert!(!tagged(&app));
+    app.on_net(NetEvent::Origin("first".into()));
+    assert!(tagged(&app));
+    // the word first, then the echo
+    app.on_net(NetEvent::Origin("gg wp".into()));
+    app.on_chat("forsen", line("bob", "gg wp"));
+    assert!(!tagged(&app), "not your line");
+    app.on_chat("forsen", line("mellen", "gg wp"));
+    assert!(tagged(&app));
+    app.on_chat("forsen", line("mellen", "something else"));
+    assert!(!tagged(&app));
+  }
+
   // a redeem line lands only in its room's tab, headed by the redeemer, and is nobody's chat line
   #[test]
   fn a_redeem_line_stays_in_its_room() {
