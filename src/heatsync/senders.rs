@@ -29,6 +29,9 @@ pub type Set = HashMap<Box<str>, HsEmote>;
 // clock skew between the sender, twitch and heatsync (the ext's EMOTE_ADDED_SKEW_MS): before added_at,
 // and after a server `until`. a removal tombstone is our own clock: no slack
 const SKEW_MS: i64 = 120_000;
+// your own lines (EMOTE_OWN_SKEW_MS): tight, so a line sent just before you added the emote stays text,
+// but not tighter than the send → add gap of an emote the very line auto-added
+const OWN_SKEW_MS: i64 = 15_000;
 const TTL_HIT: Duration = Duration::from_secs(15 * 60);
 const TTL_MISS: Duration = Duration::from_secs(90);
 // a request that never answered (network drop) may be retried after this
@@ -60,9 +63,15 @@ struct Entry {
 pub struct Senders {
   map: HashMap<u64, Entry>,
   wanted: Vec<u64>,
+  // the viewer's own twitch id: their own lines get the tight skew
+  me: Option<u64>,
 }
 
 impl Senders {
+  pub fn set_me(&mut self, me: Option<u64>) {
+    self.me = me;
+  }
+
   // the emote `word` as `id` owned it at `ts`. queues a fetch when the set is unknown or stale
   pub fn lookup(&mut self, id: u64, word: &str, ts: i64) -> Option<&HsEmote> {
     let now = Instant::now();
@@ -76,7 +85,8 @@ impl Senders {
       e.asked = Some(now);
       self.wanted.push(id);
     }
-    self.map.get(&id)?.set.get(word).filter(|x| x.at(ts, SKEW_MS))
+    let skew = if self.me == Some(id) { OWN_SKEW_MS } else { SKEW_MS };
+    self.map.get(&id)?.set.get(word).filter(|x| x.at(ts, skew))
   }
 
   // `word` as `id` owns it right now, without asking for the set (our own is fetched at login)
@@ -311,5 +321,26 @@ mod tests {
     assert_eq!(set.len(), MAX_ROWS);
     assert!(set.contains_key(format!("e{}", MAX_ROWS + 9).as_str()), "the live row stays");
     assert!(!set.contains_key("e0"), "the oldest tombstone went");
+  }
+
+  // the ext's _sGate: 120s before added_at for anyone, 15s for the viewer's own lines; a server `until`
+  // gets the 120s after it too, a removal tombstone none
+  #[test]
+  fn own_lines_get_the_tight_skew() {
+    let mut s = Senders::default();
+    s.set_me(Some(1));
+    for id in [1, 2] {
+      s.lookup(id, "ok", T);
+      let mut r = row("ok");
+      r["until"] = json!("2026-10-31T00:00:00.000Z");
+      s.put(id, parse_set(&json!([r])));
+    }
+    let until = parse_iso("2026-10-31T00:00:00.000Z").unwrap();
+    assert!(s.lookup(1, "ok", T - OWN_SKEW_MS).is_some());
+    assert!(s.lookup(1, "ok", T - OWN_SKEW_MS - 1).is_none(), "your line from before you added it");
+    assert!(s.lookup(2, "ok", T - SKEW_MS).is_some(), "someone else's: the wide pad");
+    assert!(s.lookup(2, "ok", T - SKEW_MS - 1).is_none());
+    assert!(s.lookup(2, "ok", until + SKEW_MS - 1).is_some(), "a past pairing's until gets the pad");
+    assert!(s.lookup(2, "ok", until + SKEW_MS).is_none());
   }
 }

@@ -60,7 +60,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - reconnect: backoff `min(60, 2^min(n,6))s × 0.8..1.2`, reset only after a ≥30s session. watchdog: recycle if no frame 90s or handshake >30s. generation token — late frames from a dead socket are dropped. gap >60s → mark sender caches stale + refetch pins. track max `_seq` per `kick/*`
 
 ## render rules
-- heatsync emote renders iff the sender's own inventory has the exact-case whitespace token, `height>0`, msg time within `[added_at−120s, until+120s)` and before any removal tombstone, not locally blocked, ≤50/msg
+- heatsync emote renders iff the sender's own inventory has the exact-case whitespace token, `height>0`, msg time within `[added_at−120s (−15s on your own lines), until+120s)` and before any removal tombstone, not locally blocked, ≤50/msg
 - relayed `hsEmotes` are server-computed from the sender's inventory — look up only the words present
 - cw gate: skip `nsfw` or `cw_cats` ∋ `sexual|gore` unless the viewer opted in (`viewer_show_*`)
 - size: scale by height only — cdn 1x is ≤32px tall but stored dims are native; never trust stored width. 7tv `.avif` → `.webp`

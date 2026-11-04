@@ -324,6 +324,7 @@ impl App {
       NetEvent::Me(me) => {
         // our own inventory feeds tab-complete: fetch it now, not on first sight of our own line
         self.net.send(Cmd::SevenTvMe(me.as_ref().and_then(|m| m.twitch_id)));
+        self.res.senders.set_me(me.as_ref().and_then(|m| m.twitch_id));
         if let Some(id) = me.as_ref().and_then(|m| m.twitch_id) {
           self.res.senders.lookup(id, "", now_ms());
           self.wake();
