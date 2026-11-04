@@ -39,6 +39,10 @@ pub enum Cmd {
   Auth(Option<String>),
   // settings you changed, for the account (the patch is only keys model::sync wrote)
   UiSync(Value),
+  // your channel tabs, for the account (the list model::tabsync built)
+  TabSync(Vec<Value>),
+  // ask the account for its tab list again (answered with `multichat:config`, nothing when none is saved)
+  TabPull,
 }
 
 fn plat(p: Platform) -> &'static str {
@@ -153,6 +157,8 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
       Vec::new()
     }
     Cmd::UiSync(patch) => vec![json!({"type": "ui-state:sync", "patch": patch})],
+    Cmd::TabSync(channels) => vec![json!({"type": "multichat:sync", "channels": channels})],
+    Cmd::TabPull => vec![json!({"type": "multichat:pull"})],
     Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)).into_iter().collect(),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
@@ -501,6 +507,8 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let (state, _) = crate::model::sync::pluck(v.get("state")?);
       (!state.is_empty()).then(|| send(NetEvent::UiState(state))).flatten()
     }
+    // your tab list as the account holds it (after sign-in, on a pull, and on every save by any of your clients)
+    "multichat:config" => crate::model::tabsync::frame(v).and_then(|f| send(NetEvent::TabSync(f))),
     "whisper:new" => {
       let w = crate::model::whisper::parse(v, 0, None)?;
       send(NetEvent::Whispers { items: vec![w], live: true, epoch: None })

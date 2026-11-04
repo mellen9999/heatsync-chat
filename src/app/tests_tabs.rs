@@ -642,3 +642,75 @@ fn headless_tab_menu_is_edit_remove() {
   assert!(app.form.is_none(), "running a button closes the form");
   assert_eq!(app.screen.as_ref().map(|s| s.page()), Some(crate::app::screen::Page::Summary));
 }
+
+// your account's tab list, saved by another client, changes the tabs here: an open tab keeps its lines, a new
+// one joins, a gone one leaves, and none of it is sent back. a stale list changes nothing; a change made here
+// goes up with what the other client stored; logged out, nothing comes in (scratch HOME as above):
+//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_sync -- --ignored
+#[test]
+#[ignore]
+fn headless_tab_sync() {
+  use crate::model::tabsync::frame;
+  use crate::net::hs_ws::Cmd as HsCmd;
+  use serde_json::json;
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+  app.me = Some(crate::net::auth::Me {
+    username: "mellen".into(),
+    platform: "twitch".into(),
+    twitch: Some("mellen".into()),
+    twitch_id: Some(1),
+    names: vec!["mellen".into()],
+    kick: None,
+    youtube: None,
+    packs: vec![],
+  });
+  app.hs_authed = true;
+  let xqc = app.tabs.iter().position(|t| &*t.name == "xqc").unwrap();
+  app.tabs[xqc].view.push(Message::system(0, Platform::Twitch, "kept"));
+  let kept = app.tabs[xqc].view.len();
+  while asked.try_recv().is_ok() {}
+  let names = |app: &App| app.channel_specs().iter().map(|s| s.name()).collect::<Vec<_>>();
+  let push = |app: &mut App, v: serde_json::Value| app.on_net(NetEvent::TabSync(frame(&v).unwrap()));
+  push(
+    &mut app,
+    json!({"type": "multichat:config", "rev": 5, "channels": [
+      {"id": "xqc", "twitch": "xqc", "sendTargets": {"twitch": true}},
+      {"id": "trainwreckstv", "kick": "trainwreckstv"},
+      {"id": "yt-1", "youtube": "UCabcdefghijklmnopqrstuv"},
+      {"id": "yt-2", "youtube": "lofigirl"},
+    ]}),
+  );
+  assert_eq!(names(&app), ["xqc", "kick:trainwreckstv", "yt:@lofigirl"]);
+  let xqc = app.tabs.iter().position(|t| &*t.name == "xqc").unwrap();
+  assert_eq!(app.tabs[xqc].view.len(), kept, "an open tab keeps its lines");
+  let cmds: Vec<Cmd> = std::iter::from_fn(|| asked.try_recv().ok()).collect();
+  assert!(cmds.iter().any(|c| matches!(c, Cmd::Part(k) if &**k == "forsen")), "forsen left");
+  assert!(cmds.iter().any(|c| matches!(c, Cmd::Hs(HsCmd::Join(Platform::Kick, k)) if &**k == "trainwreckstv")));
+  assert!(!cmds.iter().any(|c| matches!(c, Cmd::Hs(HsCmd::TabSync(_)))), "the account's own list is not sent back");
+  assert_eq!(
+    crate::store::load_tabs(),
+    ["xqc".into(), "kick:trainwreckstv".into(), "yt:@lofigirl".into()] as [Box<str>; 3]
+  );
+  // a list read before that one, landing after it, is dropped
+  push(&mut app, json!({"type": "multichat:config", "rev": 4, "channels": [{"id": "forsen", "twitch": "forsen"}]}));
+  assert_eq!(names(&app), ["xqc", "kick:trainwreckstv", "yt:@lofigirl"]);
+  // a tab closed here goes up, with what the other client stored riding along
+  let lofi = app.tabs.iter().position(|t| &*t.name == "yt:@lofigirl").unwrap();
+  app.remove_tab(lofi);
+  let sent: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok())
+    .filter_map(|c| if let Cmd::Hs(HsCmd::TabSync(l)) = c { Some(l) } else { None })
+    .collect();
+  assert_eq!(
+    sent,
+    [vec![
+      json!({"id": "xqc", "twitch": "xqc", "sendTargets": {"twitch": true}}),
+      json!({"id": "trainwreckstv", "kick": "trainwreckstv"}),
+      json!({"id": "yt-1", "youtube": "UCabcdefghijklmnopqrstuv"}),
+    ]]
+  );
+  // logged out: the account's lists no longer reach the tabs
+  app.on_net(NetEvent::Me(None));
+  push(&mut app, json!({"type": "multichat:config", "rev": 9, "channels": []}));
+  assert_eq!(names(&app), ["xqc", "kick:trainwreckstv"]);
+}

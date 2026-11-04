@@ -207,6 +207,8 @@ pub enum NetEvent {
   UiState(crate::model::sync::Inbound),
   // the heatsync socket is signed in (or is not, again)
   HsAuth(bool),
+  // the account's tab list (ws `multichat:config`), checked; the app applies the rev gate
+  TabSync(crate::model::tabsync::Frame),
   Posted {
     res: Result<crate::model::post::Post, u16>,
   },

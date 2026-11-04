@@ -158,13 +158,19 @@ impl App {
       .collect()
   }
 
-  pub(super) fn save_tabs(&self) {
+  // a change you made: saved, and sent to your account
+  pub(super) fn save_tabs(&mut self) {
+    self.store_tabs();
+    self.tab_sync_push();
+  }
+
+  pub(super) fn store_tabs(&self) {
     let lines: Vec<Box<str>> =
       self.tabs.iter().map(|t| spec_of(t).line()).filter(|l| !l.is_empty()).map(Into::into).collect();
     super::persist(&lines);
   }
 
-  fn activate(&mut self, i: usize) {
+  pub(super) fn activate(&mut self, i: usize) {
     self.find_clear();
     self.active = i;
     if let Some(t) = self.tabs.get_mut(i) {

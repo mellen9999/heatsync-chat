@@ -60,6 +60,7 @@ mod status;
 mod stream;
 mod suggest;
 mod tabs;
+mod tabsync;
 mod tagcard;
 #[cfg(test)]
 mod tests_input;
@@ -240,6 +241,8 @@ pub struct App {
   acct: crate::model::sync::Acct,
   hs_authed: bool,
   ui_get_at: Option<Instant>,
+  // your channel tabs as the account holds them (tabsync.rs)
+  tabsync: crate::model::tabsync::TabSync,
   // input-method composition, and the window's side of it
   ime: Ime,
   ime_win: ime::ImeWin,
@@ -420,6 +423,7 @@ impl App {
       me: None,
       acct,
       hs_authed: false,
+      tabsync: Default::default(),
       ui_get_at: None,
       ime: Ime::default(),
       ime_win: Default::default(),

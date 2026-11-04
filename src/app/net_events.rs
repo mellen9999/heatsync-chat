@@ -251,11 +251,14 @@ impl App {
       // an answer that outlived its login must not seed the next one
       NetEvent::UiState(_) if self.me.is_none() => {}
       NetEvent::UiState(st) => self.on_ui_state(st),
+      NetEvent::TabSync(_) if self.me.is_none() => {}
+      NetEvent::TabSync(f) => self.on_tab_sync(f),
       NetEvent::HsAuth(on) => {
         self.hs_authed = on;
         if on {
           self.ui_state_fetch();
           self.held_reconnected();
+          self.tab_sync_ready();
         }
       }
       NetEvent::Voted { id, res } => self.on_voted(id, res),
@@ -343,6 +346,7 @@ impl App {
           // nothing pending belongs to the new account
           self.acct.reset(&self.set);
           self.ui_get_at = None;
+          self.tab_sync_login(me.as_ref().map(|m| &*m.username));
           self.filters_login_changed();
           self.feed_reset();
           self.res.blocked.clear_server();
@@ -358,6 +362,7 @@ impl App {
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
           self.net.send(Cmd::Emote(crate::net::emote_ops::EmoteCmd::Subs));
           self.ui_state_fetch();
+          self.tab_sync_ready();
         } else {
           self.res.emotes.set_subs(Default::default());
         }

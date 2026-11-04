@@ -204,6 +204,11 @@ pub fn pin_tabs() {
   notes(|n| n.pinned = true);
 }
 
+// this run's tabs came from the command line: they are neither saved nor synced
+pub fn tabs_pinned() -> bool {
+  notes(|n| n.pinned)
+}
+
 pub fn load_tabs() -> Vec<Box<str>> {
   read("tabs").map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty()).map(Into::into).collect()).unwrap_or_default()
 }
