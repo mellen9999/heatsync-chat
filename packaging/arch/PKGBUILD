@@ -20,6 +20,8 @@ optdepends=(
   'libnotify: desktop notification on an @mention'
   'xdg-utils: open the login page and links'
   'zenity: file dialog for uploads'
+  'wl-clipboard: copy and paste on wayland'
+  'xclip: copy and paste on x11'
   'libx11: x11 sessions'
 )
 # ring compiles C: arch's lto flags break its link

@@ -127,11 +127,19 @@ fn load(path: &Path) -> Result<(Vec<u8>, Media), String> {
   let mut buf = Vec::with_capacity(meta.len() as usize);
   let f = std::fs::File::open(path).map_err(|e| format!("can't open that file ({})", e.kind()))?;
   f.take(MAX_VID + 1).read_to_end(&mut buf).map_err(|e| format!("can't read that file ({})", e.kind()))?;
+  checked(buf, true)
+}
+
+// what the bytes are, by the bytes, within the size cap, with gps, camera, comments and the rest taken
+// off (never bigger than what came in). a picture from the clipboard is no video
+fn checked(buf: Vec<u8>, video_ok: bool) -> Result<(Vec<u8>, Media), String> {
   let m = sniff(&buf)?;
+  if m.video && !video_ok {
+    return Err("that isn't a picture".into());
+  }
   if let Some(e) = too_big(&m, buf.len() as u64) {
     return Err(e);
   }
-  // gps, camera, comments and the rest stay on this machine (never bigger than what was read)
   Ok((strip::clean(m.mime, buf)?, m))
 }
 
@@ -176,35 +184,14 @@ fn why(code: u16, v: &Value) -> String {
   }
 }
 
-// raw rgba pixels (a pasted screenshot) as a png, in memory. none if the size and bytes disagree
-pub fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
-  if w == 0 || h == 0 || rgba.len() as u64 != u64::from(w) * u64::from(h) * 4 {
-    return None;
-  }
-  let mut out = Vec::new();
-  let mut e = png::Encoder::new(&mut out, w, h);
-  e.set_color(png::ColorType::Rgba);
-  e.set_depth(png::BitDepth::Eight);
-  e.set_compression(png::Compression::Fast);
-  e.write_header().ok()?.write_image_data(rgba).ok()?;
-  Some(out)
-}
-
 async fn post(http: &reqwest::Client, token: &str, path: PathBuf) -> Result<String, String> {
   let p = path.clone();
   let (bytes, m) = tokio::task::spawn_blocking(move || load(&p)).await.map_err(|e| e.to_string())??;
   send(http, token, bytes, m).await
 }
 
-async fn post_pixels(http: &reqwest::Client, token: &str, w: u32, h: u32, rgba: Vec<u8>) -> Result<String, String> {
-  let bytes = tokio::task::spawn_blocking(move || encode_png(w, h, &rgba))
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or("couldn't read that picture")?;
-  let m = img("image/png", "png");
-  if let Some(e) = too_big(&m, bytes.len() as u64) {
-    return Err(e);
-  }
+async fn post_picture(http: &reqwest::Client, token: &str, bytes: Vec<u8>) -> Result<String, String> {
+  let (bytes, m) = tokio::task::spawn_blocking(move || checked(bytes, false)).await.map_err(|e| e.to_string())??;
   send(http, token, bytes, m).await
 }
 
@@ -241,8 +228,8 @@ async fn send(http: &reqwest::Client, token: &str, bytes: Vec<u8>, m: Media) -> 
     .ok_or_else(|| "heatsync sent back a link i don't trust".into())
 }
 
-pub async fn run_pixels(http: reqwest::Client, token: String, w: u32, h: u32, rgba: Vec<u8>, out: Out) {
-  let ev = match post_pixels(&http, &token, w, h, rgba).await {
+pub async fn run_picture(http: reqwest::Client, token: String, bytes: Vec<u8>, out: Out) {
+  let ev = match post_picture(&http, &token, bytes).await {
     Ok(u) => Upload::Url(u),
     Err(e) => Upload::Failed(e),
   };
@@ -300,12 +287,32 @@ pub fn choose() -> Upload {
 mod tests {
   use super::*;
 
+  // a real 2x1 png, as a screenshot tool would put on the clipboard
+  fn tiny_png() -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, 2, 1);
+    e.set_color(png::ColorType::Rgba);
+    e.set_depth(png::BitDepth::Eight);
+    e.write_header().unwrap().write_image_data(&[255, 0, 0, 255, 0, 255, 0, 255]).unwrap();
+    out
+  }
+
   #[test]
-  fn pixels_become_a_png_that_sniffs() {
-    let png = encode_png(2, 1, &[255, 0, 0, 255, 0, 255, 0, 255]).unwrap();
-    assert_eq!(sniff(&png).unwrap().mime, "image/png");
-    assert!(encode_png(2, 2, &[0; 4]).is_none(), "size and bytes must agree");
-    assert!(encode_png(0, 0, &[]).is_none());
+  fn a_clipboard_picture_is_checked_like_a_file() {
+    let (bytes, m) = checked(tiny_png(), false).unwrap();
+    assert_eq!(m.mime, "image/png");
+    assert_eq!(sniff(&bytes).unwrap().mime, "image/png");
+    assert!(checked(b"just some text".to_vec(), false).is_err());
+    let mut big = vec![0xff, 0xd8, 0xff];
+    big.resize(MAX_IMG as usize + 1, 0);
+    assert!(checked(big, false).unwrap_err().starts_with("too big"));
+  }
+
+  #[test]
+  fn a_clipboard_picture_is_never_a_video() {
+    let mp4 = b"\0\0\0\x18ftypisom\0\0\0\0".to_vec();
+    assert_eq!(checked(mp4.clone(), false).unwrap_err(), "that isn't a picture");
+    assert!(checked(mp4, true).unwrap().1.video, "a file can be");
   }
 
   fn png(extra: &[u8]) -> Vec<u8> {

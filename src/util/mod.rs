@@ -1,3 +1,4 @@
+pub mod clip;
 pub mod crash;
 pub mod mem;
 pub mod open;

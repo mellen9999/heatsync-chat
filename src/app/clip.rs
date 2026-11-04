@@ -1,16 +1,13 @@
-// the system clipboard (arboard: wayland data-control, x11, windows). made on first use, never at
-// boot. paste = ctrl-v or shift-insert; vi yanks and ctrl-c on a selected chat line copy out; a
+// the system clipboard (util/clip.rs: wl-copy / wl-paste, or xclip), run off the ui thread by the net
+// thread. paste = ctrl-v or shift-insert; vi yanks and ctrl-c on a selected chat line copy out; a
 // picture on the clipboard (and no text) uploads like a dropped file. every failure is a status line
-use arboard::{Clipboard, Error};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use crate::model::message::Message;
 use crate::model::vi::Mode;
 use crate::net::Cmd;
-
-// bigger than this many pixels is not a chat picture (and would be a huge in-memory copy)
-const MAX_PIXELS: usize = 40_000_000;
+use crate::util::clip::Paste;
 
 // pasted text as one line: newlines and other control chars become spaces
 pub fn flat(s: &str) -> String {
@@ -35,41 +32,19 @@ pub fn is_paste(key: &Key<&str>, ctrl: bool, shift: bool) -> bool {
   }
 }
 
-enum Got {
-  Text(String),
-  Pixels(u32, u32, Vec<u8>),
-  Nothing,
-  Failed,
-}
-
 impl App {
-  // the clipboard, made on first use
-  fn clipboard(&mut self) -> Option<&mut Clipboard> {
-    if self.clip.is_none() {
-      self.clip = Clipboard::new().ok();
+  // text to the clipboard; `done` is said once it is there (empty = nothing said). a failure says why
+  pub(super) fn copy(&mut self, text: &str, done: impl Into<String>) {
+    if !text.is_empty() {
+      self.net.send(Cmd::Copy { text: text.to_owned(), done: done.into() });
     }
-    self.clip.as_mut()
-  }
-
-  // true when it is on the clipboard (a failure says why)
-  pub(super) fn copy(&mut self, text: &str) -> bool {
-    if text.is_empty() {
-      return false;
-    }
-    let ok = self.clipboard().is_some_and(|c| c.set_text(text).is_ok());
-    if !ok {
-      self.say("couldn't copy: no clipboard available");
-    }
-    ok
   }
 
   // ctrl-c on a selected chat line
   pub(super) fn copy_selected(&mut self) {
     let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.selected()) else { return };
     let s = line_text(m);
-    if self.copy(&s) {
-      self.say("message copied");
-    }
+    self.copy(&s, "message copied");
   }
 
   // copy name: the selected line's sender
@@ -77,9 +52,7 @@ impl App {
     let Some(n) = self.tabs.get(self.active).and_then(|t| t.view.selected()).map(|m| m.nick.to_string()) else {
       return;
     };
-    if self.copy(&n) {
-      self.say("name copied");
-    }
+    self.copy(&n, "name copied");
   }
 
   // copy → input: the selected line's words into the message box
@@ -90,41 +63,41 @@ impl App {
     }
   }
 
-  fn read_clipboard(&mut self) -> Got {
-    let Some(c) = self.clipboard() else { return Got::Failed };
-    match c.get_text() {
-      Ok(t) if !t.trim().is_empty() => return Got::Text(t),
-      Ok(_) | Err(Error::ContentNotAvailable) => {}
-      Err(_) => return Got::Failed,
-    }
-    match c.get_image() {
-      Ok(i) if i.width * i.height <= MAX_PIXELS => Got::Pixels(i.width as u32, i.height as u32, i.bytes.into_owned()),
-      Ok(_) => Got::Failed,
-      Err(Error::ContentNotAvailable) => Got::Nothing,
-      Err(_) => Got::Failed,
-    }
-  }
-
-  // ctrl-v / shift-insert. true when the key was a paste and is handled (even if it pasted nothing)
-  pub(super) fn paste_key(&mut self, key: &Key<&str>) -> bool {
-    if !is_paste(key, self.mods.control_key(), self.mods.shift_key()) {
-      return false;
-    }
+  // where a paste would land right now: Some(true) the picker's search box, Some(false) the form, prompt
+  // or message line, None nowhere
+  fn paste_dest(&self) -> Option<bool> {
     let to_picker =
       self.prompt.is_none() && self.picker.as_ref().is_some_and(|p| p.focus == crate::model::picker::Focus::Search);
     let to_line = self.prompt.is_some()
       || self.form.is_some()
       || (self.picker.is_none() && self.menu().is_none() && self.mode == Mode::Insert);
-    if !to_picker && !to_line {
-      return self.picker.is_some() || self.menu().is_some() || self.mode == Mode::Insert;
+    (to_picker || to_line).then_some(to_picker)
+  }
+
+  // ctrl-v / shift-insert. true when the key was a paste and is handled (even if it pastes nothing).
+  // the clipboard is read off the ui thread: `on_pasted` gets it
+  pub(super) fn paste_key(&mut self, key: &Key<&str>) -> bool {
+    if !is_paste(key, self.mods.control_key(), self.mods.shift_key()) {
+      return false;
     }
-    match self.read_clipboard() {
-      Got::Text(t) => self.paste_text(&t, to_picker),
-      Got::Pixels(w, h, px) if !to_picker => self.paste_pixels(w, h, px),
-      Got::Pixels(..) | Got::Nothing => self.say("nothing to paste"),
-      Got::Failed => self.say("couldn't paste: no clipboard available"),
+    match self.paste_dest() {
+      Some(to_picker) => self.net.send(Cmd::Paste { to_picker }),
+      None => return self.picker.is_some() || self.menu().is_some() || self.mode == Mode::Insert,
     }
     true
+  }
+
+  // what the clipboard held. dropped if the box it was for has gone since (esc, another screen)
+  pub(super) fn on_pasted(&mut self, to_picker: bool, got: Result<Paste, String>) {
+    if self.paste_dest() != Some(to_picker) {
+      return;
+    }
+    match got {
+      Ok(Paste::Text(t)) => self.paste_text(&t, to_picker),
+      Ok(Paste::Image(bytes)) if !to_picker => self.paste_picture(bytes),
+      Ok(Paste::Image(_) | Paste::Nothing) => self.say("nothing to paste"),
+      Err(e) => self.say(e),
+    }
   }
 
   fn paste_text(&mut self, t: &str, to_picker: bool) {
@@ -159,13 +132,13 @@ impl App {
     self.wake();
   }
 
-  fn paste_pixels(&mut self, w: u32, h: u32, px: Vec<u8>) {
+  fn paste_picture(&mut self, bytes: Vec<u8>) {
     if !self.upload_ok() {
       return;
     }
     self.uploading = true;
     self.say("uploading pasted picture…");
-    self.net.send(Cmd::Pixels(w, h, px));
+    self.net.send(Cmd::Picture(bytes));
     self.input_dirty = true;
   }
 }
@@ -173,6 +146,93 @@ impl App {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  use crate::net::Net;
+  use winit::keyboard::ModifiersState;
+
+  type Rx = tokio::sync::mpsc::UnboundedReceiver<Cmd>;
+
+  fn room() -> (App, Rx) {
+    let (net, rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.mode = Mode::Insert;
+    app.mods = ModifiersState::CONTROL;
+    (app, rx)
+  }
+
+  fn said(app: &App) -> String {
+    app.tabs[app.active].view.last_msg().map(|m| m.body.to_string()).unwrap_or_default()
+  }
+
+  fn sent(rx: &mut Rx) -> Vec<Cmd> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter(|c| matches!(c, Cmd::Copy { .. } | Cmd::Paste { .. } | Cmd::Picture(_)))
+      .collect()
+  }
+
+  #[test]
+  fn a_copy_goes_to_the_net_thread_with_its_done_line() {
+    let (mut app, mut rx) = room();
+    app.copy("hello", "name copied");
+    app.copy("", "nothing to copy");
+    assert!(matches!(sent(&mut rx).as_slice(), [Cmd::Copy { text, done }] if text == "hello" && done == "name copied"));
+  }
+
+  #[test]
+  fn ctrl_v_asks_for_the_clipboard_and_the_answer_lands_in_the_line() {
+    let (mut app, mut rx) = room();
+    assert!(app.paste_key(&Key::Character("v")));
+    assert!(matches!(sent(&mut rx).as_slice(), [Cmd::Paste { to_picker: false }]));
+    assert_eq!(app.line.text, "", "nothing is typed until the clipboard answers");
+    app.on_pasted(false, Ok(Paste::Text("hi there".into())));
+    assert_eq!(app.line.text, "hi there");
+  }
+
+  #[test]
+  fn an_answer_for_a_box_that_has_gone_is_dropped() {
+    let (mut app, mut rx) = room();
+    assert!(app.paste_key(&Key::Character("v")));
+    let _ = sent(&mut rx);
+    // esc in between: normal mode takes no paste
+    app.mode = Mode::Normal;
+    app.on_pasted(false, Ok(Paste::Text("late".into())));
+    assert_eq!(app.line.text, "");
+    // and a paste meant for the line is not the picker's
+    app.mode = Mode::Insert;
+    app.on_pasted(true, Ok(Paste::Text("wrong box".into())));
+    assert_eq!(app.line.text, "");
+  }
+
+  #[test]
+  fn a_pasted_picture_uploads_only_when_logged_in() {
+    let (mut app, mut rx) = room();
+    app.on_pasted(false, Ok(Paste::Image(vec![1, 2, 3])));
+    assert_eq!(said(&app), "log in to upload (ctrl-l)");
+    assert!(sent(&mut rx).is_empty() && !app.uploading);
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: Some(1),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    app.on_pasted(false, Ok(Paste::Image(vec![1, 2, 3])));
+    assert!(matches!(sent(&mut rx).as_slice(), [Cmd::Picture(b)] if b == &[1, 2, 3]));
+    assert!(app.uploading);
+  }
+
+  #[test]
+  fn an_empty_or_failed_clipboard_says_so() {
+    let (mut app, _rx) = room();
+    app.on_pasted(false, Ok(Paste::Nothing));
+    assert_eq!(said(&app), "nothing to paste");
+    app.on_pasted(false, Err("pasting needs wl-clipboard: paru -S wl-clipboard".into()));
+    assert_eq!(said(&app), "pasting needs wl-clipboard: paru -S wl-clipboard");
+    assert_eq!(app.line.text, "");
+  }
 
   #[test]
   fn newlines_flatten() {

@@ -5,6 +5,7 @@ mod avatars;
 pub mod blocked;
 mod catalog;
 pub mod chantools;
+mod clip;
 mod cosmetics;
 pub mod emote_ops;
 pub mod held;
@@ -108,6 +109,12 @@ pub enum NetEvent {
     removed: Option<Box<str>>,
   },
   Upload(upload::Upload),
+  // what the clipboard held when asked (the key's target: the picker's search box or the line), or why
+  // it couldn't say
+  Pasted {
+    to_picker: bool,
+    got: Result<crate::util::clip::Paste, String>,
+  },
   // a chatter's picture url (None = none found)
   Avatar(Platform, Box<str>, Option<Box<str>>),
   // 7tv paints + badges for twitch ids (None = wears nothing)
@@ -412,8 +419,11 @@ pub enum Cmd {
   Catalog { q: Box<str>, epoch: u32, page: u32, stv: bool, ffz: bool },
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
-  // a pasted picture: width, height, rgba bytes
-  Pixels(u32, u32, Vec<u8>),
+  // a pasted picture: its own bytes (png, jpeg, webp or gif), checked like any upload
+  Picture(Vec<u8>),
+  // copy this to the clipboard and say `done` (empty = nothing); paste: read it, and say where for
+  Copy { text: String, done: String },
+  Paste { to_picker: bool },
   Pick,
   // a chatter's picture
   Avatar(Platform, Box<str>),
@@ -895,9 +905,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Upload(p) => {
         let _ = sess_tx.send(session::Cmd::Upload(p));
       }
-      Cmd::Pixels(w, h, px) => {
-        let _ = sess_tx.send(session::Cmd::Pixels(w, h, px));
+      Cmd::Picture(bytes) => {
+        let _ = sess_tx.send(session::Cmd::Picture(bytes));
       }
+      Cmd::Copy { text, done } => clip::copy(text, done, out.clone()),
+      Cmd::Paste { to_picker } => clip::paste(to_picker, out.clone()),
       Cmd::Pick => {
         let _ = sess_tx.send(session::Cmd::Pick);
       }

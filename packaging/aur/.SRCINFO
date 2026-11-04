@@ -12,6 +12,8 @@ pkgbase = heatsync-chat-bin
 	optdepends = libnotify: desktop notification on an @mention
 	optdepends = xdg-utils: open the login page and links
 	optdepends = zenity: file dialog for uploads
+	optdepends = wl-clipboard: copy and paste on wayland
+	optdepends = xclip: copy and paste on x11
 	optdepends = libx11: x11 sessions
 	provides = heatsync-chat=0.2.1
 	conflicts = heatsync-chat

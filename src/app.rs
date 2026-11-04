@@ -284,8 +284,6 @@ pub struct App {
   uploading: bool,
   // a sign-in is waiting on the browser: esc gives it up
   login_wait: bool,
-  // the system clipboard, made on first use
-  clip: Option<arboard::Clipboard>,
   // the pinned-lines bar and the prediction banner under the tabs
   pin_bar: pin::PinBar,
   pred_bar: pred::PredBar,
@@ -445,7 +443,6 @@ impl App {
       catalog_epoch: 0,
       catalog_reg: Default::default(),
       prompt: None,
-      clip: None,
       uploading: false,
       login_wait: false,
       pin_bar: Default::default(),

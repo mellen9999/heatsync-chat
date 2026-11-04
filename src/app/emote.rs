@@ -91,11 +91,7 @@ impl App {
     let hash = emote_hash(&hit.url, scope);
     let name = &hit.name;
     match act {
-      Act::Copy => {
-        if self.copy(name) {
-          self.say(format!("copied {name}"));
-        }
-      }
+      Act::Copy => self.copy(name, format!("copied {name}")),
       Act::Block | Act::Unblock => {
         let block = act == Act::Block;
         let hashes = if block {

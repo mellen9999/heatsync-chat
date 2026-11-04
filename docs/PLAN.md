@@ -19,8 +19,8 @@
 | text | parley (inline boxes for emotes/badges, bidi, fallback via fontique) + swash raster → glyph cache | correct cjk/emoji/rtl, system monospace |
 | net | tokio current_thread on ONE bg thread; tokio-rustls, tokio-tungstenite, reqwest(rustls, gzip) | epoll = zero idle wakeups, real timeouts |
 | images | image-webp, gif, png (pure rust) | decode at display height only |
-| misc | serde/serde_json, toml, arboard | clipboard |
-- notifications/sound/links: spawn `notify-send` / `pw-play` / `xdg-open` (no dbus/audio deps), best-effort, logged once if missing
+| misc | serde/serde_json, toml | settings and wire json |
+- notifications/sound/links/clipboard: spawn `notify-send` / `pw-play` / `xdg-open` / `wl-copy` + `wl-paste` or `xclip` (no dbus/audio/clipboard deps), best-effort, logged once if missing
 - no ring/openssl-free compromise needed: rustls default provider; no C++/qt/webview anywhere
 
 ## architecture

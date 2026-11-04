@@ -244,7 +244,7 @@ impl App {
     self.sync_overlays();
     let act = self.vi.key(&mut self.line, name);
     if let Some(y) = self.vi.take_fresh() {
-      self.copy(&y);
+      self.copy(&y, "");
     }
     match act {
       Action::None => {}

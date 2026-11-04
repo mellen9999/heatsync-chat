@@ -158,8 +158,7 @@ impl App {
       l.link_of(m)
     };
     match url {
-      Some(u) if self.copy(&u) => self.say("copied the link"),
-      Some(_) => {}
+      Some(u) => self.copy(&u, "copied the link"),
       None => self.say("that line has no link"),
     }
   }
