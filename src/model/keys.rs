@@ -89,7 +89,7 @@ pub static KEYS: [Group; 12] = [
     name: "chat logs (line menu or card → chat logs)",
     rows: &[
       k("j k  click", "pick a line, older / newer"),
-      k("g G  wheel pageup", "oldest, newest; the top loads older lines"),
+      k("g G  wheel pageup", "oldest, newest (the ▼ chip jumps down too); the top loads older lines"),
       k("/", "search their lines (enter finds, esc clears)"),
       k("a", "swap this channel and every channel"),
       k("y", "copy the picked line's public link"),

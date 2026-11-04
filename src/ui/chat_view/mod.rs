@@ -196,6 +196,8 @@ pub struct ChatView {
   scroll: i32,
   // rows appended since the last draw, for the scroll-blit fast path
   pending: usize,
+  // lines that arrived (and showed) while scrolled up; the jump bar's count, zero once back at the bottom
+  unread: usize,
   // something above the newest rows changed: next frame repaints everything
   stale: bool,
   anims: Vec<Anim>,
@@ -277,6 +279,7 @@ impl ChatView {
       width: MIN_W,
       scroll: 0,
       pending: 0,
+      unread: 0,
       stale: true,
       anims: Vec::new(),
       name_anims: Vec::new(),
@@ -561,6 +564,7 @@ impl ChatView {
     self.selected = None;
     self.scroll = 0;
     self.pending = 0;
+    self.unread = 0;
     self.seq_back = 0;
     self.stale = true;
   }
@@ -725,6 +729,12 @@ impl ChatView {
 
   pub fn pinned(&self) -> bool {
     self.scroll == 0
+  }
+
+  // the jump-to-bottom bar (ext #hs-mc-new-msgs): Some(lines that arrived below) while scrolled up in a
+  // chat that follows its newest line. a list read from the top never shows it
+  pub fn jump(&self) -> Option<usize> {
+    (!self.top && self.scroll > 0).then_some(self.unread)
   }
 
   fn height_at(&mut self, i: usize, res: &mut Res) -> i32 {
@@ -911,9 +921,12 @@ impl ChatView {
       // a list never blits: whatever changed, repaint it whole
       return if std::mem::take(&mut self.stale) || n > 0 { Paint::Full } else { Paint::Nothing };
     }
-    if !self.pinned() {
+    if self.pinned() {
+      self.unread = 0;
+    } else {
       // keep the reader's place: content grew under them
       self.scroll += shift;
+      self.unread += n;
     }
     if std::mem::take(&mut self.stale) {
       return Paint::Full;

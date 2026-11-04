@@ -203,6 +203,9 @@ impl App {
       }
       self.wake();
     }
+    if self.form.is_some() || self.screen.is_some() || self.img_view.is_some() || self.picker.is_some() {
+      self.jump_forget();
+    }
     if self.form.is_some() {
       self.next_anim = None;
       if let Some(r) = self.draw_form() {
@@ -226,12 +229,14 @@ impl App {
     } else {
       let (canvas, res) = (&mut self.canvas, &mut self.res);
       let add = |d: Option<Rect>, r: Rect| Some(d.map_or(r, |d| union(d, r)));
+      let (mut full, mut animated) = (false, None);
       if let Some(t) = self.tabs.get_mut(self.active) {
         match t.view.take_paint(res, area.h) {
           Paint::Nothing => {}
           Paint::Full => {
             t.view.draw(canvas, res, area, area);
             dirty = add(dirty, area);
+            full = true;
           }
           Paint::Append { shift } => {
             canvas.scroll_up(area, shift);
@@ -243,11 +248,16 @@ impl App {
         let due = self.next_anim.is_some_and(|t| t <= Instant::now());
         if due && let Some(r) = t.view.animate(canvas, res, area) {
           dirty = add(dirty, r);
+          animated = Some(r);
         }
         self.next_anim = t.view.next_anim.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
       } else if dirty.is_some() {
         canvas.fill(area, crate::ui::theme::BLACK);
         dirty = add(dirty, area);
+        full = true;
+      }
+      if let Some(r) = self.sync_jump(full, animated) {
+        dirty = add(dirty, r);
       }
     }
     if let Some(r) = self.draw_over_input() {

@@ -70,6 +70,9 @@ impl App {
     if self.picker.is_some() {
       return self.picker_click();
     }
+    if self.jump_click() {
+      return;
+    }
     if input.contains(x, y) {
       // the cursor goes where you click, like any text box
       if let Some(i) = self.input_hit.as_ref().map(|h| h.byte_at(x, y)) {

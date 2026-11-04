@@ -1319,3 +1319,45 @@ fn youtube_lines_wear_a_star_and_swords_and_nothing_for_members() {
   assert!(yellow(&mut res, m.clone()) > yellow(&mut res, plain.clone()), "the owner's star is yellow");
   assert!(periwinkle(m, &mut res) > periwinkle(plain, &mut res), "the moderator's swords are blue");
 }
+
+#[test]
+fn lines_below_count_while_scrolled_up_and_clear_at_the_bottom() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(200, "c".into());
+  v.resize(400);
+  for i in 0..40 {
+    v.push(plain(&format!("p{i}"), "hello"));
+  }
+  assert!(matches!(v.take_paint(&mut res, 100), Paint::Full));
+  assert_eq!(v.jump(), None, "pinned: no bar");
+  v.scroll_by(60, &mut res);
+  assert_eq!(v.jump(), Some(0));
+  for i in 0..3 {
+    v.push(plain(&format!("q{i}"), "more"));
+  }
+  v.take_paint(&mut res, 100);
+  assert_eq!(v.jump(), Some(3));
+  v.scroll_to_bottom();
+  assert_eq!(v.jump(), None);
+  v.take_paint(&mut res, 100);
+  v.scroll_by(60, &mut res);
+  assert_eq!(v.jump(), Some(0), "back at the bottom forgot the count");
+  v.clear();
+  assert_eq!(v.jump(), None);
+}
+
+#[test]
+fn a_list_read_from_the_top_has_no_jump_bar() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(50, "feed".into());
+  v.top = true;
+  v.resize(400);
+  for i in 0..30 {
+    v.push(plain(&format!("p{i}"), "post"));
+  }
+  v.take_paint(&mut res, 100);
+  v.scroll_by(-40, &mut res);
+  v.push(plain("z", "late"));
+  v.take_paint(&mut res, 100);
+  assert_eq!(v.jump(), None);
+}

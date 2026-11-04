@@ -31,6 +31,7 @@ mod held;
 mod ime;
 mod img_view;
 mod input;
+mod jump;
 mod keys;
 mod layout;
 mod link;
@@ -292,6 +293,7 @@ pub struct App {
   login_wait: bool,
   // the pinned-lines bar and the prediction banner under the tabs
   pin_bar: pin::PinBar,
+  jump: jump::Jump,
   pred_bar: pred::PredBar,
   // why you can't chat in each room, and when the box's countdown next changes a digit
   locks: crate::model::lock::Locks,
@@ -459,6 +461,7 @@ impl App {
       uploading: false,
       login_wait: false,
       pin_bar: Default::default(),
+      jump: Default::default(),
       pred_bar: Default::default(),
       locks: Default::default(),
       lock_sec: None,
@@ -664,6 +667,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.cursor_sync();
         self.tip_hover();
         self.input_hover();
+        self.jump_hover();
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
