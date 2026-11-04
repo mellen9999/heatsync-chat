@@ -14,6 +14,7 @@ use super::theme;
 use crate::cosmetics::id::PaintId;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
 use crate::emotes::block::Scope;
+use crate::emotes::resolve::find_word;
 use crate::heatsync::content;
 use crate::images::{Images, ImgId};
 use crate::model::filter;
@@ -1072,7 +1073,7 @@ fn body(
     if fold.is_some_and(|f| f.start == a && f.end == b) {
       continue;
     }
-    let found = find_word(res, chan, m, a, b, word);
+    let found = find_word(&mut res.sources(), chan, m, a, b, word);
     let blocked = found.as_ref().is_some_and(|f| res.blocked.contains(word, &f.0));
     match found {
       // a blocked overlay just vanishes; a blocked base keeps its slot
@@ -1158,47 +1159,6 @@ fn body(
   }
   (links, runs, people)
 }
-
-// the word at body bytes a..b as an emote: twitch's own by position, else by name
-fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &str) -> Option<Found> {
-  let sender = (m.platform == Platform::Twitch).then(|| m.user_id.parse::<u64>().ok()).flatten();
-  // a placed emote is the platform's own (twitch tags, kick tokens, an archive's provider mirrors). a
-  // heatsync inventory image never is, whoever placed it: it goes through `resolve` like any other word
-  let placed = m.emotes.iter().find(|(r, _)| r.start as usize == a && r.end as usize == b);
-  match placed.filter(|(_, url)| !crate::heatsync::inventory_url(url)) {
-    Some((_, url)) => Some((url.clone(), (0, 0), false, Scope::Native)),
-    None if word.is_empty() => None,
-    None => resolve(res, chan, m, sender, word),
-  }
-}
-
-// order: the line's own server-verified refs, the sender's heatsync inventory (the ext's refs carry
-// exactly that, ahead of the channel), the channel catalog, then globals. the sender's set is the only heatsync source (privacy invariant)
-fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
-  let e = |e: &crate::emotes::Emote, sc| (e.url.clone(), (e.w, e.h), e.zero_width, sc);
-  // the one gate for renderInventoryEmotes: off, nothing from a heatsync inventory ever draws
-  let inventory = res.look.inventory_emotes;
-  if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
-    return Some((u.clone(), (0, 0), *zw, Scope::Hs));
-  }
-  // the sender's own emote of this name beats the channel's: it is the one they picked (heatsync's
-  // own per-line refs say the same for relayed lines, above)
-  if let Some(x) = sender.filter(|_| inventory).and_then(|id| res.senders.lookup(id, word, m.ts)) {
-    return Some((x.url.clone(), (x.w, x.h), x.zero_width, Scope::Hs));
-  }
-  if let Some(x) = res.emotes.channel(chan, word) {
-    return Some(e(x, Scope::Channel));
-  }
-  // our own echoed line carries no emote positions: twitch's globals and our sub emotes by name
-  if m.has(flag::OWN)
-    && let Some(x) = res.emotes.twitch_global(word).or_else(|| res.emotes.sub(word))
-  {
-    return Some(e(x, Scope::Global));
-  }
-  res.emotes.global(word).map(|x| e(x, Scope::Global))
-}
-
-type Found = (Box<str>, (u16, u16), bool, Scope);
 
 // one layer of an emote, drawn `dst` big (its decoded size in chat), centered in `rect`: zero-width
 // overlays center on the base. the hover popup draws its enlarged stack through this same placement
@@ -1809,13 +1769,14 @@ impl ChatView {
         })?;
         let (a, b) = (eb.word.0 as usize, eb.word.1 as usize);
         let word = m.body.get(a..b).filter(|w| !w.is_empty())?;
-        let (url, _, zero_width, scope) = find_word(res, room(m, &self.channel), m, a, b, word)?;
+        let (url, _, zero_width, scope) = find_word(&mut res.sources(), room(m, &self.channel), m, a, b, word)?;
         let over = eb
           .zw_words
           .iter()
           .filter_map(|&(a, b)| {
             let word = m.body.get(a as usize..b as usize)?;
-            let (url, _, _, scope) = find_word(res, room(m, &self.channel), m, a as usize, b as usize, word)?;
+            let (url, _, _, scope) =
+              find_word(&mut res.sources(), room(m, &self.channel), m, a as usize, b as usize, word)?;
             Some(Layer { name: word.into(), url, scope })
           })
           .collect();
@@ -3194,43 +3155,6 @@ mod tests {
     assert_eq!(n(&mut res, &r), 0);
     res.look.inventory_emotes = true;
     assert_eq!(n(&mut res, &r), 1);
-  }
-
-  // a channel's IDK and the sender's own, different IDK: the sender's is drawn (it is the one they
-  // picked); anyone else's IDK is still the channel's
-  #[test]
-  fn the_senders_own_emote_beats_the_channels_of_the_same_name() {
-    use crate::emotes::{Emote, Provider};
-    let mut res = Res::new(1.0);
-    let url = |id: &str| format!("https://cdn.7tv.app/emote/{id}/1x.webp");
-    let e = Emote { url: url("CHAN").into(), w: 28, h: 28, zero_width: false };
-    res.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), e)].into());
-    let ts = 1_793_399_211_099;
-    let row = serde_json::json!({"custom_name": "IDK", "url": url("MINE"), "width": 32, "height": 32,
-      "added_at": "2026-10-30T22:26:51.099Z"});
-    res.senders.lookup(42, "IDK", ts);
-    res.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
-    let mut m = plain("a", "IDK");
-    (m.user_id, m.ts) = ("42".into(), ts);
-    let got = |res: &mut Res, m: &Message, who: Option<u64>| resolve(res, "c", m, who, "IDK").map(|f| f.0.to_string());
-    assert_eq!(got(&mut res, &m, Some(42)), Some(url("MINE")));
-    assert_eq!(got(&mut res, &m, Some(7)), Some(url("CHAN")), "someone without their own IDK");
-    res.look.inventory_emotes = false;
-    assert_eq!(got(&mut res, &m, Some(42)), Some(url("CHAN")), "inventory emotes off: the channel's");
-  }
-
-  // our own echoed line has no emote positions: our sub emotes draw by name there, nowhere else
-  #[test]
-  fn sub_emotes_draw_in_our_own_lines_only() {
-    let mut res = Res::new(1.0);
-    let url = "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_x/default/dark/1.0";
-    res.emotes.set_subs(
-      [("delloreat".into(), crate::emotes::Emote { url: url.into(), w: 28, h: 28, zero_width: false })].into(),
-    );
-    let mut own = plain("a", "delloreat");
-    own.flags |= flag::OWN;
-    assert_eq!(resolve(&mut res, "c", &own, None, "delloreat").map(|f| f.0.to_string()).as_deref(), Some(url));
-    assert!(resolve(&mut res, "c", &plain("b", "delloreat"), None, "delloreat").is_none(), "someone else's line");
   }
 
   // privacy invariant, archived lines: the archive's own render may name a heatsync emote, but it draws

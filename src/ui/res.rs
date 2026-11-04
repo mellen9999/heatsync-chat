@@ -3,6 +3,7 @@ use crate::badges::Badges;
 use crate::cosmetics::Cosmetics;
 use crate::emotes::Emotes;
 use crate::emotes::block::Blocked;
+use crate::emotes::resolve::Sources;
 use crate::heatsync::senders::Senders;
 use crate::images::Images;
 use crate::model::chatters::Chatters;
@@ -140,6 +141,11 @@ impl Res {
   pub fn apply_look(&mut self, s: &Settings) {
     self.look = Look::of(s);
     self.emotes.set_order(s.emote_provider.order());
+  }
+
+  // what a word may become an emote from (`emotes::resolve`, the one render chokepoint)
+  pub fn sources(&mut self) -> Sources<'_> {
+    Sources { emotes: &self.emotes, senders: &mut self.senders, inventory: self.look.inventory_emotes }
   }
 
   pub fn set_scale(&mut self, scale: f32) {

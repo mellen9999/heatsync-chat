@@ -1,8 +1,10 @@
 // third-party emote sets (7tv / bttv / ffz), global + per channel, plus twitch's own by id.
-// this is the CATALOG of what a channel has enabled — heatsync per-sender emotes live elsewhere
+// this is the CATALOG of what a channel has enabled — heatsync per-sender emotes live elsewhere.
+// resolve.rs is the one place a chat word becomes an emote (the privacy chokepoint)
 pub mod block;
 pub mod live;
 pub mod providers;
+pub mod resolve;
 
 use std::collections::HashMap;
 
