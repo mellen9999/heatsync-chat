@@ -14,6 +14,8 @@ const MAX_TEXT: usize = 2000;
 const MAX_NAME: usize = 100;
 pub const MAX_BATCH: usize = 250;
 const MAX_HS: usize = 50;
+// emote pictures per line (any platform): past it the words stay as plain text
+pub const MAX_EMOTES: usize = 50;
 
 fn str_of<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
   v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
@@ -83,7 +85,9 @@ fn kick_text(raw: &str) -> (String, Vec<Placed>) {
       Some((id, name, end)) => {
         let a = out.len() as u32;
         out.push_str(name);
-        emotes.push((a..out.len() as u32, format!("https://files.kick.com/emotes/{id}/fullsize").into()));
+        if emotes.len() < MAX_EMOTES {
+          emotes.push((a..out.len() as u32, format!("https://files.kick.com/emotes/{id}/fullsize").into()));
+        }
         rest = &tail[end + 1..];
       }
       None => {
@@ -144,7 +148,9 @@ pub fn youtube(v: &Value) -> Option<Message> {
   for e in v.get("emotes").and_then(Value::as_array).into_iter().flatten().take(50) {
     let (Some(alt), Some(url)) = (str_of(e, "alt"), str_of(e, "url").and_then(yt_url)) else { continue };
     let mut from = 0;
-    while let Some(i) = m.body[from..].find(alt) {
+    while emotes.len() < MAX_EMOTES
+      && let Some(i) = m.body[from..].find(alt)
+    {
       let a = from + i;
       emotes.push((a as u32..(a + alt.len()) as u32, url.clone()));
       from = a + alt.len();
@@ -208,6 +214,21 @@ mod tests {
     let s = youtube(&json!({"user": "Bo", "text": "", "systemMsg": "Bo became a member"})).unwrap();
     assert_eq!(s.kind, Kind::System);
     assert!(youtube(&json!({"user": "Bo", "text": ""})).is_none());
+  }
+
+  #[test]
+  fn a_line_shows_at_most_fifty_emote_pictures() {
+    let kick_body = "[emote:1:a] ".repeat(160);
+    let m = kick(&json!({"username": "sov", "content": kick_body})).unwrap();
+    assert_eq!(m.emotes.len(), MAX_EMOTES);
+    assert_eq!(m.body.matches('a').count(), 160, "the words stay, only the pictures stop");
+    let yt_body = ":s: ".repeat(400);
+    let m = youtube(
+      &json!({"user": "Al", "text": yt_body, "emotes": [{"alt": ":s:", "url": "https://yt3.ggpht.com/abc=w24-h24"}]}),
+    )
+    .unwrap();
+    assert_eq!(m.emotes.len(), MAX_EMOTES);
+    assert!(m.emotes.windows(2).all(|w| w[0].0.start < w[1].0.start), "the first fifty, in order");
   }
 
   #[test]

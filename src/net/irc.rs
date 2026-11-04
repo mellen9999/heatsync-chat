@@ -126,6 +126,7 @@ fn twitch_emotes(tag: &str, body: &str) -> Vec<(std::ops::Range<u32>, Box<str>)>
     }
   }
   out.sort_by_key(|(r, _)| r.start);
+  out.truncate(super::relay::MAX_EMOTES);
   out
 }
 
@@ -599,6 +600,15 @@ mod tests {
     assert!(twitch_emotes("25:9-99,5-2,x-y/:/../:0-1", "hi").is_empty());
     let max = usize::MAX;
     assert!(twitch_emotes(&format!("25:0-{max},{max}-{max}"), "hi").is_empty(), "no overflow");
+  }
+
+  #[test]
+  fn a_line_shows_at_most_fifty_twitch_emotes() {
+    let body = "Kappa ".repeat(120);
+    let tag = format!("25:{}", (0..120).map(|i| format!("{}-{}", i * 6, i * 6 + 4)).collect::<Vec<_>>().join(","));
+    let e = twitch_emotes(&tag, &body);
+    assert_eq!(e.len(), super::super::relay::MAX_EMOTES);
+    assert!(e.windows(2).all(|w| w[0].0.start < w[1].0.start), "the first fifty by position");
   }
 
   #[test]
