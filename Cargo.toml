@@ -3,7 +3,12 @@ name = "heatsync-chat"
 version = "0.2.1"
 edition = "2024"
 license = "MIT"
-description = "heatsync multichat as a native app"
+description = "twitch, kick and youtube chat in one native window, with heatsync emotes"
+repository = "https://github.com/mellen9999/heatsync-chat"
+homepage = "https://heatsync.org"
+readme = "README.md"
+keywords = ["twitch", "kick", "youtube", "chat", "emotes"]
+categories = ["gui"]
 
 [dependencies]
 winit = "0.30"

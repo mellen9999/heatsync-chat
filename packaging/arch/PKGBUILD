@@ -23,6 +23,9 @@ optdepends=(
   'wl-clipboard: copy and paste on wayland'
   'xclip: copy and paste on x11'
   'libx11: x11 sessions'
+  'mpv: video links play in their own window'
+  'yt-dlp: lets mpv play youtube and clip links'
+  'pipewire: the mention sound (paplay or aplay work too)'
 )
 # ring compiles C: arch's lto flags break its link
 options=(!lto !debug)

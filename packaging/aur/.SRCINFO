@@ -15,6 +15,9 @@ pkgbase = heatsync-chat-bin
 	optdepends = wl-clipboard: copy and paste on wayland
 	optdepends = xclip: copy and paste on x11
 	optdepends = libx11: x11 sessions
+	optdepends = mpv: video links play in their own window
+	optdepends = yt-dlp: lets mpv play youtube and clip links
+	optdepends = pipewire: the mention sound (paplay or aplay work too)
 	provides = heatsync-chat=0.2.1
 	conflicts = heatsync-chat
 	options = !strip

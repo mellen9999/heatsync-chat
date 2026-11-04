@@ -7,9 +7,9 @@
 - precedent: foot (cpu-rendered, damage-tracked, ~15MB) — same approach, same look
 
 ## repo
-- `~/projects/heatsync-chat`, private `mellen9999/heatsync-chat`, MIT, gitleaks via `.githooks`, rustfmt `tab_spaces=2`, clippy `-D warnings`, `cargo test`, no CI
-- release profile: lto=fat, codegen-units=1, strip; PKGBUILD in repo → `paru -Bi .`; `.desktop` entry
-- docs: `README.md` (one line + run steps), `docs/contract.md` (heatsync api/ws contract + hostile-input bounds, ported from plugin research), `docs/PRIVACY.md` (every host contacted + what leaves the machine)
+- `~/projects/heatsync-chat`, public `mellen9999/heatsync-chat`, MIT, gitleaks + pii + fmt + clippy + tests via `.githooks`, rustfmt 2-space, clippy `-D warnings`, no CI
+- release profile: lto=fat, codegen-units=1, strip. `packaging/arch` (source build, `paru -Bi .`), `packaging/aur` (`heatsync-chat-bin`), `packaging/release.sh` (signed release, x86_64 + aarch64), `packaging/install.sh` (no-root install, `--uninstall`)
+- docs: `README.md` (what + install + use), `docs/contract.md` (heatsync api/ws contract + hostile-input bounds), `docs/PRIVACY.md` (every host contacted + what leaves the machine)
 
 ## stack (each dep earns its weight)
 | layer | choice | why |
@@ -19,27 +19,32 @@
 | text | parley (inline boxes for emotes/badges, bidi, fallback via fontique) + swash raster → glyph cache | correct cjk/emoji/rtl, system monospace |
 | net | tokio current_thread on ONE bg thread; tokio-rustls, tokio-tungstenite, reqwest(rustls, gzip) | epoll = zero idle wakeups, real timeouts |
 | images | image-webp, gif, png (pure rust) | decode at display height only |
-| misc | serde/serde_json, toml | settings and wire json |
+| misc | serde/serde_json | settings and wire json |
 - notifications/sound/links/clipboard: spawn `notify-send` / `pw-play` / `xdg-open` / `wl-copy` + `wl-paste` or `xclip` (no dbus/audio/clipboard deps), best-effort, logged once if missing
 - no ring/openssl-free compromise needed: rustls default provider; no C++/qt/webview anywhere
 
 ## architecture
 ```
 src/
-  main.rs          boot, winit loop, ui⇄net channels (EventLoopProxy wake)
-  app/             state: tabs, channels, settings, selection, modes
-  ui/              render.rs (damage + scroll-blit), blit.rs, text.rs (parley+glyph cache),
-                   chat_view.rs (virtualized rows), input.rs (+vi.rs), picker.rs, card.rs,
-                   settings_view.rs (schema-driven), tabs.rs, theme.rs (ansi 0-7 + #444444/#808080/#ff8700)
-  model/           message.rs (compact: text + span ranges), ring.rs (per-channel cap), intern.rs
-  emotes/          resolve.rs (THE render chokepoint: privacy invariant), sevenTV/bttv/ffz/twitch/kick.rs,
-                   modifiers.rs (port ext src/lib/modifiers.js — real transforms), cw.rs, zero_width.rs
-  net/             irc.rs (twitch irc-ws, anon justinfan → authed), hs_ws.rs (heatsync /ws),
-                   seventv_ws.rs (EventAPI), eventsub.rs (whispers), http.rs (pool, prio queue, allowlist)
-  heatsync/        auth.rs, inventory.rs, senders.rs, lookup.rs (batched swr cache), heat/flair/paints/mutes/pin/
-                   live/spike/gifs/previews/images/archive/card/feed.rs
-  images/          decode.rs, cache.rs (byte-capped lru frames + disk cache ~/.cache/heatsync-chat), anim.rs
-  store/           config.toml + state.json (atomic write tmp→rename), token file 0600
+  main.rs      boot, args, winit loop, ui⇄net channels (EventLoopProxy wake)
+  app.rs       the App: tabs, settings, wiring. app/ holds one file per concern
+               (keys, pointer, render, layout, input, ime, net_events, tabs, complete, picker,
+               overlay = the one floating menu slot, card, feed, whispers, mentions, mods, pred, pin, update…)
+  ui/          canvas (own blitter), text (parley + glyph cache), chat_view/ (virtualized rows:
+               layout, draw, hit), tab_bar, input_bar, picker, card, menu, form, sheet,
+               name_art/ (animated paints), theme (ansi 0-7 + the few named extras, nowhere else)
+  model/       message, chan + ident (channel/login rules), schema (THE settings table),
+               keys (feeds the ? screen), slash, filters/automod/rules, feed, whisper, pred, layout_link…
+  emotes/      resolve.rs (THE render chokepoint: privacy invariant), providers (7tv/bttv/ffz/twitch/kick),
+               live (7tv EventAPI), block
+  heatsync/    senders (each chatter's own set + ownership window), late_refs, content gates
+  cosmetics/   heatsync + 7tv paints, badges, name fx
+  badges/      twitch/ffz/bttv/chatterino badges
+  images/      decode (webp/gif/png at display height), cache (byte-capped lru + disk), url allowlist
+  net/         one tokio current_thread: irc (twitch), hs_ws (heatsync /ws), seventv, session, http,
+               relay (kick/yt), send_queue, emote_ops, upload, update (signed self-update), clip…
+  store/       ~/.config/heatsync-chat, atomic writes, 0700/0600, single-instance lock
+  util/        clip (wl-copy/xclip), crash (redacted crash.log), mem (glibc arena caps), open, sound, time
 ```
 - one render chokepoint: `emotes/resolve.rs` — word renders iff SENDER's inventory has it; catalog/search cache never feeds render
 - render loop: winit `ControlFlow::Wait`; redraw only on change; new messages = memmove framebuffer + draw new rows; animated emotes = damage only their rects at their frame times; pause when unfocused/occluded
