@@ -1,6 +1,7 @@
 // the pointer: clicks, right clicks, and what it rests on in the input bar
 
 use super::App;
+use super::overlay::Overlay;
 use crate::model::tabs::Kind;
 use crate::model::vi::Mode;
 use crate::ui::input_bar;
@@ -22,17 +23,12 @@ impl App {
       }
       self.close_screen();
     }
-    if self.pop.is_some() {
-      return self.pop_click();
-    }
-    if self.card.is_some() {
-      return self.card_click();
-    }
-    if self.tab_menu.is_some() {
-      return self.tab_menu_click();
-    }
-    if self.menu.is_some() {
-      return self.menu_click();
+    match self.overlay {
+      Some(Overlay::Pop(_)) => return self.pop_click(),
+      Some(Overlay::Card(_)) => return self.card_click(),
+      Some(Overlay::Tab(_)) => return self.tab_menu_click(),
+      Some(Overlay::Emote(_)) => return self.menu_click(),
+      None => {}
     }
     let (x, y) = self.pointer;
     if self.bar().contains(x, y) {
@@ -125,23 +121,23 @@ impl App {
     if self.screen.is_some() {
       return self.close_screen();
     }
-    if self.pop.is_some() {
-      self.pop = None;
+    if self.pop().is_some() {
+      self.close_pop();
       return self.pop_changed();
     }
-    if self.card.is_some() {
-      self.card = None;
+    if self.card().is_some() {
+      self.close_card();
       return self.pop_changed();
     }
-    if self.tab_menu.is_some() {
-      self.tab_menu = None;
+    if self.tab_menu().is_some() {
+      self.close_tab_menu();
       return self.tab_menu_changed();
     }
     if self.bar().contains(self.pointer.0, self.pointer.1) {
       return self.bar_right_click();
     }
-    if self.menu.is_some() {
-      self.menu = None;
+    if self.menu().is_some() {
+      self.close_menu();
       return self.menu_changed();
     }
     if !self.emote_press(true) {

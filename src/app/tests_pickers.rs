@@ -120,7 +120,7 @@ fn the_card_asks_pronoundb_once_and_shows_the_answer_beside_the_name() {
   assert_eq!(app.pronouns_of(app.card_twitch_id()), Some("she/they"));
   app.redraw();
   // closed and opened again: the answer is kept, nothing is asked
-  app.card = None;
+  app.close_card();
   app.open_card(who);
   assert!(drain(&mut asked).is_empty());
   // switched off: nothing shows, nobody new is asked about
@@ -161,8 +161,8 @@ fn chat_logs_left_open_on_one_tab_keep_their_keys_to_that_tab() {
   assert_eq!(app.reply.as_ref().map(|r| &*r.id), Some("2"), "r replies here, it doesn't refresh the hidden logs");
   app.mode = Mode::Normal;
   app.on_key(Key::Character("m"), Some("m"));
-  assert!(app.pop.is_some(), "the line menu opens");
-  app.pop = None;
+  assert!(app.pop().is_some(), "the line menu opens");
+  app.close_pop();
   assert!(!app.hint().contains("y copy link"), "the box speaks for this tab");
   // back on their tab they are as left, and their keys work
   app.select(a);

@@ -154,9 +154,9 @@ fn the_empty_box_offers_log_in_as_a_button_while_logged_out() {
   // a click asks which platform
   app.pointer = mid(r);
   app.click();
-  assert!(app.pop.is_some(), "the log in chooser");
+  assert!(app.pop().is_some(), "the log in chooser");
   // typing something takes the hint (and the button) away; so does being logged in
-  app.pop = None;
+  app.close_pop();
   app.me = Some(me(Some("mellen"), None));
   app.input_dirty = true;
   app.redraw();
@@ -197,8 +197,8 @@ fn login_logout_and_account_by_name() {
   typed(&mut app, "/login nope");
   assert!(said(&app).starts_with("usage: /login") && asked(&mut rx).is_empty());
   typed(&mut app, "/login");
-  assert!(app.pop.is_some(), "the chooser");
-  app.pop = None;
+  assert!(app.pop().is_some(), "the chooser");
+  app.close_pop();
   // /account out: three ways in; the first picked row starts that login and the screen steps aside
   typed(&mut app, "/account");
   assert!(app.screen_is(Page::Account));

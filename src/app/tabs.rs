@@ -2,6 +2,7 @@
 // right-click menu on a tab. every change joins or leaves live and is saved at once
 use winit::keyboard::{Key, NamedKey};
 
+use super::overlay::Overlay;
 use super::screen::Page;
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Cmd as ChanCmd, Form, Spec};
@@ -278,8 +279,8 @@ impl App {
       self.close_picker();
     }
     self.close_prompt();
-    self.menu = None;
-    self.tab_menu = None;
+    self.close_menu();
+    self.close_tab_menu();
     self.form = Some(Form::new(edit, &spec));
     self.form_hover = None;
     self.bar_dirty = true;
@@ -493,7 +494,7 @@ impl App {
       }
       _ => vec![(TabAct::Hide, "hide".into())],
     };
-    self.tab_menu = Some(TabMenu { menu: Menu::new(items, at), tab: i });
+    self.overlay = Some(Overlay::Tab(TabMenu { menu: Menu::new(items, at), tab: i }));
     self.tab_menu_changed();
   }
 
@@ -525,7 +526,7 @@ impl App {
   }
 
   fn tab_menu_pick(&mut self) {
-    let Some(m) = self.tab_menu.take() else { return };
+    let Some(m) = self.take_tab_menu() else { return };
     self.tab_menu_changed();
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
@@ -557,12 +558,12 @@ impl App {
   }
 
   pub(super) fn tab_menu_key(&mut self, key: Key<&str>) {
-    let Some(m) = &mut self.tab_menu else { return };
+    let Some(Overlay::Tab(m)) = &mut self.overlay else { return };
     match key {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => m.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => m.menu.step(-1),
       Key::Named(NamedKey::Enter) => return self.tab_menu_pick(),
-      Key::Named(NamedKey::Escape) => self.tab_menu = None,
+      Key::Named(NamedKey::Escape) => self.close_tab_menu(),
       _ => return,
     }
     self.tab_menu_changed();
@@ -571,14 +572,14 @@ impl App {
   pub(super) fn tab_menu_click(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    let row = self.tab_menu.as_ref().and_then(|m| m.menu.row_at(x, y, line));
-    match (row, &mut self.tab_menu) {
-      (Some(i), Some(m)) => {
+    let row = self.tab_menu().and_then(|m| m.menu.row_at(x, y, line));
+    match (row, &mut self.overlay) {
+      (Some(i), Some(Overlay::Tab(m))) => {
         m.menu.at = i;
         self.tab_menu_pick();
       }
       _ => {
-        self.tab_menu = None;
+        self.close_tab_menu();
         self.tab_menu_changed();
       }
     }
@@ -587,7 +588,7 @@ impl App {
   pub(super) fn tab_menu_hover(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    if let Some(m) = &mut self.tab_menu
+    if let Some(Overlay::Tab(m)) = &mut self.overlay
       && let Some(i) = m.menu.row_at(x, y, line)
       && i != m.menu.at
     {
@@ -598,7 +599,7 @@ impl App {
 
   pub(super) fn draw_tab_menu(&mut self) -> Option<Rect> {
     let bounds = self.menu_room();
-    let m = self.tab_menu.as_mut()?;
+    let Some(Overlay::Tab(m)) = &mut self.overlay else { return None };
     let r = m.menu.draw(&mut self.canvas, &mut self.res.text, bounds);
     Some(union(r, r))
   }

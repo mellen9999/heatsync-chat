@@ -135,13 +135,13 @@ fn headless_tab_ack() {
   assert!(!app.tabs[flood].event && app.tabs[flood].unread, "yellow clears, the plain unread stays");
   for i in [mentions, whispers] {
     right_click(&mut app, i);
-    assert!(!app.tabs[i].unread && app.tab_menu.is_none(), "cleared, no menu");
+    assert!(!app.tabs[i].unread && app.tab_menu().is_none(), "cleared, no menu");
   }
   assert_eq!(app.active, feed, "nothing was opened");
   right_click(&mut app, mentions);
-  assert!(app.tab_menu.is_some(), "a quiet tab still gets its menu");
+  assert!(app.tab_menu().is_some(), "a quiet tab still gets its menu");
   // opening a yellow tab clears it too
-  app.tab_menu = None;
+  app.close_tab_menu();
   app.say_line(flood, Message::system(0, Platform::Twitch, "went offline"), Tone::Offline);
   app.select(flood);
   assert!(!app.tabs[flood].event);
@@ -230,8 +230,8 @@ fn headless_line_menu_and_r() {
   // the newest line sits at the bottom of the chat
   app.pointer = (area.x + 200, area.bottom() - 6);
   app.right_click();
-  assert!(app.pop.is_some(), "right-click opens the line menu");
-  app.pop = None;
+  assert!(app.pop().is_some(), "right-click opens the line menu");
+  app.close_pop();
   app.mode = Mode::Normal;
   app.key_normal(Key::Character("r"));
   assert!(app.reply.is_some(), "r on the picked line starts a reply");
@@ -329,17 +329,17 @@ fn headless_stream_line_is_not_a_chat_line() {
   let mut picked = Vec::new();
   for y in (area.y..area.bottom()).step_by(2) {
     app.tabs[chat].view.deselect();
-    (app.pop, app.menu, app.pointer) = (None, None, (area.x + 200, y));
+    (app.overlay, app.pointer) = (None, (area.x + 200, y));
     app.right_click();
     let id = app.tabs[chat].view.selected().map(|m| m.id.clone());
     assert!(id.as_deref() != Some(""), "the stream line was picked at y {y}");
-    assert_eq!(app.pop.is_some(), id.is_some(), "a menu only for a picked line (y {y})");
+    assert_eq!(app.pop().is_some(), id.is_some(), "a menu only for a picked line (y {y})");
     picked.extend(id);
   }
   assert!(picked.iter().any(|i| &**i == "a1") && picked.iter().any(|i| &**i == "a2"), "{picked:?}");
   // k from the newest steps over it, and r replies to a real line
   app.tabs[chat].view.deselect();
-  (app.pop, app.menu, app.mode) = (None, None, Mode::Normal);
+  (app.overlay, app.mode) = (None, Mode::Normal);
   app.select_move(-1);
   app.select_move(-1);
   assert_eq!(app.tabs[chat].view.selected().map(|m| m.id.clone()).as_deref(), Some("a1"));
@@ -455,7 +455,7 @@ fn headless_chat_logs() {
   // the line menu has the row; picking it opens the view
   app.tabs[chat].view.select_start(&mut app.res, 300);
   app.open_line_menu((20, 20));
-  let rows = app.pop.as_ref().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>()).unwrap();
+  let rows = app.pop().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>()).unwrap();
   assert_eq!(rows.last().map(String::as_str), Some("chat logs"), "after filter to, like the ext");
   app.pop_key(Key::Named(NamedKey::Escape));
   let m = app.tabs[chat].view.selected().cloned().unwrap();

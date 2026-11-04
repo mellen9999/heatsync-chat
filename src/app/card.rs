@@ -4,6 +4,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use super::overlay::Overlay;
 use super::pop::{Act, Subject};
 use crate::model::card::Info;
 use crate::model::message::Platform;
@@ -78,8 +79,7 @@ impl App {
     };
     let menu = Menu::new(self.card_rows(&who, &info), (0, 0));
     self.hide_peek();
-    self.card = Some(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) });
-    self.pop = None;
+    self.overlay = Some(Overlay::Card(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) }));
     self.want_pronouns(self.card_twitch_id());
     self.card_changed();
   }
@@ -98,14 +98,14 @@ impl App {
 
   // the open card read again from the cache (a follow changed it): its facts and its rows
   pub(super) fn card_refresh(&mut self, platform: Platform, login: &str) {
-    let Some(c) = self.card.as_ref().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
+    let Some(c) = self.card().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
     let info = match self.cards.get(platform, login) {
       Some(Load::Done(i)) => Load::Done(i.clone()),
       Some(Load::Failed(why)) => Load::Failed(why),
       _ => Load::Loading,
     };
     let rows = self.card_rows(&c.who, &info);
-    if let Some(c) = self.card.as_mut() {
+    if let Some(c) = self.card_mut() {
       c.info = info;
       c.menu.at = c.menu.at.min(rows.len().saturating_sub(1));
       c.menu.items = rows;
@@ -114,7 +114,7 @@ impl App {
   }
 
   pub(super) fn card_twitch_id(&self) -> Option<u64> {
-    self.card.as_ref().and_then(Card::twitch_id)
+    self.card().and_then(Card::twitch_id)
   }
 
   pub(super) fn on_card(&mut self, platform: Platform, login: &str, res: Result<Info, u16>) {
@@ -170,19 +170,19 @@ impl App {
   }
 
   pub(super) fn card_key(&mut self, key: Key<&str>) {
-    let Some(c) = &mut self.card else { return };
+    let Some(Overlay::Card(c)) = &mut self.overlay else { return };
     match key {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => c.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => c.menu.step(-1),
       Key::Named(NamedKey::Enter) => return self.card_pick(),
-      Key::Named(NamedKey::Escape) | Key::Character("q") => self.card = None,
+      Key::Named(NamedKey::Escape) | Key::Character("q") => self.close_card(),
       _ => return,
     }
     self.card_changed();
   }
 
   fn card_pick(&mut self) {
-    let Some(c) = self.card.take() else { return };
+    let Some(c) = self.take_card() else { return };
     self.card_changed();
     if let Some(act) = c.menu.chosen() {
       self.act(act, Some(c.who), None);
@@ -192,14 +192,14 @@ impl App {
   pub(super) fn card_click(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    let Some(c) = &mut self.card else { return };
+    let Some(Overlay::Card(c)) = &mut self.overlay else { return };
     if let Some(i) = c.menu.row_at(x, y, line) {
       c.menu.at = i;
       return self.card_pick();
     }
     // inside the box but not on a row: stay; outside: close
     if !c.rect.contains(x, y) {
-      self.card = None;
+      self.close_card();
     }
     self.card_changed();
   }
@@ -207,7 +207,7 @@ impl App {
   pub(super) fn card_hover(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    if let Some(c) = &mut self.card
+    if let Some(Overlay::Card(c)) = &mut self.overlay
       && let Some(i) = c.menu.row_at(x, y, line)
       && i != c.menu.at
     {
@@ -218,9 +218,9 @@ impl App {
 
   pub(super) fn draw_card(&mut self) -> Option<Rect> {
     let area = self.chat_area();
-    let mine = self.card.as_ref().and_then(|c| self.note_of(c.who.platform, &c.who.login));
+    let mine = self.card().and_then(|c| self.note_of(c.who.platform, &c.who.login));
     let pronouns = self.pronouns_of(self.card_twitch_id()).map(str::to_owned);
-    let c = self.card.as_mut()?;
+    let Some(Overlay::Card(c)) = &mut self.overlay else { return None };
     let note = note_of(&c.info);
     let rows: &[(&'static str, String)] = match &c.info {
       Load::Done(i) => &i.rows,

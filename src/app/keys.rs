@@ -161,19 +161,19 @@ impl App {
     if self.picker.is_some() {
       return self.picker_key(k, t);
     }
-    if self.pop.is_some() {
+    if self.pop().is_some() {
       return self.pop_key(k);
     }
-    if self.card.is_some() {
+    if self.card().is_some() {
       return self.card_key(k);
     }
-    if self.tab_menu.is_some() {
+    if self.tab_menu().is_some() {
       return self.tab_menu_key(k);
     }
     if self.rover.is_some() {
       return self.rover_key(k);
     }
-    if self.menu.is_some() {
+    if self.menu().is_some() {
       return self.menu_key(k);
     }
     if self.logs_key(k.clone()) {

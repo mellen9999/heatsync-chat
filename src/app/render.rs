@@ -116,13 +116,7 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let area = self.chat_area();
-    if (self.menu.is_some()
-      || self.tab_menu.is_some()
-      || self.pop.is_some()
-      || self.card.is_some()
-      || self.tip.is_some()
-      || self.media_peek.is_some()
-      || self.over_input)
+    if (self.overlay.is_some() || self.tip.is_some() || self.media_peek.is_some() || self.over_input)
       && let Some(t) = self.tabs.get_mut(self.active)
     {
       // the menu floats over the chat: repaint under it so blits and scrolls leave no ghosts

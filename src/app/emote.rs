@@ -3,6 +3,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use super::overlay::Overlay;
 use crate::emotes::block::{Click, Scope, emote_hash, right_click};
 use crate::net::Cmd;
 use crate::net::emote_ops::EmoteCmd;
@@ -71,7 +72,7 @@ impl App {
       }
     } else if self.mods.shift_key() {
       let rows = rows(owned, blocked, self.me.is_some());
-      self.menu = Some(Open { menu: Menu::new(rows, self.pointer), hit, owned });
+      self.overlay = Some(Overlay::Emote(Open { menu: Menu::new(rows, self.pointer), hit, owned }));
     } else {
       let act = match right_click(owned, blocked) {
         Click::Remove => Act::Remove,
@@ -131,19 +132,19 @@ impl App {
   }
 
   pub fn menu_key(&mut self, key: Key<&str>) {
-    let Some(o) = &mut self.menu else { return };
+    let Some(Overlay::Emote(o)) = &mut self.overlay else { return };
     match key {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => o.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => o.menu.step(-1),
       Key::Named(NamedKey::Enter) => return self.menu_pick(),
-      Key::Named(NamedKey::Escape) => self.menu = None,
+      Key::Named(NamedKey::Escape) => self.close_menu(),
       _ => {}
     }
     self.menu_changed();
   }
 
   fn menu_pick(&mut self) {
-    if let Some(o) = self.menu.take()
+    if let Some(o) = self.take_menu()
       && let Some(act) = o.menu.chosen()
     {
       self.run_act(act, &o.hit, o.owned);
@@ -155,14 +156,14 @@ impl App {
   pub fn menu_click(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    let row = self.menu.as_ref().and_then(|o| o.menu.row_at(x, y, line));
-    match (row, &mut self.menu) {
-      (Some(i), Some(o)) => {
+    let row = self.menu().and_then(|o| o.menu.row_at(x, y, line));
+    match (row, &mut self.overlay) {
+      (Some(i), Some(Overlay::Emote(o))) => {
         o.menu.at = i;
         self.menu_pick();
       }
       _ => {
-        self.menu = None;
+        self.close_menu();
         self.menu_changed();
       }
     }
@@ -172,7 +173,7 @@ impl App {
   pub fn menu_hover(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    if let Some(o) = &mut self.menu
+    if let Some(Overlay::Emote(o)) = &mut self.overlay
       && let Some(i) = o.menu.row_at(x, y, line)
       && i != o.menu.at
     {
@@ -191,7 +192,7 @@ impl App {
   // drawn last so it sits over everything; returns its rect for damage
   pub fn draw_menu(&mut self) -> Option<Rect> {
     let bounds = self.chat_area();
-    let o = self.menu.as_mut()?;
+    let Some(Overlay::Emote(o)) = &mut self.overlay else { return None };
     Some(o.menu.draw(&mut self.canvas, &mut self.res.text, bounds))
   }
 }

@@ -2,6 +2,7 @@
 // delete / timeout / purge / ban / unban, and /ban /timeout /unban /delete /purge work in the tab.
 // heatsync's server does the twitch and kick calls (POST /api/mod/action)
 use super::App;
+use super::overlay::Overlay;
 use super::pop::{Pop, Subject, Todo};
 use crate::cosmetics::id::PaintId;
 use crate::model::message::{Message, Platform};
@@ -103,7 +104,7 @@ impl App {
       let head = format!("ban {} in #{}?", who[0].nick, who[0].chan);
       let at = (self.pointer.0.min(self.canvas.w - 160), self.pointer.1.min(self.canvas.h - 80));
       let todo = Todo { verb, who, reason, reasons };
-      self.pop = Some(Pop::confirm(head, at, todo));
+      self.overlay = Some(Overlay::Pop(Pop::confirm(head, at, todo)));
       return self.pop_changed();
     }
     self.mod_send(verb, who, reason);
@@ -266,7 +267,7 @@ mod tests {
     // now it asks first; nothing goes until a pick
     typed(&mut app, "/ban bob");
     assert!(bans(&mut rx).is_empty());
-    let rows: Vec<String> = app.pop.as_ref().unwrap().menu.items.iter().map(|i| i.1.clone()).collect();
+    let rows: Vec<String> = app.pop().unwrap().menu.items.iter().map(|i| i.1.clone()).collect();
     assert_eq!(rows, ["yes, ban", "1 spam", "2 hate speech", "cancel"]);
     // j j enter: the second reason
     for k in ["j", "j"] {
@@ -277,7 +278,7 @@ mod tests {
     // a digit picks at once; one past the list does nothing
     typed(&mut app, "/ban amy");
     app.pop_key(Key::Character("5"));
-    assert!(app.pop.is_some() && bans(&mut rx).is_empty());
+    assert!(app.pop().is_some() && bans(&mut rx).is_empty());
     app.pop_key(Key::Character("1"));
     assert_eq!(bans(&mut rx), [("amy".to_owned(), Some("spam".to_owned()))]);
     // enter on the first row bans with the reason typed, if any
@@ -286,7 +287,7 @@ mod tests {
     assert_eq!(bans(&mut rx), [("cy".to_owned(), Some("rule 3".to_owned()))]);
     // timeouts never ask
     typed(&mut app, "/timeout bob 10m");
-    assert!(app.pop.is_none());
+    assert!(app.pop().is_none());
     // emptied (say from the account), it goes straight through again
     filter::edit(|f| f.set_reasons_text(""));
     typed(&mut app, "/ban dee");

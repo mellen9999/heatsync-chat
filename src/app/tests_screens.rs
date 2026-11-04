@@ -585,7 +585,7 @@ fn headless_hover_and_mentions() {
   // a click on her name in bob's line opens her card from the cached answer: nothing more is asked
   app.hide_tip();
   assert!(app.name_press(), "the mention answers a click");
-  assert!(app.card.is_some() && asked.try_recv().is_err());
+  assert!(app.card().is_some() && asked.try_recv().is_err());
 }
 
 // feed engagement offline: upvote and bookmark show at once and roll back on a refusal, your own post
@@ -636,7 +636,7 @@ fn headless_feed_engage() {
   let rows = |app: &mut App, id: &str| {
     pick(app, id);
     app.line_menu_key();
-    app.pop.as_ref().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>()).unwrap_or_default()
+    app.pop().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>()).unwrap_or_default()
   };
   // logged out: the menu opens (copies) but has no post rows, and nothing is asked about bookmarks
   load(&mut app);
@@ -646,7 +646,7 @@ fn headless_feed_engage() {
   );
   let r = rows(&mut app, "00004a");
   assert!(r.contains(&"copy message".to_owned()) && !r.iter().any(|l| l.contains("upvote") || l.contains("bookmark")));
-  app.pop = None;
+  app.close_pop();
   // log in as mellen
   app.me = Some(crate::net::auth::Me {
     username: "mellen".into(),
@@ -671,7 +671,7 @@ fn headless_feed_engage() {
   let r = rows(&mut app, "00004a");
   assert!(r.contains(&"upvote".to_owned()) && r.contains(&"remove bookmark".to_owned()), "{r:?}");
   assert!(!r.iter().any(|l| l.starts_with("edit") || l == "delete"));
-  app.pop = None;
+  app.close_pop();
   // upvote: shows at once, a refusal puts it back
   pick(&mut app, "00004a");
   app.act(Act::Upvote, None, None);
@@ -684,7 +684,7 @@ fn headless_feed_engage() {
   let p = app.feed.find("00004a").unwrap();
   assert!(p.voted && p.heat == 7);
   assert!(rows(&mut app, "00004a").contains(&"remove upvote".to_owned()));
-  app.pop = None;
+  app.close_pop();
   // bookmark off: the request says off, a refusal keeps it
   pick(&mut app, "00004a");
   app.act(Act::Bookmark, None, None);
@@ -700,10 +700,10 @@ fn headless_feed_engage() {
   let r = rows(&mut app, "00004b");
   assert!(!r.iter().any(|l| l.contains("upvote")));
   assert!(r.iter().any(|l| l.starts_with("edit (")) && r.last().map(String::as_str) == Some("delete"), "{r:?}");
-  app.pop = None;
+  app.close_pop();
   let r = rows(&mut app, "00004c");
   assert!(r.contains(&"edit (expired)".to_owned()));
-  app.pop = None;
+  app.close_pop();
   // edit: the words come into the box, the draft waits, enter saves, a refusal keeps the words
   pick(&mut app, "00004c");
   app.act(Act::Edit, None, None);
@@ -736,10 +736,11 @@ fn headless_feed_engage() {
   // delete asks first: cancel sends nothing, yes sends it, the post leaves on the answer
   pick(&mut app, "00004b");
   app.act(Act::Delete, None, None);
-  let p = app.pop.as_ref().expect("delete asks");
+  let p = app.pop().expect("delete asks");
   assert_eq!(p.menu.items.iter().map(|r| r.1.as_str()).collect::<Vec<_>>(), ["yes, delete", "cancel"]);
   assert!(cmds(&mut asked).is_empty(), "nothing sent before the yes");
-  app.pop.as_mut().unwrap().menu.at = 1;
+  let Some(super::overlay::Overlay::Pop(p)) = &mut app.overlay else { panic!("the pop is open") };
+  p.menu.at = 1;
   app.pop_key(Key::Named(NamedKey::Enter));
   assert!(cmds(&mut asked).is_empty() && app.feed.find("00004b").is_some(), "cancel keeps it");
   app.act(Act::Delete, None, None);
@@ -787,7 +788,7 @@ fn headless_feed_engage() {
   app.redraw();
   app.tabs[app.active].view.select_start(&mut app.res, 300);
   app.open_line_menu((10, 10));
-  let labels: Vec<_> = app.pop.as_ref().unwrap().menu.items.iter().map(|r| r.1.clone()).collect();
+  let labels: Vec<_> = app.pop().unwrap().menu.items.iter().map(|r| r.1.clone()).collect();
   assert!(labels.contains(&"op to feed".to_owned()), "{labels:?}");
   app.act(Act::OpToFeed, None, None);
   assert_eq!(app.line.text, "/op @Carol: this is news");

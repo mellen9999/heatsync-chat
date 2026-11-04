@@ -114,9 +114,9 @@ impl App {
       self.prompt.is_none() && self.picker.as_ref().is_some_and(|p| p.focus == crate::model::picker::Focus::Search);
     let to_line = self.prompt.is_some()
       || self.form.is_some()
-      || (self.picker.is_none() && self.menu.is_none() && self.mode == Mode::Insert);
+      || (self.picker.is_none() && self.menu().is_none() && self.mode == Mode::Insert);
     if !to_picker && !to_line {
-      return self.picker.is_some() || self.menu.is_some() || self.mode == Mode::Insert;
+      return self.picker.is_some() || self.menu().is_some() || self.mode == Mode::Insert;
     }
     match self.read_clipboard() {
       Got::Text(t) => self.paste_text(&t, to_picker),

@@ -32,7 +32,7 @@ impl App {
       .collect();
     let global =
       self.res.emotes.global_entries().into_iter().map(|(n, e)| item(Sec::Global, n, &e.url, e.w, e.h)).collect();
-    self.menu = None;
+    self.close_menu();
     self.picker = Some(Picker::new(mine, channel, global, &self.recents));
     self.picker_changed();
   }

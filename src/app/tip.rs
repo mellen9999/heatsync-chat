@@ -19,12 +19,7 @@ type Cand = (Box<str>, Box<str>, bool, bool, Vec<Layer>);
 
 impl App {
   pub(super) fn tip_free(&self) -> bool {
-    self.form.is_none()
-      && self.screen.is_none()
-      && self.pop.is_none()
-      && self.card.is_none()
-      && self.tab_menu.is_none()
-      && self.menu.is_none()
+    self.form.is_none() && self.screen.is_none() && self.overlay.is_none()
   }
 
   fn tip_target(&mut self) -> Option<Cand> {

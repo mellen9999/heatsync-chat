@@ -42,6 +42,7 @@ mod modsuite;
 mod modtools;
 mod net_events;
 mod notes;
+mod overlay;
 mod peek;
 mod picker;
 mod pin;
@@ -257,9 +258,10 @@ pub struct App {
   ime_on: bool,
   ime_area: Option<Rect>,
   ime_sent: Option<Rect>,
-  // shift+right-click menu on an emote
-  menu: Option<emote::Open>,
-  // the add/edit channel form (covers the chat), and the menu on a right-clicked tab
+  // the floating menu that is open, if any: login and line actions, the user card, the menu on an emote,
+  // the menu on a right-clicked tab (overlay.rs)
+  overlay: Option<overlay::Overlay>,
+  // the add/edit channel form (covers the chat)
   form: Option<Form>,
   // the first window of a run with no channels asks for one (tabs::first_run)
   welcome: bool,
@@ -273,11 +275,6 @@ pub struct App {
   logs: Option<crate::model::logs::Logs>,
   // tab mode's cursor on the tab bar (space t)
   rover: Option<rover::Rover>,
-  tab_menu: Option<tabs::TabMenu>,
-  // the floating menu for login and line actions
-  pop: Option<pop::Pop>,
-  // the user card over the chat
-  card: Option<card::Card>,
   // the settings screen or the key map, covering the chat
   screen: Option<screen::Screen>,
   // last drawn tab rects, then the + button
@@ -474,7 +471,7 @@ impl App {
       ime_on: false,
       ime_area: None,
       ime_sent: None,
-      menu: None,
+      overlay: None,
       form: None,
       welcome,
       form_hover: None,
@@ -482,9 +479,6 @@ impl App {
       img_view: None,
       logs: None,
       rover: None,
-      tab_menu: None,
-      pop: None,
-      card: None,
       screen: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
@@ -569,8 +563,8 @@ impl App {
       self.edit_end();
       self.active = i;
       // a card or menu belongs to the tab it was opened in
-      self.card = None;
-      self.pop = None;
+      self.close_card();
+      self.close_pop();
       self.tabs[i].unread = false;
       self.tabs[i].event = false;
       self.tabs[i].count.read();

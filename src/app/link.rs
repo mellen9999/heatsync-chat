@@ -84,13 +84,7 @@ impl App {
   // the pointer's look (only set when it changes): a magnifier with a minus over the open picture, one
   // with a plus over a picture in chat (ext zoom-out / zoom-in), a hand over a link, else the arrow
   pub(super) fn cursor_sync(&mut self) {
-    let free = self.form.is_none()
-      && self.screen.is_none()
-      && self.pop.is_none()
-      && self.card.is_none()
-      && self.tab_menu.is_none()
-      && self.menu.is_none()
-      && self.picker.is_none();
+    let free = self.form.is_none() && self.screen.is_none() && self.overlay.is_none() && self.picker.is_none();
     let (x, y) = self.pointer;
     let in_chat = self.chat_area().contains(x, y);
     let icon = if self.img_view.is_some() && in_chat {

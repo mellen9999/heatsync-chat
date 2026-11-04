@@ -4,6 +4,7 @@
 // show. every change shows at once and a refusal puts it back with a plain line saying so
 use super::App;
 use super::feed::{LOGIN_FIRST, TRY_AGAIN};
+use super::overlay::Overlay;
 use super::pop::{Act, Pop};
 use crate::model::engage::{self, CHECK_CHUNK};
 use crate::model::feed::MORE_ID;
@@ -220,7 +221,7 @@ impl App {
     self.pending_delete = Some(p.id);
     let chat = self.chat_area();
     let rows = vec![(Act::DeletePost, "yes, delete".to_owned()), (Act::No, "cancel".to_owned())];
-    self.pop = Some(Pop::ask("delete post?".into(), (chat.x + 24, chat.y + chat.h / 4), rows));
+    self.overlay = Some(Overlay::Pop(Pop::ask("delete post?".into(), (chat.x + 24, chat.y + chat.h / 4), rows)));
     self.pop_changed();
   }
 

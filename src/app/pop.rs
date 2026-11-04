@@ -4,6 +4,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use super::engage::{PostCtx, engage_rows, own_rows};
+use super::overlay::Overlay;
 use crate::cosmetics::id::PaintId;
 use crate::model::filter::{self, DEFAULT_MUTE_MS};
 use crate::model::message::Platform;
@@ -254,7 +255,7 @@ impl App {
       Some(me) => Menu::new(account_rows(me, !self.mod_in.is_empty()), at).titled(account_head(me)),
       None => Menu::new(login_rows(), at).titled("log in with"),
     };
-    self.pop = Some(Pop { menu, subject: None, todo: None });
+    self.overlay = Some(Overlay::Pop(Pop { menu, subject: None, todo: None }));
     self.pop_changed();
   }
 
@@ -267,7 +268,7 @@ impl App {
   }
 
   fn pop_pick(&mut self) {
-    let Some(p) = self.pop.take() else { return };
+    let Some(p) = self.take_pop() else { return };
     self.pop_changed();
     if let Some(act) = p.menu.chosen() {
       self.act(act, p.subject, p.todo);
@@ -470,7 +471,7 @@ impl App {
     if self.held_selected().is_some() {
       rows.splice(0..0, [(Act::Held(true), "allow".to_owned()), (Act::Held(false), "deny".to_owned())]);
     }
-    self.pop = Some(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None });
+    self.overlay = Some(Overlay::Pop(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None }));
     self.pop_changed();
   }
 
@@ -494,7 +495,7 @@ impl App {
   }
 
   pub(super) fn pop_key(&mut self, key: Key<&str>) {
-    let Some(p) = &mut self.pop else { return };
+    let Some(Overlay::Pop(p)) = &mut self.overlay else { return };
     match key {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => p.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => p.menu.step(-1),
@@ -507,7 +508,7 @@ impl App {
         }
         return self.pop_pick();
       }
-      Key::Named(NamedKey::Escape) => self.pop = None,
+      Key::Named(NamedKey::Escape) => self.close_pop(),
       _ => return,
     }
     self.pop_changed();
@@ -516,14 +517,14 @@ impl App {
   pub(super) fn pop_click(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    let row = self.pop.as_ref().and_then(|p| p.menu.row_at(x, y, line));
-    match (row, &mut self.pop) {
-      (Some(i), Some(p)) => {
+    let row = self.pop().and_then(|p| p.menu.row_at(x, y, line));
+    match (row, &mut self.overlay) {
+      (Some(i), Some(Overlay::Pop(p))) => {
         p.menu.at = i;
         self.pop_pick();
       }
       _ => {
-        self.pop = None;
+        self.close_pop();
         self.pop_changed();
       }
     }
@@ -532,7 +533,7 @@ impl App {
   pub(super) fn pop_hover(&mut self) {
     let line = self.res.text.line_px as i32;
     let (x, y) = self.pointer;
-    if let Some(p) = &mut self.pop
+    if let Some(Overlay::Pop(p)) = &mut self.overlay
       && let Some(i) = p.menu.row_at(x, y, line)
       && i != p.menu.at
     {
@@ -543,7 +544,7 @@ impl App {
 
   pub(super) fn draw_pop(&mut self) -> Option<Rect> {
     let bounds = self.menu_room();
-    let p = self.pop.as_mut()?;
+    let Some(Overlay::Pop(p)) = &mut self.overlay else { return None };
     Some(p.menu.draw(&mut self.canvas, &mut self.res.text, bounds))
   }
 }

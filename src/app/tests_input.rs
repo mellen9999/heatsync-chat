@@ -302,7 +302,7 @@ fn headless_line_menu() {
   m.body = "hello\tthere".into();
   app.on_chat("forsen", Chat::Msg(m));
   app.redraw();
-  let labels = |app: &App| app.pop.as_ref().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>());
+  let labels = |app: &App| app.pop().map(|p| p.menu.items.iter().map(|r| r.1.clone()).collect::<Vec<_>>());
   let open = |app: &mut App| {
     app.tabs[app.active].view.select_start(&mut app.res, 300);
     app.open_line_menu((10, 10));
@@ -320,13 +320,13 @@ fn headless_line_menu() {
   app.note_cmd(crate::model::notes::command("/note BOB likes cats").unwrap());
   assert_eq!(app.notes.text(Platform::Twitch, "bob"), "likes cats");
   assert!(open(&mut app).contains(&"edit note".to_owned()));
-  app.act(Act::Note, app.pop.as_ref().and_then(|p| p.subject.clone()), None);
+  app.act(Act::Note, app.pop().and_then(|p| p.subject.clone()), None);
   assert_eq!(app.line.text, "/note bob likes cats");
   app.line.take();
   app.note_cmd(crate::model::notes::command("/note bob").unwrap());
   assert_eq!(app.notes.text(Platform::Twitch, "bob"), "");
   // hide in tab flips the row
-  let who = app.pop.as_ref().and_then(|p| p.subject.clone());
+  let who = app.pop().and_then(|p| p.subject.clone());
   app.act(Act::HideInTab(true), who, None);
   assert!(app.tabs[app.active].view.hidden_user("bob"));
   // filter to opens the search on @bob, applied

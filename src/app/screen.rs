@@ -344,10 +344,7 @@ impl App {
       self.close_picker();
     }
     self.close_prompt();
-    self.menu = None;
-    self.tab_menu = None;
-    self.pop = None;
-    self.card = None;
+    self.overlay = None;
     let mut s = Screen::new(page);
     let (lines, _) = s.lines(&self.set);
     s.st.settle(&lines);
