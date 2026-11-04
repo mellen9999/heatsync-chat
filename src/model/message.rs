@@ -9,6 +9,14 @@ pub enum Platform {
 }
 
 impl Platform {
+  // the most characters one line may carry there (ext send-targets.js CHAT_MAX_LEN)
+  pub const fn max_chars(self) -> usize {
+    match self {
+      Platform::Twitch | Platform::Kick => 500,
+      Platform::Youtube => 200,
+    }
+  }
+
   pub fn name(self) -> &'static str {
     match self {
       Platform::Twitch => "twitch",

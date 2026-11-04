@@ -55,6 +55,9 @@ pub struct Bar<'a> {
   pub showcmd: &'a str,
   // the line's chip words, in order, not overlapping
   pub chips: &'a [Chip],
+  // byte in the line where the text grows past what the platform takes: from there on it draws red (ext
+  // .hl-over). the line's length when it fits
+  pub over: usize,
 }
 
 // the left gutter: wide enough for the widest short label, so the typed text never moves
@@ -187,6 +190,10 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
       i = c.range.end;
     }
     plain(&mut s, &mut pre, i..t.len(), &mut pending);
+    for (r, at) in runs.iter().filter(|(r, _)| r.end > b.over) {
+      let from = at + r.start.max(b.over) - r.start;
+      spans.push(Span { range: from..at + r.len(), ink: Ink(theme::RED), bold: false });
+    }
   }
   let cmd = if b.label.is_empty() { 0.0 } else { text.layout("00000", &[], &[], f32::MAX).full_width() };
   let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd;

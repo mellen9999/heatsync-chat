@@ -472,3 +472,25 @@ fn headless_suggest() {
   app.line.insert("n");
   assert!(open(&mut app).is_some(), "typing opens it again");
 }
+
+// past 500 characters (twitch) the box draws the rest red, like the ext; at the limit nothing is red
+#[test]
+fn words_past_the_limit_draw_red() {
+  let (net, _rx) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(520, 300);
+  let red = |app: &App| app.canvas.inked(crate::ui::theme::RED);
+  // as typed: the cursor at the end, so the end is in view
+  let typed = |app: &mut App, t: String| {
+    app.line.set_text(t);
+    app.line.cursor = app.line.text.len();
+    app.input_dirty = true;
+    app.redraw();
+  };
+  typed(&mut app, "wörd ".repeat(100));
+  assert_eq!(red(&app), 0, "500 fits");
+  typed(&mut app, format!("{}{}", "wörd ".repeat(100), "wwwwwwwwww"));
+  assert!(red(&app) > 20, "the 10 past it are red");
+}

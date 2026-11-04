@@ -80,12 +80,19 @@ impl App {
         None => self.target().and_then(|t| t.2),
       };
       let reply = self.reply.as_ref().filter(|_| self.prompt.is_none()).map(|r| &*r.nick);
+      // past what the platform takes, the words go red (ext updateCharCount)
+      let typed = &self.line.text;
+      let over = match (&self.prompt, self.target()) {
+        (None, Some((p, ..))) => typed.char_indices().nth(p.max_chars()).map_or(typed.len(), |(i, _)| i),
+        _ => usize::MAX,
+      };
       let bar = input_bar::Bar {
         line: self.prompt.as_ref().unwrap_or(&self.line),
         mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
         target: tag,
         hint: &hint,
         hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
+        over,
         link: if self.prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) {
           LOGIN_HINT.len()
         } else {

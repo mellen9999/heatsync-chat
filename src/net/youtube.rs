@@ -8,7 +8,7 @@ use super::{ORIGIN, http};
 const MAX_REPLY: usize = 64 << 10;
 
 // youtube's own cap on a chat message
-pub const MAX: usize = 200;
+pub const MAX: usize = crate::model::message::Platform::Youtube.max_chars();
 
 // the plain line shown when the user has to allow posting first
 pub const NEEDS_PERMISSION: &str = "youtube needs permission to post as you — press ctrl-l → allow youtube posting";
