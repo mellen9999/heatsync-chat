@@ -12,5 +12,5 @@ PII="$HOME/sync/config/githooks/pii-scan"
 [ -x "$PII" ] && { "$PII" || exit 1; }
 
 cargo fmt --check
-cargo clippy --release -q -- -D warnings
+cargo clippy --release -q --all-targets -- -D warnings
 cargo test --release -q

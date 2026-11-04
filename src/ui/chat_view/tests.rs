@@ -1180,7 +1180,7 @@ fn event_rows_wear_their_color() {
     c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
     let _ = std::fs::write(path, out);
   }
-  let at = |x: i32, y: i32| c.px[(y * c.w as i32 + x) as usize];
+  let at = |x: i32, y: i32| c.px[(y * c.w + x) as usize];
   let rows: Vec<i32> = v.rows.iter().map(|r| r.height).collect();
   let y0 = area.bottom() - rows.iter().sum::<i32>();
   // each row's left edge: magenta sub, cyan milestone, none for the cheer

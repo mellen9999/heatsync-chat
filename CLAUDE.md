@@ -3,7 +3,7 @@
 the heatsync browser extension's multichat overlay, as a standalone pure-rust window. **the ext (`~/projects/heatsync-extension`) is the spec** — not chatterino. roadmap + rationale: `docs/PLAN.md`. heatsync api/ws contract + hostile-input bounds: `docs/contract.md`.
 
 ## run / test
-- `cargo build --release`, `cargo test --release`, `cargo clippy --release -- -D warnings`, `cargo fmt`
+- `cargo build --release`, `cargo test --release`, `cargo clippy --release --all-targets -- -D warnings`, `cargo fmt`
 - hooks: `git config core.hooksPath .githooks` (gitleaks + pii + fmt + clippy + test)
 - `--bench` headless gate: prints frame times + rss (anon vs file-backed). `HSC_DUMP=x.ppm` dumps the frame
 - `--flood` windowed synthetic chat; `HSC_PROF=1` prints per-frame ms

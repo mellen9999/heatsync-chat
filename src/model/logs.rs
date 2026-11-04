@@ -778,7 +778,9 @@ mod tests {
   #[test]
   fn scope_toggle_needs_a_home_channel() {
     let mut l = Logs::new(who(), None);
-    assert!(l.all && !l.toggle_scope() && l.all);
+    assert!(l.all);
+    assert!(!l.toggle_scope(), "no home channel: nothing to toggle to");
+    assert!(l.all);
     let mut l = Logs::new(who(), Some("xqc".into()));
     assert!(!l.all && l.channel() == Some("xqc"));
     assert!(l.toggle_scope() && l.all);
