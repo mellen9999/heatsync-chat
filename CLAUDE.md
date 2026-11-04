@@ -27,5 +27,5 @@ the heatsync browser extension's multichat overlay, as a standalone pure-rust wi
 
 ## conventions
 - **settings**: one table, `src/model/schema.rs` (label, tip, category, section, slash command, side effect). the settings screen, the slash switches, the settings file and the presets all read it. a new switch = one `Settings` field + one row. keys: `src/model/keys.rs` feeds the `?` screen; keep it in step with the handlers in `app.rs`
-- packaging: `packaging/arch` (own folder: makepkg's `src/` would hit ours). `cd packaging/arch && paru -Bi .`
+- packaging: `packaging/arch` = local source build, in its own folder (makepkg's `src/` would hit ours): `cd packaging/arch && paru -Bi .`. its pkgver is computed when makepkg reads the file and never written back, so the tree stays clean (no `pkgver()` fn: that rewrites the file). `packaging/aur` = the `heatsync-chat-bin` AUR package (the signed release), refreshed and published by `packaging/aur.sh` after `packaging/release.sh`. releases carry a v2 signature (`.sig2`) the app requires; keys in `src/net/update.rs` KEYS (spare key kept offline). `install.sh --uninstall` undoes install.sh
 - rustfmt 2-space, lowercase ui copy, conventional commits, no ai fingerprints

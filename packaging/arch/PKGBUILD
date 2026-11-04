@@ -2,8 +2,13 @@
 # builds from this checkout's committed history (git archive HEAD), so a dirty tree never ships:
 #   cd packaging/arch && paru -Bi .        (or: makepkg -si)
 # it lives in its own folder on purpose: makepkg's src/ and pkg/ work dirs would land on the repo's own src/
+# the version is worked out here, when makepkg reads this file, and never written back into it: a pkgver()
+# function makes makepkg rewrite `pkgver=` in place, which kept dirtying the checkout with a stale number
 pkgname=heatsync-chat
-pkgver=0.1.0.r62.g812209f
+_top=$(git -C "${startdir:-$PWD}" rev-parse --show-toplevel)
+# <version in Cargo.toml>.r<commits>.g<hash>: every landed commit is a newer package, so paru -Bi . always upgrades
+_ver=$(git -C "$_top" show HEAD:Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
+pkgver=$_ver.r$(git -C "$_top" rev-list --count HEAD).g$(git -C "$_top" rev-parse --short=7 HEAD)
 pkgrel=1
 pkgdesc='twitch, kick and youtube chat in one native window, with heatsync emotes'
 arch=(x86_64 aarch64)
@@ -19,18 +24,12 @@ optdepends=(
 )
 # ring compiles C: arch's lto flags break its link
 options=(!lto !debug)
-
-# 0.1.0.r<commits>.g<hash>: every landed commit is a newer package, so paru -Bi . always upgrades
-pkgver() {
-  local top
-  top=$(git -C "$startdir" rev-parse --show-toplevel)
-  printf '0.1.0.r%s.g%s' "$(git -C "$top" rev-list --count HEAD)" "$(git -C "$top" rev-parse --short=7 HEAD)"
-}
+conflicts=(heatsync-chat-bin)
 
 prepare() {
   rm -rf "$srcdir/$pkgname"
   mkdir -p "$srcdir/$pkgname"
-  git -C "$(git -C "$startdir" rev-parse --show-toplevel)" archive HEAD | tar -x -C "$srcdir/$pkgname"
+  git -C "$_top" archive HEAD | tar -x -C "$srcdir/$pkgname"
   cd "$srcdir/$pkgname"
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
