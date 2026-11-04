@@ -369,8 +369,12 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "kick-moderation" => {
       let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
-      let login: Box<str> = v.get("username").and_then(Value::as_str)?.to_lowercase().into();
-      send(NetEvent::RelayClear { platform: Platform::Kick, key, login })
+      let login: Box<str> =
+        v.get("username").and_then(Value::as_str).filter(|u| ident::relay_key(u))?.to_lowercase().into();
+      let secs = (v.get("action").and_then(Value::as_str) == Some("timeout"))
+        .then(|| v.get("durationSec").and_then(Value::as_u64).filter(|&s| s > 0).map(|s| s.min(u32::MAX as u64) as u32))
+        .flatten();
+      send(NetEvent::RelayClear { platform: Platform::Kick, key, login, secs })
     }
     "youtube:chat" => {
       let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
@@ -541,6 +545,25 @@ mod tests {
     let room = json!({"type": "stream:online", "platform": "twitch", "channel": "ennortix", "game": "Chess"});
     dispatch(&room, &mut st, &out);
     assert!(rx.try_recv().is_err());
+  }
+
+  // kick-moderation: a timeout carries its length, a ban none; a junk name is no removal
+  #[test]
+  fn a_kick_removal_says_how_long() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let f = |action: &str, user: &str| json!({"type": "kick-moderation", "channel": "xqc", "action": action, "username": user, "durationSec": 300});
+    let got = |rx: &std::sync::mpsc::Receiver<NetEvent>| match rx.try_recv() {
+      Ok(NetEvent::RelayClear { login, secs, .. }) => Some((login.to_string(), secs)),
+      _ => None,
+    };
+    dispatch(&f("timeout", "Bob"), &mut st, &out);
+    assert_eq!(got(&rx), Some(("bob".into(), Some(300))));
+    dispatch(&f("ban", "bob"), &mut st, &out);
+    assert_eq!(got(&rx), Some(("bob".into(), None)));
+    dispatch(&f("ban", "a b\n"), &mut st, &out);
+    assert_eq!(got(&rx), None);
   }
 
   #[test]

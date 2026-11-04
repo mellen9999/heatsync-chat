@@ -816,6 +816,11 @@ impl ChatView {
     self.rows.back().map(|r| &r.msg)
   }
 
+  #[cfg(test)]
+  pub fn msgs(&self) -> impl Iterator<Item = &Message> {
+    self.rows.iter().map(|r| &r.msg)
+  }
+
   pub fn message(&self, seq: i64) -> Option<&Message> {
     self.index_of(seq).map(|i| &self.rows[i].msg)
   }

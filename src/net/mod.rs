@@ -75,10 +75,12 @@ pub enum NetEvent {
     msgs: Vec<Message>,
     history: bool,
   },
+  // a person removed from a relayed room: timed out for `secs`, or banned (None)
   RelayClear {
     platform: Platform,
     key: Box<str>,
     login: Box<str>,
+    secs: Option<u32>,
   },
   YtStatus {
     key: Box<str>,

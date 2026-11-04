@@ -136,4 +136,43 @@ mod tests {
     assert_eq!(&*v.last_msg().unwrap().body, "forsen · deleted amy's message");
     assert!(app.tabs[i].unread);
   }
+
+  // the room shows what a mod did in the ext's words and colors, and the line taken stays, dimmed
+  #[test]
+  fn a_deleted_line_is_dimmed_and_told() {
+    use crate::model::message::{Message, Platform, flag};
+    use crate::net::irc::Chat;
+    use crate::net::{Net, NetEvent};
+    use crate::ui::theme;
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let mut m = Message::system(1, Platform::Twitch, "bad words");
+    (m.kind, m.id, m.login, m.nick) = (crate::model::message::Kind::Chat, "m1".into(), "amy".into(), "amy".into());
+    app.on_chat("forsen", Chat::Msg(m));
+    app.on_chat("forsen", Chat::ClearMsg("m1".into(), "amy".into()));
+    app.on_chat("forsen", Chat::ClearUser { login: "bob".into(), secs: Some(600) });
+    app.on_chat("forsen", Chat::ClearUser { login: "cat".into(), secs: None });
+    app.on_chat("forsen", Chat::ClearAll);
+    let i = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    let rows: Vec<(String, u32)> = app.tabs[i].view.msgs().map(|m| (m.body.to_string(), m.color)).collect();
+    assert_eq!(
+      rows[1..],
+      [
+        ("message from amy deleted".into(), theme::RED),
+        ("bob timed out for 600s".into(), theme::GREEN),
+        ("cat was permanently banned".into(), theme::RED),
+        ("chat cleared".into(), theme::RED),
+      ]
+    );
+    assert!(app.tabs[i].view.msgs().next().unwrap().has(flag::CLEARED));
+    // kick's removals are told the same way
+    app.tabs[i].sources.push((Platform::Kick, "xqc".into()));
+    app.on_net(NetEvent::RelayClear {
+      platform: Platform::Kick,
+      key: "xqc".into(),
+      login: "bob".into(),
+      secs: Some(60),
+    });
+    assert_eq!(&*app.tabs[i].view.last_msg().unwrap().body, "bob timed out for 60s");
+  }
 }

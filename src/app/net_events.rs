@@ -8,6 +8,7 @@ use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::irc::Chat;
 use crate::net::{Cmd, NetEvent};
 use crate::ui::chat_view::ChatView;
+use crate::ui::theme;
 use crate::util::time::now_ms;
 use std::time::{Duration, Instant};
 
@@ -146,16 +147,17 @@ impl App {
       }
       Chat::ClearMsg(id, login) => {
         tab.clear_msg(&id);
+        tab.push(removed(Platform::Twitch, Removed::Line(&login)));
         let who = if login.is_empty() { "a message".to_owned() } else { format!("{login}'s message") };
         self.mod_log(Platform::Twitch, ch, format!("deleted {who}"));
       }
       Chat::ClearUser { login, secs } => {
         tab.clear_user(&login);
-        let what = secs.map_or_else(|| "banned".to_owned(), |s| format!("timed out for {s}s"));
-        tab.push(Message::system(now_ms(), Platform::Twitch, format!("{login} was {what}")));
-        self.mod_log(Platform::Twitch, ch, format!("{login} was {what}"));
+        let row = removed(Platform::Twitch, Removed::User(&login, secs));
+        self.mod_log(Platform::Twitch, ch, row.body.to_string());
+        self.tabs[i].chat().push(row);
       }
-      Chat::ClearAll => tab.push(Message::system(now_ms(), Platform::Twitch, "chat was cleared by a moderator")),
+      Chat::ClearAll => tab.push(removed(Platform::Twitch, Removed::All)),
       Chat::Room { id, modes } => {
         self.modes_seen(ch, modes);
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
@@ -452,15 +454,18 @@ impl App {
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::CatchUp { platform, key, msgs } => self.on_catch_up(platform, &key, msgs),
       NetEvent::LoginWait(on) => self.login_wait = on,
-      NetEvent::RelayClear { platform, key, login } => {
+      NetEvent::RelayClear { platform, key, login, secs } => {
         // a removal must find every line: what is still waiting shows first
         let waiting = self.pacer.flush(&key);
         self.relay_show(platform, &key, waiting, false);
+        let row = removed(platform, Removed::User(&login, secs));
         for i in self.tabs_with(platform, &key) {
-          self.tabs[i].chat().clear_user(&login);
+          let v = self.tabs[i].chat();
+          v.clear_user(&login);
+          v.push(row.clone());
           self.touched(i);
         }
-        self.mod_log(platform, &key, format!("{login} was removed"));
+        self.mod_log(platform, &key, row.body.to_string());
       }
       NetEvent::YtStatus { key, status } => {
         let line = match &*status {
@@ -481,4 +486,25 @@ impl App {
       NetEvent::Status(s) => self.say(s),
     }
   }
+}
+
+// what a moderator took away, as the ext's notice row words it (irc.js CLEARCHAT/CLEARMSG): a timeout
+// green, a ban, a wipe or a deletion red. the line itself stays, dimmed
+pub(super) enum Removed<'a> {
+  Line(&'a str),
+  User(&'a str, Option<u32>),
+  All,
+}
+
+pub(super) fn removed(p: Platform, what: Removed) -> Message {
+  let (text, ink) = match what {
+    Removed::Line("") => ("message deleted".to_owned(), theme::RED),
+    Removed::Line(who) => (format!("message from {who} deleted"), theme::RED),
+    Removed::User(who, Some(s)) => (format!("{who} timed out for {s}s"), theme::GREEN),
+    Removed::User(who, None) => (format!("{who} was permanently banned"), theme::RED),
+    Removed::All => ("chat cleared".to_owned(), theme::RED),
+  };
+  let mut m = Message::system(now_ms(), p, text);
+  m.color = ink;
+  m
 }
