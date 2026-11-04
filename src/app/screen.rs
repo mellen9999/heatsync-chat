@@ -11,6 +11,7 @@ use crate::model::settings::{Settings, ZOOM_MAX, ZOOM_STEP, clamp_zoom};
 use crate::model::vi::Mode;
 use crate::ui::canvas::Rect;
 use crate::ui::sheet::{self, L, State};
+use crate::ui::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
@@ -46,6 +47,8 @@ pub struct Screen {
   // the status screen: what its rows stand for, and the stream (None = still asking, Some(None) = no answer)
   pub(super) marks: Vec<Target>,
   pub(super) info: Option<Option<crate::model::status::Info>>,
+  // how many characters of a row the screen holds across, as last drawn (the key map wraps to it)
+  cols: usize,
 }
 
 // what a row stands for
@@ -97,6 +100,7 @@ impl Screen {
       shown: Vec::new(),
       marks: Vec::new(),
       info: None,
+      cols: 80,
     }
   }
 
@@ -118,7 +122,7 @@ impl Screen {
 
   pub(super) fn lines(&self, set: &Settings) -> (Vec<L>, Vec<Target>) {
     match self.page {
-      Page::Keys => keys_lines(),
+      Page::Keys => keys_lines(set.vi, self.cols),
       Page::Settings => settings_lines(self.q.text.trim(), set),
       Page::Blocked => self.bt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |b| b.lines(&self.q.text)),
       Page::Summary => (self.shown.clone(), vec![Target::None; self.shown.len()]),
@@ -136,16 +140,61 @@ impl Screen {
   }
 }
 
-fn keys_lines() -> (Vec<L>, Vec<Target>) {
+// the key map: a heading per group, a row per line. a vi row says so (`vi` before its keys) and reads dim until
+// vi mode is on; a group made only of them says it once, in its heading. a row that does not fit `cols`
+// characters across says what it does, dim, on the lines under its keys
+fn keys_lines(vi: bool, cols: usize) -> (Vec<L>, Vec<Target>) {
   let mut lines = Vec::new();
   for g in &KEYS {
-    lines.push(L::Head(g.name.to_owned()));
-    for (k, d) in g.rows {
-      lines.push(L::Row { a: (*k).to_owned(), b: (*d).to_owned(), pill: None });
+    let all = g.all_vi();
+    let mixed = !all && g.rows.iter().any(|r| r.vi);
+    lines.push(L::Head(if all { format!("{} · vi", g.name) } else { g.name.to_owned() }));
+    let lead = if mixed { 4 } else { 0 };
+    for r in g.rows {
+      let a = match (mixed, r.vi) {
+        (true, true) => format!("vi  {}", r.keys),
+        (true, false) => format!("    {}", r.keys),
+        _ => r.keys.to_owned(),
+      };
+      let row = |a: String, b: String| {
+        if r.vi && !vi { L::Tint { a, b, ink: theme::DIM } } else { L::Row { a, b, pill: None } }
+      };
+      if a.chars().count() + 2 + r.does.chars().count() <= cols {
+        lines.push(row(a, r.does.to_owned()));
+        continue;
+      }
+      lines.push(row(a, String::new()));
+      for part in wrap(r.does, cols.saturating_sub(lead + 2)) {
+        lines.push(L::Tint { a: format!("{:1$}{part}", "", lead + 2), b: String::new(), ink: theme::DIM });
+      }
     }
   }
   let n = lines.len();
   (lines, vec![Target::None; n])
+}
+
+// `s` cut at spaces into lines of at most `width` characters (a longer word keeps a line to itself)
+fn wrap(s: &str, width: usize) -> Vec<String> {
+  let mut out: Vec<String> = Vec::new();
+  for word in s.split_whitespace() {
+    match out.last_mut() {
+      Some(l) if l.chars().count() + 1 + word.chars().count() <= width => {
+        l.push(' ');
+        l.push_str(word);
+      }
+      _ => out.push(word.to_owned()),
+    }
+  }
+  out
+}
+
+// under the key map: what the `vi` rows need
+fn keys_tip(vi: bool) -> &'static str {
+  if vi {
+    "vi rows work in normal mode: esc leaves typing first"
+  } else {
+    "dim vi rows need vi mode: /vi turns it on, then esc leaves typing and they work"
+  }
 }
 
 fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
@@ -498,7 +547,10 @@ impl App {
     self.summary_refresh();
     self.status_refresh();
     let area = self.chat_area();
+    let em = self.res.text.layout("0", &[], &[], f32::MAX).full_width().ceil().max(1.0) as i32;
     let s = self.screen.as_mut()?;
+    // the sheet pads each side by 6 and starts its text one cell in
+    s.cols = ((area.w - 12) / em - 1).max(20) as usize;
     let (lines, targets) = s.lines(&self.set);
     s.st.settle(&lines);
     let tip = match targets.get(s.st.at) {
@@ -509,6 +561,7 @@ impl App {
     };
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
     let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
+    let keys_title = format!("keys · heatsync-chat {}", env!("CARGO_PKG_VERSION"));
     let (title, search, keys) = match (s.page, s.bt.as_deref()) {
       (Page::Blocked, Some(b)) => (
         bt_title.as_str(),
@@ -554,11 +607,12 @@ impl App {
         (s.title.as_str(), None, "j k move · enter flips · h l wait · esc closes")
       }
       (Page::Status, _) => (s.title.as_str(), None, "j k move · enter opens · esc closes"),
-      _ => ("keys", None, "j k scroll · ? settings · esc closes"),
+      _ => (keys_title.as_str(), None, "j k scroll · ? settings · esc closes"),
     };
     let tip = match (s.bt.as_deref(), s.mt.as_deref()) {
       (Some(b), _) if s.page == Page::Blocked => b.msg.as_str(),
       (_, Some(m)) if s.page == Page::ModTools => m.msg.as_str(),
+      _ if s.page == Page::Keys => keys_tip(self.set.vi),
       _ => tip,
     };
     let v = sheet::View { title, search, lines: &lines, tip, keys, col: None };
@@ -600,8 +654,37 @@ mod tests {
 
   #[test]
   fn the_key_map_lists_every_group() {
-    let (lines, targets) = keys_lines();
+    let (lines, targets) = keys_lines(false, 80);
     assert_eq!(lines.iter().filter(|l| matches!(l, L::Head(_))).count(), KEYS.len());
     assert!(targets.iter().all(|t| matches!(t, Target::None)));
+  }
+
+  #[test]
+  fn a_narrow_key_map_wraps_what_the_keys_do_and_loses_none_of_it() {
+    let words = |lines: &[L]| -> Vec<String> {
+      lines
+        .iter()
+        .flat_map(|l| match l {
+          L::Row { a, b, .. } | L::Tint { a, b, .. } => {
+            format!("{a} {b}").split_whitespace().map(str::to_owned).collect()
+          }
+          L::Head(_) => Vec::new(),
+        })
+        .collect()
+    };
+    let (wide, _) = keys_lines(true, 200);
+    for cols in [40, 46, 60, 100] {
+      let (lines, targets) = keys_lines(true, cols);
+      assert_eq!(lines.len(), targets.len());
+      for l in &lines {
+        if let L::Row { a, b, .. } | L::Tint { a, b, .. } = l {
+          let w = a.chars().count() + if b.is_empty() { 0 } else { 2 + b.chars().count() };
+          assert!(w <= cols, "{cols} columns: {a:?} {b:?}");
+        }
+      }
+      assert_eq!(words(&lines), words(&wide), "{cols} columns: every word is still there, in order");
+    }
+    assert_eq!(wrap("a bb ccc dddd", 6), ["a bb", "ccc", "dddd"]);
+    assert_eq!(wrap("toolongaword x", 4), ["toolongaword", "x"]);
   }
 }
