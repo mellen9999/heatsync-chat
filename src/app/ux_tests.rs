@@ -6,10 +6,13 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use super::screen::{Page, Target};
 use super::*;
 use crate::model::settings::Local;
+use crate::net::Cmd;
 use crate::net::auth::{Me, Provider};
 use crate::ui::canvas::Rect;
 use crate::ui::sheet::L;
 use crate::ui::theme;
+use winit::keyboard::Key;
+use winit::keyboard::NamedKey;
 
 fn boot(chans: &[&str], w: i32, h: i32) -> (App, UnboundedReceiver<Cmd>) {
   let (net, mut rx) = Net::tap();

@@ -250,8 +250,8 @@ mod tests {
   // the handler sources a layer's keys live in
   fn handlers(layer: &str) -> String {
     let files: Vec<String> = match layer {
-      "logs" => vec!["app/logs.rs".into(), "app.rs".into()],
-      "picked" => vec!["app.rs".into()],
+      "logs" => vec!["app/logs.rs".into(), "app/keys.rs".into()],
+      "picked" => vec!["app/keys.rs".into()],
       "picker" => vec!["app/picker.rs".into()],
       "tab mode" => vec!["app/rover.rs".into()],
       "picture" => vec!["app/img_view.rs".into()],
