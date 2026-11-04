@@ -995,6 +995,7 @@ fn alert_lines_get_the_mention_fill_and_copies_keep_their_room() {
     pic: None,
     late: false,
     held: None,
+    ..Extra::default()
   }));
   let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
   let n = l.layout.lines().count();
@@ -1148,4 +1149,44 @@ fn history_then_live_lines_can_be_picked() {
   v.push(at("l2", 11));
   assert!(v.select_id("l2", &mut res, 200));
   assert_eq!(&*v.selected().unwrap().id, "l2");
+}
+
+// event rows draw in their kind's color with that color down the left; a cheer's amount sits in a twitch
+// box. HSC_DUMP=x.ppm writes the frame
+#[test]
+fn event_rows_wear_their_color() {
+  use crate::model::message::Notice;
+  let mut res = Res::new(1.0);
+  let mut sub = Message::system(1, Platform::Twitch, "bob subscribed at tier 1");
+  sub.extra().notice = Notice::Sub;
+  let mut resub = said("amy", "hype");
+  resub.system = Some("amy subscribed for 5 months".into());
+  resub.extra().notice = Notice::Milestone;
+  let mut cheer = said("cat", "Cheer100 gg");
+  cheer.extra().bits = 100;
+  let mut v = ChatView::new(10, "c".into());
+  v.zebra = false;
+  v.resize(400);
+  for m in [sub, resub, cheer] {
+    v.push(m);
+  }
+  let area = Rect::new(0, 0, 400, 120);
+  let mut c = Canvas::new(400, 120);
+  v.draw(&mut c, &mut res, area, area);
+  if let Some(path) = std::env::var_os("HSC_DUMP") {
+    let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
+    c.px.iter().for_each(|p| out.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8]));
+    let _ = std::fs::write(path, out);
+  }
+  let at = |x: i32, y: i32| c.px[(y * c.w as i32 + x) as usize];
+  let rows: Vec<i32> = v.rows.iter().map(|r| r.height).collect();
+  let y0 = area.bottom() - rows.iter().sum::<i32>();
+  // each row's left edge: magenta sub, cyan milestone, none for the cheer
+  assert_eq!(at(0, y0 + 2), theme::MAGENTA);
+  assert_eq!(at(0, y0 + rows[0] + 2), theme::CYAN);
+  assert_ne!(at(0, y0 + rows[0] + rows[1] + 2), theme::MAGENTA);
+  let count = |ink| c.px.iter().filter(|&&p| p == ink).count();
+  assert!(count(theme::TWITCH) > 60, "the bits box and its words");
+  // the sub's words are magenta, not the dim of a plain notice
+  assert!(count(theme::MAGENTA) > rows[0] as usize * MARK_W as usize + 20);
 }

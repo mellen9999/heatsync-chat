@@ -22,6 +22,9 @@ pub enum Tone {
   Offline,
   Switch,
   Moment,
+  // the channel's own news (ext stream-event raid / sub): only in its own tab
+  Raid,
+  Gift,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +134,14 @@ impl Gate {
     })
   }
 
+  // a channel's news that is not about the stream itself (`stream:raid`, `stream:sub-gift`, ext main.js
+  // stream-event text): same dedupe, nothing held
+  pub fn news(&mut self, now: i64, platform: Platform, channel: Box<str>, tone: Tone, what: &str) -> Option<Line> {
+    let e =
+      Ev { kind: Kind::Update, platform, channel, game: "".into(), prev_game: "".into(), name: "".into(), color: None };
+    self.line(now, &e, tone, what)
+  }
+
   // the grace clock runs from launch, like the ext's content-script load. left to the first event it
   // would start late: the first go-live of a long session would count as "just connected" and vanish
   pub fn start(&mut self, now: i64) {
@@ -203,6 +214,19 @@ impl Gate {
   }
 }
 
+// `stream:raid` / `stream:sub-gift` in the ext's words; hostile: names cleaned, counts bounded
+pub fn news_text(v: &serde_json::Value, raid: bool) -> Option<String> {
+  let count = |k: &str| v.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0).min(10_000_000);
+  let name = |k: &str| clean(v.get(k).and_then(serde_json::Value::as_str).unwrap_or(""));
+  if raid {
+    let to = name("target");
+    (!to.is_empty()).then(|| format!("raided {to} with {} viewers", count("viewers")))
+  } else {
+    let who = name("user");
+    (!who.is_empty()).then(|| format!("{who} gifted {} subs", count("count")))
+  }
+}
+
 // ext handleMomentSpike text: "<ch> chat is exploding — N msgs/30s (usually ~B)"
 pub fn moment_text(channel: &str, rate: f64, baseline: f64) -> Option<String> {
   let ok = |x: f64| x.is_finite() && (0.0..1e7).contains(&x);
@@ -231,6 +255,24 @@ impl Moments {
 
 #[cfg(test)]
 mod tests {
+  #[test]
+  fn raids_and_gifts_read_like_the_ext_and_dedupe() {
+    use super::*;
+    use serde_json::json;
+    let raid = news_text(&json!({"target": "zbra", "viewers": 120}), true).unwrap();
+    assert_eq!(raid, "raided zbra with 120 viewers");
+    assert_eq!(news_text(&json!({"user": "bob", "count": 5}), false).unwrap(), "bob gifted 5 subs");
+    assert!(news_text(&json!({"user": "", "count": 5}), false).is_none());
+    assert_eq!(news_text(&json!({"target": "z\nb", "viewers": -1}), true).unwrap(), "raided z b with 0 viewers");
+    let mut g = Gate::default();
+    let l = g.news(0, Platform::Twitch, "xqc".into(), Tone::Raid, &raid).unwrap();
+    assert_eq!(
+      (&*l.text, &*l.name, &*l.verb, l.tone),
+      ("[xqc] ◆ raided zbra with 120 viewers", "xqc", "◆ raided zbra with 120 viewers", Tone::Raid)
+    );
+    assert!(g.news(1000, Platform::Twitch, "xqc".into(), Tone::Raid, &raid).is_none(), "one line a minute");
+  }
+
   #[test]
   fn follow_colors_survive_hostile_frames() {
     use serde_json::json;

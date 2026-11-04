@@ -339,6 +339,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     pic: pic(p, false, None).map(Box::new),
     late: false,
     held: None,
+    ..Extra::default()
   }));
   m
 }

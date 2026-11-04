@@ -52,6 +52,22 @@ pub mod flag {
   pub const BRAND: u8 = 1 << 7;
 }
 
+// what kind of event a notice row is (ext main.js noticeKind): its words take the kind's color, bold,
+// and the row the same color down its left (the ext's ring). the ui owns the colors
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Notice {
+  #[default]
+  Plain,
+  // sub, resub, gifts (twitch and kick)
+  Sub,
+  Raid,
+  // a bits badge tier, a charity gift, kick's KICKs
+  Bits,
+  Announce,
+  Streak,
+  Milestone,
+}
+
 // a run of text with its own ink, drawn around the name (feed ids/heat, whisper arrows)
 #[derive(Clone, Debug)]
 pub struct Seg {
@@ -78,6 +94,10 @@ pub struct Extra {
   pub late: bool,
   // an automod hold's row: its allow / deny, or how it ended
   pub held: Option<Box<crate::model::held::Row>>,
+  // the event a notice row tells of (its system line's color)
+  pub notice: Notice,
+  // a cheer: the `N bits` chip before the badges
+  pub bits: u32,
 }
 
 // one picture (a video's still) and the video it plays
@@ -159,5 +179,14 @@ impl Message {
 
   pub fn has(&self, f: u8) -> bool {
     self.flags & f != 0
+  }
+
+  // the Extra, made when a line first needs one
+  pub fn extra(&mut self) -> &mut Extra {
+    self.x.get_or_insert_with(Box::default)
+  }
+
+  pub fn notice(&self) -> Notice {
+    self.x.as_ref().map_or(Notice::Plain, |x| x.notice)
   }
 }

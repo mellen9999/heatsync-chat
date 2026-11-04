@@ -6,7 +6,7 @@ use crate::heatsync::content::emote_hidden;
 use crate::heatsync::valid_name;
 use crate::images::url::allowed;
 use crate::model::color;
-use crate::model::message::{HsEmote, Kind, Message, Placed, Platform, REPLY_TEXT};
+use crate::model::message::{HsEmote, Kind, Message, Notice, Placed, Platform, REPLY_TEXT};
 use crate::util::clamp;
 use crate::util::time::{now_ms, parse_iso};
 
@@ -131,6 +131,34 @@ pub fn kick(v: &Value) -> Option<Message> {
   Some(m)
 }
 
+// a kick sub / gift (`kick-sub-event`) or KICKs gift (`kick-kicks-event`), as the ext's irc.js words it:
+// the event's own line in its color; a KICKs gift's words follow under the giver's name. never a chat
+// line (no id: nothing to reply to), so never counted as one
+pub fn kick_event(v: &Value, kicks: bool) -> Option<Message> {
+  let who = str_of(v, "username").filter(|u| crate::model::ident::relay_key(u))?;
+  let flat = |s: &str, n: usize| clamp(s, n).chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>();
+  let (said, notice) = if kicks {
+    let amount = v.get("amount").and_then(Value::as_u64).filter(|&n| (1..=10_000_000).contains(&n))?;
+    let gift = str_of(v, "giftName").map(|g| format!(" ({})", flat(g, 40))).unwrap_or_default();
+    (format!("{who} gifted {amount} KICKs{gift}!"), Notice::Bits)
+  } else {
+    let said = str_of(v, "message").map(|t| flat(t, 200)).unwrap_or_else(|| format!("{who} subscribed!"));
+    (said, Notice::Sub)
+  };
+  let words = if kicks { str_of(v, "message").map(|t| flat(t, MAX_TEXT)).unwrap_or_default() } else { String::new() };
+  let mut m = base(Platform::Kick, "", who, who, None, String::new(), now_ms());
+  if words.trim().is_empty() {
+    m.kind = Kind::System;
+    m.body = said.into();
+  } else {
+    m.kind = Kind::Event;
+    m.body = words.trim().into();
+    m.system = Some(said.into());
+  }
+  m.extra().notice = notice;
+  Some(m)
+}
+
 // youtube emoji urls come at odd sizes; ask google's resizer for 48px
 fn yt_url(url: &str) -> Option<Box<str>> {
   if !allowed(url) {
@@ -192,6 +220,30 @@ pub fn batch(list: Option<&Value>, parse: fn(&Value) -> Option<Message>) -> Vec<
 mod tests {
   use super::*;
   use serde_json::json;
+
+  // kick's subs and KICKs gifts as the ext words them; never a person's chat line; hostile fields dropped
+  #[test]
+  fn kick_subs_and_kicks_are_event_rows() {
+    let sub = json!({"channel": "xqc", "eventType": "renewal", "username": "Bob", "months": 3,
+      "message": "Bob resubscribed for 3 months!"});
+    let m = kick_event(&sub, false).unwrap();
+    assert_eq!(
+      (m.kind, m.notice(), &*m.body, &*m.login),
+      (Kind::System, Notice::Sub, "Bob resubscribed for 3 months!", "bob")
+    );
+    assert!(!m.kind.said());
+    let kicks = json!({"username": "amy", "amount": 500, "giftName": "rage", "message": ""});
+    let m = kick_event(&kicks, true).unwrap();
+    assert_eq!((m.kind, m.notice(), &*m.body), (Kind::System, Notice::Bits, "amy gifted 500 KICKs (rage)!"));
+    let kicks = json!({"username": "amy", "amount": 5, "giftName": "", "message": "gg\nwp"});
+    let m = kick_event(&kicks, true).unwrap();
+    assert_eq!((m.kind, m.system.as_deref(), &*m.body), (Kind::Event, Some("amy gifted 5 KICKs!"), "gg wp"));
+    assert!(kick_event(&json!({"username": "a b", "amount": 5}), true).is_none());
+    assert!(kick_event(&json!({"username": "amy", "amount": 0}), true).is_none());
+    assert!(kick_event(&json!({"username": "amy", "amount": -3}), true).is_none());
+    let long = json!({"username": "amy", "message": "x".repeat(5000)});
+    assert!(kick_event(&long, false).unwrap().body.len() <= 200);
+  }
 
   #[test]
   fn kick_tokens_and_hs() {

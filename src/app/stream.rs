@@ -16,6 +16,8 @@ fn color(t: Tone) -> u32 {
     Tone::Online => theme::RED,
     Tone::Switch => theme::YELLOW,
     Tone::Offline | Tone::Moment => theme::WHITE,
+    Tone::Raid => theme::TWITCH,
+    Tone::Gift => theme::GREEN,
   }
 }
 
@@ -100,6 +102,8 @@ impl App {
       Tone::Offline => self.set.ev_offline,
       Tone::Switch => self.set.ev_game,
       Tone::Moment => self.set.moments,
+      Tone::Raid => self.set.ev_raid,
+      Tone::Gift => self.set.ev_sub,
     };
     if !shown {
       return;
@@ -118,10 +122,12 @@ impl App {
       None => hue(&self.follow_colors, &mut self.res.chatters, l.platform, &l.channel),
     };
     let m = row(&l, c, uid);
+    // a room's other news stays in its own tab (ext: the live channel's buffer)
+    let everywhere = matches!(l.tone, Tone::Online | Tone::Offline | Tone::Switch);
     for i in 0..self.tabs.len() {
       if own.contains(&i) {
         self.say_line(i, m.clone(), l.tone);
-      } else if !self.tabs[i].sources.is_empty() {
+      } else if everywhere && !self.tabs[i].sources.is_empty() {
         self.put_line(i, m.clone());
       }
     }

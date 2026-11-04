@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 62] = [
+pub static DEFS: [Def; 64] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -587,6 +587,30 @@ pub static DEFS: [Def; 62] = [
     ctl: pill!(ev_game),
     fx: Fx::None,
     wire: Wire::Flag("hermesEvents", "gameSwitch"),
+  },
+  Def {
+    id: "ev_raid",
+    cmd: Some("/raids"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "raids",
+    tip: "line when the channel raids another",
+    alias: "raid",
+    ctl: pill!(ev_raid),
+    fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "raid"),
+  },
+  Def {
+    id: "ev_sub",
+    cmd: Some("/giftbombs"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "gift subs",
+    tip: "line when someone gifts a batch of subs to the channel",
+    alias: "sub gift subs",
+    ctl: pill!(ev_sub),
+    fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "sub"),
   },
   Def {
     id: "ev_pred",

@@ -13,7 +13,7 @@ use super::dupe::Dupes;
 use super::http::ws_config;
 use super::{Out, Reply, backoff};
 use crate::model::color;
-use crate::model::message::{Kind, Message, Platform, REPLY_TEXT, flag};
+use crate::model::message::{Kind, Message, Notice, Platform, REPLY_TEXT, flag};
 use crate::util::clamp;
 use crate::util::time::now_ms;
 
@@ -203,6 +203,40 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
   }
 }
 
+// what event a USERNOTICE tells of (ext main.js noticeKind): its line takes the kind's color
+fn notice_of(l: &Line) -> Notice {
+  let mut id = l.tag("msg-id").unwrap_or_default();
+  // shared chat: the real event rides in source-msg-id
+  if id == "sharedchatnotice" {
+    id = l.tag("source-msg-id").unwrap_or_default();
+  }
+  match id.as_str() {
+    "sub"
+    | "resub"
+    | "primepaidupgrade"
+    | "extendsub"
+    | "subgift"
+    | "anonsubgift"
+    | "submysterygift"
+    | "giftpaidupgrade"
+    | "anongiftpaidupgrade"
+    | "rewardgift"
+    | "standardpayforward"
+    | "communitypayforward" => Notice::Sub,
+    "raid" | "unraid" => Notice::Raid,
+    "announcement" => Notice::Announce,
+    "bitsbadgetier" | "charitydonation" | "mod-anniversary" | "mod_anniversary" => Notice::Bits,
+    "viewermilestone" if l.tag("msg-param-category").as_deref() == Some("watch-streak") => Notice::Streak,
+    "viewermilestone" => Notice::Milestone,
+    _ => Notice::Plain,
+  }
+}
+
+// a cheer's `bits=N` (twitch's own count); junk or zero is none
+fn bits_of(l: &Line) -> u32 {
+  l.tag("bits").and_then(|b| b.parse::<u32>().ok()).filter(|&n| n <= 10_000_000).unwrap_or(0)
+}
+
 // USERSTATE after our PRIVMSG: twitch's id/color/badges for the line, our own text
 fn own_message(l: &Line, nick: &str, me_id: &str, text: &str) -> Message {
   let (body, kind) = match text.strip_prefix("/me ") {
@@ -228,11 +262,24 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
         Some(b) => (b, Kind::Action),
         None => (text, Kind::Chat),
       };
-      Chat::Msg(user_message(l, body, kind))
+      let mut m = user_message(l, body, kind);
+      let bits = bits_of(l);
+      if bits > 0 {
+        m.extra().bits = bits;
+      }
+      Chat::Msg(m)
     }
     "USERNOTICE" => {
       let mut m = user_message(l, l.trailing().unwrap_or(""), Kind::Chat);
-      m.system = l.tag("system-msg").map(Into::into);
+      m.system = l.tag("system-msg").map(|t| clamp(&t, MAX_BODY).into());
+      let notice = notice_of(l);
+      if notice != Notice::Plain {
+        m.extra().notice = notice;
+      }
+      // an announcement carries no words of twitch's own: the ext's `announce` chip says what it is
+      if notice == Notice::Announce && m.system.is_none() {
+        m.system = Some("announce".into());
+      }
       if m.body.is_empty() {
         m.kind = Kind::System;
         m.body = m.system.take().unwrap_or_default();
@@ -691,6 +738,41 @@ mod tests {
     let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
     assert_eq!(m.kind, Kind::System);
     assert_eq!(&*m.body, "x raided");
+  }
+
+  // each twitch event row says what it is by color (ext noticeKind); a cheer carries its bits
+  #[test]
+  fn usernotices_say_what_kind_of_event_they_are() {
+    let kind = |id: &str, extra: &str| {
+      let raw = format!("@msg-id={id};{extra}system-msg=x;login=a;display-name=A :tmi.twitch.tv USERNOTICE #c");
+      let (_, Chat::Msg(m)) = to_chat(&parse(&raw).unwrap()).unwrap() else { panic!() };
+      (m.notice(), m.kind)
+    };
+    assert_eq!(kind("resub", ""), (Notice::Sub, Kind::System));
+    assert_eq!(kind("submysterygift", "").0, Notice::Sub);
+    assert_eq!(kind("raid", "").0, Notice::Raid);
+    assert_eq!(kind("bitsbadgetier", "").0, Notice::Bits);
+    assert_eq!(kind("viewermilestone", "msg-param-category=watch-streak;").0, Notice::Streak);
+    assert_eq!(kind("viewermilestone", "").0, Notice::Milestone);
+    assert_eq!(kind("sharedchatnotice", "source-msg-id=subgift;").0, Notice::Sub);
+    assert_eq!(kind("ritual", "").0, Notice::Plain);
+    // a resub with words stays the person's line, the event above it
+    let raw = "@msg-id=resub;system-msg=A\\ssubscribed;login=a :tmi.twitch.tv USERNOTICE #c :hype";
+    let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
+    assert_eq!((m.kind, m.notice(), &*m.body), (Kind::Chat, Notice::Sub, "hype"));
+    // an announcement has no system words: it is labelled
+    let raw = "@msg-id=announcement;login=a :tmi.twitch.tv USERNOTICE #c :listen up";
+    let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
+    assert_eq!((m.notice(), m.system.as_deref()), (Notice::Announce, Some("announce")));
+    let bits = |tag: &str| {
+      let raw = format!("@bits={tag};id=1 :a!a@a PRIVMSG #c :Cheer100 gg");
+      let (_, Chat::Msg(m)) = to_chat(&parse(&raw).unwrap()).unwrap() else { panic!() };
+      m.x.map_or(0, |x| x.bits)
+    };
+    assert_eq!(bits("100"), 100);
+    assert_eq!((bits("-5"), bits("x"), bits("99999999999")), (0, 0, 0));
+    let (_, Chat::Msg(m)) = to_chat(&parse(PRIV).unwrap()).unwrap() else { panic!() };
+    assert!(m.x.is_none(), "plain chat pays nothing");
   }
 
   #[test]

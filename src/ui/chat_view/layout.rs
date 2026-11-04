@@ -7,7 +7,7 @@ use crate::heatsync::content;
 use crate::images::ImgId;
 use crate::model::find::Find;
 use crate::model::links::Link;
-use crate::model::message::{Kind, Message, Platform, Seg, flag};
+use crate::model::message::{Kind, Message, Notice, Platform, Seg, flag};
 use crate::model::preview::{Kind as PreviewKind, Preview};
 use crate::model::video;
 use crate::ui::res::{AVATAR_PX, BADGE_PX, CARD_PX, EMBED_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
@@ -43,6 +43,18 @@ pub(super) fn one_line(res: &mut Res, head: &str, words: &str, w: f32) -> String
   out
 }
 
+// an event row's color (ext 08-message-rows.css notice kinds, nearest palette color): its words and its
+// left edge. None = a plain notice
+pub(super) fn notice_ink(n: Notice) -> Option<u32> {
+  Some(match n {
+    Notice::Plain => return None,
+    Notice::Sub | Notice::Raid => theme::MAGENTA,
+    Notice::Bits | Notice::Announce => theme::YELLOW,
+    Notice::Streak => theme::WHITE,
+    Notice::Milestone => theme::CYAN,
+  })
+}
+
 pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o: Opts) -> Laid {
   let Opts { ts, tags, find } = o;
   let (ts, tags) = (ts && res.look.timestamps, tags && res.look.tags);
@@ -59,8 +71,16 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     s.push_str(t);
     spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
   };
+  let event = notice_ink(m.notice());
   if let Some(sys) = &m.system {
-    dim(&mut s, &mut spans, sys);
+    match event {
+      Some(ink) => {
+        let a = s.len();
+        s.push_str(sys);
+        spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: true });
+      }
+      None => dim(&mut s, &mut spans, sys),
+    }
     s.push('\n');
   }
   if let Some(parent) = m.reply_to.as_ref().filter(|_| !muted) {
@@ -132,8 +152,13 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   // where the words sit in the text, for search hits
   let mut words_at = 0..0;
   if m.kind == Kind::System {
-    // stream lines carry their color (red live, yellow game switch); notices stay dim
-    if m.color == 0 {
+    // an event says itself in its color; stream lines carry theirs (red live, yellow game switch); notices
+    // stay dim
+    if let Some(ink) = event {
+      let a = s.len();
+      s.push_str(&m.body);
+      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: true });
+    } else if m.color == 0 {
       dim(&mut s, &mut spans, &m.body);
     } else {
       let a = s.len();
@@ -147,6 +172,14 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
       if g.text.starts_with(">>") {
         thread = a..a + g.text.trim_end().len();
       }
+    }
+    // a cheer's amount (ext .hs-mc-bits-badge): twitch-colored words in a 1px twitch-colored box
+    if let Some(n) = x.map(|x| x.bits).filter(|&n| n > 0) {
+      let a = s.len();
+      s.push_str(&format!(" {n} bits "));
+      spans.push(Span { range: a..s.len(), ink: Ink(theme::TWITCH), bold: true });
+      frames.push((a..s.len(), Frame::Bits));
+      s.push(' ');
     }
     badges(res, chan, m, &mut s, &mut spans, &mut ib, &mut boxes);
     let n0 = s.len();

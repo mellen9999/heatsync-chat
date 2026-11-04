@@ -1,6 +1,6 @@
 // painting rows onto the canvas, and the repaint of what animates alone
 
-use super::layout::layout_row;
+use super::layout::{layout_row, notice_ink};
 use super::{Anim, ChatView, Frame, MARK_W, NameAnim, TICK_SCENE_MS, TICK_SMOOTH_MS};
 use crate::cosmetics::paint::Fill;
 use crate::images::{Images, ImgId};
@@ -163,7 +163,7 @@ impl ChatView {
         } else if r.msg.has(flag::NEW) && self.glow {
           Some(theme::YELLOW)
         } else {
-          r.msg.x.as_ref().map(|x| x.edge).filter(|&e| e != 0)
+          r.msg.x.as_ref().map(|x| x.edge).filter(|&e| e != 0).or_else(|| notice_ink(r.msg.notice()))
         };
         if let Some(m) = mark {
           c.fill(Rect::new(area.x, top, MARK_W, r.height).intersect(clip), m);
@@ -190,6 +190,7 @@ impl ChatView {
               Frame::Held => c.dashed(r, clip, theme::CYAN),
               Frame::Button => c.outline(r, clip, theme::WHITE),
               Frame::Hold => c.outline(r, clip, theme::YELLOW),
+              Frame::Bits => c.outline(r, clip, theme::TWITCH),
             }
           }
           let anims = &mut self.anims;

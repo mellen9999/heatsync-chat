@@ -358,6 +358,7 @@ pub fn message(w: &Whisper) -> Message {
     pic: None,
     late: false,
     held: None,
+    ..Extra::default()
   }));
   m
 }

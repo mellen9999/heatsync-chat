@@ -367,6 +367,15 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let msgs = relay::batch(v.get("messages"), relay::kick);
       send(NetEvent::Relay { platform: Platform::Kick, key, msgs, history: true })
     }
+    "kick-sub-event" | "kick-kicks-event" => {
+      let key: Box<str> =
+        v.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.to_lowercase().into();
+      if !st.rooms.contains(&("kick", key.clone())) {
+        return None;
+      }
+      let m = relay::kick_event(v, ty == "kick-kicks-event")?;
+      send(NetEvent::Relay { platform: Platform::Kick, key, msgs: vec![m], history: false })
+    }
     "kick-moderation" => {
       let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
       let login: Box<str> =
@@ -449,6 +458,18 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let color = v.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
       let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color };
       st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
+    }
+    // the room's own news: a raid out, a gift bomb (in the room's tab only)
+    "stream:raid" | "stream:sub-gift" => {
+      let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
+      let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
+      if !ident::relay_key(&channel) || !st.rooms.contains(&(plat(platform), channel.clone())) {
+        return None;
+      }
+      let raid = ty == "stream:raid";
+      let what = stream_events::news_text(v, raid)?;
+      let tone = if raid { stream_events::Tone::Raid } else { stream_events::Tone::Gift };
+      st.gate.news(crate::util::time::now_ms(), platform, channel, tone, &what).and_then(|l| send(NetEvent::Stream(l)))
     }
     "follow:colors" => {
       let colors = stream_events::follow_colors(v);

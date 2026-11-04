@@ -212,6 +212,9 @@ pub struct Settings {
   pub ev_online: bool,
   pub ev_offline: bool,
   pub ev_game: bool,
+  // the room's raids out and gift bombs (ext hermesEvents raid / sub, both on)
+  pub ev_raid: bool,
+  pub ev_sub: bool,
   // a banner under the tabs while a prediction is open or locked (ext hermesEvents pred)
   pub ev_pred: bool,
   pub moments: bool,
@@ -291,6 +294,8 @@ impl Default for Settings {
       ev_online: true,
       ev_offline: false,
       ev_game: true,
+      ev_raid: true,
+      ev_sub: true,
       ev_pred: true,
       moments: true,
       inline_op: true,
@@ -579,6 +584,8 @@ mod tests {
         ev_online: true,
         ev_offline: false,
         ev_game: true,
+        ev_raid: true,
+        ev_sub: true,
         ev_pred: true,
         moments: true,
         inline_op: true,

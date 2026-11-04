@@ -122,6 +122,8 @@ enum Frame {
   Button,
   // an automod hold's allow / deny: 1px yellow (ext .hs-mc-automod-btn)
   Hold,
+  // a cheer's `N bits`: 1px twitch color
+  Bits,
 }
 
 struct Row {
