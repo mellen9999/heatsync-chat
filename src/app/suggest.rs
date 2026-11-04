@@ -46,6 +46,12 @@ impl App {
     let plain = !self.mods.shift_key() && !self.mods.control_key();
     match key {
       Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) if plain => s.step(*key == Key::Named(NamedKey::ArrowDown)),
+      // shift-tab goes the other way: the one above, the last from the top
+      Key::Named(NamedKey::Tab) if self.mods.shift_key() => {
+        let n = s.items.len().max(1);
+        let sel = (s.sel + n - 1) % n;
+        self.suggest_pick(sel);
+      }
       Key::Named(NamedKey::Tab | NamedKey::Enter) => {
         let sel = s.sel;
         self.suggest_pick(sel);

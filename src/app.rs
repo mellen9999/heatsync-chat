@@ -2863,6 +2863,16 @@ mod live {
     assert_eq!(app.line.chip_ranges(), vec![3..8]);
     app.line.take();
     app.complete = None;
+    // shift-tab on the open list goes backwards: from the top it wraps to the last row
+    app.line.insert("so :ka");
+    let last = open(&mut app).and_then(|_| app.suggest.as_ref()?.items.last().map(|p| p.name.to_string())).unwrap();
+    app.mods = winit::keyboard::ModifiersState::SHIFT;
+    key(&mut app, NamedKey::Tab);
+    app.mods = winit::keyboard::ModifiersState::empty();
+    assert!(app.line.text.starts_with("so ") && !app.line.text.starts_with("so Kappa "), "{}", app.line.text);
+    assert_eq!(app.complete.as_ref().map(|c| c.at), app.complete.as_ref().map(|c| c.matches.len() - 1), "{last}");
+    app.line.take();
+    app.complete = None;
     app.line.insert("hi @al");
     assert_eq!(open(&mut app).map(|o| o.0), Some(S::People));
     key(&mut app, NamedKey::Tab);
