@@ -406,8 +406,21 @@ impl Settings {
     out
   }
 
+  // a file that names none of our settings is not ours (or is cut to nothing): it is set aside as
+  // settings.bak and said so in chat, never quietly replaced
   pub fn load() -> Self {
-    store::read("settings").map(|s| Self::parse(&s)).unwrap_or_default()
+    let Some(s) = store::read("settings") else { return Self::default() };
+    if !Self::usable(&s) {
+      store::set_aside("settings", None);
+      return Self::default();
+    }
+    Self::parse(&s)
+  }
+
+  // empty (a fresh start), or at least one line that is a setting we know
+  fn usable(s: &str) -> bool {
+    let known = |k: &str| schema::def(k).is_some() || matches!(k, "zoom" | "tab_side" | "tab_counter");
+    s.trim().is_empty() || s.lines().any(|l| l.split_once('=').is_some_and(|(k, _)| known(k.trim())))
   }
 
   pub fn save(&self) {
@@ -613,6 +626,29 @@ mod tests {
     }
     // unknown keys and spacing are tolerated
     assert_eq!(Settings::parse("future=1\n vi = true \n"), Settings { vi: true, ..Settings::default() });
+  }
+
+  // the store's scratch folder is per test thread, so this never sees the real settings
+  #[test]
+  fn a_file_that_is_not_settings_is_set_aside_not_dropped() {
+    store::write("settings", "this is not\na settings file\n").unwrap();
+    assert_eq!(Settings::load(), Settings::default());
+    let said = store::take_notes();
+    assert_eq!(said, ["your settings file was unreadable; saved a copy as settings.bak and started fresh"]);
+    assert_eq!(store::read("settings.bak").as_deref(), Some("this is not\na settings file\n"));
+    assert!(store::read("settings").is_none(), "moved, not copied");
+    // bytes that are not text at all
+    std::fs::write(store::path_of("settings").unwrap(), [0xde, 0xad, 0xbe, 0xef, b'\n', 0x00]).unwrap();
+    assert_eq!(Settings::load(), Settings::default());
+    assert_eq!(store::take_notes().len(), 1);
+    // a real file, an empty one and a missing one are not news
+    Settings { vi: true, ..Settings::default() }.save();
+    assert!(Settings::load().vi);
+    store::write("settings", "  \n").unwrap();
+    assert_eq!(Settings::load(), Settings::default());
+    store::remove("settings");
+    assert_eq!(Settings::load(), Settings::default());
+    assert!(store::take_notes().is_empty());
   }
 
   #[test]

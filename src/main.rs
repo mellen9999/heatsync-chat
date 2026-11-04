@@ -15,6 +15,16 @@ mod util;
 
 use winit::event_loop::EventLoop;
 
+// the saved tabs; lines that aren't channels are kept in tabs.bak and said so in chat
+fn saved_tabs() -> Vec<Box<str>> {
+  let (good, junk): (Vec<_>, Vec<_>) =
+    store::load_tabs().into_iter().partition(|l| model::chan::Spec::from_line(l).is_ok());
+  if !junk.is_empty() {
+    store::salvage_tabs(&good, junk.len());
+  }
+  good
+}
+
 fn main() {
   util::mem::limit_arenas();
   util::crash::install();
@@ -30,7 +40,9 @@ fn main() {
     .filter(|a| !a.starts_with("--"))
     .map(|a| a.trim_start_matches('#').to_ascii_lowercase().into())
     .collect();
-  let channels = if given.is_empty() { store::load_tabs() } else { given };
+  store::init();
+  images::cache::init();
+  let channels = if given.is_empty() { saved_tabs() } else { given };
   if !channels.is_empty() {
     app::persist(&channels);
   }
