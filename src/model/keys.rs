@@ -35,6 +35,7 @@ pub static KEYS: [Group; 12] = [
       ("ctrl-g", "next match (shift: previous)"),
       ("esc", "clear the search"),
       ("space x", "hide the pinned line"),
+      ("space p", "this twitch channel's prediction (also /predictions, or click its banner)"),
       ("space t", "tab mode: move, reorder, close tabs from the keys"),
       ("space w", "watch this channel's stream (mpv, else the browser)"),
       ("ctrl-w", "close the tab"),

@@ -12,6 +12,8 @@ pub enum L {
   Head(String),
   // a: the label (or the keys), b: the value (or what they do). pill: a switch and its state
   Row { a: String, b: String, pill: Option<bool> },
+  // a row whose text is in an ink of its own (reversed to black when picked)
+  Tint { a: String, b: String, ink: u32 },
 }
 
 #[derive(Default)]
@@ -23,7 +25,7 @@ pub struct State {
 }
 
 fn row(lines: &[L], i: usize) -> bool {
-  matches!(lines.get(i), Some(L::Row { .. }))
+  matches!(lines.get(i), Some(L::Row { .. } | L::Tint { .. }))
 }
 
 impl State {
@@ -141,43 +143,45 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
   st.hits.clear();
   for (k, l) in v.lines.iter().enumerate().skip(st.scroll).take(fit) {
     let r = Rect::new(body.x, body.y + (k - st.scroll) as i32 * line, body.w, line);
-    match l {
+    let (a, b, pill, ink) = match l {
       L::Head(h) => {
         cx.put(h, r.x + PAD, r, theme::WHITE, true);
+        continue;
       }
-      L::Row { a, b, pill } => {
-        let sel = k == st.at;
-        if sel {
-          cx.c.fill(r, theme::WHITE);
+      L::Row { a, b, pill } => (a, b, *pill, theme::WHITE),
+      L::Tint { a, b, ink } => (a, b, None, *ink),
+    };
+    let sel = k == st.at;
+    if sel {
+      cx.c.fill(r, theme::WHITE);
+    }
+    st.hits.push((r, k));
+    let dim = if ink == theme::WHITE { theme::DIM } else { ink };
+    let (fg, bg) = if sel { (theme::BLACK, theme::WHITE) } else { (ink, theme::BLACK) };
+    cx.put(a, r.x + PAD + em, r, fg, false);
+    match (pill, v.col) {
+      (Some(on), _) => {
+        let s = if on { "[on]" } else { "[off]" };
+        let w = cx.width(s, false);
+        let pr = Rect::new(r.right() - PAD - w, r.y, w, line);
+        // on = reverse video; the picked row is already reversed, so there it flips back
+        let (pfg, pbg) = match (on, sel) {
+          (true, false) => (theme::BLACK, theme::WHITE),
+          (true, true) => (theme::WHITE, theme::BLACK),
+          (false, false) => (theme::DIM, bg),
+          (false, true) => (theme::BLACK, bg),
+        };
+        if pbg != bg {
+          cx.c.fill(pr, pbg);
         }
-        st.hits.push((r, k));
-        let (fg, bg) = if sel { (theme::BLACK, theme::WHITE) } else { (theme::WHITE, theme::BLACK) };
-        cx.put(a, r.x + PAD + em, r, fg, false);
-        match (pill, v.col) {
-          (Some(on), _) => {
-            let s = if *on { "[on]" } else { "[off]" };
-            let w = cx.width(s, false);
-            let pr = Rect::new(r.right() - PAD - w, r.y, w, line);
-            // on = reverse video; the picked row is already reversed, so there it flips back
-            let (pfg, pbg) = match (*on, sel) {
-              (true, false) => (theme::BLACK, theme::WHITE),
-              (true, true) => (theme::WHITE, theme::BLACK),
-              (false, false) => (theme::DIM, bg),
-              (false, true) => (theme::BLACK, bg),
-            };
-            if pbg != bg {
-              cx.c.fill(pr, pbg);
-            }
-            cx.put(s, pr.x, pr, pfg, false);
-          }
-          (None, Some(col)) => {
-            cx.put(b, r.x + PAD + em + col as i32 * em, r, if sel { theme::BLACK } else { theme::DIM }, false);
-          }
-          (None, None) => {
-            let w = cx.width(b, false);
-            cx.put(b, r.right() - PAD - w, r, if sel { theme::BLACK } else { theme::DIM }, false);
-          }
-        }
+        cx.put(s, pr.x, pr, pfg, false);
+      }
+      (None, Some(col)) => {
+        cx.put(b, r.x + PAD + em + col as i32 * em, r, if sel { theme::BLACK } else { dim }, false);
+      }
+      (None, None) => {
+        let w = cx.width(b, false);
+        cx.put(b, r.right() - PAD - w, r, if sel { theme::BLACK } else { dim }, false);
       }
     }
   }

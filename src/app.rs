@@ -42,6 +42,7 @@ mod peek;
 mod picker;
 mod pin;
 mod pop;
+mod pred;
 mod pronouns;
 mod quick;
 mod rover;
@@ -58,6 +59,9 @@ mod update;
 mod upload;
 mod whispers;
 mod zoom;
+
+// the prediction banner's last paint: its text and clock, the width, line height, and the pin bar above it
+type PredSig = (Option<(String, String)>, i32, i32, i32);
 
 use crate::cosmetics::id::PaintId;
 use crate::fake::Fake;
@@ -294,6 +298,12 @@ pub struct App {
   pin_h: i32,
   pin_open: bool,
   pin_sig: (Option<Box<str>>, bool, i32, i32),
+  // predictions per twitch channel, the banner's height (0 = none) and what it last drew, and when its
+  // clock next reads differently
+  preds: crate::model::pred::Preds,
+  pred_h: i32,
+  pred_sig: PredSig,
+  pred_sec: Option<Instant>,
   moments: Moments,
   // followed streamers' twitch colors (`follow:colors`), by lowercase login
   follow_colors: std::collections::HashMap<Box<str>, u32>,
@@ -474,6 +484,10 @@ impl App {
       pin_h: 0,
       pin_open: false,
       pin_sig: (None, false, 0, 0),
+      preds: Default::default(),
+      pred_h: 0,
+      pred_sig: Default::default(),
+      pred_sec: None,
       moments: Moments::default(),
       follow_colors: Default::default(),
       mentions: Mentions::default(),
@@ -596,7 +610,7 @@ impl App {
 
   fn chat_area(&self) -> Rect {
     let b = self.body();
-    let top = b.y + self.pin_h;
+    let top = b.y + self.pin_h + self.pred_h;
     Rect::new(b.x, top, b.w, (b.bottom() - top - self.input_h).max(0))
   }
 
@@ -655,6 +669,7 @@ impl App {
     }
     self.canvas.fill(self.canvas.bounds(), crate::ui::theme::BLACK);
     self.pin_sig = Default::default();
+    self.pred_sig = Default::default();
     self.damage_hist = [None; 2];
     self.expose = true;
     self.bar_dirty = true;
@@ -772,6 +787,7 @@ impl App {
       Local::Blocked => self.blocked_here(),
       Local::Summary => self.summary_here(),
       Local::Status => self.status_here(),
+      Local::Pred => self.pred_here(),
       Local::ModTools => self.tools_here(),
       Local::Lclear => self.lclear(),
       Local::User(name) => self.user_cmd(&name),
@@ -1197,6 +1213,9 @@ impl App {
     if let Some(r) = self.sync_pin() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
+    if let Some(r) = self.sync_pred() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
     let area = self.chat_area();
     if (self.menu.is_some()
       || self.tab_menu.is_some()
@@ -1425,6 +1444,7 @@ impl App {
       v.invalidate();
     }
     self.pin_sig = Default::default();
+    self.pred_sig = Default::default();
     self.bar_dirty = true;
     self.wake();
   }
@@ -1767,7 +1787,7 @@ impl App {
     if self.suggest_click() {
       return;
     }
-    if self.pin_click() {
+    if self.pin_click() || self.pred_click() {
       return;
     }
     let (chat, input) = (self.chat_area(), self.input_area());
@@ -1896,6 +1916,7 @@ impl App {
       "]" => self.select(self.step_tab(self.active, false)),
       "[" => self.select(self.step_tab(self.active, true)),
       "x" => self.pin_hide(),
+      "p" => self.pred_here(),
       "t" => self.rover_open(),
       "w" => self.watch_here(),
       "g" => {
@@ -2090,6 +2111,12 @@ impl ApplicationHandler<NetEvent> for App {
     if self.held.due().is_some_and(|t| t <= now) {
       self.held_tick();
     }
+    if self.pred_sec.is_some_and(|t| t <= now) {
+      self.pred_second();
+    }
+    if self.pred_due(now).is_some_and(|t| t <= now) {
+      self.pred_tick(now);
+    }
     self.ui_state_tick();
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
@@ -2110,6 +2137,8 @@ impl ApplicationHandler<NetEvent> for App {
       self.flash_due,
       self.held.due(),
       self.ui_state_due(),
+      self.pred_due(now),
+      self.pred_sec.filter(|_| !self.occluded),
     ]
     .into_iter()
     .flatten()
@@ -2164,6 +2193,7 @@ impl App {
       NetEvent::Blocked { room, res } => self.on_blocked(room, res),
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
       NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
+      NetEvent::Pred { chan, res } => self.on_pred(chan, res),
       NetEvent::Suite { chan, cmd, res } => self.on_suite(chan, cmd, res),
       NetEvent::Chan { chan, cmd, res } => self.on_chan_tools(chan, cmd, res),
       NetEvent::Tools { chan, res } => self.on_tools(chan, res),

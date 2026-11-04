@@ -342,6 +342,7 @@ mod tests {
       .into_iter()
       .map(|l| match l {
         L::Head(h) => format!("# {h}"),
+        L::Tint { a, .. } => a,
         L::Row { a, pill: Some(on), .. } => format!("{a} [{on}]"),
         L::Row { a, b, .. } if b.is_empty() => a,
         L::Row { a, b, .. } => format!("{a} | {b}"),

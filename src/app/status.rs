@@ -227,6 +227,7 @@ mod tests {
       .iter()
       .map(|l| match l {
         L::Head(h) => format!("# {h}"),
+        L::Tint { a, .. } => a.clone(),
         L::Row { a, pill: Some(on), .. } => format!("{a} [{}]", if *on { "on" } else { "off" }),
         L::Row { a, .. } => a.clone(),
       })

@@ -41,6 +41,7 @@ pub enum Cmd {
   Blocked(Box<str>, super::blocked::Op),
   Modes(Box<str>, crate::model::modes::Set),
   StreamInfo(Box<str>),
+  Pred(Box<str>),
   Suite(Box<str>, crate::model::modsuite::Cmd),
   Chan(Box<str>, crate::model::chantools::Cmd),
   Tools(Box<str>, super::modtools::Op),
@@ -141,6 +142,9 @@ pub async fn run(
         }
         Some(Cmd::StreamInfo(chan)) => {
           tokio::spawn(super::modes::info(st.http.clone(), chan, st.out.clone()));
+        }
+        Some(Cmd::Pred(chan)) => {
+          tokio::spawn(super::pred::fetch(st.http.clone(), chan, st.out.clone()));
         }
         Some(Cmd::Suite(chan, c)) => {
           tokio::spawn(super::modsuite::run(st.http.clone(), st.token.clone(), chan, c, st.out.clone()));

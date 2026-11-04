@@ -25,6 +25,7 @@ pub enum TabAct {
   Watch(usize),
   // its stream stats (/summary)
   Summary,
+  Pred,
   // its twitch channel's stream and chat modes (/status)
   Status,
 }
@@ -446,6 +447,7 @@ impl App {
         };
         if src.iter().any(|s| s.0 == Platform::Twitch) {
           v.push((TabAct::Status, "status".into()));
+          v.push((TabAct::Pred, "predictions".into()));
         }
         v.extend([
           (TabAct::Summary, "summary".into()),
@@ -495,6 +497,12 @@ impl App {
       Some(TabAct::Summary) => {
         let name = self.tabs[m.tab].name.clone();
         self.summary_open(name);
+      }
+      Some(TabAct::Pred) => {
+        let chan = self.tabs[m.tab].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
+        if let Some(c) = chan {
+          self.pred_open(c);
+        }
       }
       Some(TabAct::Status) => {
         let chan = self.tabs[m.tab].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());

@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 61] = [
+pub static DEFS: [Def; 62] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -587,6 +587,18 @@ pub static DEFS: [Def; 61] = [
     ctl: pill!(ev_game),
     fx: Fx::None,
     wire: Wire::Flag("hermesEvents", "gameSwitch"),
+  },
+  Def {
+    id: "ev_pred",
+    cmd: Some("/predbanner"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "prediction banner",
+    tip: "a line under the tabs while a twitch prediction is open or locked; click it for the whole view (/predictions)",
+    alias: "pred predictions poll",
+    ctl: pill!(ev_pred),
+    fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "pred"),
   },
   Def {
     id: "stream_stats",

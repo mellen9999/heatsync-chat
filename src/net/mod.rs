@@ -17,6 +17,7 @@ pub mod modsuite;
 pub mod modtools;
 pub mod mutes;
 pub mod pin;
+pub mod pred;
 mod recent;
 pub mod relay;
 mod senders;
@@ -259,6 +260,11 @@ pub enum NetEvent {
     chan: Box<str>,
     info: Option<crate::model::status::Info>,
   },
+  // a twitch channel's prediction (Err = no sensible answer)
+  Pred {
+    chan: Box<str>,
+    res: Result<Option<crate::model::pred::Pred>, ()>,
+  },
   // a /warn, /shoutout or /shield settled (Ok(Some(on)) = shield mode now)
   Suite {
     chan: Box<str>,
@@ -364,6 +370,8 @@ pub enum Cmd {
   Modes(Box<str>, crate::model::modes::Set),
   // a twitch channel's stream, for /status
   StreamInfo(Box<str>),
+  // a twitch channel's prediction, for the banner and /predictions
+  Pred(Box<str>),
   // twitch's mod suite in a room (by login): warn, shoutout, shield mode
   Suite(Box<str>, crate::model::modsuite::Cmd),
   // announce, roles, color, polls and predictions (the room by login; empty for your color)
@@ -758,6 +766,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::StreamInfo(chan) => {
         let _ = sess_tx.send(session::Cmd::StreamInfo(chan));
+      }
+      Cmd::Pred(chan) => {
+        let _ = sess_tx.send(session::Cmd::Pred(chan));
       }
       Cmd::Suite(chan, c) => {
         let _ = sess_tx.send(session::Cmd::Suite(chan, c));

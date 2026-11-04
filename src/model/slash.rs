@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 72] = [
+const FIXED: [Slash; 73] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -48,6 +48,7 @@ const FIXED: [Slash; 72] = [
   s("/blocked", "", "this channel's twitch blocked terms (mods)"),
   s("/summary", "", "this tab's stream stats: lines, chatters, top emotes"),
   s("/status", "", "this twitch channel's stream and chat modes (mods change them)"),
+  s("/predictions", "", "this twitch channel's prediction: odds, points, bettors, the clock (read only)"),
   s("/slow", "[seconds|off]", "slow mode, 30s by default (mods)"),
   s("/followers", "[10m|1h|1d|off]", "followers-only chat (mods)"),
   s("/emoteonly", "[off]", "emote-only chat (mods)"),

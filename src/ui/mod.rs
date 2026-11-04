@@ -12,6 +12,7 @@ pub mod name_art;
 pub mod peek;
 pub mod picker;
 pub mod pin_bar;
+pub mod pred_bar;
 pub mod res;
 pub mod sheet;
 pub mod suggest;

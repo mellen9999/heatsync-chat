@@ -12,7 +12,7 @@ use crate::model::vi::Mode;
 use crate::ui::canvas::Rect;
 use crate::ui::sheet::{self, L, State};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
   Settings,
   Keys,
@@ -24,6 +24,8 @@ pub enum Page {
   Status,
   // a twitch room's mod tools (app::modtools)
   ModTools,
+  // a twitch channel's prediction (app::pred)
+  Pred,
 }
 
 pub struct Screen {
@@ -110,13 +112,14 @@ impl Screen {
     }
   }
 
-  fn lines(&self, set: &Settings) -> (Vec<L>, Vec<Target>) {
+  pub(super) fn lines(&self, set: &Settings) -> (Vec<L>, Vec<Target>) {
     match self.page {
       Page::Keys => keys_lines(),
       Page::Settings => settings_lines(self.q.text.trim(), set),
       Page::Blocked => self.bt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |b| b.lines(&self.q.text)),
       Page::Summary => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::Status => (self.shown.clone(), self.marks.clone()),
+      Page::Pred => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
     }
   }
@@ -329,6 +332,7 @@ impl App {
     let spent = match page {
       Some(Page::Blocked) => self.blocked_key(&key, text),
       Some(Page::ModTools) => self.tools_key(&key),
+      Some(Page::Pred) => self.pred_key(&key),
       _ => false,
     };
     if spent {
@@ -520,6 +524,7 @@ impl App {
           "j k move · space change · / search · ? keys · esc"
         },
       ),
+      (Page::Pred, _) => (s.title.as_str(), None, "read only · j k scroll · r refresh · esc closes"),
       (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
       (Page::ModTools, _) => (
         mt_title.as_str(),

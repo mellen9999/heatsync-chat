@@ -212,6 +212,8 @@ pub struct Settings {
   pub ev_online: bool,
   pub ev_offline: bool,
   pub ev_game: bool,
+  // a banner under the tabs while a prediction is open or locked (ext hermesEvents pred)
+  pub ev_pred: bool,
   pub moments: bool,
   // heatsync feed posts as lines in every chat tab (ext inlineNotifs): new threads, the OP answering in
   // their own thread, replies. all on, like the ext
@@ -289,6 +291,7 @@ impl Default for Settings {
       ev_online: true,
       ev_offline: false,
       ev_game: true,
+      ev_pred: true,
       moments: true,
       inline_op: true,
       inline_mop: true,
@@ -438,6 +441,8 @@ pub enum Local {
   Summary,
   // /status: the twitch channel's stream and chat modes
   Status,
+  // /predictions: the twitch channel's prediction
+  Pred,
   // /modtools: shield, automod, unban requests, chatters
   ModTools,
   // /lclear: empty this tab's lines (here only)
@@ -510,6 +515,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
     "/status" | "/modes" => Some(Local::Status),
+    "/predictions" => Some(Local::Pred),
     "/modtools" | "/unbanrequests" => Some(Local::ModTools),
     w => schema::switch_for(w).map(|d| Local::Toggle(d.id)),
   }
@@ -553,6 +559,7 @@ mod tests {
         ev_online: true,
         ev_offline: false,
         ev_game: true,
+        ev_pred: true,
         moments: true,
         inline_op: true,
         inline_mop: true,
