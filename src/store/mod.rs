@@ -2,6 +2,10 @@
 // the folder is owner-only (0700) and so is every file in it (0600): the login token, notes and
 // reading habits stay yours. nothing here fails quietly: a save that fails and a file that can't be
 // read are both kept as a plain note for the ui to say once (`take_notes`)
+mod lock;
+
+pub use lock::lock_instance;
+
 use std::io::{Error, ErrorKind, Result, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
@@ -28,12 +32,15 @@ pub fn scratch() -> PathBuf {
   std::env::temp_dir().join("hsc-test").join(format!("{}-{t}", std::process::id()))
 }
 
-// what went wrong, waiting for the ui: sentences ready to show, and the files whose last save failed
-#[derive(Default)]
+// what the store remembers between calls: sentences waiting for the ui, the files whose last save
+// failed, and whether this run's tabs are for this run only
 struct Notes {
   say: Vec<String>,
   failed: Vec<String>,
+  pinned: bool,
 }
+
+const NO_NOTES: Notes = Notes { say: Vec::new(), failed: Vec::new(), pinned: false };
 
 // a handful is plenty: a disk that is full fails every save the same way
 const MAX_NOTES: usize = 8;
@@ -41,14 +48,14 @@ const MAX_NOTES: usize = 8;
 #[cfg(not(test))]
 fn notes<R>(f: impl FnOnce(&mut Notes) -> R) -> R {
   use std::sync::{Mutex, PoisonError};
-  static N: Mutex<Notes> = Mutex::new(Notes { say: Vec::new(), failed: Vec::new() });
+  static N: Mutex<Notes> = Mutex::new(NO_NOTES);
   f(&mut N.lock().unwrap_or_else(PoisonError::into_inner))
 }
 
 // one per test thread, like the folder
 #[cfg(test)]
 fn notes<R>(f: impl FnOnce(&mut Notes) -> R) -> R {
-  thread_local!(static N: std::cell::RefCell<Notes> = const { std::cell::RefCell::new(Notes { say: Vec::new(), failed: Vec::new() }) });
+  thread_local!(static N: std::cell::RefCell<Notes> = const { std::cell::RefCell::new(NO_NOTES) });
   N.with(|n| f(&mut n.borrow_mut()))
 }
 
@@ -191,6 +198,12 @@ pub fn append(name: &str, line: &str, max: u64) -> Result<()> {
   f.write_all(line.as_bytes())
 }
 
+// a run that was told its channels on the command line: they are for that run only, so the saved
+// tabs stay as they were
+pub fn pin_tabs() {
+  notes(|n| n.pinned = true);
+}
+
 pub fn load_tabs() -> Vec<Box<str>> {
   read("tabs").map(|s| s.lines().map(str::trim).filter(|l| !l.is_empty()).map(Into::into).collect()).unwrap_or_default()
 }
@@ -198,10 +211,16 @@ pub fn load_tabs() -> Vec<Box<str>> {
 // the saved tabs had lines that aren't channels: keep the original as tabs.bak, write the good ones back
 pub fn salvage_tabs(good: &[Box<str>], junk: usize) {
   set_aside("tabs", Some(junk));
-  save_tabs(good);
+  write_tabs(good);
 }
 
 pub fn save_tabs(tabs: &[Box<str>]) {
+  if !notes(|n| n.pinned) {
+    write_tabs(tabs);
+  }
+}
+
+fn write_tabs(tabs: &[Box<str>]) {
   let mut s = tabs.join("\n");
   s.push('\n');
   let _ = write("tabs", &s);
@@ -287,6 +306,21 @@ mod tests {
     // fresh now: no file is no news
     assert!(read("settings").is_none());
     assert!(take_notes().is_empty());
+  }
+
+  #[test]
+  fn a_run_with_its_own_channels_leaves_the_saved_tabs_alone() {
+    fresh();
+    let one: [Box<str>; 1] = ["forsen".into()];
+    save_tabs(&one);
+    pin_tabs();
+    save_tabs(&["xqc".into(), "kick:somebody".into()]);
+    assert_eq!(load_tabs(), one, "pinned: not overwritten");
+    // a damaged saved file is still kept, with its good lines written back, in a pinned run too
+    write("tabs", "forsen\nnope:::\n").unwrap();
+    salvage_tabs(&one, 1);
+    assert_eq!(load_tabs(), one);
+    assert!(path_of("tabs.bak").unwrap().exists());
   }
 
   #[test]

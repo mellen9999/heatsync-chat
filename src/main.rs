@@ -15,6 +15,28 @@ mod util;
 
 use winit::event_loop::EventLoop;
 
+const HELP: &str = "heatsync-chat: the heatsync multichat overlay as its own window
+
+usage: heatsync-chat [channel ...]
+
+  channel        a twitch name (forsen), kick:name or yt:@handle. one tab each; quote
+                 several words together to merge them into one tab. they open for this
+                 run only: your saved tabs stay as they were
+  (no channel)   reopen the tabs you had last time
+  -h, --help     show this
+  -V, --version  show the version
+  --bench [n]    check drawing speed without a window, on n fake lines (default 10000)
+  --flood        a window of fake busy chat, for testing
+
+one window at a time: a second one tells you and closes.
+your settings and tabs are in ~/.config/heatsync-chat, the picture cache in
+~/.cache/heatsync-chat. both are private to you.
+";
+
+// the second launch's one plain sentence
+const RUNNING: &str = "heatsync-chat is already open: look for its window (ctrl-t there adds a channel). \
+only one runs at a time, so two can't overwrite each other's saved tabs";
+
 // the saved tabs; lines that aren't channels are kept in tabs.bak and said so in chat
 fn saved_tabs() -> Vec<Box<str>> {
   let (good, junk): (Vec<_>, Vec<_>) =
@@ -29,23 +51,47 @@ fn main() {
   util::mem::limit_arenas();
   util::crash::install();
   let args: Vec<String> = std::env::args().skip(1).collect();
+  if let Some(bad) = args.iter().find(|a| a.starts_with('-') && !matches!(a.as_str(), "--flood" | "--bench")) {
+    match bad.as_str() {
+      "-h" | "--help" => return print!("{HELP}"),
+      "-V" | "--version" => return println!("heatsync-chat {}", env!("CARGO_PKG_VERSION")),
+      _ => {
+        eprintln!("heatsync-chat: no such option {bad} (heatsync-chat --help lists them)");
+        std::process::exit(2);
+      }
+    }
+  }
   if args.first().map(String::as_str) == Some("--bench") {
     let n = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10_000);
     return bench::run(n);
   }
   let flood = args.iter().any(|a| a == "--flood");
-  // channels on the command line replace the saved tabs; none = reopen last session
   let given: Vec<Box<str>> = args
     .iter()
-    .filter(|a| !a.starts_with("--"))
+    .filter(|a| !a.starts_with('-'))
     .map(|a| a.trim_start_matches('#').to_ascii_lowercase().into())
     .collect();
+
   store::init();
   images::cache::init();
-  let channels = if given.is_empty() { saved_tabs() } else { given };
-  if !channels.is_empty() {
-    app::persist(&channels);
-  }
+  // the test window (--flood) may sit beside a real one; a real one may not
+  let _lock = if flood {
+    None
+  } else {
+    match store::lock_instance() {
+      Some(Err(())) => return println!("{RUNNING}"),
+      Some(Ok(held)) => Some(held),
+      None => None,
+    }
+  };
+
+  // channels on the command line are for this run: the saved tabs are neither read nor overwritten
+  let channels = if given.is_empty() {
+    saved_tabs()
+  } else {
+    store::pin_tabs();
+    given
+  };
 
   if rustls::crypto::ring::default_provider().install_default().is_err() {
     eprintln!("tls provider already installed");
