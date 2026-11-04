@@ -34,6 +34,11 @@
   "default": "",
   "maxLen": 4096
  },
+ "avatars": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
  "chatFilterRules": {
   "type": "text",
   "scope": "local-mirror",

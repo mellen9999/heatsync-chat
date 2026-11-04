@@ -1346,6 +1346,9 @@ impl App {
     for id in self.res.cosmetics.take_wanted() {
       self.net.send(Cmd::Cosmetics(id));
     }
+    for (p, login) in self.res.avatars.take_wanted() {
+      self.net.send(Cmd::Avatar(p, login));
+    }
     self.present(dirty);
   }
 
@@ -2316,6 +2319,14 @@ impl App {
           }
         }
         self.trim_soon();
+      }
+      NetEvent::Avatar(p, login, url) => {
+        if self.res.avatars.put(p, &login, url) {
+          for v in self.tabs.iter_mut().flat_map(Tab::views) {
+            v.touch_avatar(p, &login);
+          }
+          self.wake();
+        }
       }
       NetEvent::CosmeticsChanged(ids) => {
         ids.iter().for_each(|id| self.res.cosmetics.stale(id));

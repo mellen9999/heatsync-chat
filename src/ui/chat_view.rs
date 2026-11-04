@@ -8,8 +8,8 @@ use super::canvas::{Canvas, Rect};
 use super::embed;
 use super::name_art::anim::AnimArt;
 use super::name_art::{self, ArtKey, PAINT_IMG_PX};
-use super::res::{BADGE_PX, CARD_PX, EMBED_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
-use super::text::{Ink, Span, TextLayout};
+use super::res::{AVATAR_PX, BADGE_PX, CARD_PX, EMBED_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
+use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
 use crate::cosmetics::id::PaintId;
 use crate::cosmetics::paint::{Fill, Paint as NamePaint};
@@ -37,6 +37,8 @@ struct EmoteBox {
   word: (u32, u32),
   // blocked: the image is never drawn or fetched, a dashed outline holds the slot
   blocked: bool,
+  // a name's picture: what stands in until it is drawn (or when there is none)
+  stand_in: Option<(char, u32)>,
 }
 
 // an emote under the pointer
@@ -506,7 +508,15 @@ fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o
       if let Some((w, h)) = res.images.dims(id) {
         s.push('\n');
         ib.push(inline(boxes.len(), s.len(), w, h));
-        boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
+        boxes.push(EmoteBox {
+          img: id,
+          zw: Vec::new(),
+          zw_words: Vec::new(),
+          bg: None,
+          word: (0, 0),
+          blocked: false,
+          stand_in: None,
+        });
       }
     }
     if let Some(c) = &preview {
@@ -689,11 +699,30 @@ fn post_media(
       ib.push(gap(s.len(), res.images.px(3)));
     }
     ib.push(inline(boxes.len(), s.len(), w, h));
-    boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
+    boxes.push(EmoteBox {
+      img: id,
+      zw: Vec::new(),
+      zw_words: Vec::new(),
+      bg: None,
+      word: (0, 0),
+      blocked: false,
+      stand_in: None,
+    });
   }
 }
 
 // a ▶ in the middle of a video's still: white on a black square with a white edge
+// the letter of a name's picture that is not here: colored text in a 1px box of that color, on black
+fn stand_in(c: &mut Canvas, text: &mut Text, r: Rect, ch: char, ink: u32, clip: Rect) {
+  c.fill(r.intersect(clip), theme::BLACK);
+  c.outline(r, clip, ink);
+  let mut buf = [0u8; 4];
+  let t: &str = ch.encode_utf8(&mut buf);
+  let l = text.layout(t, &[Span { range: 0..t.len(), ink: Ink(ink), bold: true }], &[], r.w as f32);
+  let (x, y) = (r.x as f32 + (r.w as f32 - l.full_width()) / 2.0, r.y as f32 + (r.h as f32 - l.height()) / 2.0);
+  text.draw(&l, c, x, y, r.intersect(clip), |_, _| {});
+}
+
 fn play_mark(c: &mut Canvas, r: Rect, clip: Rect) {
   let side = (r.w.min(r.h) / 3).clamp(12, 48);
   let sq = Rect::new(r.x + (r.w - side) / 2, r.y + (r.h - side) / 2, side, side);
@@ -866,7 +895,15 @@ fn card(
       && let Some((w, h)) = res.images.dims(id)
     {
       ib.push(inline(boxes.len(), s.len(), w, h));
-      boxes.push(EmoteBox { img: id, zw: Vec::new(), zw_words: Vec::new(), bg: None, word: (0, 0), blocked: false });
+      boxes.push(EmoteBox {
+        img: id,
+        zw: Vec::new(),
+        zw_words: Vec::new(),
+        bg: None,
+        word: (0, 0),
+        blocked: false,
+        stand_in: None,
+      });
       s.push(' ');
     }
   }
@@ -928,10 +965,44 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &str, ib: &mut Vec<InlineBo
     let img = res.images.id(&url, BADGE_PX);
     let w = res.images.width(img, (18, 18));
     ib.push(inline(boxes.len(), s.len(), w, h));
-    boxes.push(EmoteBox { img, zw: Vec::new(), zw_words: Vec::new(), bg, word: (0, 0), blocked: false });
+    boxes.push(EmoteBox {
+      img,
+      zw: Vec::new(),
+      zw_words: Vec::new(),
+      bg,
+      word: (0, 0),
+      blocked: false,
+      stand_in: None,
+    });
     // ext: 2px between badges (a monospace space is a whole cell)
     ib.push(gap(s.len(), res.images.px(2)));
   }
+  avatar(res, m, s, ib, boxes);
+}
+
+// the picture before the name (ext: after the badges, 18px square, 3px after). off: no box, no ask.
+// on: the square is held from the first layout so the name never moves when the picture lands; the
+// first letter in a 1px box stands in until then, and stays when there is no picture
+fn avatar(res: &mut Res, m: &Message, s: &str, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+  if !res.look.avatars || m.kind == Kind::System {
+    return;
+  }
+  let img = match res.avatars.get(m.platform, &m.login) {
+    Some(url) => res.images.id(url, AVATAR_PX),
+    None => ImgId::MAX,
+  };
+  let side = res.images.px(AVATAR_PX);
+  ib.push(inline(boxes.len(), s.len(), side, side));
+  boxes.push(EmoteBox {
+    img,
+    zw: Vec::new(),
+    zw_words: Vec::new(),
+    bg: None,
+    word: (0, 0),
+    blocked: false,
+    stand_in: Some(crate::avatars::tile(&m.login, &m.nick)),
+  });
+  ib.push(gap(s.len(), res.images.px(3)));
 }
 
 // an empty run of exact width: its id names no box, so drawing and hit-tests pass over it
@@ -990,6 +1061,7 @@ fn body(
           bg: None,
           word: (a as u32, b as u32),
           blocked,
+          stand_in: None,
         });
         prev_emote = true;
       }
@@ -1416,6 +1488,14 @@ impl ChatView {
         || r.laid.as_ref().is_some_and(|l| l.mentions.iter().any(|n| n.paint.as_ref() == Some(id)))
     };
     for r in self.rows.iter_mut().filter(|r| wears(r)) {
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
+  // their picture url arrived: re-lay out the lines that wear it
+  pub fn touch_avatar(&mut self, p: Platform, login: &str) {
+    for r in self.rows.iter_mut().filter(|r| r.msg.platform == p && *r.msg.login == *login) {
       Self::touch(r);
       self.stale = true;
     }
@@ -2013,6 +2093,7 @@ impl ChatView {
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
           text.stripe = stripe;
           let mut stills = Vec::new();
+          let mut stand_ins = Vec::new();
           text.draw(&laid.layout, c, x, top as f32, clip, |c, b| {
             let Some(eb) = laid.boxes.get(b.id as usize) else {
               return;
@@ -2024,6 +2105,13 @@ impl ChatView {
             }
             if eb.blocked {
               c.dashed(rect, clip, theme::WHITE);
+              return;
+            }
+            // a name's picture not yet drawable (loading, failed, none): its stand-in
+            if let Some((ch, ink)) = eb.stand_in
+              && images.frame_with(eb.img, false).is_none()
+            {
+              stand_ins.push((rect, ch, ink));
               return;
             }
             let mut imgs = Vec::with_capacity(1 + eb.zw.len());
@@ -2040,6 +2128,9 @@ impl ChatView {
           });
           for r in stills {
             play_mark(c, r, clip);
+          }
+          for (r, ch, ink) in stand_ins {
+            stand_in(c, text, r, ch, ink, clip);
           }
           for n in &laid.names {
             let key = ArtKey {
@@ -2461,6 +2552,49 @@ mod tests {
     m.nick = login.into();
     m.body = body.into();
     m
+  }
+
+  #[test]
+  fn avatars_off_ask_for_nothing_and_hold_no_room() {
+    let mut res = Res::new(1.0);
+    let m = said("bob", "hi");
+    let boxes =
+      |res: &mut Res| layout_row(res, "c", &m, false, 400, Opts { ts: false, tags: false, find: None }).boxes.len();
+    assert!(!res.look.avatars, "off like the ext");
+    assert_eq!(boxes(&mut res), 0);
+    assert!(res.avatars.take_wanted().is_empty() && res.avatars.len() == 0);
+    res.look.avatars = true;
+    // on: the square is held at once, one ask queued, however often the line is laid out
+    assert_eq!(boxes(&mut res), 1);
+    assert_eq!(boxes(&mut res), 1);
+    assert_eq!(res.avatars.take_wanted(), vec![(Platform::Twitch, "bob".into())]);
+    // the answer turns the stand-in into the picture, with the box unchanged
+    let url = "https://static-cdn.jtvnw.net/jtv_user_pictures/a-70x70.png";
+    assert!(res.avatars.put(Platform::Twitch, "bob", Some(url.into())));
+    let laid = layout_row(&mut res, "c", &m, false, 400, Opts { ts: false, tags: false, find: None });
+    assert_eq!(laid.boxes.len(), 1);
+    assert_ne!(laid.boxes[0].img, ImgId::MAX);
+    assert!(laid.boxes[0].stand_in.is_some());
+    // a notice never gets one
+    let sys = Message::system(1, Platform::Twitch, "x");
+    let n = layout_row(&mut res, "c", &sys, false, 400, Opts { ts: false, tags: false, find: None }).boxes.len();
+    assert_eq!(n, 0);
+  }
+
+  #[test]
+  fn a_missing_picture_draws_its_letter_in_a_box() {
+    let mut res = Res::new(1.0);
+    res.look.avatars = true;
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(300);
+    v.push(said("bob", "hi"));
+    let area = Rect::new(0, 0, 300, 40);
+    let mut c = Canvas::new(300, 40);
+    v.draw(&mut c, &mut res, area, area);
+    let (_, ink) = crate::avatars::tile("bob", "bob");
+    let n = (0..300 * 40).filter(|&i| c.px[i] & 0xffffff == ink).count();
+    assert!(n >= 4 * 17, "the box outline and letter are in the avatar color, got {n}");
   }
 
   #[test]

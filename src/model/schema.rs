@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 57] = [
+pub static DEFS: [Def; 58] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -213,6 +213,18 @@ pub static DEFS: [Def; 57] = [
     ctl: pill!(platform_tags),
     fx: Fx::Look,
     wire: Wire::Bool("showPlatformBadges"),
+  },
+  Def {
+    id: "avatars",
+    cmd: Some("/avatars"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "pfps",
+    tip: "pfps next to usernames",
+    alias: "avatars profile pictures",
+    ctl: pill!(avatars),
+    fx: Fx::Look,
+    wire: Wire::Bool("avatars"),
   },
   Def {
     id: "emote_size",

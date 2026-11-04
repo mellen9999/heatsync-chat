@@ -1,4 +1,5 @@
 mod app;
+mod avatars;
 mod badges;
 mod bench;
 mod cosmetics;

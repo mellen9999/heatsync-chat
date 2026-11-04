@@ -15,6 +15,8 @@ use super::text::Text;
 
 pub const EMOTE_PX: u16 = 28;
 pub const BADGE_PX: u16 = 18;
+// the picture beside a name (ext .hs-mc-avatar: 18px square)
+pub const AVATAR_PX: u16 = 18;
 // tallest inline picture in a chat line (the ext's max-height)
 pub const EMBED_PX: u16 = 220;
 // a feed thread's picture, and each of several in a grid (ext .hs-feed-media, .hs-feed-media-multi)
@@ -41,6 +43,8 @@ pub struct Look {
   pub dim_timeouts: bool,
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // a picture beside each name
+  pub avatars: bool,
   // emotes from a heatsync inventory draw (renderInventoryEmotes)
   pub inventory_emotes: bool,
 }
@@ -60,6 +64,7 @@ impl Look {
       dim_timeouts: s.dim_timeouts,
       ffz_badges: s.ffz_badges,
       chatterino_badges: s.chatterino_badges,
+      avatars: s.avatars,
       inventory_emotes: s.render_inventory,
     }
   }
@@ -88,6 +93,7 @@ pub struct Res {
   pub badges: Badges,
   pub senders: Senders,
   pub cosmetics: Cosmetics,
+  pub avatars: crate::avatars::Avatars,
   pub arts: NameArts,
   pub blocked: Blocked,
   // who the names in message text mean (their color, paint)
@@ -116,6 +122,7 @@ impl Res {
       badges: Badges::default(),
       senders: Senders::default(),
       cosmetics: Cosmetics::default(),
+      avatars: Default::default(),
       arts: NameArts::default(),
       blocked: Blocked::load(),
       chatters: Chatters::default(),

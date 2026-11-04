@@ -1,6 +1,7 @@
 // all network io lives on one background thread running a current-thread tokio runtime.
 // the ui talks to it through `Net` and hears back through winit user events
 pub mod auth;
+mod avatars;
 pub mod blocked;
 mod catalog;
 mod cosmetics;
@@ -91,6 +92,8 @@ pub enum NetEvent {
     removed: Option<Box<str>>,
   },
   Upload(upload::Upload),
+  // a chatter's picture url (None = none found)
+  Avatar(Platform, Box<str>, Option<Box<str>>),
   // 7tv paints + badges for twitch ids (None = wears nothing)
   Cosmetics(Vec<(crate::cosmetics::id::PaintId, Option<crate::cosmetics::Cosmetic>)>),
   // 7tv says this twitch user's cosmetics changed: ask again
@@ -366,6 +369,8 @@ pub enum Cmd {
   // a pasted picture: width, height, rgba bytes
   Pixels(u32, u32, Vec<u8>),
   Pick,
+  // a chatter's picture
+  Avatar(Platform, Box<str>),
   // chatters' 7tv paints + badges
   Cosmetics(crate::cosmetics::id::PaintId),
   // our own twitch id, for watching our own 7tv cosmetics
@@ -682,6 +687,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   tokio::spawn(session::run(http.clone(), sess_rx, irc_tx.clone(), hs_auth, out.clone()));
   let (cos_tx, cos_rx) = mpsc::unbounded_channel();
   tokio::spawn(cosmetics::run(http.clone(), cos_rx, out.clone()));
+  let (av_tx, av_rx) = mpsc::unbounded_channel();
+  tokio::spawn(avatars::run(http.clone(), av_rx, out.clone()));
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
   tokio::spawn(seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()));
   let Some(dec) = spawn_decoder(out.clone()) else {
@@ -799,6 +806,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));
+      }
+      Cmd::Avatar(p, login) => {
+        let _ = av_tx.send((p, login));
       }
       Cmd::Cosmetics(id) => {
         let _ = cos_tx.send(id);

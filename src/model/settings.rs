@@ -161,6 +161,8 @@ pub struct Settings {
   pub readable: bool,
   // [T] [K] [Y] on merged and non-twitch tabs (ext showPlatformBadges). default on
   pub platform_tags: bool,
+  // a picture beside each name (ext avatars). default off, like the ext
+  pub avatars: bool,
   pub emote_size: EmoteSize,
   // unicode emoji in chat bodies, same steps (ext hs_emoji_size). default 2x
   pub emoji_size: EmoteSize,
@@ -247,6 +249,7 @@ impl Default for Settings {
       zebra: true,
       readable: true,
       platform_tags: true,
+      avatars: false,
       emote_size: EmoteSize::X1,
       emoji_size: EmoteSize::X2,
       line_height: LineHeight::L20,
@@ -508,6 +511,7 @@ mod tests {
         zebra: true,
         readable: true,
         platform_tags: true,
+        avatars: false,
         emote_size: EmoteSize::X1,
         emoji_size: EmoteSize::X2,
         line_height: LineHeight::L20,
