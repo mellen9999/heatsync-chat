@@ -630,15 +630,14 @@ fn names_in_words_wear_their_color_and_answer_the_pointer() {
     got,
     vec![(None, theme::MAGENTA), (Some("alice".into()), theme::GREEN), (Some("carol".into()), theme::WHITE)]
   );
-  let count = |c: &Canvas, ink| c.px.iter().filter(|&&p| p == ink).count();
-  assert!(count(&c, theme::GREEN) > 20, "alice is drawn green");
+  assert!(c.inked(theme::GREEN) > 20, "alice is drawn green");
   assert_eq!(res.chatters.take_wanted(), vec![(Platform::Twitch, "carol".into())]);
   // the answer arrives: carol's lines are laid out again in her color
   res.chatters.learned(Platform::Twitch, "carol", theme::CYAN, None);
   v.touch_person(Platform::Twitch, "carol");
   v.draw(&mut c, &mut res, area, area);
   assert!(who(&mut v, &mut res).contains(&(Some("carol".into()), theme::CYAN)));
-  assert!(count(&c, theme::CYAN) > 20);
+  assert!(c.inked(theme::CYAN) > 20);
   // a deleted line stays dim: no colors, nothing to hover
   v.clear_msg("");
   let mut gone = said("bob", "hi alice");
@@ -752,7 +751,7 @@ fn a_painted_mention_is_drawn_from_its_bitmap() {
   v.draw(&mut c, &mut res, area, area);
   // their cosmetics are asked for, and alice is plain green meanwhile
   assert_eq!(res.cosmetics.take_wanted(), vec![PaintId::Twitch(42)]);
-  let green = |c: &Canvas| c.px.iter().filter(|&&p| p == theme::GREEN).count();
+  let green = |c: &Canvas| c.inked(theme::GREEN);
   assert!(green(&c) > 20);
   res
     .cosmetics

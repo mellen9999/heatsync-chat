@@ -149,7 +149,7 @@ mod tests {
       }
     }
     assert!(!hits.is_empty() && hits.iter().all(|h| &*h.1 == "rust"), "the url's #frag is no tag");
-    assert!(app.canvas.px.contains(&theme::MAGENTA), "drawn magenta");
+    assert!(app.canvas.inked(theme::MAGENTA) > 0, "drawn magenta");
     app.pointer = hits[0].0;
     app.tip_hover();
     assert!(app.tag.peek.is_some() && app.tag.due.is_some(), "rests first");

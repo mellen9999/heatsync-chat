@@ -213,6 +213,23 @@ impl Canvas {
   }
 }
 
+// tests: pixels that are a shade of `ink` (a pure ansi color) over black: a glyph's edge pixels count as
+// much as its full ones, so what a font rasterizes at full coverage (none, for some fonts at some sizes)
+// does not decide a test
+#[cfg(test)]
+impl Canvas {
+  pub fn inked(&self, ink: u32) -> usize {
+    let shade = |p: u32| {
+      p != 0
+        && [16, 8, 0].iter().all(|&s| {
+          let (i, c) = ((ink >> s) & 0xff, (p >> s) & 0xff);
+          if i == 0xff { c > 0 } else { c == 0 }
+        })
+    };
+    self.px.iter().filter(|&&p| shade(p)).count()
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
