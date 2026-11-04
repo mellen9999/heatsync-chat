@@ -5,7 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::overlay::Overlay;
 use super::screen::Page;
 use super::{App, SCROLLBACK, Tab};
-use crate::model::chan::{Cmd as ChanCmd, Form, Spec};
+use crate::model::chan::{Act, Cmd as ChanCmd, Form, Spec};
 use crate::model::layout_link;
 use crate::model::message::Platform;
 use crate::model::settings::Side;
@@ -33,13 +33,13 @@ pub enum TabAct {
   Remove,
   // a built-in tab leaves the bar
   Hide,
-  // play the stream of the tab's nth channel
-  Watch(usize),
-  // its stream stats (/summary)
-  Summary,
-  Pred,
-  // its twitch channel's stream and chat modes (/status)
-  Status,
+}
+
+impl TabMenu {
+  #[cfg(test)]
+  pub fn labels(&self) -> Vec<String> {
+    self.menu.items.iter().map(|i| i.1.clone()).collect()
+  }
 }
 
 pub struct TabMenu {
@@ -110,6 +110,21 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
 }
 
 // source tags show on merged tabs and on anything not plain twitch
+// the buttons of the edit form: watch (one per channel when merged), status and predictions for a
+// twitch channel, summary
+fn form_acts(src: &[(Platform, Box<str>)]) -> Vec<(Act, String)> {
+  let mut v: Vec<(Act, String)> = match src.len() {
+    1 => vec![(Act::Watch(0), "watch".into())],
+    _ => src.iter().enumerate().map(|(n, (p, _))| (Act::Watch(n), format!("watch {}", p.name()))).collect(),
+  };
+  if src.iter().any(|s| s.0 == Platform::Twitch) {
+    v.push((Act::Status, "status".into()));
+    v.push((Act::Pred, "predictions".into()));
+  }
+  v.push((Act::Summary, "summary".into()));
+  v
+}
+
 fn tags(s: &[(Platform, Box<str>)]) -> bool {
   s.len() > 1 || s.first().is_some_and(|f| f.0 != Platform::Twitch)
 }
@@ -328,7 +343,11 @@ impl App {
     self.close_prompt();
     self.close_menu();
     self.close_tab_menu();
-    self.form = Some(Form::new(edit, &spec));
+    let mut form = Form::new(edit, &spec);
+    if let Some(t) = edit.and_then(|i| self.tabs.get(i)) {
+      form.acts = form_acts(&t.sources);
+    }
+    self.form = Some(form);
     self.form_hover = None;
     self.bar_dirty = true;
     self.input_dirty = true;
@@ -376,11 +395,45 @@ impl App {
     }
   }
 
+  // run the focused button on the tab being edited; the form closes first, nothing is saved
+  fn form_act(&mut self) {
+    let Some(f) = &self.form else { return };
+    let (Some(act), Some(tab)) = (f.act(), f.edit) else { return };
+    let chan = self.tabs.get(tab).and_then(|t| t.sources.iter().find(|s| s.0 == Platform::Twitch)).map(|s| s.1.clone());
+    self.close_form();
+    match act {
+      Act::Watch(n) => self.watch(tab, n),
+      Act::Summary => {
+        if let Some(t) = self.tabs.get(tab) {
+          let name = t.name.clone();
+          self.summary_open(name);
+        }
+      }
+      Act::Pred => chan.into_iter().for_each(|c| self.pred_open(c)),
+      Act::Status => chan.into_iter().for_each(|c| self.status_open(c)),
+    }
+  }
+
   pub(super) fn form_key(&mut self, key: Key<&str>, text: Option<&str>) {
     let (ctrl, shift, alt) = (self.mods.control_key(), self.mods.shift_key(), self.mods.alt_key());
     let Some(f) = self.form.as_mut() else { return };
+    // on a button the letters are keys, not text: j l next, k h back, enter or space runs it
+    if let (Some(_), Key::Character(c)) = (f.act(), &key)
+      && !ctrl
+      && !alt
+    {
+      match *c {
+        "j" | "l" => f.cycle(false),
+        "k" | "h" => f.cycle(true),
+        _ => return,
+      }
+      self.wake();
+      return;
+    }
     match key {
       Key::Named(NamedKey::Escape) => return self.close_form(),
+      Key::Named(NamedKey::Space) if f.act().is_some() => return self.form_act(),
+      Key::Named(NamedKey::Enter) if f.act().is_some() => return self.form_act(),
       Key::Named(NamedKey::Enter) => return self.submit_form(),
       Key::Named(NamedKey::Tab) => f.cycle(shift),
       Key::Named(NamedKey::ArrowDown) => f.cycle(false),
@@ -399,7 +452,8 @@ impl App {
 
   fn form_geo(&mut self) -> form::Geo {
     let em = self.res.text.layout("0", &[], &[], f32::MAX).full_width().ceil() as i32;
-    form::geo(self.chat_area(), self.res.text.line_px as i32, em)
+    let n = self.form.as_ref().map_or(0, |f| f.acts.len());
+    form::geo(self.chat_area(), self.res.text.line_px as i32, em, n)
   }
 
   pub(super) fn form_at(&mut self) -> Option<Hit> {
@@ -425,6 +479,12 @@ impl App {
           f.focus = i;
         }
         self.wake();
+      }
+      Some(Hit::Act(i)) => {
+        if let Some(f) = &mut self.form {
+          f.focus = 3 + i;
+        }
+        self.form_act();
       }
       Some(Hit::Ok) => self.submit_form(),
       Some(Hit::Cancel) => self.close_form(),
@@ -520,25 +580,9 @@ impl App {
       return;
     }
     let at = self.off_bar(self.bar_hits[p]);
-    let items = match self.tabs[i].kind {
+    let items: Vec<(TabAct, String)> = match self.tabs[i].kind {
       Kind::Chat if self.tabs[i].sources.is_empty() => return,
-      Kind::Chat => {
-        let src = &self.tabs[i].sources;
-        let mut v: Vec<(TabAct, String)> = match src.len() {
-          1 => vec![(TabAct::Watch(0), "watch".into())],
-          _ => src.iter().enumerate().map(|(n, (p, _))| (TabAct::Watch(n), format!("watch {}", p.name()))).collect(),
-        };
-        if src.iter().any(|s| s.0 == Platform::Twitch) {
-          v.push((TabAct::Status, "status".into()));
-          v.push((TabAct::Pred, "predictions".into()));
-        }
-        v.extend([
-          (TabAct::Summary, "summary".into()),
-          (TabAct::Edit, "edit".into()),
-          (TabAct::Remove, "remove".into()),
-        ]);
-        v
-      }
+      Kind::Chat => vec![(TabAct::Edit, "edit".into()), (TabAct::Remove, "remove".into())],
       _ => vec![(TabAct::Hide, "hide".into())],
     };
     self.overlay = Some(Overlay::Tab(TabMenu { menu: Menu::new(items, at), tab: i }));
@@ -577,24 +621,7 @@ impl App {
     self.tab_menu_changed();
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
-      Some(TabAct::Summary) => {
-        let name = self.tabs[m.tab].name.clone();
-        self.summary_open(name);
-      }
-      Some(TabAct::Pred) => {
-        let chan = self.tabs[m.tab].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
-        if let Some(c) = chan {
-          self.pred_open(c);
-        }
-      }
-      Some(TabAct::Status) => {
-        let chan = self.tabs[m.tab].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
-        if let Some(c) = chan {
-          self.status_open(c);
-        }
-      }
       Some(TabAct::Remove) => self.remove_tab(m.tab),
-      Some(TabAct::Watch(n)) => self.watch(m.tab, n),
       Some(TabAct::Hide) => {
         if let Some(k) = self.tabs.get(m.tab).map(|t| t.kind) {
           self.set_shown(k, false);

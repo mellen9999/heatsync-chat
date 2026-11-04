@@ -211,6 +211,18 @@ pub fn command(text: &str) -> Option<Cmd> {
   }
 }
 
+// a button in the edit form: what the tab menu used to hold besides edit and remove
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Act {
+  // play the stream of the tab's nth channel
+  Watch(usize),
+  // its twitch channel's stream and chat modes (/status)
+  Status,
+  Pred,
+  // its stream stats (/summary)
+  Summary,
+}
+
 // the add/edit form: three fields (twitch, kick, youtube), which one has focus, the last error
 pub struct Form {
   pub fields: [Line; 3],
@@ -220,6 +232,8 @@ pub struct Form {
   pub welcome: bool,
   // Some(tab index) while editing
   pub edit: Option<usize>,
+  // edit only: the buttons under the fields. focus 3.. lands on them (vim keys move there)
+  pub acts: Vec<(Act, String)>,
 }
 
 impl Form {
@@ -229,11 +243,17 @@ impl Form {
       f.set_text(v.clone());
       f.end();
     }
-    Self { fields, focus: 0, err: None, welcome: false, edit }
+    Self { fields, focus: 0, err: None, welcome: false, edit, acts: Vec::new() }
   }
 
   pub fn cycle(&mut self, back: bool) {
-    self.focus = (self.focus + if back { 2 } else { 1 }) % 3;
+    let n = 3 + self.acts.len();
+    self.focus = (self.focus + if back { n - 1 } else { 1 }) % n;
+  }
+
+  // the focused button, if focus is on one
+  pub fn act(&self) -> Option<Act> {
+    self.focus.checked_sub(3).and_then(|i| self.acts.get(i)).map(|a| a.0)
   }
 
   pub fn spec(&self) -> Result<Spec, Err> {

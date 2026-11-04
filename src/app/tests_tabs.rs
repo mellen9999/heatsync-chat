@@ -596,3 +596,49 @@ fn headless_late_refs_land_on_their_line() {
   assert_eq!(hs(&app), Some(vec![("pog".into(), url("P"))]));
   assert_eq!(app.tabs[f].view.len(), before + 2, "never a second copy of the line");
 }
+
+// a channel tab's right-click menu is edit + remove, and every other action lives in the edit form
+//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_menu -- --ignored
+#[test]
+#[ignore]
+fn headless_tab_menu_is_edit_remove() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.canvas.resize(720, 360);
+  let flood = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  let menu_of = |app: &mut App, i: usize| {
+    app.close_tab_menu();
+    app.bar_dirty = true;
+    app.redraw();
+    let p = app.bar_map.iter().position(|&t| t == i).expect("in the bar");
+    let r = app.bar_hits[p];
+    app.pointer = (r.x + r.w / 2, r.y + r.h / 2);
+    app.right_click();
+    app.tab_menu().map(|m| m.labels())
+  };
+  app.tabs[flood].event = false;
+  app.tabs[flood].unread = false;
+  assert_eq!(menu_of(&mut app, flood), Some(vec!["edit".to_owned(), "remove".to_owned()]));
+  // j then enter picks remove's neighbour: edit is first, so enter opens the form
+  app.tab_menu_key(Key::Named(NamedKey::Enter));
+  let f = app.form.as_ref().expect("edit opens the form");
+  let names: Vec<_> = f.acts.iter().map(|a| a.1.as_str()).collect();
+  assert!(names.contains(&"summary") && names.contains(&"watch"), "{names:?}");
+  // tab walks past the three fields onto the buttons; hjkl move there, enter runs
+  for _ in 0..3 {
+    app.form_key(Key::Named(NamedKey::Tab), None);
+  }
+  let at = |app: &App| app.form.as_ref().map(|f| f.focus);
+  assert_eq!(at(&app), Some(3));
+  app.form_key(Key::Character("j"), Some("j"));
+  assert_eq!(at(&app), Some(4));
+  app.form_key(Key::Character("k"), Some("k"));
+  assert_eq!(at(&app), Some(3));
+  let sum = app.form.as_ref().unwrap().acts.iter().position(|a| a.0 == crate::model::chan::Act::Summary).unwrap();
+  app.form.as_mut().unwrap().focus = 3 + sum;
+  app.redraw();
+  crate::bench::dump(&app.canvas);
+  app.form_key(Key::Named(NamedKey::Enter), None);
+  assert!(app.form.is_none(), "running a button closes the form");
+  assert_eq!(app.screen.as_ref().map(|s| s.page()), Some(crate::app::screen::Page::Summary));
+}

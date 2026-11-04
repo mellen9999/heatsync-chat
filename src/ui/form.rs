@@ -12,6 +12,7 @@ const PAD: i32 = 6;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hit {
   Field(usize),
+  Act(usize),
   Ok,
   Cancel,
 }
@@ -22,16 +23,19 @@ pub struct Geo {
   pub fields: [Rect; 3],
   pub labels: [(i32, i32); 3],
   pub err: (i32, i32),
+  pub acts: Vec<Rect>,
   pub ok: Rect,
   pub cancel: Rect,
   pub hint: (i32, i32),
 }
 
-pub fn geo(area: Rect, line: i32, em: i32) -> Geo {
+pub fn geo(area: Rect, line: i32, em: i32, n_acts: usize) -> Geo {
   let row = line + 2 * PAD;
   let w = (em * 46).min(area.w - 2 * PAD).max(em * 20);
-  // title, 3 rows, error line, buttons, hint
-  let h = PAD + line + 2 * PAD + 3 * (row + PAD) + line + PAD + row + PAD + line + PAD;
+  let (abw, per) = (em * 14, ((w - 2 * PAD) / (em * 14 + PAD)).max(1) as usize);
+  let act_rows = n_acts.div_ceil(per) as i32;
+  // title, 3 rows, error line, action rows, buttons, hint
+  let h = PAD + line + 2 * PAD + 3 * (row + PAD) + line + PAD + act_rows * (row + PAD) + row + PAD + line + PAD;
   let x = area.x + ((area.w - w) / 2).max(0);
   let y = area.y + ((area.h - h) / 3).max(0);
   let panel = Rect::new(x, y, w, h);
@@ -48,11 +52,15 @@ pub fn geo(area: Rect, line: i32, em: i32) -> Geo {
   }
   let err = (x + PAD, cy);
   cy += line + PAD;
+  let acts = (0..n_acts)
+    .map(|i| Rect::new(x + PAD + (i % per) as i32 * (abw + PAD), cy + (i / per) as i32 * (row + PAD), abw, row))
+    .collect();
+  cy += act_rows * (row + PAD);
   let bw = em * 10;
   let ok = Rect::new(x + PAD, cy, bw, row);
   let cancel = Rect::new(x + PAD + bw + PAD, cy, bw, row);
   cy += row + PAD;
-  Geo { panel, title, fields, labels, err, ok, cancel, hint: (x + PAD, cy) }
+  Geo { panel, title, fields, labels, err, acts, ok, cancel, hint: (x + PAD, cy) }
 }
 
 pub fn hit(g: &Geo, x: i32, y: i32) -> Option<Hit> {
@@ -61,6 +69,9 @@ pub fn hit(g: &Geo, x: i32, y: i32) -> Option<Hit> {
   }
   if g.cancel.contains(x, y) {
     return Some(Hit::Cancel);
+  }
+  if let Some(i) = g.acts.iter().position(|r| r.contains(x, y)) {
+    return Some(Hit::Act(i));
   }
   g.fields.iter().position(|f| f.contains(x, y)).map(Hit::Field)
 }
@@ -89,7 +100,7 @@ fn button(c: &mut Canvas, t: &mut Text, r: Rect, label: &str, on: bool, line: i3
 pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hover: Option<Hit>) -> (Rect, Rect) {
   let line = t.line_px as i32;
   let em = t.layout("0", &[], &[], f32::MAX).full_width().ceil() as i32;
-  let g = geo(area, line, em);
+  let g = geo(area, line, em, f.acts.len());
   c.fill(area, theme::BLACK);
   boxed(c, g.panel, theme::BLACK);
   put(c, t, title, g.title, theme::WHITE, true, g.panel);
@@ -119,10 +130,25 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hov
     (None, true) => put(c, t, "type a name in any row, then press enter", g.err, theme::DIM, false, g.panel),
     _ => {}
   }
+  for (i, (_, label)) in f.acts.iter().enumerate() {
+    button(c, t, g.acts[i], label, f.focus == 3 + i || hover == Some(Hit::Act(i)), line);
+  }
   let go = if f.edit.is_some() { "save" } else { "add" };
   button(c, t, g.ok, go, hover == Some(Hit::Ok), line);
   button(c, t, g.cancel, "cancel", hover == Some(Hit::Cancel), line);
-  put(c, t, "tab next field · enter confirms · esc cancels", g.hint, theme::DIM, false, g.panel);
+  put(
+    c,
+    t,
+    if f.acts.is_empty() {
+      "tab next field · enter confirms · esc cancels"
+    } else {
+      "tab next · hjkl on buttons · esc cancels"
+    },
+    g.hint,
+    theme::DIM,
+    false,
+    g.panel,
+  );
   (caret, g.panel)
 }
 
@@ -140,7 +166,7 @@ mod tests {
     let (_, panel) = draw(&mut c, &mut t, area, &f, "add channel", Some(Hit::Ok));
     assert!(panel.x >= 0 && panel.right() <= 900 && panel.y >= area.y && panel.bottom() <= area.bottom());
     let em = t.layout("0", &[], &[], f32::MAX).full_width().ceil() as i32;
-    let g = geo(area, t.line_px as i32, em);
+    let g = geo(area, t.line_px as i32, em, 0);
     assert_eq!(hit(&g, g.ok.x + 2, g.ok.y + 2), Some(Hit::Ok));
     assert_eq!(hit(&g, g.cancel.x + 2, g.cancel.y + 2), Some(Hit::Cancel));
     assert_eq!(hit(&g, g.fields[1].x + 2, g.fields[1].y + 2), Some(Hit::Field(1)));
