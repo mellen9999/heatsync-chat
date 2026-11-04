@@ -50,7 +50,8 @@ impl App {
     let blocked = |n: &str, url: &str| self.res.blocked.contains(n, url);
     let channel = self.res.emotes.channel_names(chan).into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
     let channel = channel.map(|(name, p, _)| Cand { name, tier: 0, what: what(true, p) });
-    let own = self.own_id().map_or_else(Vec::new, |id| self.res.senders.entries(id, now));
+    let own = self.own_id().filter(|_| self.set.suggest_inventory);
+    let own = own.map_or_else(Vec::new, |id| self.res.senders.entries(id, now));
     let own = own.into_iter().filter(|(n, e)| !blocked(n, &e.url));
     let own = own.map(|(name, _)| Cand { name, tier: 1, what: "your inventory · heatsync only" });
     let global = self.res.emotes.global_names().into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
@@ -122,5 +123,36 @@ impl App {
     }
     self.input_dirty = true;
     self.wake();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::app::App;
+  use crate::net::Net;
+
+  // suggestInventoryEmotes: your own inventory is offered in tab-complete, or it is not
+  #[test]
+  fn your_inventory_is_suggested_only_while_its_switch_is_on() {
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: Some(1),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    let row = serde_json::json!({"custom_name": "zzmine", "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32,
+      "height": 32, "added_at": "2026-10-30T22:26:51.099Z"});
+    app.res.senders.lookup(1, "zzmine", 0);
+    app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    let has = |app: &App| app.candidates("zzmi", false).iter().any(|p| &*p.name == "zzmine");
+    assert!(has(&app));
+    app.set.suggest_inventory = false;
+    assert!(!has(&app));
   }
 }

@@ -15,7 +15,7 @@ impl App {
 
   // your own heatsync emote of this name
   fn owned_emote(&self, word: &str) -> Option<Found> {
-    let x = self.res.senders.peek(self.own_id()?, word, now_ms())?;
+    let x = self.res.senders.peek(self.res.look.inventory_emotes.then(|| self.own_id()).flatten()?, word, now_ms())?;
     Some((x.url.clone(), (x.w, x.h), x.zero_width))
   }
 

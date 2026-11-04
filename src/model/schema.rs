@@ -129,7 +129,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 53] = [
+pub static DEFS: [Def; 57] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -249,6 +249,30 @@ pub static DEFS: [Def; 53] = [
     ctl: pill!(paints),
     fx: Fx::Paints,
     wire: Wire::Bool("sevenTvPaints"),
+  },
+  Def {
+    id: "hs_paints",
+    cmd: Some("/hspaints"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "heatsync name paints",
+    tip: "animated name paints from heatsync — takes precedence over a 7tv paint when a chatter has both",
+    alias: "showNamePaints heatsync paints",
+    ctl: pill!(hs_paints),
+    fx: Fx::Paints,
+    wire: Wire::Bool("showNamePaints"),
+  },
+  Def {
+    id: "render_inventory",
+    cmd: Some("/renderinventory"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "render inventory emotes",
+    tip: "draw emotes that come from a heatsync inventory — yours or another chatter's. off shows the plain word instead. channel and global emotes are unaffected",
+    alias: "renderInventoryEmotes heatsync emotes",
+    ctl: pill!(render_inventory),
+    fx: Fx::Look,
+    wire: Wire::Bool("renderInventoryEmotes"),
   },
   Def {
     id: "ffz_badges",
@@ -393,6 +417,30 @@ pub static DEFS: [Def; 53] = [
     ctl: pill!(partial_links),
     fx: Fx::Links,
     wire: Wire::Bool("partialLinksEnabled"),
+  },
+  Def {
+    id: "links",
+    cmd: Some("/links"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "clickable links",
+    tip: "urls in chat become clickable",
+    alias: "linksEnabled urls",
+    ctl: pill!(links),
+    fx: Fx::Links,
+    wire: Wire::Bool("linksEnabled"),
+  },
+  Def {
+    id: "suggest_inventory",
+    cmd: Some("/suggestinventory"),
+    cat: Cat::Chat,
+    section: "input",
+    label: "suggest inventory emotes",
+    tip: "offer your inventory in tab-complete and typing suggestions. off leaves only channel and global emotes",
+    alias: "suggestInventoryEmotes complete",
+    ctl: pill!(suggest_inventory),
+    fx: Fx::None,
+    wire: Wire::Bool("suggestInventoryEmotes"),
   },
   Def {
     id: "highlights",

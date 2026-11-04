@@ -354,6 +354,7 @@ impl App {
     tabs.splice(0..0, builtin::make_all());
     let mut res = Res::new(1.0);
     res.cosmetics.on = set.paints;
+    res.cosmetics.hs_on = set.hs_paints;
     res.cosmetics.hidden = crate::cosmetics::hidden::Hidden::load();
     for t in &tabs {
       tabs::seat_hosts(&mut res.chatters, &t.sources);
@@ -365,6 +366,7 @@ impl App {
     res.media = set.media;
     res.look = crate::ui::res::Look::of(&set);
     res.partial_links = set.partial_links;
+    res.links = set.links;
     Self {
       gfx: None,
       canvas: Canvas::new(0, 0),

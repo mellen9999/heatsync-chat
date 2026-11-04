@@ -798,7 +798,7 @@ fn picture(
     return (None, None, None);
   }
   let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
-  let e = match embed::find(&m.body, res.partial_links) {
+  let e = match embed::find(&m.body, res.links && res.partial_links) {
     None => return (None, None, None),
     Some(embed::Found::Pic(e)) => e,
     Some(embed::Found::Preview(url)) => {
@@ -919,7 +919,7 @@ fn badges(res: &mut Res, chan: &str, m: &Message, s: &str, ib: &mut Vec<InlineBo
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what
   // asks heatsync for their cosmetics: batched, cached, answered into the same slot
   if let Some(uid) = PaintId::of_message(m)
-    && let Some(b) = res.cosmetics.get(&uid).and_then(|c| c.badge.as_ref())
+    && let Some(b) = res.cosmetics.badge(&uid)
   {
     found.push((b.url.clone(), b.bg));
   }
@@ -949,7 +949,7 @@ fn body(
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
 ) -> Words {
-  let links = crate::model::links::find(&m.body, res.partial_links);
+  let links = if res.links { crate::model::links::find(&m.body, res.partial_links) } else { Vec::new() };
   let mut runs = Vec::new();
   let mut people = Vec::new();
   let px = res.look.emote_px();
@@ -1040,13 +1040,15 @@ fn find_word(res: &mut Res, chan: &str, m: &Message, a: usize, b: usize, word: &
 // inventory, then globals. the sender's set is the only heatsync source (privacy invariant)
 fn resolve(res: &mut Res, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
   let e = |e: &crate::emotes::Emote, sc| (e.url.clone(), (e.w, e.h), e.zero_width, sc);
-  if let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
+  // the one gate for renderInventoryEmotes: off, nothing from a heatsync inventory ever draws
+  let inventory = res.look.inventory_emotes;
+  if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
     return Some((u.clone(), (0, 0), *zw, Scope::Hs));
   }
   if let Some(x) = res.emotes.channel(chan, word) {
     return Some(e(x, Scope::Channel));
   }
-  if let Some(x) = sender.and_then(|id| res.senders.lookup(id, word, m.ts)) {
+  if let Some(x) = sender.filter(|_| inventory).and_then(|id| res.senders.lookup(id, word, m.ts)) {
     return Some((x.url.clone(), (x.w, x.h), x.zero_width, Scope::Hs));
   }
   if m.has(flag::OWN)
@@ -2200,7 +2202,10 @@ mod tests {
     assert_eq!(n(&mut res), 0);
     assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(42)]);
     let badge = Badge { url: "https://cdn.7tv.app/badge/B/2x.webp".into(), title: "t".into(), bg: None };
-    res.cosmetics.put(&crate::cosmetics::id::PaintId::Twitch(42), Some(Cosmetic { paint: None, badge: Some(badge) }));
+    res.cosmetics.put(
+      &crate::cosmetics::id::PaintId::Twitch(42),
+      Some(Cosmetic { paint: None, badge: Some(badge), ..Default::default() }),
+    );
     assert_eq!(n(&mut res), 1);
     res.cosmetics.on = false;
     assert_eq!(n(&mut res), 0);
@@ -2240,9 +2245,10 @@ mod tests {
     };
     let (r0, b0, g0) = tint(&c);
     assert!(g0 > 20 && r0 == 0 && b0 == 0);
-    res
-      .cosmetics
-      .put(&crate::cosmetics::id::PaintId::Twitch(42), Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+    res.cosmetics.put(
+      &crate::cosmetics::id::PaintId::Twitch(42),
+      Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None, ..Default::default() }),
+    );
     v.touch_sender("42");
     v.draw(&mut c, &mut res, area, area);
     let (r1, b1, g1) = tint(&c);
@@ -2280,7 +2286,7 @@ mod tests {
       assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(37005319)]);
       res.cosmetics.put(
         &crate::cosmetics::id::PaintId::Twitch(37005319),
-        Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }),
+        Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None, ..Default::default() }),
       );
       v.touch_sender("37005319");
       v.draw(&mut c, &mut res, area, area);
@@ -2312,7 +2318,7 @@ mod tests {
       v.draw(&mut c, &mut res, area, area);
       res.cosmetics.put(
         &crate::cosmetics::id::PaintId::Twitch(37005319),
-        Some(Cosmetic { paint: Some(paint.clone()), badge: None }),
+        Some(Cosmetic { paint: Some(paint.clone()), badge: None, ..Default::default() }),
       );
       v.touch_sender("37005319");
       v.draw(&mut c, &mut res, area, area);
@@ -2387,9 +2393,10 @@ mod tests {
     let mut c = Canvas::new(500, 40);
     v.draw(&mut c, &mut res, area, area);
     assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(37005319)]);
-    res
-      .cosmetics
-      .put(&crate::cosmetics::id::PaintId::Twitch(37005319), Some(Cosmetic { paint: Some(paint), badge: None }));
+    res.cosmetics.put(
+      &crate::cosmetics::id::PaintId::Twitch(37005319),
+      Some(Cosmetic { paint: Some(paint), badge: None, ..Default::default() }),
+    );
     v.touch_sender("37005319");
     v.draw(&mut c, &mut res, area, area);
     v.draw(&mut c, &mut res, area, area);
@@ -2442,7 +2449,7 @@ mod tests {
     asked.sort_by_key(PaintId::wire);
     assert_eq!(asked, vec![PaintId::Twitch(5), PaintId::Kick(5), PaintId::Youtube(yt.into())]);
     // kick 5 wears a paint: twitch 5's line stays plain
-    res.cosmetics.put(&PaintId::Kick(5), Some(Cosmetic { paint: Some(paint), badge: None }));
+    res.cosmetics.put(&PaintId::Kick(5), Some(Cosmetic { paint: Some(paint), badge: None, ..Default::default() }));
     assert!(res.cosmetics.get(&PaintId::Twitch(5)).is_none());
     assert!(res.cosmetics.get(&PaintId::Kick(5)).is_some());
   }
@@ -2819,7 +2826,9 @@ mod tests {
     assert_eq!(res.cosmetics.take_wanted(), vec![PaintId::Twitch(42)]);
     let green = |c: &Canvas| c.px.iter().filter(|&&p| p == theme::GREEN).count();
     assert!(green(&c) > 20);
-    res.cosmetics.put(&PaintId::Twitch(42), Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None }));
+    res
+      .cosmetics
+      .put(&PaintId::Twitch(42), Some(Cosmetic { paint: Some(Arc::new(paint)), badge: None, ..Default::default() }));
     v.touch_paint(&PaintId::Twitch(42));
     v.draw(&mut c, &mut res, area, area);
     assert_eq!(green(&c), 0, "the name now runs red to blue");
@@ -2860,6 +2869,41 @@ mod tests {
     m.nick = "bob".into();
     m.body = body.into();
     m
+  }
+
+  // renderInventoryEmotes: the sender's own emote and a server-resolved ref both draw, or neither does
+  #[test]
+  fn inventory_emotes_draw_only_while_their_switch_is_on() {
+    let mut res = Res::new(1.0);
+    let ts = 1_793_399_211_099;
+    let mut m = plain("a", "kek hi");
+    m.user_id = "42".into();
+    m.ts = ts;
+    let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 400, NO_OPTS).boxes.len();
+    // the sender's own set, the privacy-safe source
+    res.senders.lookup(42, "kek", ts);
+    let row = serde_json::json!({"custom_name": "kek", "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32,
+      "height": 32, "added_at": "2026-10-30T22:26:51.099Z"});
+    res.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    assert_eq!(n(&mut res, &m), 1);
+    res.look.inventory_emotes = false;
+    assert_eq!(n(&mut res, &m), 0, "off: their own emote is the plain word");
+    // a ref the server resolved for the line is an inventory emote too
+    let mut r = plain("b", "pog hi");
+    r.hs = Box::new([("pog".into(), "https://cdn.7tv.app/emote/y/1x.webp".into(), false)]);
+    assert_eq!(n(&mut res, &r), 0);
+    res.look.inventory_emotes = true;
+    assert_eq!(n(&mut res, &r), 1);
+  }
+
+  // linksEnabled: off, a url is plain text, not a link and not a partial one either
+  #[test]
+  fn links_off_leaves_urls_plain() {
+    let mut res = Res::new(1.0);
+    let m = plain("a", "see https://example.com/x and watch?v=Gz0fAz9n_Os");
+    assert_eq!(layout_row(&mut res, "c", &m, false, 600, NO_OPTS).links.len(), 2);
+    res.links = false;
+    assert!(layout_row(&mut res, "c", &m, false, 600, NO_OPTS).links.is_empty());
   }
 
   // the chat look: the clock before a line, its format, platform tags, line spacing, emote size

@@ -207,6 +207,7 @@ impl App {
       }
       Fx::Paints => {
         self.res.cosmetics.on = self.set.paints;
+        self.res.cosmetics.hs_on = self.set.hs_paints;
         self.relayout_where(None);
       }
       Fx::PaintMotion => {
@@ -219,6 +220,7 @@ impl App {
       }
       Fx::Links => {
         self.res.partial_links = self.set.partial_links;
+        self.res.links = self.set.links;
         self.relayout_where(None);
       }
       Fx::Media => {

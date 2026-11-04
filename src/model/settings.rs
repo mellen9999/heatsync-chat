@@ -172,6 +172,8 @@ pub struct Settings {
   pub first_glow: bool,
   // 7tv paints on names and 7tv badges. default on, like the ext (sevenTvPaints)
   pub paints: bool,
+  // heatsync's own animated name paints, apart from 7tv's. default on, like the ext (showNamePaints)
+  pub hs_paints: bool,
   // the per-chatter badge sets from ffz and chatterino, each on its own switch like the ext (ffzBadges,
   // chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
   pub ffz_badges: bool,
@@ -197,6 +199,12 @@ pub struct Settings {
   pub media: bool,
   // host-less and defanged links (watch?v=…, r/sub/comments/…, site (dot) com) are clickable. default on, like the ext (partialLinksEnabled)
   pub partial_links: bool,
+  // urls in chat are links at all. default on, like the ext (linksEnabled)
+  pub links: bool,
+  // draw emotes from a heatsync inventory (the sender's) and suggest your own. default on, like the ext
+  // (renderInventoryEmotes, suggestInventoryEmotes)
+  pub render_inventory: bool,
+  pub suggest_inventory: bool,
   // built-in tabs on the bar (all on, like the ext once you are signed in; /hide and /show)
   pub tab_feed: bool,
   pub tab_whispers: bool,
@@ -246,6 +254,7 @@ impl Default for Settings {
       dim_timeouts: true,
       first_glow: true,
       paints: true,
+      hs_paints: true,
       ffz_badges: true,
       chatterino_badges: true,
       pronouns: true,
@@ -260,6 +269,9 @@ impl Default for Settings {
       inline_re: true,
       media: true,
       partial_links: true,
+      links: true,
+      render_inventory: true,
+      suggest_inventory: true,
       tab_feed: true,
       tab_whispers: true,
       tab_mentions: true,
@@ -503,6 +515,7 @@ mod tests {
         dim_timeouts: true,
         first_glow: true,
         paints: true,
+        hs_paints: true,
         ffz_badges: true,
         chatterino_badges: true,
         pronouns: true,
@@ -517,6 +530,9 @@ mod tests {
         inline_re: true,
         media: true,
         partial_links: true,
+        links: true,
+        render_inventory: true,
+        suggest_inventory: true,
         tab_feed: true,
         tab_whispers: true,
         tab_mentions: true,

@@ -24,9 +24,12 @@ const TTL_MISS: Duration = Duration::from_secs(5 * 60);
 const INFLIGHT: Duration = Duration::from_secs(30);
 const MAX_USERS: usize = 500;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Cosmetic {
+  // the paint they win with: heatsync's own when they have one, else their 7tv one
   pub paint: Option<Arc<Paint>>,
+  // their 7tv paint under a heatsync one: what shows when heatsync paints are switched off
+  pub stv: Option<Arc<Paint>>,
   pub badge: Option<Badge>,
 }
 
@@ -58,15 +61,18 @@ fn badge(v: &Value) -> Option<Badge> {
 // one entry of the batch response. `hs` is the chatter's heatsync-native paint (`/api/paints`), which
 // outranks their 7tv one like in the ext. None = nothing to show
 pub fn parse(v: &Value, hs: Option<&Value>, paints: &mut HashMap<Box<str>, Arc<Paint>>) -> Option<Cosmetic> {
-  let paint = hs.and_then(Paint::from_hs).or_else(|| v.get("paint").and_then(Paint::parse)).map(|p| {
+  let mut share = |p: Paint| {
     // one allocation per distinct paint: thousands of chatters share a few hundred
     if paints.len() > 400 {
       paints.clear();
     }
     paints.entry(p.id.clone()).or_insert_with(|| Arc::new(p)).clone()
-  });
+  };
+  let own = hs.and_then(Paint::from_hs).map(&mut share);
+  let seven = v.get("paint").and_then(Paint::parse).map(&mut share);
+  let (paint, stv) = if own.is_some() { (own, seven) } else { (seven, None) };
   let badge = v.get("badge").and_then(badge);
-  (paint.is_some() || badge.is_some()).then_some(Cosmetic { paint, badge })
+  (paint.is_some() || badge.is_some()).then_some(Cosmetic { paint, stv, badge })
 }
 
 struct Entry {
@@ -78,22 +84,24 @@ struct Entry {
 pub struct Cosmetics {
   map: HashMap<PaintId, Entry>,
   wanted: Vec<PaintId>,
-  // the ext setting sevenTvPaints (default on) gates paints and badges alike
+  // the ext setting sevenTvPaints (default on) gates 7tv paints and badges alike
   pub on: bool,
+  // showNamePaints (default on) gates heatsync's own paints
+  pub hs_on: bool,
   // paints the user chose not to see: the name wears its plain color
   pub hidden: hidden::Hidden,
 }
 
 impl Default for Cosmetics {
   fn default() -> Self {
-    Cosmetics { map: HashMap::new(), wanted: Vec::new(), on: true, hidden: hidden::Hidden::default() }
+    Cosmetics { map: HashMap::new(), wanted: Vec::new(), on: true, hs_on: true, hidden: hidden::Hidden::default() }
   }
 }
 
 impl Cosmetics {
   // what `uid` wears. queues a fetch when unknown or stale; stale data keeps serving meanwhile
   pub fn get(&mut self, uid: &PaintId) -> Option<&Cosmetic> {
-    if !self.on {
+    if !self.on && !self.hs_on {
       return None;
     }
     let now = Instant::now();
@@ -117,12 +125,32 @@ impl Cosmetics {
     if self.hidden.has(uid) {
       return None;
     }
-    self.get(uid)?.paint.clone()
+    self.shown(uid)
+  }
+
+  // what the two paint switches leave of their paint: heatsync's when on, else their 7tv one when on
+  fn shown(&mut self, uid: &PaintId) -> Option<Arc<Paint>> {
+    let (on, hs_on) = (self.on, self.hs_on);
+    let c = self.get(uid)?;
+    let p = c.paint.as_ref()?;
+    match (p.native, hs_on, on) {
+      (true, true, _) | (false, _, true) => Some(p.clone()),
+      (true, false, true) => c.stv.clone(),
+      _ => None,
+    }
+  }
+
+  // the 7tv badge before the name: behind sevenTvPaints, not the heatsync paint switch
+  pub fn badge(&mut self, uid: &PaintId) -> Option<&Badge> {
+    if !self.on {
+      return None;
+    }
+    self.get(uid)?.badge.as_ref()
   }
 
   // whether they have a paint at all, hidden or not (what the menu offers hide / show for)
   pub fn has_paint(&mut self, uid: &PaintId) -> bool {
-    self.get(uid).is_some_and(|c| c.paint.is_some())
+    self.shown(uid).is_some()
   }
 
   // a chatter whose cosmetics are already known (the synthetic flood): never fetched
@@ -141,6 +169,7 @@ impl Cosmetics {
       (None, None) => true,
       (Some(a), Some(b)) => {
         a.paint.as_ref().map(|p| &p.id) == b.paint.as_ref().map(|p| &p.id)
+          && a.stv.as_ref().map(|p| &p.id) == b.stv.as_ref().map(|p| &p.id)
           && a.badge.as_ref().map(|x| &x.url) == b.badge.as_ref().map(|x| &x.url)
       }
       _ => false,
@@ -211,6 +240,45 @@ mod tests {
     assert!(parse(&seven, None, &mut cache).unwrap().paint.unwrap().id.as_ref() == "P1");
   }
 
+  // showNamePaints and sevenTvPaints are two switches: heatsync's paint, 7tv's paint and badge
+  #[test]
+  fn the_two_paint_switches_gate_their_own_cosmetics() {
+    let hs = json!({"base": {"type": "solid", "stops": [{"pos": 0, "color": "#ffb000"}]}});
+    let seven = json!({
+      "paint": {"id": "P1", "function": "linear-gradient", "angle": 0, "stops": [{"at": 0, "color": -1}]},
+      "badge": {"id": "B1", "host": {"url": "//cdn.7tv.app/badge/B1", "files": [{"name": "1x.webp"}]}}
+    });
+    let mut cache = paints();
+    let both = parse(&seven, Some(&hs), &mut cache).unwrap();
+    assert!(both.paint.as_ref().unwrap().native && both.stv.is_some());
+    let only_7tv = parse(&seven, None, &mut cache).unwrap();
+    assert!(!only_7tv.paint.as_ref().unwrap().native && only_7tv.stv.is_none());
+    let mut s = Cosmetics::default();
+    let ids = [T(1), T(2)];
+    for id in &ids {
+      s.get(id);
+    }
+    s.put(&ids[0], Some(both));
+    s.put(&ids[1], Some(only_7tv));
+    let id_of = |s: &mut Cosmetics, i: usize| s.paint(&ids[i]).map(|p| p.id.to_string());
+    assert!(id_of(&mut s, 0).unwrap().starts_with("hs"), "heatsync's wins when both are on");
+    assert_eq!(id_of(&mut s, 1).as_deref(), Some("P1"));
+    assert!(s.badge(&ids[1]).is_some());
+    // heatsync paints off: a chatter with both wears the 7tv one; a 7tv-only chatter is unchanged
+    s.hs_on = false;
+    assert_eq!(id_of(&mut s, 0).as_deref(), Some("P1"));
+    assert_eq!(id_of(&mut s, 1).as_deref(), Some("P1"));
+    // 7tv off: heatsync's stays, 7tv's paint and badge go
+    (s.hs_on, s.on) = (true, false);
+    assert!(id_of(&mut s, 0).unwrap().starts_with("hs"));
+    assert!(id_of(&mut s, 1).is_none() && !s.has_paint(&ids[1]));
+    assert!(s.badge(&ids[1]).is_none());
+    // both off: nothing, and nobody is asked about
+    s.hs_on = false;
+    assert!(id_of(&mut s, 0).is_none() && s.get(&T(9)).is_none());
+    assert!(s.take_wanted().iter().all(|id| *id != T(9)));
+  }
+
   #[test]
   fn hostile_cosmetics_are_dropped() {
     let mut cache = paints();
@@ -232,6 +300,7 @@ mod tests {
     let c = Cosmetic {
       paint: None,
       badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), title: "t".into(), bg: None }),
+      ..Default::default()
     };
     assert!(s.put(&T(7), Some(c.clone())));
     assert!(!s.put(&T(7), Some(c)));
@@ -243,7 +312,7 @@ mod tests {
     assert!(s.get(&T(7)).is_some());
     // an answer for someone never asked about is ignored
     assert!(!s.put(&T(99), None));
-    s.on = false;
+    (s.on, s.hs_on) = (false, false);
     assert!(s.get(&T(7)).is_none());
   }
 
@@ -255,6 +324,7 @@ mod tests {
     let c = Cosmetic {
       paint: None,
       badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), title: "t".into(), bg: None }),
+      ..Default::default()
     };
     s.get(&tw);
     s.get(&nat);

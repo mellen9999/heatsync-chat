@@ -46,6 +46,8 @@ pub struct Paint {
   pub shadows: Vec<Shadow>,
   // heatsync-native scene + effects (None for 7tv paints and plain heatsync ones)
   pub fx: Option<Box<Fx>>,
+  // heatsync's own paint (`/api/paints`), not a 7tv one: its own switch (showNamePaints)
+  pub native: bool,
 }
 
 // 7tv packs rgba into one (signed) int: r<<24 | g<<16 | b<<8 | a
@@ -157,6 +159,7 @@ impl Paint {
             tile: 0.0,
             shadows: Vec::new(),
             fx: None,
+            native: false,
           });
         }
         None => (Fill::None, Box::default()),
@@ -178,7 +181,7 @@ impl Paint {
     if fill == Fill::None && shadows.is_empty() {
       return None;
     }
-    Some(Paint { id: id.into(), fill, lut, repeat, d0, d1, tile: 0.0, shadows, fx: None })
+    Some(Paint { id: id.into(), fill, lut, repeat, d0, d1, tile: 0.0, shadows, fx: None, native: false })
   }
 
   // a heatsync-native paint (`/api/paints` spec v2): the base fill plus the glow at rest (the ext's
@@ -237,7 +240,7 @@ impl Paint {
       Base { kind: base_kind, angle, tile, stops: stops.iter().map(|&(p, c)| (p, c & 0xff_ffff)).collect() },
     )
     .map(Box::new);
-    Some(Paint { id: format!("hs{h:016x}").into(), fill, lut, repeat, d0, d1, tile, shadows, fx })
+    Some(Paint { id: format!("hs{h:016x}").into(), fill, lut, repeat, d0, d1, tile, shadows, fx, native: true })
   }
 
   fn at(&self, t: f32) -> Argb {

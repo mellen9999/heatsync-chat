@@ -41,6 +41,8 @@ pub struct Look {
   pub dim_timeouts: bool,
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // emotes from a heatsync inventory draw (renderInventoryEmotes)
+  pub inventory_emotes: bool,
 }
 
 impl Look {
@@ -58,6 +60,7 @@ impl Look {
       dim_timeouts: s.dim_timeouts,
       ffz_badges: s.ffz_badges,
       chatterino_badges: s.chatterino_badges,
+      inventory_emotes: s.render_inventory,
     }
   }
 
@@ -97,6 +100,8 @@ pub struct Res {
   pub media: bool,
   // host-less and defanged links count as links (ext partialLinksEnabled)
   pub partial_links: bool,
+  // urls are links at all (ext linksEnabled)
+  pub links: bool,
 }
 
 impl Res {
@@ -117,6 +122,7 @@ impl Res {
       previews: Default::default(),
       media: true,
       partial_links: true,
+      links: true,
     }
   }
 

@@ -156,6 +156,11 @@
    "26"
   ]
  },
+ "linksEnabled": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "mediaEmbedsEnabled": {
   "type": "bool",
   "scope": "sync",
@@ -183,7 +188,17 @@
   "scope": "sync",
   "default": true
  },
+ "renderInventoryEmotes": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "sevenTvPaints": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "showNamePaints": {
   "type": "bool",
   "scope": "sync",
   "default": true
@@ -222,6 +237,11 @@
    "mentions",
    "stream-stats"
   ]
+ },
+ "suggestInventoryEmotes": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
  },
  "tabCounter": {
   "type": "enum",

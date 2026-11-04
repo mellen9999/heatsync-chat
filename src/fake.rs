@@ -101,7 +101,7 @@ pub fn seed_paints(cosmetics: &mut crate::cosmetics::Cosmetics) {
     if let Some(p) = crate::cosmetics::paint::Paint::from_hs(&paint_spec(u)) {
       cosmetics.seed(
         crate::cosmetics::id::PaintId::Twitch(u + 1),
-        crate::cosmetics::Cosmetic { paint: Some(std::sync::Arc::new(p)), badge: None },
+        crate::cosmetics::Cosmetic { paint: Some(std::sync::Arc::new(p)), badge: None, ..Default::default() },
       );
     }
   }
