@@ -31,7 +31,9 @@ pub enum Cmd {
   // a channel's 7tv emote set (+ the broadcaster's 7tv user id and twitch id, for cosmetics)
   Watch { ch: Box<str>, set: Box<str>, user: Option<(Box<str>, u64)> },
   Unwatch(Box<str>),
-  // our own twitch id: we watch our own cosmetics too (None = logged out: stop)
+  // our own twitch id (None = logged out: stop), so a paint or badge you change on 7tv shows on your
+  // own lines now, not when the 30 minute cosmetics cache runs out (the ext does the same, its
+  // ensureSelfCosmeticSub). the cost, in docs/PRIVACY.md: 7tv.io is asked who that twitch id is, once per login
   Me(Option<u64>),
   // our own 7tv user id, found from the above
   MyUser(Box<str>, u64),
@@ -178,6 +180,8 @@ fn handle(st: &mut State, c: Cmd, http: &reqwest::Client, me_tx: &mpsc::Unbounde
   apply(st, c)
 }
 
+// the one place your own twitch id leaves for 7tv: `GET 7tv.io/v3/users/twitch/<id>`, for the 7tv user id
+// the `user.*` subscription needs. nothing else about you is sent
 async fn own_user(http: reqwest::Client, twitch_id: u64, tx: mpsc::UnboundedSender<Cmd>) {
   let Ok(v) = providers::fetch(&http, &format!("https://7tv.io/v3/users/twitch/{twitch_id}")).await else { return };
   if let Some(id) = v.get("user").and_then(|u| u.get("id")).and_then(Value::as_str).filter(|i| valid_id(i)) {
