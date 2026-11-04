@@ -58,6 +58,8 @@ mod tip;
 mod unseen;
 mod update;
 mod upload;
+#[cfg(test)]
+mod ux_tests;
 mod whispers;
 mod zoom;
 
