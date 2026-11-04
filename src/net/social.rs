@@ -47,6 +47,8 @@ pub enum Cmd {
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
   // the user card's facts: who, on which platform, and the channel it was opened from
   Card { platform: Platform, login: Box<str>, channel: Option<Box<str>> },
+  // follow (want) or unfollow someone on heatsync; their account is looked up when its id isn't known
+  Follow { platform: Platform, login: Box<str>, profile_id: Option<Box<str>>, want: bool },
   // your private note on a heatsync account (empty text clears it)
   PutNote { platform: Platform, login: Box<str>, profile_id: Box<str>, text: String },
   // when you last looked at the mentions, whispers and feed tabs, on any client
@@ -96,6 +98,13 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::Logs(req) => archive(&http, req, &out).await,
     Cmd::Gifs { q, epoch } => gifs(&http, q, epoch, &out).await,
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,
+    Cmd::Follow { platform, login, profile_id, want } => {
+      let res = match token {
+        Some(t) => follow(&http, &t, platform, &login, profile_id, want).await,
+        None => Err(FollowFail::Auth),
+      };
+      void(out.send(NetEvent::Followed { platform, login, want, res }))
+    }
     Cmd::PutNote { platform, login, profile_id, text } => {
       let ok = match token {
         Some(t) => {
@@ -201,6 +210,56 @@ async fn gifs(http: &reqwest::Client, q: Box<str>, epoch: u32, out: &Out) {
     Err(crate::model::gifs::Fail::of(status, &v, crate::util::time::now_ms()))
   };
   void(out.send(NetEvent::Gifs { epoch, q, res }))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FollowFail {
+  Auth,
+  // no heatsync account behind the name
+  NotOnHeatsync,
+  // already as asked (true = already following)
+  Already(bool),
+  Limited,
+  Other,
+}
+
+// ext pcToggleFollow: POST (follow) / DELETE (unfollow) /api/follow/:id, the id from the card when not known
+async fn follow(
+  http: &reqwest::Client,
+  token: &str,
+  platform: Platform,
+  login: &str,
+  profile_id: Option<Box<str>>,
+  want: bool,
+) -> Result<(), FollowFail> {
+  let id = match profile_id {
+    Some(id) => id,
+    None => {
+      let body = json!({ "platform": platform.name(), "login": login }).to_string();
+      let (status, v) = call(authed(http, token, "/api/card", body)).await;
+      if status != 200 {
+        return Err(if status == 429 { FollowFail::Limited } else { FollowFail::Other });
+      }
+      let info = crate::model::card::parse(&v, crate::util::time::now_ms());
+      if info.follow == Some(want) {
+        return Err(FollowFail::Already(want));
+      }
+      info.profile_id.ok_or(FollowFail::NotOnHeatsync)?
+    }
+  };
+  let url = format!("{ORIGIN}/api/follow/{}", crate::util::path_seg(&id));
+  let req = if want { http.post(url) } else { http.delete(url) };
+  let (status, v) = call(req.bearer_auth(token)).await;
+  let words = v.get("error").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
+  match status {
+    200..=299 => Ok(()),
+    _ if words.contains("already following") => Err(FollowFail::Already(true)),
+    _ if words.contains("not following") => Err(FollowFail::Already(false)),
+    401 => Err(FollowFail::Auth),
+    404 => Err(FollowFail::NotOnHeatsync),
+    429 => Err(FollowFail::Limited),
+    _ => Err(FollowFail::Other),
+  }
 }
 
 // POST /api/card: profile, followage, archive counts in one trip (works logged out; a login adds how you relate)

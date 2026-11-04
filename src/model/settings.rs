@@ -410,6 +410,8 @@ pub enum Local {
   Goto(String),
   // /set <setting> <value>
   Set(String, String),
+  // /follow <name> (true), /unfollow <name>
+  Follow(String, bool),
 }
 
 pub fn local_cmd(text: &str) -> Option<Local> {
@@ -454,6 +456,8 @@ pub fn local_cmd(text: &str) -> Option<Local> {
   let tail = tail.trim();
   match head.to_ascii_lowercase().as_str() {
     "/user" => return Some(Local::User(tail.to_owned())),
+    "/follow" => return Some(Local::Follow(tail.to_owned(), true)),
+    "/unfollow" => return Some(Local::Follow(tail.to_owned(), false)),
     "/tab" => return Some(Local::Goto(tail.to_owned())),
     "/set" => {
       let (k, v) = tail.split_once(char::is_whitespace).unwrap_or((tail, ""));

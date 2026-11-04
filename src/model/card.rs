@@ -25,6 +25,9 @@ pub struct Info {
   // server holds for you on them (signed in; may be empty)
   pub profile_id: Option<Box<str>>,
   pub note: Option<String>,
+  // whether you follow them on heatsync (signed in, a real account): what /follow and the card's
+  // follow row flip
+  pub follow: Option<bool>,
 }
 
 // "4y 3mo", "2mo 5d", "3d", "5h", "just now"
@@ -166,7 +169,22 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .and_then(avatar_url);
   let profile_id = real.and_then(|p| text(p, "/id")).filter(|id| crate::model::notes::server_id(id)).map(Into::into);
   let note = text(v, "/note").map(|n| n.chars().take(crate::model::notes::MAX_CHARS * 2).collect());
-  Info { registered: profile.is_some() && !anonymous, rows, color, twitch_name, twitch_id, avatar, profile_id, note }
+  let follow = real
+    .and_then(|p| p.get("relationship"))
+    .filter(|r| r.is_object())
+    .map(|r| ["youFollow", "isFollowing"].iter().any(|k| r.get(*k).and_then(Value::as_bool) == Some(true)));
+  let follow = follow.filter(|_| profile_id.is_some());
+  Info {
+    registered: profile.is_some() && !anonymous,
+    rows,
+    color,
+    twitch_name,
+    twitch_id,
+    avatar,
+    profile_id,
+    note,
+    follow,
+  }
 }
 
 // a picture url we will fetch: an allowlisted image host, bounded
@@ -238,6 +256,15 @@ mod tests {
       assert_eq!(parse(&json!({ "profile": { "id": id } }), NOW).profile_id, None);
     }
     assert_eq!(parse(&json!({ "profile": {}, "note": "" }), NOW).note, None);
+  }
+
+  #[test]
+  fn the_heatsync_follow_is_known_only_for_a_real_account_with_a_relationship() {
+    let f = |v: serde_json::Value| parse(&v, NOW).follow;
+    assert_eq!(f(json!({ "profile": { "id": "u42", "relationship": { "isFollowing": true } } })), Some(true));
+    assert_eq!(f(json!({ "profile": { "id": "u42", "relationship": { "followsYou": true } } })), Some(false));
+    assert_eq!(f(json!({ "profile": { "id": "u42" } })), None, "signed out: unknown");
+    assert_eq!(f(json!({ "profile": { "id": "kick_9", "relationship": {} } })), None);
   }
 
   #[test]

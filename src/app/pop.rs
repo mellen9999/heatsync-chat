@@ -29,6 +29,8 @@ pub enum Act {
   Held(bool),
   // the room's twitch blocked terms (mods)
   BlockedTerms,
+  // follow (true) / unfollow them on heatsync
+  Follow(bool),
   // /warn typed for them (the reason goes after), and a twitch shoutout
   Warn,
   Shoutout,
@@ -273,6 +275,7 @@ impl App {
         self.net.send(Cmd::Relink("automod"));
       }
       (Act::BlockedTerms, Some(who), _) => self.blocked_open(who.chan),
+      (Act::Follow(want), Some(who), _) => self.follow(who.platform, who.login, want),
       (Act::Warn, Some(who), _) => self.type_into_line(&format!("/warn {} ", who.login)),
       (Act::Shoutout, Some(who), _) => self.suite_run(who.chan, crate::model::modsuite::Cmd::Shoutout(who.login)),
       (Act::Held(allow), ..) => {

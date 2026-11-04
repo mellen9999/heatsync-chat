@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 55] = [
+const FIXED: [Slash; 57] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -64,6 +64,8 @@ const FIXED: [Slash; 55] = [
   s("/set", "<setting> <value>", "change any setting: /set timestamps on"),
   s("/tab", "<name>", "go to a tab: a channel, feed, mentions, whispers, modlog"),
   s("/user", "<name>", "their card"),
+  s("/follow", "<name>", "follow them on heatsync: their posts fill your feed"),
+  s("/unfollow", "<name>", "stop following them on heatsync"),
   s("/lclear", "", "empty this tab's lines (only here, not for anyone else)"),
   s("/shrug", "[text]", "say it with ¯\\_(ツ)_/¯"),
   s("/tableflip", "[text]", "say it with (╯°□°)╯︵ ┻━┻"),

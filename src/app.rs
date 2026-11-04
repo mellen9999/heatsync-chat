@@ -25,6 +25,7 @@ mod engage;
 mod feed;
 mod filters;
 mod find;
+mod follow;
 mod gifs;
 mod held;
 mod img_view;
@@ -768,6 +769,7 @@ impl App {
       Local::User(name) => self.user_cmd(&name),
       Local::Goto(q) => self.goto_tab(&q),
       Local::Set(k, v) => self.set_cmd(&k, &v),
+      Local::Follow(name, want) => self.follow_slash(&name, want),
     }
   }
 
@@ -2147,6 +2149,7 @@ impl App {
       NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
       NetEvent::Suite { chan, cmd, res } => self.on_suite(chan, cmd, res),
       NetEvent::Tools { chan, res } => self.on_tools(chan, res),
+      NetEvent::Followed { platform, login, want, res } => self.on_followed(platform, login, want, res),
       NetEvent::TagCard(tag, res) => self.on_tag_card(tag, res),
       NetEvent::NoteSaved { platform, login, text, ok } => self.note_saved(platform, &login, &text, ok),
       // an answer that outlived its login (logout raced the fetch) must not seed the next state

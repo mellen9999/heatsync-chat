@@ -76,14 +76,40 @@ impl App {
         Load::Loading
       }
     };
-    // the ext's card has its logs cell first
-    let mut rows = vec![(Act::Logs, "chat logs".to_owned())];
-    rows.extend(self.person_rows(&who));
-    let menu = Menu::new(rows, (0, 0));
+    let menu = Menu::new(self.card_rows(&who, &info), (0, 0));
     self.hide_peek();
     self.card = Some(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) });
     self.pop = None;
     self.want_pronouns(self.card_twitch_id());
+    self.card_changed();
+  }
+
+  // the ext's card has its logs cell first, then follow / unfollow once heatsync says which
+  fn card_rows(&self, who: &Subject, info: &Load) -> Vec<(Act, String)> {
+    let mut rows = vec![(Act::Logs, "chat logs".to_owned())];
+    if let Load::Done(i) = info
+      && let Some(f) = i.follow.filter(|_| self.me.is_some() && !who.own)
+    {
+      rows.push((Act::Follow(!f), if f { "unfollow" } else { "follow" }.into()));
+    }
+    rows.extend(self.person_rows(who));
+    rows
+  }
+
+  // the open card read again from the cache (a follow changed it): its facts and its rows
+  pub(super) fn card_refresh(&mut self, platform: Platform, login: &str) {
+    let Some(c) = self.card.as_ref().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
+    let info = match self.cards.get(platform, login) {
+      Some(Load::Done(i)) => Load::Done(i.clone()),
+      Some(Load::Failed(why)) => Load::Failed(why),
+      _ => Load::Loading,
+    };
+    let rows = self.card_rows(&c.who, &info);
+    if let Some(c) = self.card.as_mut() {
+      c.info = info;
+      c.menu.at = c.menu.at.min(rows.len().saturating_sub(1));
+      c.menu.items = rows;
+    }
     self.card_changed();
   }
 
@@ -96,14 +122,8 @@ impl App {
       self.note_sync(platform, login, i);
     }
     self.learn_card(platform, login, res);
-    let Some(c) = self.card.as_mut().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
-    c.info = match self.cards.get(platform, login) {
-      Some(Load::Done(i)) => Load::Done(i.clone()),
-      Some(Load::Failed(why)) => Load::Failed(why),
-      _ => Load::Loading,
-    };
+    self.card_refresh(platform, login);
     self.want_pronouns(self.card_twitch_id());
-    self.card_changed();
   }
 
   pub(super) fn card_changed(&mut self) {

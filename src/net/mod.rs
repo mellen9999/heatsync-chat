@@ -52,21 +52,43 @@ pub enum NetEvent {
   // a channel's own ffz mod / vip badge art
   FfzRoomBadges(Box<str>, TwitchSet),
   // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
-  Relay { platform: Platform, key: Box<str>, msgs: Vec<Message>, history: bool },
-  RelayClear { platform: Platform, key: Box<str>, login: Box<str> },
-  YtStatus { key: Box<str>, status: Box<str> },
+  Relay {
+    platform: Platform,
+    key: Box<str>,
+    msgs: Vec<Message>,
+    history: bool,
+  },
+  RelayClear {
+    platform: Platform,
+    key: Box<str>,
+    login: Box<str>,
+  },
+  YtStatus {
+    key: Box<str>,
+    status: Box<str>,
+  },
   // a twitch tab's publicly linked accounts: kick slug, youtube (handle, UC id)
-  Links { tab: Box<str>, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)> },
+  Links {
+    tab: Box<str>,
+    kick: Option<Box<str>>,
+    yt: Option<(Box<str>, Option<Box<str>>)>,
+  },
   UserBadges(Source, UserBadges),
   // heatsync inventories for twitch user ids
   Senders(Vec<(u64, SenderSet)>),
-  SendersStale { ids: Vec<u64>, ver: Option<Box<str>>, removed: Option<Box<str>> },
+  SendersStale {
+    ids: Vec<u64>,
+    ver: Option<Box<str>>,
+    removed: Option<Box<str>>,
+  },
   // logged in as / logged out
   Me(Option<auth::Me>),
   // the server's blocked-emote hashes for this login
   BlockedHashes(Vec<Box<str>>),
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
-  Inventory { removed: Option<Box<str>> },
+  Inventory {
+    removed: Option<Box<str>>,
+  },
   Upload(upload::Upload),
   // 7tv paints + badges for twitch ids (None = wears nothing)
   Cosmetics(Vec<(crate::cosmetics::id::PaintId, Option<crate::cosmetics::Cosmetic>)>),
@@ -77,43 +99,91 @@ pub enum NetEvent {
   // a live edit of a channel's 7tv emote set
   EmoteDelta(Box<str>, crate::emotes::live::Delta),
   // a channel's pinned line was set or cleared (None)
-  Pin { platform: Platform, key: Box<str>, pin: Option<crate::model::pin::Pin> },
+  Pin {
+    platform: Platform,
+    key: Box<str>,
+    pin: Option<crate::model::pin::Pin>,
+  },
   // went live / offline / switched game, already paired and de-duplicated
   Stream(crate::model::stream_events::Line),
   // a chat-rate spike in a channel (text ready to show)
-  Moment { platform: Platform, key: Box<str>, text: Box<str> },
+  Moment {
+    platform: Platform,
+    key: Box<str>,
+    text: Box<str>,
+  },
   // twitch whispers: one pushed live, or the history read when the tab first opened
   // `epoch` tags a history read with the login it was asked under (live pushes carry none)
-  Whispers { items: Vec<crate::model::whisper::Whisper>, live: bool, epoch: Option<u32> },
+  Whispers {
+    items: Vec<crate::model::whisper::Whisper>,
+    live: bool,
+    epoch: Option<u32>,
+  },
   // a send settled: who it went to (resolved), or why not
   // the feed: a page, why it failed (http status, 0 = no answer), a thread, a vote or a post settling,
   // and a post pushed live
   Feed(social::Page),
-  FeedFailed { status: u16 },
-  Thread { id: Box<str>, res: Result<(crate::model::post::Post, Vec<crate::model::post::Post>), u16> },
-  Media { id: Box<str>, res: Result<Box<[crate::model::post::Media]>, u16> },
+  FeedFailed {
+    status: u16,
+  },
+  Thread {
+    id: Box<str>,
+    res: Result<(crate::model::post::Post, Vec<crate::model::post::Post>), u16>,
+  },
+  Media {
+    id: Box<str>,
+    res: Result<Box<[crate::model::post::Media]>, u16>,
+  },
   // a release newer than this one is out
   Update(update::Release),
   // the install finished (restart now) or said why not
   Updated(Result<(), String>),
-  Voted { id: Box<str>, res: Result<(bool, Option<u32>), u16> },
+  Voted {
+    id: Box<str>,
+    res: Result<(bool, Option<u32>), u16>,
+  },
   // a bookmark settled (`on` = what was asked), the check of which posts are bookmarked, an edit and a
   // delete of your own post settling
-  Bookmarked { id: Box<str>, on: bool, res: Result<(), u16> },
-  Marks { ids: Vec<Box<str>>, res: Result<Vec<(Box<str>, bool)>, u16> },
-  Edited { id: Box<str>, res: Result<Box<str>, u16> },
-  Deleted { id: Box<str>, res: Result<(), u16> },
+  Bookmarked {
+    id: Box<str>,
+    on: bool,
+    res: Result<(), u16>,
+  },
+  Marks {
+    ids: Vec<Box<str>>,
+    res: Result<Vec<(Box<str>, bool)>, u16>,
+  },
+  Edited {
+    id: Box<str>,
+    res: Result<Box<str>, u16>,
+  },
+  Deleted {
+    id: Box<str>,
+    res: Result<(), u16>,
+  },
   // you last looked at a tab at `at` (here at login, or on another client since)
-  Seen { surface: crate::model::unseen::Surface, at: i64 },
+  Seen {
+    surface: crate::model::unseen::Surface,
+    at: i64,
+  },
   // your settings as the account holds them (only the keys the window maps)
   UiState(crate::model::sync::Inbound),
   // the heatsync socket is signed in (or is not, again)
   HsAuth(bool),
-  Posted { res: Result<crate::model::post::Post, u16> },
+  Posted {
+    res: Result<crate::model::post::Post, u16>,
+  },
   // a page of the chat-log viewer, or the http status that said why not (0 = no answer); `epoch` names the ask
-  Logs { epoch: u32, res: Result<crate::model::logs::Page, u16> },
+  Logs {
+    epoch: u32,
+    res: Result<crate::model::logs::Page, u16>,
+  },
   // the gifs tab's answer to the search `q` asked under `epoch`, or the http status that said why not
-  Gifs { epoch: u32, q: Box<str>, res: Result<crate::model::gifs::Page, crate::model::gifs::Fail> },
+  Gifs {
+    epoch: u32,
+    q: Box<str>,
+    res: Result<crate::model::gifs::Page, crate::model::gifs::Fail>,
+  },
   FeedLive(crate::model::post::Post),
   // followed streamers' twitch colors (lowercase login, rgb)
   FollowColors(Vec<(Box<str>, u32)>),
@@ -122,9 +192,18 @@ pub enum NetEvent {
   // a mute changed on another device
   MuteSync(mutes::Sync),
   // a user card's facts (or why not: http status, 0 = no answer)
-  Card { platform: Platform, login: Box<str>, res: Result<crate::model::card::Info, u16> },
+  Card {
+    platform: Platform,
+    login: Box<str>,
+    res: Result<crate::model::card::Info, u16>,
+  },
   // a note upload to heatsync settled: the text sent, and whether it took
-  NoteSaved { platform: Platform, login: Box<str>, text: String, ok: bool },
+  NoteSaved {
+    platform: Platform,
+    login: Box<str>,
+    text: String,
+    ok: bool,
+  },
   // a mod action settled
   ModDone(Box<modact::Done>),
   // a link's preview (None: nothing to show)
@@ -133,24 +212,63 @@ pub enum NetEvent {
   Pronouns(u64, Result<Option<Box<str>>, ()>),
   // automod held a message in a room you moderate / a hold settled (any mod, or twitch's hour ran out)
   Held(Box<crate::model::held::Hold>),
-  HeldEnd { chan: Box<str>, id: Box<str>, end: crate::model::held::End },
+  HeldEnd {
+    chan: Box<str>,
+    id: Box<str>,
+    end: crate::model::held::End,
+  },
   // the room's automod watch answered: what twitch still holds there
-  HeldWatched { chan: Box<str>, res: Result<Vec<crate::model::held::Hold>, held::Fail> },
+  HeldWatched {
+    chan: Box<str>,
+    res: Result<Vec<crate::model::held::Hold>, held::Fail>,
+  },
   // an allow / deny settled
-  HeldActed { chan: Box<str>, id: Box<str>, allow: bool, res: Result<(), held::Fail> },
+  HeldActed {
+    chan: Box<str>,
+    id: Box<str>,
+    allow: bool,
+    res: Result<(), held::Fail>,
+  },
   // a #tag's hover card: Ok(None) = heatsync doesn't know it, Err = no answer
   TagCard(Box<str>, Result<Option<crate::model::tagcard::Card>, ()>),
   // a room's blocked terms answered (by twitch room id)
-  Blocked { room: Box<str>, res: Result<blocked::Got, blocked::Fail> },
+  Blocked {
+    room: Box<str>,
+    res: Result<blocked::Got, blocked::Fail>,
+  },
   // a chat mode change settled (twitch login)
-  ModesDone { chan: Box<str>, set: crate::model::modes::Set, res: Result<(), modact::Fail> },
+  ModesDone {
+    chan: Box<str>,
+    set: crate::model::modes::Set,
+    res: Result<(), modact::Fail>,
+  },
   // a twitch channel's stream for /status (None = no answer)
-  StreamInfo { chan: Box<str>, info: Option<crate::model::status::Info> },
+  StreamInfo {
+    chan: Box<str>,
+    info: Option<crate::model::status::Info>,
+  },
   // a /warn, /shoutout or /shield settled (Ok(Some(on)) = shield mode now)
-  Suite { chan: Box<str>, cmd: crate::model::modsuite::Cmd, res: Result<Option<bool>, blocked::Fail> },
+  Suite {
+    chan: Box<str>,
+    cmd: crate::model::modsuite::Cmd,
+    res: Result<Option<bool>, blocked::Fail>,
+  },
   // the mod tools screen's answer (by twitch login)
-  Tools { chan: Box<str>, res: Result<modtools::Got, blocked::Fail> },
-  WhisperSent { key: u64, res: Result<crate::model::whisper::Who, crate::model::whisper::Fail> },
+  Tools {
+    chan: Box<str>,
+    res: Result<modtools::Got, blocked::Fail>,
+  },
+  // a heatsync follow / unfollow settled
+  Followed {
+    platform: crate::model::message::Platform,
+    login: Box<str>,
+    want: bool,
+    res: Result<(), social::FollowFail>,
+  },
+  WhisperSent {
+    key: u64,
+    res: Result<crate::model::whisper::Who, crate::model::whisper::Fail>,
+  },
 }
 
 // event sink back to the ui. false = the ui is gone
