@@ -1,6 +1,7 @@
 pub mod clip;
 pub mod crash;
 pub mod mem;
+pub mod notify;
 pub mod open;
 pub mod sound;
 pub mod time;

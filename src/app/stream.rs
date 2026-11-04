@@ -9,6 +9,7 @@ use crate::model::color;
 use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg};
 use crate::model::stream_events::{Line, Tone};
 use crate::ui::theme;
+use crate::util::notify;
 use crate::util::time::now_ms;
 
 fn color(t: Tone) -> u32 {
@@ -94,6 +95,21 @@ impl App {
     }
   }
 
+  // the desktop notification for a stream line (ext notifyStreamEvent): a channel went live or
+  // switched game while the window is away, if desktop notifications are on. no sound, like the ext.
+  // the line already passed the ext's dedupe (model::stream_events::Gate) and its show toggle
+  fn stream_alert(&self, l: &Line) -> Option<(String, String)> {
+    if self.focused || !self.set.notify {
+      return None;
+    }
+    let what = match l.tone {
+      Tone::Online => "went live",
+      Tone::Switch => "switched game",
+      _ => return None,
+    };
+    Some((format!("{} {what}", notify::name(&l.channel)), l.game.to_string()))
+  }
+
   pub(super) fn on_stream(&mut self, l: Line) {
     if matches!(l.tone, Tone::Online | Tone::Offline) {
       self.stats_stream(l.platform, &l.channel, l.tone == Tone::Online);
@@ -109,6 +125,9 @@ impl App {
     };
     if !shown {
       return;
+    }
+    if let Some((title, body)) = self.stream_alert(&l) {
+      notify::send("went-live", &title, &body);
     }
     // in every chat tab (ext: wherever you are reading), followed channels too; only the channel's own
     // tab turns yellow
@@ -149,5 +168,54 @@ impl App {
         self.put_line(i, m.clone());
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::net::Net;
+
+  fn line(tone: Tone, game: &str) -> Line {
+    Line {
+      platform: Platform::Twitch,
+      channel: "xqc".into(),
+      text: "".into(),
+      tone,
+      name: "xqc".into(),
+      color: None,
+      verb: "".into(),
+      game: game.into(),
+    }
+  }
+
+  #[test]
+  fn going_live_notifies_only_when_away_and_on() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let live = line(Tone::Online, "just chatting");
+    assert_eq!(app.stream_alert(&live), None, "off by default");
+    app.set.notify = true;
+    app.focused = true;
+    assert_eq!(app.stream_alert(&live), None, "not while you are looking");
+    app.focused = false;
+    assert_eq!(app.stream_alert(&live), Some(("xqc went live".into(), "just chatting".into())));
+    assert_eq!(app.stream_alert(&line(Tone::Online, "")), Some(("xqc went live".into(), "".into())));
+    assert_eq!(app.stream_alert(&line(Tone::Switch, "chess")), Some(("xqc switched game".into(), "chess".into())));
+    for t in [Tone::Offline, Tone::Moment, Tone::Raid, Tone::Gift, Tone::Redeem] {
+      assert_eq!(app.stream_alert(&line(t, "x")), None);
+    }
+  }
+
+  #[test]
+  fn a_hostile_channel_name_is_escaped_and_bounded() {
+    let (net, _asked) = Net::tap();
+    let mut app = App::new(net, vec![], false);
+    app.set.notify = true;
+    app.focused = false;
+    let mut l = line(Tone::Online, "");
+    l.channel = format!("<b>\n{}", "z".repeat(100)).into();
+    let (title, _) = app.stream_alert(&l).unwrap();
+    assert!(title.starts_with("&lt;b&gt; zzz") && title.len() < 70, "{title}");
   }
 }
