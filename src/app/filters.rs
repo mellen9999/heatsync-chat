@@ -93,6 +93,7 @@ impl App {
       }
       Cmd::Word { marks, add, term } => self.word(marks, add, term),
       Cmd::Pattern { add, pat } => self.pattern(add, pat),
+      Cmd::Reason { add, text } => self.ban_reason(add, text),
       Cmd::Rule(r) => self.rule(r),
       Cmd::Mutes => {
         self.list_people("muted", filter::with(|f| f.mutes().into_iter().map(|(n, _)| n.to_owned()).collect()))
@@ -192,6 +193,27 @@ impl App {
     self.texts_edited();
     self.saved();
     self.say(format!("{} automod pattern {}", if add { "added" } else { "removed" }, pat.trim()));
+  }
+
+  fn ban_reason(&mut self, add: bool, text: Option<String>) {
+    let Some(text) = text else {
+      let list = filter::with(|f| f.reasons().iter().map(|p| p.to_string()).collect::<Vec<_>>());
+      return self.say(if list.is_empty() {
+        "no ban reasons. /banreason <reason> adds one".to_owned()
+      } else {
+        format!("ban reasons: {}", list.join("  "))
+      });
+    };
+    if !filter::edit(|f| f.reason(add, &text)) {
+      return self.say(if add {
+        "couldn't add that reason (empty, a repeat, too long, or too many)".to_owned()
+      } else {
+        format!("{text} isn't a ban reason")
+      });
+    }
+    self.texts_edited();
+    self.saved();
+    self.say(format!("{} ban reason {}", if add { "added" } else { "removed" }, text.trim()));
   }
 
   fn rule(&mut self, cmd: RuleCmd) {

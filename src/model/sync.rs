@@ -24,7 +24,8 @@ const MAX_TEXT: usize = 64;
 // server caps the big ones at 32KB; the ext's own maxLen for the patterns is 4096)
 pub const AUTOMOD: &str = "automodRegex";
 pub const RULES: &str = "chatFilterRules";
-const TEXTS: [(&str, usize); 2] = [(AUTOMOD, 4096), (RULES, 32 * 1024)];
+pub const REASONS: &str = "modBanReasons";
+const TEXTS: [(&str, usize); 3] = [(AUTOMOD, 4096), (RULES, 32 * 1024), (REASONS, crate::model::reasons::MAX_TEXT)];
 // the ext's default for hiddenTabs: what a list that was never written means
 const HIDDEN_DEFAULT: [&str; 3] = ["pinned", "modlog", "discover"];
 
@@ -44,7 +45,7 @@ fn get_cell(d: &Def, s: &Settings) -> Option<Cell> {
     Ctl::Pick(c, get, _) => Some(Cell::Is(c.names[get(s)])),
     Ctl::Side => Some(Cell::Is(s.tab_side.name())),
     Ctl::Counter => Some(Cell::Is(s.tab_counter.name())),
-    Ctl::Zoom | Ctl::Words(_) | Ctl::Patterns | Ctl::Rules => None,
+    Ctl::Zoom | Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons => None,
   }
 }
 
@@ -460,6 +461,8 @@ mod tests {
     out.push((AUTOMOD, json!("")));
     out.push((RULES, json!(rules.json())));
     out.push((RULES, json!("[]")));
+    out.push((REASONS, json!("spam\nhate speech")));
+    out.push((REASONS, json!("")));
     out
   }
 
@@ -512,7 +515,7 @@ mod tests {
         "bool" => v.is_boolean(),
         "enum" => e["options"].as_array().unwrap().contains(&v),
         "range" => v.as_f64().is_some_and(|x| x >= e["min"].as_f64().unwrap() && x <= e["max"].as_f64().unwrap()),
-        "text" => v.as_str().is_some_and(|t| t.len() as u64 <= e["maxLen"].as_u64().unwrap()),
+        "text" => v.as_str().is_some_and(|t| t.len() as u64 <= e["maxLen"].as_u64().unwrap_or(4096)),
         "boolmap" => {
           // our own entry must be a known one; someone else's pass through
           let o = v.as_object().unwrap();
@@ -538,10 +541,12 @@ mod tests {
     let (empty, none) = (crate::model::automod::Automod::default(), crate::model::rules::Rules::default());
     for (key, cap) in TEXTS {
       assert_eq!(fx[key]["type"], "text", "{key}");
-      assert!(cap as u64 <= fx[key]["maxLen"].as_u64().unwrap(), "{key}");
+      // a text setting with no maxLen of its own takes the ext's default, 4096
+      assert!(cap as u64 <= fx[key]["maxLen"].as_u64().unwrap_or(4096), "{key}");
     }
     assert_eq!(json!(empty.text()), fx[AUTOMOD]["default"]);
     assert_eq!(json!(none.json()), fx[RULES]["default"]);
+    assert_eq!(json!(crate::model::reasons::Reasons::default().text()), fx[REASONS]["default"]);
   }
 
   #[test]

@@ -62,13 +62,20 @@ impl App {
     let mut changed = false;
     for (key, value, first) in self.acct.text_inbound(st, now) {
       let blank = |t: &str| matches!(t.trim(), "" | "[]");
-      let mine = filter::with(|f| if key == sync::AUTOMOD { f.patterns_text() } else { f.rules().json() });
+      let mine = filter::with(|f| match key {
+        sync::AUTOMOD => f.patterns_text(),
+        sync::REASONS => f.reasons_text(),
+        _ => f.rules().json(),
+      });
       if first && blank(&value) && !blank(&mine) {
         self.acct.text_queue(key, mine, now);
         continue;
       }
-      let ok =
-        filter::edit(|f| if key == sync::AUTOMOD { f.set_patterns_text(&value) } else { f.set_rules_text(&value) });
+      let ok = filter::edit(|f| match key {
+        sync::AUTOMOD => f.set_patterns_text(&value),
+        sync::REASONS => f.set_reasons_text(&value),
+        _ => f.set_rules_text(&value),
+      });
       if ok {
         changed = true;
       } else {
@@ -86,8 +93,9 @@ impl App {
       return;
     }
     let now = now_ms();
-    let (patterns, rules) = filter::with(|f| (f.patterns_text(), f.rules().json()));
+    let (patterns, rules, reasons) = filter::with(|f| (f.patterns_text(), f.rules().json(), f.reasons_text()));
     self.acct.text_queue(sync::AUTOMOD, patterns, now);
+    self.acct.text_queue(sync::REASONS, reasons, now);
     self.acct.text_queue(sync::RULES, rules, now);
   }
 

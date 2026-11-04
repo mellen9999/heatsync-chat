@@ -70,6 +70,8 @@ pub enum Ctl {
   Patterns,
   // the per-rule hide / highlight list, kept with /rule
   Rules,
+  // the ban reasons a ban offers, kept with /banreason
+  Reasons,
 }
 
 // how a row travels to and from the account's ui-state (model/sync.rs holds the codecs). the ext's key
@@ -129,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 58] = [
+pub static DEFS: [Def; 59] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -628,11 +630,23 @@ pub static DEFS: [Def; 58] = [
     cat: Cat::Mod,
     section: "mod toolbar",
     label: "confirm before ban",
-    tip: "ask before a permanent ban goes out: guards against a misclick",
+    tip: "ask before a permanent ban goes out: guards against a misclick (ban reasons ask too)",
     alias: "modConfirmBan",
     ctl: pill!(confirm_ban),
     fx: Fx::None,
     wire: Wire::Bool("modConfirmBan"),
+  },
+  Def {
+    id: "ban_reasons",
+    cmd: Some("/banreason"),
+    cat: Cat::Mod,
+    section: "mod toolbar",
+    label: "ban reasons",
+    tip: "quick reasons offered when you ban (a ban then always asks first). enter adds one, /unbanreason removes",
+    alias: "modBanReasons reason presets",
+    ctl: Ctl::Reasons,
+    fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "automod_caps",

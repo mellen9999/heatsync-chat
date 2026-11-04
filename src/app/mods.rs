@@ -97,10 +97,12 @@ impl App {
     if who.is_empty() {
       return;
     }
-    if verb == Verb::Ban && self.set.confirm_ban {
+    // the ext asks before a ban when confirming is on or it has reasons to offer
+    let reasons: Vec<String> = crate::model::filter::with(|f| f.reasons().iter().map(|r| r.to_string()).collect());
+    if verb == Verb::Ban && (self.set.confirm_ban || !reasons.is_empty()) {
       let head = format!("ban {} in #{}?", who[0].nick, who[0].chan);
       let at = (self.pointer.0.min(self.canvas.w - 160), self.pointer.1.min(self.canvas.h - 80));
-      let todo = Todo { verb, who, reason };
+      let todo = Todo { verb, who, reason, reasons };
       self.pop = Some(Pop::confirm(head, at, todo));
       return self.pop_changed();
     }
@@ -207,5 +209,87 @@ impl App {
     }
     self.bar_dirty = true;
     self.wake();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::model::filter;
+  use crate::net::Net;
+  use crate::net::irc::Chat;
+  use winit::keyboard::Key;
+
+  fn bans(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<(String, Option<String>)> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| match c {
+        Cmd::Mod(r) if r.verb == Verb::Ban => Some((r.login.to_string(), r.reason)),
+        _ => None,
+      })
+      .collect()
+  }
+
+  fn room() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
+    let (net, rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let tab = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    app.select(tab);
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: Some(1),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    app.on_chat("forsen", Chat::Mod(true));
+    (app, rx)
+  }
+
+  fn typed(app: &mut App, s: &str) {
+    app.line.set_text(s.into());
+    app.send();
+  }
+
+  #[test]
+  fn ban_reasons_make_a_ban_ask_and_a_pick_sends_it_with_the_reason() {
+    filter::edit(|f| f.set_reasons_text(""));
+    let (mut app, mut rx) = room();
+    // no reasons and no confirm: straight through, as before
+    typed(&mut app, "/ban bob");
+    assert_eq!(bans(&mut rx), [("bob".to_owned(), None)]);
+    typed(&mut app, "/banreason spam");
+    typed(&mut app, "/banreason hate speech");
+    assert_eq!(filter::with(|f| f.reasons_text()), "spam\nhate speech");
+    // now it asks first; nothing goes until a pick
+    typed(&mut app, "/ban bob");
+    assert!(bans(&mut rx).is_empty());
+    let rows: Vec<String> = app.pop.as_ref().unwrap().menu.items.iter().map(|i| i.1.clone()).collect();
+    assert_eq!(rows, ["yes, ban", "1 spam", "2 hate speech", "cancel"]);
+    // j j enter: the second reason
+    for k in ["j", "j"] {
+      app.pop_key(Key::Character(k));
+    }
+    app.pop_key(Key::Named(winit::keyboard::NamedKey::Enter));
+    assert_eq!(bans(&mut rx), [("bob".to_owned(), Some("hate speech".to_owned()))]);
+    // a digit picks at once; one past the list does nothing
+    typed(&mut app, "/ban amy");
+    app.pop_key(Key::Character("5"));
+    assert!(app.pop.is_some() && bans(&mut rx).is_empty());
+    app.pop_key(Key::Character("1"));
+    assert_eq!(bans(&mut rx), [("amy".to_owned(), Some("spam".to_owned()))]);
+    // enter on the first row bans with the reason typed, if any
+    typed(&mut app, "/ban cy rule 3");
+    app.pop_key(Key::Named(winit::keyboard::NamedKey::Enter));
+    assert_eq!(bans(&mut rx), [("cy".to_owned(), Some("rule 3".to_owned()))]);
+    // timeouts never ask
+    typed(&mut app, "/timeout bob 10m");
+    assert!(app.pop.is_none());
+    // emptied (say from the account), it goes straight through again
+    filter::edit(|f| f.set_reasons_text(""));
+    typed(&mut app, "/ban dee");
+    assert_eq!(bans(&mut rx), [("dee".to_owned(), None)]);
   }
 }

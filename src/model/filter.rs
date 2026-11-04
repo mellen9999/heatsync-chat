@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::model::automod::{self, Automod};
 use crate::model::message::{Kind, Message, flag};
+use crate::model::reasons::Reasons;
 use crate::model::rules::{Line, Rules, Verdict};
 use crate::store;
 
@@ -46,6 +47,8 @@ pub struct Filters {
   // automod: hide lines that are mostly capitals (ext automodAllCaps) or match a pattern (automodRegex)
   pub caps: bool,
   automod: Automod,
+  // the ext's ban reasons (modBanReasons): the choices a ban offers
+  reasons: Reasons,
   // the ext's per-rule hide / highlight list (chatFilterRules)
   rules: Rules,
   // lowercase terms: a line containing one is hidden / lit up
@@ -294,6 +297,24 @@ impl Filters {
     self.automod.set_text(t)
   }
 
+  pub fn reasons(&self) -> &[Box<str>] {
+    self.reasons.list()
+  }
+
+  // add / remove one ban reason. false = nothing changed
+  pub fn reason(&mut self, add: bool, r: &str) -> bool {
+    self.reasons.reason(add, r)
+  }
+
+  // the ext's modBanReasons text (one reason per line) in and out
+  pub fn reasons_text(&self) -> String {
+    self.reasons.text()
+  }
+
+  pub fn set_reasons_text(&mut self, t: &str) -> bool {
+    self.reasons.set_text(t)
+  }
+
   pub fn rules(&self) -> &Rules {
     &self.rules
   }
@@ -315,6 +336,7 @@ impl Filters {
         "hide" => _ = f.word(false, true, rest),
         "mark" => _ = f.word(true, true, rest),
         "automod" => _ = f.pattern(true, rest),
+        "banreason" => _ = f.reason(true, rest),
         "rules" => _ = f.set_rules_text(rest),
         "block" => _ = f.block(rest),
         "sblock" => _ = f.block_synced(rest),
@@ -342,6 +364,9 @@ impl Filters {
     }
     for p in self.automod.patterns() {
       s.push_str(&format!("automod {p}\n"));
+    }
+    for r in self.reasons.list() {
+      s.push_str(&format!("banreason {r}\n"));
     }
     if !self.rules.is_empty() {
       s.push_str(&format!("rules {}\n", self.rules.json()));

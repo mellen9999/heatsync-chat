@@ -183,6 +183,11 @@
   "scope": "sync",
   "default": true
  },
+ "modBanReasons": {
+  "type": "text",
+  "scope": "sync",
+  "default": ""
+ },
  "modConfirmBan": {
   "type": "bool",
   "scope": "sync",

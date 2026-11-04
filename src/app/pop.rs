@@ -38,6 +38,8 @@ pub enum Act {
   Do(Verb),
   // the answers to "ban bob?"
   Yes,
+  // the ban with the nth of the ban reasons (the ext's reason chips)
+  Why(u8),
   No,
   Reply,
   CopyName,
@@ -96,6 +98,8 @@ pub struct Todo {
   pub verb: Verb,
   pub who: Vec<Subject>,
   pub reason: Option<String>,
+  // the ban reasons on offer, in row order
+  pub reasons: Vec<String>,
 }
 
 pub struct Pop {
@@ -106,7 +110,16 @@ pub struct Pop {
 
 impl Pop {
   pub fn confirm(head: String, at: (i32, i32), todo: Todo) -> Self {
-    let rows = vec![(Act::Yes, "yes, ban".to_owned()), (Act::No, "cancel".to_owned())];
+    let mut rows = vec![(Act::Yes, "yes, ban".to_owned())];
+    // the first nine answer to their digit
+    for (i, r) in todo.reasons.iter().enumerate() {
+      let r = match r.char_indices().nth(REASON_SHOWN) {
+        Some((cut, _)) => format!("{}\u{2026}", &r[..cut]),
+        None => r.clone(),
+      };
+      rows.push((Act::Why(i as u8), if i < 9 { format!("{} {r}", i + 1) } else { r }));
+    }
+    rows.push((Act::No, "cancel".to_owned()));
     Pop { menu: Menu::new(rows, at).titled(head), subject: None, todo: Some(todo) }
   }
 
@@ -115,6 +128,9 @@ impl Pop {
     Pop { menu: Menu::new(rows, at).titled(head), subject: None, todo: None }
   }
 }
+
+// how much of a long ban reason its row shows
+const REASON_SHOWN: usize = 60;
 
 // the chooser rows, plain words
 fn login_rows() -> Vec<(Act, String)> {
@@ -286,6 +302,10 @@ impl App {
       (Act::Logout, ..) => self.net.send(Cmd::Logout),
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
       (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
+      (Act::Why(i), _, Some(t)) => {
+        let reason = t.reasons.get(usize::from(i)).cloned().or(t.reason);
+        self.mod_send(t.verb, t.who, reason)
+      }
       (Act::No, ..) => self.say("cancelled"),
       (Act::Reply, ..) if self.feedish() && self.selected_row_post_id().is_some() => self.feed_reply(),
       (Act::Reply, ..) => self.reply_selected(),
@@ -468,6 +488,14 @@ impl App {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => p.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => p.menu.step(-1),
       Key::Named(NamedKey::Enter) => return self.pop_pick(),
+      // a ban's reasons answer to their digit
+      Key::Character(d) if p.todo.is_some() && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
+        match usize::from(d.as_bytes()[0] - b'0') {
+          n @ 1..=9 if n < p.menu.items.len() && matches!(p.menu.items[n].0, Act::Why(_)) => p.menu.at = n,
+          _ => return,
+        }
+        return self.pop_pick();
+      }
       Key::Named(NamedKey::Escape) => self.pop = None,
       _ => return,
     }

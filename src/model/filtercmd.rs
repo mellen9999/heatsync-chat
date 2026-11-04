@@ -6,6 +6,7 @@
 //   /hideword [term]  /unhideword <term>      hide lines containing a term; no term lists them
 //   /highlight [term] /unhighlight <term>     light up lines containing a whole word
 //   /automod [regex]  /unautomod <regex>      hide lines matching a pattern (the ext's filter regex); no arg lists
+//   /banreason [text]  /unbanreason <text>    quick reasons a ban offers; no text lists them
 //   /rule [list]                              the per-rule hide / highlight list, in the order they win
 //   /rule add <hide|highlight> <keyword|regex|user|badge|msgtype|expr> <value>
 //   /rule del|on|off|up|down <number|id>
@@ -32,6 +33,8 @@ pub enum Cmd {
   Word { marks: bool, add: bool, term: Option<String> },
   // an automod pattern: add or remove, and the pattern (None = list them)
   Pattern { add: bool, pat: Option<String> },
+  // a ban reason: add or remove, and the reason (None = list them)
+  Reason { add: bool, text: Option<String> },
   // /rule ...
   Rule(RuleCmd),
   // show who is muted / blocked
@@ -119,6 +122,9 @@ pub fn command(text: &str) -> Option<Cmd> {
     "automod" => Cmd::Pattern { add: true, pat: term },
     "unautomod" if term.is_some() => Cmd::Pattern { add: false, pat: term },
     "unautomod" => Cmd::Usage("usage: /unautomod <pattern>"),
+    "banreason" => Cmd::Reason { add: true, text: term },
+    "unbanreason" if term.is_some() => Cmd::Reason { add: false, text: term },
+    "unbanreason" => Cmd::Usage("usage: /unbanreason <reason>"),
     "rule" => rule(rest),
     // the lists
     "mutes" if rest.is_empty() => Cmd::Mutes,
@@ -130,6 +136,14 @@ pub fn command(text: &str) -> Option<Cmd> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn ban_reasons_keep_spaces() {
+    assert_eq!(command("/banreason hate  speech"), Some(Cmd::Reason { add: true, text: Some("hate  speech".into()) }));
+    assert_eq!(command("/banreason"), Some(Cmd::Reason { add: true, text: None }));
+    assert_eq!(command("/unbanreason x"), Some(Cmd::Reason { add: false, text: Some("x".into()) }));
+    assert!(matches!(command("/unbanreason"), Some(Cmd::Usage(_))));
+  }
 
   #[test]
   fn patterns_keep_spaces() {
