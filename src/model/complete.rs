@@ -36,6 +36,8 @@ pub struct Complete {
   pub at: usize,
   // the shown pick's chip, when the cycle added it (dropped again on the next step)
   pub chipped: Option<Box<str>>,
+  // the catalog leg of this cycle (None for `@`, `/`, `:` and short words)
+  pub remote: Option<super::catalog::Cycle>,
 }
 
 impl Complete {
@@ -44,10 +46,12 @@ impl Complete {
     self.matches.get(self.at).filter(|m| m.emote).map(|m| &*m.name)
   }
 
-  // the tooltip over the box: "2/14 PogU · channel · 7tv users"
+  // the tooltip over the box: "2/14 PogU · channel · 7tv users", plus "searching…" while a catalog page is out
   pub fn tip(&self) -> Option<String> {
-    let m = self.matches.get(self.at)?;
-    Some(format!("{}/{} {} · {}", self.at + 1, self.matches.len(), m.shown(), m.what))
+    let busy = self.remote.as_ref().is_some_and(|r| r.pending);
+    let Some(m) = self.matches.get(self.at) else { return busy.then(|| "searching 7tv · ffz…".to_string()) };
+    let wait = if busy { " · searching…" } else { "" };
+    Some(format!("{}/{} {} · {}{wait}", self.at + 1, self.matches.len(), m.shown(), m.what))
   }
 }
 
@@ -185,7 +189,14 @@ mod tests {
   #[test]
   fn tip_and_emote_pick() {
     let p = |name: &str, emote| Pick { name: name.into(), what: "channel · 7tv users", emote, code: None };
-    let c = Complete { start: 0, end: 0, matches: vec![p("Kappa", true), p("alice", false)], at: 0, chipped: None };
+    let c = Complete {
+      start: 0,
+      end: 0,
+      matches: vec![p("Kappa", true), p("alice", false)],
+      at: 0,
+      chipped: None,
+      remote: None,
+    };
     assert_eq!(c.emote(), Some("Kappa"));
     assert_eq!(c.tip().as_deref(), Some("1/2 Kappa · channel · 7tv users"));
     let c = Complete { at: 1, ..c };
@@ -200,7 +211,7 @@ mod tests {
     assert_eq!(r[0].shown(), "😄 :smile:");
     assert!(r.len() <= crate::model::emoji::MAX && r.iter().all(|p| p.what == "emoji"));
     assert!(emoji("").is_empty() && emoji("zzzzzzzz").is_empty());
-    let c = Complete { start: 0, end: 0, matches: r, at: 0, chipped: None };
+    let c = Complete { start: 0, end: 0, matches: r, at: 0, chipped: None, remote: None };
     assert_eq!(c.tip().as_deref().map(|t| t.ends_with("😄 :smile: · emoji")), Some(true));
     assert_eq!(c.emote(), None, "an emoji is text, never a chip");
   }

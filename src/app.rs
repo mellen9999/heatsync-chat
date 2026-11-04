@@ -274,6 +274,9 @@ pub struct App {
   recents: Recents,
   // how often each emote gets picked: tab ranks by it
   frecency: Frecency,
+  // tab-complete's catalog search: the newest ask's number, and what was taken from it (never read by chat)
+  catalog_epoch: u32,
+  catalog_reg: crate::model::catalog::Registry,
   // pointer is over the logo button
   btn_hover: bool,
   up_hover: bool,
@@ -457,6 +460,8 @@ impl App {
       gifs: Default::default(),
       recents: Recents::load(),
       frecency: Frecency::load(Recents::load().names(), now_ms()),
+      catalog_epoch: 0,
+      catalog_reg: Default::default(),
       btn_hover: false,
       up_hover: false,
       prompt: None,
@@ -848,6 +853,7 @@ impl App {
         v.deselect();
       }
       let text = crate::model::emoji::convert(&text).into_owned();
+      self.auto_add(&text);
       self.net.send(Cmd::Send { platform, chan, text, reply });
       if let Some(v) = self.view() {
         v.scroll_to_bottom();
@@ -2192,6 +2198,7 @@ impl App {
       NetEvent::Deleted { id, res } => self.on_deleted(id, res),
       NetEvent::Logs { epoch, res } => self.on_logs(epoch, res),
       NetEvent::Gifs { epoch, q, res } => self.on_gifs(epoch, q, res),
+      NetEvent::Catalog { epoch, stv, ffz } => self.on_catalog(epoch, stv, ffz),
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),

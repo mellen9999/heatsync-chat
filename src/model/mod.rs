@@ -1,6 +1,7 @@
 pub mod automod;
 pub mod blocked;
 pub mod card;
+pub mod catalog;
 pub mod chan;
 pub mod chatters;
 pub mod color;

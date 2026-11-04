@@ -2,6 +2,7 @@
 // the ui talks to it through `Net` and hears back through winit user events
 pub mod auth;
 pub mod blocked;
+mod catalog;
 mod cosmetics;
 pub mod emote_ops;
 pub mod held;
@@ -185,6 +186,13 @@ pub enum NetEvent {
     res: Result<crate::model::gifs::Page, crate::model::gifs::Fail>,
   },
   FeedLive(crate::model::post::Post),
+  // tab-complete's catalog search: one page from 7tv and ffz (None = that one failed or wasn't asked), tagged
+  // with the ask it answers
+  Catalog {
+    epoch: u32,
+    stv: Option<crate::model::catalog::Page>,
+    ffz: Option<crate::model::catalog::Page>,
+  },
   // followed streamers' twitch colors (lowercase login, rgb)
   FollowColors(Vec<(Box<str>, u32)>),
   // your mute / block lists on heatsync, read after a login
@@ -351,6 +359,8 @@ pub enum Cmd {
   // the mod tools screen: load, shield, an unban request, an automod level
   Tools(Box<str>, modtools::Op),
   Emote(emote_ops::EmoteCmd),
+  // search the 7tv / ffz catalogs for tab-complete: the word, the ask's number, which page, from whom
+  Catalog { q: Box<str>, epoch: u32, page: u32, stv: bool, ffz: bool },
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
   // a pasted picture: width, height, rgba bytes
@@ -765,6 +775,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Emote(c) => {
         let _ = sess_tx.send(session::Cmd::Emote(c));
+      }
+      Cmd::Catalog { q, epoch, page, stv, ffz } => {
+        tokio::spawn(catalog::run(http.clone(), q, epoch, page, (stv, ffz), out.clone()));
       }
       Cmd::Upload(p) => {
         let _ = sess_tx.send(session::Cmd::Upload(p));

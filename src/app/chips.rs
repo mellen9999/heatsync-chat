@@ -1,5 +1,5 @@
 // emotes in the message box (the ext's input preview): which words show as their emote, and when a
-// typed word turns into one. a chip is only a name in the line's set; the text sent is unchanged
+// typed word turns into one (a catalog pick you tabbed onto shows too, box only). a chip is only a name in the line's set; the text sent is unchanged
 use super::App;
 use crate::ui::input_bar::Chip;
 use crate::ui::res::EMOTE_PX;
@@ -26,6 +26,8 @@ impl App {
     let found = self.res.emotes.channel(chan, word).map(e).or_else(|| self.owned_emote(word));
     let found =
       found.or_else(|| self.res.emotes.twitch_global(word).map(e)).or_else(|| self.res.emotes.global(word).map(e));
+    // last: a catalog pick you took, drawn in the box only. nothing that draws a chat line asks this
+    let found = found.or_else(|| self.catalog_reg.get(word).map(|r| (r.url.clone(), (0, 0), r.zero_width)));
     found.filter(|(url, _, _)| !self.res.blocked.contains(word, url))
   }
 
