@@ -64,7 +64,7 @@ impl Fail {
     };
     match self {
       Fail::Missing(pkg) => format!("{ing} needs {pkg}: paru -S {pkg}"),
-      Fail::NoDisplay => format!("couldn't {verb}: no desktop to reach the clipboard of"),
+      Fail::NoDisplay => format!("couldn't {verb}: no display found"),
       Fail::Timeout => format!("couldn't {verb}: the clipboard didn't answer"),
       Fail::TooBig(n) => format!("couldn't {verb}: too big ({}MB max)", (n >> 20).max(1)),
       Fail::Tool(prog) => format!("couldn't {verb}: {prog} failed"),
