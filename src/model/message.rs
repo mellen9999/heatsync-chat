@@ -66,6 +66,8 @@ pub enum Notice {
   Announce,
   Streak,
   Milestone,
+  // someone's line sent with a channel-point reward
+  Redeem,
 }
 
 // a run of text with its own ink, drawn around the name (feed ids/heat, whisper arrows)

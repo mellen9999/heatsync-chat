@@ -471,6 +471,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let tone = if raid { stream_events::Tone::Raid } else { stream_events::Tone::Gift };
       st.gate.news(crate::util::time::now_ms(), platform, channel, tone, &what).and_then(|l| send(NetEvent::Stream(l)))
     }
+    "stream:redeem" => {
+      let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
+      let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
+      if !ident::relay_key(&channel) || !st.rooms.contains(&(plat(platform), channel.clone())) {
+        return None;
+      }
+      st.gate.redeem(crate::util::time::now_ms(), platform, channel, v).and_then(|l| send(NetEvent::Stream(l)))
+    }
     "follow:colors" => {
       let colors = stream_events::follow_colors(v);
       (!colors.is_empty()).then(|| send(NetEvent::FollowColors(colors))).flatten()

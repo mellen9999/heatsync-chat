@@ -52,6 +52,7 @@ pub(super) fn notice_ink(n: Notice) -> Option<u32> {
     Notice::Bits | Notice::Announce => theme::YELLOW,
     Notice::Streak => theme::WHITE,
     Notice::Milestone => theme::CYAN,
+    Notice::Redeem => theme::TWITCH,
   })
 }
 

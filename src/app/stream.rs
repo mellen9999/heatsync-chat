@@ -18,6 +18,7 @@ fn color(t: Tone) -> u32 {
     Tone::Offline | Tone::Moment => theme::WHITE,
     Tone::Raid => theme::TWITCH,
     Tone::Gift => theme::GREEN,
+    Tone::Redeem => theme::CYAN,
   }
 }
 
@@ -27,7 +28,7 @@ fn row(l: &Line, color: u32, user_id: Option<u64>) -> Message {
   let ink = self::color(l.tone);
   let mut m = Message::system(now_ms(), l.platform, "");
   m.kind = MsgKind::Event;
-  m.login = l.channel.clone();
+  m.login = l.person();
   m.nick = l.name.clone();
   m.color = color;
   m.user_id = user_id.map(|n| n.to_string().into()).unwrap_or_default();
@@ -86,8 +87,8 @@ impl App {
   pub(super) fn say_line(&mut self, tab: usize, m: Message, tone: Tone) {
     self.tabs[tab].chat().push(m);
     self.touched(tab);
-    // the channel's own news (not the chat-spike line) turns an unwatched tab yellow
-    if tone != Tone::Moment && tab != self.active && !self.tabs[tab].event {
+    // the channel's own news (not the chat-spike line, a gift bomb or a redeem) turns an unwatched tab yellow
+    if !matches!(tone, Tone::Moment | Tone::Gift | Tone::Redeem) && tab != self.active && !self.tabs[tab].event {
       self.tabs[tab].event = true;
       self.bar_dirty = true;
     }
@@ -104,6 +105,7 @@ impl App {
       Tone::Moment => self.set.moments,
       Tone::Raid => self.set.ev_raid,
       Tone::Gift => self.set.ev_sub,
+      Tone::Redeem => self.set.ev_redeem,
     };
     if !shown {
       return;
@@ -114,12 +116,12 @@ impl App {
     // their color: the frame's, else the followed colors, else what chat has seen of them (a lookup is
     // queued if nobody has), else twitch's name palette. a line without the frame's color follows the
     // lookup when it lands (`restyle`)
+    let who = l.person();
     let (c, uid) = match l.color {
-      Some(c) => (
-        color::readable(c),
-        (l.platform == Platform::Twitch).then(|| self.res.chatters.twitch_id(&l.channel)).flatten(),
-      ),
-      None => hue(&self.follow_colors, &mut self.res.chatters, l.platform, &l.channel),
+      Some(c) => {
+        (color::readable(c), (l.platform == Platform::Twitch).then(|| self.res.chatters.twitch_id(&who)).flatten())
+      }
+      None => hue(&self.follow_colors, &mut self.res.chatters, l.platform, &who),
     };
     let m = row(&l, c, uid);
     // a room's other news stays in its own tab (ext: the live channel's buffer)

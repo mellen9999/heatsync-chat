@@ -267,6 +267,12 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       if bits > 0 {
         m.extra().bits = bits;
       }
+      // a line sent with a channel-point reward (ext .hs-mc-redeem-label): twitch's irc names no reward,
+      // so the label is the ext's generic one. still the person's own line
+      if l.tag("custom-reward-id").is_some() {
+        m.system = Some("◆ channel point redeem".into());
+        m.extra().notice = Notice::Redeem;
+      }
       Chat::Msg(m)
     }
     "USERNOTICE" => {
@@ -773,6 +779,15 @@ mod tests {
     assert_eq!((bits("-5"), bits("x"), bits("99999999999")), (0, 0, 0));
     let (_, Chat::Msg(m)) = to_chat(&parse(PRIV).unwrap()).unwrap() else { panic!() };
     assert!(m.x.is_none(), "plain chat pays nothing");
+  }
+
+  // someone's redeem with words: their own line under the ext's label
+  #[test]
+  fn a_redeem_is_labelled_and_stays_their_line() {
+    let raw = "@custom-reward-id=0b2a-11;id=9;login=bob :bob!bob@bob PRIVMSG #c :play the song";
+    let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
+    assert_eq!((m.kind, m.notice(), m.system.as_deref()), (Kind::Chat, Notice::Redeem, Some("◆ channel point redeem")));
+    assert_eq!(&*m.body, "play the song");
   }
 
   #[test]

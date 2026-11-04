@@ -160,10 +160,13 @@ impl ChatView {
           Some(theme::MAGENTA)
         } else if r.msg.has(flag::HIGHLIGHTED) || r.look & filter::MARKED != 0 {
           Some(theme::CYAN)
+        } else if let Some(ink) = notice_ink(r.msg.notice()) {
+          // an event's ring outranks the session-first glow (ext: declared after it)
+          Some(ink)
         } else if r.msg.has(flag::NEW) && self.glow {
           Some(theme::YELLOW)
         } else {
-          r.msg.x.as_ref().map(|x| x.edge).filter(|&e| e != 0).or_else(|| notice_ink(r.msg.notice()))
+          r.msg.x.as_ref().map(|x| x.edge).filter(|&e| e != 0)
         };
         if let Some(m) = mark {
           c.fill(Rect::new(area.x, top, MARK_W, r.height).intersect(clip), m);

@@ -1164,14 +1164,17 @@ fn event_rows_wear_their_color() {
   resub.extra().notice = Notice::Milestone;
   let mut cheer = said("cat", "Cheer100 gg");
   cheer.extra().bits = 100;
+  let mut redeem = said("dan", "play the song");
+  redeem.system = Some("◆ channel point redeem".into());
+  redeem.extra().notice = Notice::Redeem;
   let mut v = ChatView::new(10, "c".into());
   v.zebra = false;
   v.resize(400);
-  for m in [sub, resub, cheer] {
+  for m in [sub, resub, cheer, redeem] {
     v.push(m);
   }
-  let area = Rect::new(0, 0, 400, 120);
-  let mut c = Canvas::new(400, 120);
+  let area = Rect::new(0, 0, 400, 160);
+  let mut c = Canvas::new(400, 160);
   v.draw(&mut c, &mut res, area, area);
   if let Some(path) = std::env::var_os("HSC_DUMP") {
     let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();
@@ -1185,6 +1188,8 @@ fn event_rows_wear_their_color() {
   assert_eq!(at(0, y0 + 2), theme::MAGENTA);
   assert_eq!(at(0, y0 + rows[0] + 2), theme::CYAN);
   assert_ne!(at(0, y0 + rows[0] + rows[1] + 2), theme::MAGENTA);
+  // the redeem: twitch-colored edge
+  assert_eq!(at(0, y0 + rows[0] + rows[1] + rows[2] + 2), theme::TWITCH);
   let count = |ink| c.px.iter().filter(|&&p| p == ink).count();
   assert!(count(theme::TWITCH) > 60, "the bits box and its words");
   // the sub's words are magenta, not the dim of a plain notice

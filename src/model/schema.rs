@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 64] = [
+pub static DEFS: [Def; 65] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -611,6 +611,18 @@ pub static DEFS: [Def; 64] = [
     ctl: pill!(ev_sub),
     fx: Fx::None,
     wire: Wire::Flag("hermesEvents", "sub"),
+  },
+  Def {
+    id: "ev_redeem",
+    cmd: Some("/redeems"),
+    cat: Cat::Notifs,
+    section: "stream events",
+    label: "redeems",
+    tip: "line when someone redeems a channel-point reward",
+    alias: "redeem channel points rewards",
+    ctl: pill!(ev_redeem),
+    fx: Fx::None,
+    wire: Wire::Flag("hermesEvents", "redeem"),
   },
   Def {
     id: "ev_pred",

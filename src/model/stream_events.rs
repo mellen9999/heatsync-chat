@@ -25,6 +25,8 @@ pub enum Tone {
   // the channel's own news (ext stream-event raid / sub): only in its own tab
   Raid,
   Gift,
+  // a channel-point redeem: the line heads with the redeemer, not the channel
+  Redeem,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +61,13 @@ pub struct Line {
   pub color: Option<u32>,
   pub verb: Box<str>,
   pub game: Box<str>,
+}
+
+impl Line {
+  // whose name heads the line: the redeemer for a redeem, else the channel
+  pub fn person(&self) -> Box<str> {
+    if self.tone == Tone::Redeem { self.name.to_ascii_lowercase().into() } else { self.channel.clone() }
+  }
 }
 
 // `follow:colors`: followed streamers' twitch colors, {login: "#hex"}. hostile: bounded count, valid
@@ -140,6 +149,31 @@ impl Gate {
     let e =
       Ev { kind: Kind::Update, platform, channel, game: "".into(), prev_game: "".into(), name: "".into(), color: None };
     self.line(now, &e, tone, what)
+  }
+
+  // `stream:redeem` (ext: `◆ redeemed "title" (cost)` under the redeemer's name). two people taking the
+  // same reward are two lines
+  pub fn redeem(&mut self, now: i64, platform: Platform, channel: Box<str>, v: &serde_json::Value) -> Option<Line> {
+    let who = clean(v.get("user").and_then(serde_json::Value::as_str).unwrap_or(""));
+    let title = clean(v.get("title").and_then(serde_json::Value::as_str).unwrap_or(""));
+    if who.is_empty() || who.contains(' ') || title.is_empty() {
+      return None;
+    }
+    let cost = v.get("cost").and_then(serde_json::Value::as_u64).unwrap_or(0).min(100_000_000);
+    let what = if cost > 0 { format!("redeemed \"{title}\" ({cost})") } else { format!("redeemed \"{title}\"") };
+    let e = Ev {
+      kind: Kind::Update,
+      platform,
+      channel,
+      game: "".into(),
+      prev_game: "".into(),
+      name: who.clone(),
+      color: None,
+    };
+    let mut l = self.line(now, &e, Tone::Redeem, &format!("{what} · {who}"))?;
+    l.verb = format!("◆ {what}").into();
+    l.text = format!("[{}] {who} ◆ {what}", l.channel).into();
+    Some(l)
   }
 
   // the grace clock runs from launch, like the ext's content-script load. left to the first event it
@@ -271,6 +305,24 @@ mod tests {
       ("[xqc] ◆ raided zbra with 120 viewers", "xqc", "◆ raided zbra with 120 viewers", Tone::Raid)
     );
     assert!(g.news(1000, Platform::Twitch, "xqc".into(), Tone::Raid, &raid).is_none(), "one line a minute");
+  }
+
+  #[test]
+  fn a_redeem_heads_with_the_redeemer() {
+    use super::*;
+    use serde_json::json;
+    let mut g = Gate::default();
+    let f = |who: &str| json!({"user": who, "title": "hydrate", "cost": 500});
+    let l = g.redeem(0, Platform::Twitch, "xqc".into(), &f("Bob")).unwrap();
+    assert_eq!(
+      (&*l.name, &*l.person(), &*l.verb, l.tone),
+      ("Bob", "bob", "◆ redeemed \"hydrate\" (500)", Tone::Redeem)
+    );
+    assert_eq!(&*l.text, "[xqc] Bob ◆ redeemed \"hydrate\" (500)");
+    assert!(g.redeem(10, Platform::Twitch, "xqc".into(), &f("Amy")).is_some(), "another person, another line");
+    assert!(g.redeem(20, Platform::Twitch, "xqc".into(), &f("Bob")).is_none(), "the same one twice is one");
+    assert!(g.redeem(30, Platform::Twitch, "xqc".into(), &f("a b")).is_none());
+    assert!(g.redeem(30, Platform::Twitch, "xqc".into(), &json!({"user": "c", "title": ""})).is_none());
   }
 
   #[test]

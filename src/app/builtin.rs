@@ -137,6 +137,29 @@ mod tests {
     assert!(app.tabs[i].unread);
   }
 
+  // a redeem line lands only in its room's tab, headed by the redeemer, and is nobody's chat line
+  #[test]
+  fn a_redeem_line_stays_in_its_room() {
+    use crate::model::message::{Kind as MsgKind, Platform};
+    use crate::model::stream_events::Gate;
+    use crate::net::Net;
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+    let pos = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
+    let before = app.tabs[pos(&app, "xqc")].view.len();
+    let v = serde_json::json!({"user": "Bob", "title": "hydrate", "cost": 500});
+    let l = Gate::default().redeem(0, Platform::Twitch, "forsen".into(), &v).unwrap();
+    app.on_stream(l);
+    let m = app.tabs[pos(&app, "forsen")].view.last_msg().unwrap();
+    assert_eq!((m.kind, &*m.login, &*m.nick), (MsgKind::Event, "bob", "Bob"));
+    assert!(!m.kind.said());
+    assert_eq!(app.tabs[pos(&app, "xqc")].view.len(), before, "not in other rooms");
+    app.set.ev_redeem = false;
+    let v = serde_json::json!({"user": "Amy", "title": "hydrate"});
+    app.on_stream(Gate::default().redeem(0, Platform::Twitch, "forsen".into(), &v).unwrap());
+    assert_eq!(&*app.tabs[pos(&app, "forsen")].view.last_msg().unwrap().login, "bob", "off: not shown");
+  }
+
   // the room shows what a mod did in the ext's words and colors, and the line taken stays, dimmed
   #[test]
   fn a_deleted_line_is_dimmed_and_told() {
