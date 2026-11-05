@@ -618,6 +618,20 @@ impl ChatView {
     any
   }
 
+  // youtube lines by message id or author channel id (a ban takes back their backlog): greyed like any delete
+  pub fn clear_yt(&mut self, ids: &[Box<str>], authors: &[Box<str>]) {
+    let hit = |m: &Message| {
+      m.platform == Platform::Youtube
+        && m.flags & flag::CLEARED == 0
+        && ((!m.id.is_empty() && ids.contains(&m.id)) || (!m.user_id.is_empty() && authors.contains(&m.user_id)))
+    };
+    for r in self.rows.iter_mut().filter(|r| hit(&r.msg)) {
+      r.msg.flags |= flag::CLEARED;
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
   pub fn clear_user(&mut self, login: &str) {
     for r in self.rows.iter_mut().filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System) {
       r.msg.flags |= flag::CLEARED;

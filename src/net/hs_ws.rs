@@ -402,6 +402,10 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let msgs = relay::batch(v.get("messages"), relay::youtube);
       send(NetEvent::Relay { platform: Platform::Youtube, key, msgs, history: false })
     }
+    "youtube:delete" => {
+      let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
+      super::ytdel::parse(v).and_then(|gone| send(NetEvent::YtGone { key, gone }))
+    }
     "youtube:status" => {
       let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
       let status: Box<str> = v.get("status").and_then(Value::as_str)?.chars().take(32).collect::<String>().into();
@@ -426,6 +430,9 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         .flatten();
       send(NetEvent::SendersStale { ids, ver, removed })
     }
+    // a bulk change to YOUR inventory from the site (apply a set, import, undo/redo): refetch it, exactly
+    // like an add (the ext's scheduleInventoryRefresh). no payload is read; only your own sockets get it
+    "emotes:refresh" => send(NetEvent::Inventory { removed: None }),
     // the server's heat push for chatters whose score moved (about every minute): kept for those on screen
     "user:heat_batch_update" => {
       let got = crate::heatsync::heat::parse_push(v);
@@ -751,6 +758,34 @@ mod tests {
     // a bare id refreshes the twitch chatter and a native account of that id; kick_5 only kick 5
     assert_eq!(cosmetic_ids(&v), vec![PaintId::Native("37005319".into()), PaintId::Twitch(37005319), PaintId::Kick(5)]);
     assert!(cosmetic_ids(&json!({"type": "cosmetic:changed"})).is_empty());
+  }
+
+  #[test]
+  fn youtube_delete_and_emotes_refresh_are_bounded_and_the_site_only_frames_are_ignored() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let del = json!({"type": "youtube:delete", "channelId": "@chan", "videoId": "v",
+      "messageIds": ["m1", "bad id", 5], "authorChannelIds": []});
+    dispatch(&del, &mut st, &out);
+    let Ok(NetEvent::YtGone { key, gone }) = rx.try_recv() else { panic!("no delete") };
+    assert_eq!((&*key, gone.ids.len(), gone.authors.len()), ("@chan", 1, 0));
+    // no room, a hostile room, or nothing usable to remove: nothing
+    for bad in [
+      json!({"type": "youtube:delete", "messageIds": ["m1"]}),
+      json!({"type": "youtube:delete", "channelId": "a b", "messageIds": ["m1"]}),
+      json!({"type": "youtube:delete", "channelId": "@chan", "messageIds": "m1"}),
+    ] {
+      dispatch(&bad, &mut st, &out);
+    }
+    assert!(rx.try_recv().is_err());
+    // emotes:refresh is a bare nudge; whatever rides along is never read
+    dispatch(&json!({"type": "emotes:refresh", "junk": "x".repeat(10_000)}), &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::Inventory { removed: None })));
+    // settings:delete / heat:updated are the site's (setting keys, feed-post heat): nothing here uses them
+    dispatch(&json!({"type": "settings:delete", "key": "theme", "ts": 1}), &mut st, &out);
+    dispatch(&json!({"type": "heat:updated", "messageId": "ab12", "newHeat": 9, "newMaxHeat": 9}), &mut st, &out);
+    assert!(rx.try_recv().is_err());
   }
 
   #[test]

@@ -39,6 +39,7 @@ pub mod twclip;
 pub mod update;
 pub mod upload;
 mod youtube;
+pub(crate) mod ytdel;
 
 use crate::model::ident;
 use std::sync::Arc;
@@ -90,6 +91,11 @@ pub enum NetEvent {
     key: Box<str>,
     login: Box<str>,
     secs: Option<u32>,
+  },
+  // youtube lines a mod deleted (by id), or all a banned author said (by channel id)
+  YtGone {
+    key: Box<str>,
+    gone: ytdel::Gone,
   },
   // a send on kick was refused for a reason that lasts, or went through (None): the box keeps saying why
   Lock(Platform, Box<str>, Option<crate::model::lock::Cause>),

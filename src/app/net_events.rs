@@ -593,6 +593,15 @@ impl App {
         }
         self.mod_log(platform, &key, row.body.to_string());
       }
+      NetEvent::YtGone { key, gone } => {
+        // lines still waiting in the pacer are deleted too: show them first, then grey
+        let waiting = self.pacer.flush(&key);
+        self.relay_show(Platform::Youtube, &key, waiting, false);
+        for i in self.tabs_with(Platform::Youtube, &key) {
+          self.tabs[i].chat().clear_yt(&gone.ids, &gone.authors);
+          self.touched(i);
+        }
+      }
       NetEvent::YtStatus { key, status } => {
         match &*status {
           "connected" => self.live_mark(Platform::Youtube, &key, true),

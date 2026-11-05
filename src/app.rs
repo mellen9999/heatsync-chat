@@ -99,6 +99,8 @@ mod tests_store;
 mod tests_tabs;
 #[cfg(test)]
 mod tests_whisper_toast;
+#[cfg(test)]
+mod tests_ytgone;
 mod tip;
 mod unseen;
 mod update;
