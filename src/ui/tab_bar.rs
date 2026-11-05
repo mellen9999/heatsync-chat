@@ -16,7 +16,7 @@ pub struct TabLabel<'a> {
   pub hot: u32,
   // tab mode's cursor is on it: underlined
   pub cursor: bool,
-  // its channel is live: a red dot in its top right corner (ext data-live)
+  // its channel is live: a red dot at its right end, centered on the line (ext data-live)
   pub live: bool,
 }
 
@@ -92,7 +92,7 @@ pub fn draw(
       r
     };
     if t.live {
-      dot(c, Rect::new(r.right() - d - 2, r.y + 2, d, d).intersect(inner), d, theme::RED);
+      dot(c, Rect::new(r.right() - d - 2, r.y + (r.h - d) / 2, d, d).intersect(inner), d, theme::RED);
     }
     if t.cursor {
       let u = Rect::new(r.x + 2, r.bottom() - 2, (r.w - 4).max(1), 1);
@@ -140,7 +140,7 @@ pub fn draw(
   hits
 }
 
-// a filled round status dot of diameter `d` at `r`'s corner (the one round shape the design allows)
+// a filled round status dot of diameter `d` at `r` (the one round shape the design allows)
 fn dot(c: &mut Canvas, r: Rect, d: i32, ink: u32) {
   let rad = d as f32 / 2.0;
   for y in 0..r.h.min(d) {

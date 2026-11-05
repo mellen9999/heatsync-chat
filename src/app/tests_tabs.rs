@@ -739,6 +739,16 @@ fn headless_live_tab_has_a_red_dot() {
   // live on kick only: the merged tab lights
   app.on_net(NetEvent::LiveDots { twitch: (tw.clone(), Some(vec![])), kick: (kk.clone(), Some(vec!["xqc".into()])) });
   assert!(red(&mut app, xqc) > 4 && red(&mut app, forsen) == 0);
+  // centered on the tab's line, like the ext: as many red rows above the middle as below
+  let at = (0..app.tabs.len()).filter(|&j| app.visible(j)).position(|j| j == xqc).unwrap();
+  let r = app.bar_hits[at];
+  let rows: Vec<i32> = (r.y..r.bottom())
+    .filter(|&y| {
+      (r.x..r.right()).any(|x| app.canvas.px[(y * app.canvas.w + x) as usize] & 0xffffff == crate::ui::theme::RED)
+    })
+    .collect();
+  let (top, bot) = (rows[0] - r.y, r.bottom() - 1 - rows[rows.len() - 1]);
+  assert!((top - bot).abs() <= 1, "dot off center: {top} above, {bot} below");
   crate::bench::dump(&app.canvas);
   // no answer: the dot stays
   app.on_net(NetEvent::LiveDots { twitch: (tw.clone(), None), kick: (kk.clone(), None) });
