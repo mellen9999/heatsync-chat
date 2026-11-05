@@ -89,6 +89,11 @@ fn webp(bytes: &[u8]) -> Result<(u32, u32, Vec<Frame>), String> {
   let mut d = image_webp::WebPDecoder::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
   let (w, h) = d.dimensions();
   check_dims(w, h, !d.is_animated())?;
+  // a disposed frame clears to transparent, as browsers do (the file's own background hint is often
+  // opaque white). left unset, the decoder never clears, so every frame smears over the last
+  if d.is_animated() {
+    d.set_background_color([0; 4]).map_err(|e| e.to_string())?;
+  }
   let alpha = d.has_alpha();
   let len = d.output_buffer_size().ok_or("too large")?;
   let mut buf = vec![0u8; len];
@@ -265,6 +270,49 @@ mod tests {
     }
     let d = decode(&bytes, 2).unwrap();
     assert_eq!(d.frames.len(), 2);
+  }
+
+  // a 4x2 animation: red on the left half (disposed), then green on the right half
+  fn two_frame_webp(white_hint: bool) -> Vec<u8> {
+    let vp8l = |rgba: &[u8]| {
+      let mut out = Vec::new();
+      image_webp::WebPEncoder::new(&mut out).encode(rgba, 2, 2, image_webp::ColorType::Rgba8).unwrap();
+      out.split_off(12)
+    };
+    let chunk = |tag: &[u8], body: &[u8]| {
+      let mut c = [tag, &(body.len() as u32).to_le_bytes()[..], body].concat();
+      if body.len() % 2 == 1 {
+        c.push(0);
+      }
+      c
+    };
+    let anmf = |x: u8, rgba: &[u8]| {
+      let head = [x / 2, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 100, 0, 0, 0b11];
+      chunk(b"ANMF", &[&head[..], &vp8l(rgba)].concat())
+    };
+    let hint = if white_hint { [255; 4] } else { [0; 4] };
+    let body = [
+      &b"WEBP"[..],
+      &chunk(b"VP8X", &[0x12, 0, 0, 0, 3, 0, 0, 1, 0, 0]),
+      &chunk(b"ANIM", &[&hint[..], &[0, 0]].concat()),
+      &anmf(0, &[255, 0, 0, 255].repeat(4)),
+      &anmf(2, &[0, 255, 0, 255].repeat(4)),
+    ]
+    .concat();
+    chunk(b"RIFF", &body)
+  }
+
+  #[test]
+  fn a_disposed_webp_frame_clears_to_transparent_not_a_smear() {
+    for white_hint in [false, true] {
+      let d = decode(&two_frame_webp(white_hint), 2).unwrap();
+      assert_eq!((d.w, d.h, d.frames.len()), (4, 2, 2));
+      let px = |f: usize, x: usize| &d.frames[f].rgba[x * 4..x * 4 + 4];
+      assert_eq!(px(0, 0), [255, 0, 0, 255]);
+      assert_eq!(px(0, 3)[3], 0, "the untouched half starts clear");
+      assert_eq!(px(1, 0)[3], 0, "frame 1 was disposed, so its red is gone");
+      assert_eq!(px(1, 3), [0, 255, 0, 255]);
+    }
   }
 
   #[test]
