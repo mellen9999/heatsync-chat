@@ -50,6 +50,20 @@ impl Flairs {
     e.badge.as_ref()
   }
 
+  // account:changed (a flair set or cleared on heatsync, a link or unlink): ask again about everyone held.
+  // what they wear keeps showing until the answer lands, and `put` says which rows to repaint
+  pub fn stale(&mut self) {
+    if self.off {
+      return;
+    }
+    let now = Instant::now();
+    for (&id, e) in &mut self.map {
+      e.fetched = None;
+      e.asked = Some(now);
+      self.wanted.push(id);
+    }
+  }
+
   // never ask (the synthetic flood)
   pub fn mute(&mut self) {
     self.off = true;
@@ -136,6 +150,21 @@ mod tests {
   fn a_long_url_is_refused() {
     let long = format!("https://static-cdn.jtvnw.net/{}", "a".repeat(MAX_URL));
     assert!(badge(&sub(&long, "x")).is_none());
+  }
+
+  #[test]
+  fn an_account_change_asks_again_about_everyone_and_keeps_showing_meanwhile() {
+    let mut f = Flairs::default();
+    f.get(7);
+    f.take_wanted();
+    let b = Badge { url: "https://static-cdn.jtvnw.net/x".into(), title: "sub".into(), bg: None };
+    f.put(7, Some(b));
+    f.stale();
+    assert_eq!(f.take_wanted(), vec![7]);
+    assert!(f.get(7).is_some(), "the old flair shows until the answer");
+    assert!(f.take_wanted().is_empty(), "asked once, not again while in flight");
+    assert!(f.put(7, None), "a cleared flair repaints");
+    assert!(f.get(7).is_none());
   }
 
   #[test]

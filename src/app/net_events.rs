@@ -492,7 +492,12 @@ impl App {
         }
       }
       // linked or unlinked on heatsync.org: who you are (and so whose emotes are yours) is read again
-      NetEvent::AccountChanged => self.net.send(Cmd::Recheck),
+      NetEvent::AccountChanged => {
+        self.net.send(Cmd::Recheck);
+        // a flair set or cleared on heatsync says so with this frame: ask again now, not after the ttl
+        self.res.flairs.stale();
+        self.wake();
+      }
       NetEvent::SendersStale { ids, ver, removed } => {
         if self.prof {
           eprintln!("senders stale {}", ids.len());
