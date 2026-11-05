@@ -167,6 +167,11 @@ impl App {
       self.filter_cmd(cmd);
       return self.after_send();
     }
+    if let Some(cmd) = crate::model::presets::command(&self.line.text) {
+      self.line.take();
+      self.preset_cmd(cmd);
+      return self.after_send();
+    }
     if let Some(cmd) = crate::model::notes::command(&self.line.text) {
       self.line.take();
       self.note_cmd(cmd);

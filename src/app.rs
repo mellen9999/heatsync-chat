@@ -59,6 +59,7 @@ mod pin;
 mod pointer;
 mod pop;
 mod pred;
+mod presets;
 mod pronouns;
 mod quick;
 mod render;
@@ -396,6 +397,7 @@ impl App {
     let set = Settings::load();
     let acct = crate::model::sync::Acct::new(&set);
     crate::heatsync::content::set_shown(set.content());
+    crate::model::presets::edit(|c| *c = crate::model::presets::Customs::load());
     crate::model::filter::edit(|f| {
       *f = crate::model::filter::Filters::load();
       (f.bots, f.cmds, f.dupes, f.caps) = (set.hide_bots, set.hide_cmds, set.hide_dupes, set.automod_caps);

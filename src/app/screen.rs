@@ -63,6 +63,9 @@ pub struct Screen {
 pub(super) enum Target {
   Def(&'static Def),
   Preset(&'static Preset),
+  // one of your own presets (its place in the saved list), and the row that saves the current settings
+  Custom(usize),
+  SavePreset,
   // blocked terms: a term (its place in the list), ask for the permission, ask again
   Term(usize),
   Allow,
@@ -94,6 +97,8 @@ enum Do {
   Toggle,
   // l / h: set a switch on / off, or step zoom up / down
   Adjust(bool),
+  // x: delete the picked row (one of your presets)
+  Delete,
   Keys,
   Settings,
 }
@@ -231,6 +236,25 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       targets.push(Target::Preset(p));
     }
   }
+  let own = crate::model::presets::with(|c| c.all().to_vec());
+  let words = |hay: &str| q.split_whitespace().all(|w| hay.to_lowercase().contains(&w.to_lowercase()));
+  let rows: Vec<(usize, &crate::model::presets::Custom)> =
+    own.iter().enumerate().filter(|(_, c)| words(&format!("preset {}", c.name))).collect();
+  let save = words("preset save current as");
+  if !rows.is_empty() || save {
+    if lines.is_empty() {
+      lines.push(L::Head("presets".into()));
+      targets.push(Target::None);
+    }
+    for (i, c) in rows {
+      lines.push(L::Row { a: c.name.clone(), b: "x deletes".to_owned(), pill: Some(c.active(set)) });
+      targets.push(Target::Custom(i));
+    }
+    if save {
+      lines.push(L::Row { a: "save current as…".to_owned(), b: "enter types a name".to_owned(), pill: None });
+      targets.push(Target::SavePreset);
+    }
+  }
   let mut last = None;
   for d in DEFS.iter().filter(|d| d.matches(q)) {
     if last != Some((d.cat, d.section)) {
@@ -341,7 +365,7 @@ impl App {
     }
   }
 
-  fn apply_preset(&mut self, p: &'static Preset) {
+  pub(super) fn apply_preset(&mut self, p: &'static Preset) {
     for (id, on) in p.diff {
       if let Some(d) = schema::def(id)
         && d.put(&mut self.set, *on)
@@ -470,6 +494,7 @@ impl App {
         {
           s.typing = true
         }
+        Key::Character("x") if s.page == Page::Settings => act = Do::Delete,
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
         Key::Character("?") => act = Do::Settings,
         Key::Named(NamedKey::Enter | NamedKey::Space) if !ctrl => act = Do::Toggle,
@@ -491,6 +516,7 @@ impl App {
       Do::Settings => self.open_screen(Page::Settings),
       Do::Toggle => self.screen_pick(None),
       Do::Adjust(up) => self.screen_pick(Some(up)),
+      Do::Delete => self.delete_picked_preset(),
     }
   }
 
@@ -529,6 +555,11 @@ impl App {
         Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
+      (Some(Target::Custom(i)), None) => self.apply_custom_at(i),
+      (Some(Target::SavePreset), None) => {
+        self.close_screen();
+        self.type_into_line("/preset save ");
+      }
       (Some(Target::Account(step)), None) => self.account_step(step),
       (Some(Target::Live(i)), None) => self.following_pick(i),
       (Some(Target::Imp(step)), None) => self.import_pick(step),
@@ -591,6 +622,8 @@ impl App {
     let tip = match targets.get(s.st.at) {
       Some(Target::Def(d)) => d.tip,
       Some(Target::Preset(p)) => p.tip,
+      Some(Target::Custom(_)) => "your saved preset: enter applies it, x deletes it",
+      Some(Target::SavePreset) => "saves every switch and choice that differs from the defaults, under a name",
       Some(Target::Account(step)) => step.tip(),
       _ if s.page == Page::Following => self.following.tip(match targets.get(s.st.at) {
         Some(Target::Live(i)) => Some(*i),

@@ -37,6 +37,7 @@ pub static KEYS: [Group; 13] = [
     rows: &[
       k("f1", "this screen · the ? button · /keys"),
       k("ctrl-,", "settings · the ⚙ button"),
+      k("/preset", "apply a settings preset; /preset save <name> keeps yours (settings: enter applies, x deletes)"),
       k("ctrl-t", "add a channel · the + button"),
       k("ctrl-l", "log in · account menu (link, log out)"),
       k("ctrl-shift-l", "log out"),
