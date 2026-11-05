@@ -58,11 +58,16 @@ impl App {
     let h = self.res.images.px(EMOTE_PX);
     let mut out: Vec<Chip> = Vec::new();
     for r in self.line.stacks() {
-      let found: Vec<Found> = self.line.text[r.clone()].split(' ').filter_map(|w| self.box_emote(w)).collect();
+      let words = &self.line.text[r.clone()];
+      // a stack that starts on a lone emoji (not an emote): the emoji is drawn under its overlays
+      let first = words.split(' ').next().unwrap_or("");
+      let glyph = (!self.line.chips.contains(first) && crate::ui::text::lone_emoji(first)).then(|| first.into());
+      let found: Vec<Found> = words.split(' ').filter_map(|w| self.box_emote(w)).collect();
       let Some(dims) = found.first().map(|f| f.1) else { continue };
       let layers: Vec<_> = found.iter().map(|f| self.res.images.id(&f.0, EMOTE_PX)).collect();
       let w = self.res.images.width(layers[0], dims);
-      out.push(Chip { range: r, layers, w, h });
+      let w = if glyph.is_some() { w.max(h) } else { w };
+      out.push(Chip { range: r, glyph, layers, w, h });
     }
     out
   }
@@ -81,7 +86,7 @@ impl App {
     let on_base = || {
       let before = head[..a].strip_suffix(' ')?;
       let prev = &before[before.rfind(' ').map_or(0, |i| i + 1)..];
-      l.chips.contains(prev).then_some(())?;
+      (l.chips.contains(prev) || crate::ui::text::lone_emoji(prev)).then_some(())?;
       self.box_emote(word).filter(|f| f.2)
     };
     if owned.is_some() || on_base().is_some() {

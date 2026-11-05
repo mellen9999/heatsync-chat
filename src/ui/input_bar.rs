@@ -7,7 +7,7 @@ use parley::editing::{Cursor, Selection};
 use parley::{Affinity, InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
-use super::chat_view::blit_layer;
+use super::chat_view::{blit_layer, emoji_glyph};
 use super::logo::Logo;
 use super::mode_label::{self, Seg};
 use super::text::{Ink, Span, Text, TextLayout};
@@ -22,6 +22,8 @@ const CURSOR_W: i32 = 2;
 // one emote drawn in the box: the line bytes it stands for (a base and the overlays stacked on it), its layers, its size
 pub struct Chip {
   pub range: Range<usize>,
+  // an emoji the overlays sit on (drawn under them), when the stack's base is one
+  pub glyph: Option<Box<str>>,
   pub layers: Vec<ImgId>,
   pub w: u32,
   pub h: u32,
@@ -327,9 +329,7 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
     c.fill(Rect::new(x, y, bw.ceil() as i32, h).intersect(area), theme::WHITE);
   }
   let mut next: Option<u32> = None;
-  text.draw(l, c, ox, oy, area, |c, pb| {
-    let Some(chip) = b.chips.get(pb.id as usize) else { return };
-    let rect = Rect::new(pb.x.round() as i32, pb.y.round() as i32, pb.width.round() as i32, pb.height.round() as i32);
+  let mut layers = |c: &mut Canvas, chip: &Chip, rect: Rect| {
     for &id in &chip.layers {
       let Some((f, w, h, flip)) = images.frame(id) else { continue };
       blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, area);
@@ -337,7 +337,24 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
         next = Some(next.map_or(ms, |n| n.min(ms)));
       }
     }
+  };
+  // a stack on an emoji needs the text drawer, busy inside its own walk: drawn right after
+  let mut on_emoji = Vec::new();
+  text.draw(l, c, ox, oy, area, |c, pb| {
+    let Some(chip) = b.chips.get(pb.id as usize) else { return };
+    let rect = Rect::new(pb.x.round() as i32, pb.y.round() as i32, pb.width.round() as i32, pb.height.round() as i32);
+    if chip.glyph.is_some() {
+      on_emoji.push((chip, rect));
+      return;
+    }
+    layers(c, chip, rect);
   });
+  for (chip, rect) in on_emoji {
+    if let Some(g) = &chip.glyph {
+      emoji_glyph(c, text, rect, g, area);
+    }
+    layers(c, chip, rect);
+  }
   // the hint's button: underlined, reversed while the pointer is on it
   let link = (hinting(b) && link_len(b) > 0).then(|| span_rect(l, g.at..g.at + link_len(b), ox, oy)).flatten();
   if let Some(r) = link.filter(|r| !r.intersect(area).is_empty()) {

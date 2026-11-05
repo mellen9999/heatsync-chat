@@ -27,7 +27,7 @@ pub(super) fn stand_in(c: &mut Canvas, text: &mut Text, r: Rect, ch: char, ink: 
 }
 
 // an emoji as big as the emote slot it sits in, centered (an overlay emote goes on top)
-pub(super) fn emoji_glyph(c: &mut Canvas, text: &mut Text, r: Rect, g: &str, clip: Rect) {
+pub fn emoji_glyph(c: &mut Canvas, text: &mut Text, r: Rect, g: &str, clip: Rect) {
   let k = ((r.h as f32 / text.font_px).round() as u16).max(1);
   let spans = [Span { range: 0..g.len(), ink: Ink(theme::WHITE), bold: false }];
   let l = text.layout_at(g, &spans, &[], f32::MAX, text.line_px, (0..g.len(), k));

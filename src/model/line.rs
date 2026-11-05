@@ -112,19 +112,30 @@ impl Line {
   }
 
   // the emotes as drawn: an overlay chip right after another chip joins its stack
+  // (an overlay right after a lone emoji stacks on the emoji, like a chat line: the stack starts there)
   pub fn stacks(&self) -> Vec<Range<usize>> {
     let mut out: Vec<Range<usize>> = Vec::new();
     for r in self.chip_ranges() {
-      if self.overlays.contains(&self.text[r.clone()])
+      let overlay = self.overlays.contains(&self.text[r.clone()]);
+      if overlay
         && let Some(last) = out.last_mut()
         && last.end + 1 == r.start
       {
         last.end = r.end;
+      } else if overlay && let Some(e) = self.emoji_before(r.start) {
+        out.push(e..r.end);
       } else {
         out.push(r);
       }
     }
     out
+  }
+
+  // where the word before byte `at` starts, when that word is one emoji and nothing else
+  pub fn emoji_before(&self, at: usize) -> Option<usize> {
+    let head = self.text.get(..at)?.strip_suffix(' ')?;
+    let a = head.rfind(' ').map_or(0, |i| i + 1);
+    crate::ui::text::lone_emoji(&head[a..]).then_some(a)
   }
 
   // the text cut into what vi steps over: each emote stack whole (true), else one grapheme
@@ -429,6 +440,22 @@ mod tests {
     assert_eq!(u.len(), 5);
     assert_eq!(u[2], (2..15, true));
     assert_eq!(u[4], (16..l.text.len(), false));
+  }
+
+  #[test]
+  fn an_overlay_after_an_emoji_stacks_on_it() {
+    let mut l = Line::default();
+    l.insert("hi 🏙 fog0 x");
+    l.chips.insert("fog0".into());
+    assert_eq!(l.stacks(), vec![8..12], "not an overlay: just the emote");
+    l.overlays.insert("fog0".into());
+    assert_eq!(l.stacks(), vec![3..12], "the emoji and its overlay, one stack");
+    // a word that is more than one emoji is no base
+    let mut l = Line::default();
+    l.insert("a🏙 fog0");
+    l.chips.insert("fog0".into());
+    l.overlays.insert("fog0".into());
+    assert_eq!(l.stacks(), vec![6..10]);
   }
 
   #[test]

@@ -269,7 +269,7 @@ mod marks;
 #[cfg(test)]
 mod tests;
 
-pub use draw::blit_layer;
+pub use draw::{blit_layer, emoji_glyph};
 use layout::layout_row;
 
 impl ChatView {

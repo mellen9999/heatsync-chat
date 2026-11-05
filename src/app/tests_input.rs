@@ -505,3 +505,46 @@ fn one_long_word_wraps_and_its_end_shows() {
   crate::bench::dump(&app.canvas);
   assert!(app.canvas.inked(crate::ui::theme::RED) > 0, "the tail past 500 is in view");
 }
+
+// an overlay typed after a lone emoji stacks on it in the box too (🏙 fog0), like a chat line:
+//   HSC_DUMP=$d/x.ppm cargo test -j2 --release an_overlay_typed_after_an_emoji
+#[test]
+fn an_overlay_typed_after_an_emoji_stacks_on_it_in_the_box() {
+  use crate::emotes::{Emote, Provider};
+  use crate::images::decode::{Decoded, Frame};
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(520, 300);
+  let fog = "https://cdn.7tv.app/emote/f/1x.webp";
+  let e = Emote { url: fog.into(), w: 28, h: 28, zero_width: true };
+  app.res.emotes.set(None, Provider::SevenTv, [("fog0".into(), e)].into());
+  for t in ["🏙 ", "fog0 "] {
+    app.line.insert(t);
+    app.chip_spaced();
+  }
+  assert!(app.line.chips.contains("fog0"), "the overlay turns into its emote");
+  let chips = app.input_chips();
+  assert_eq!(chips.len(), 1);
+  assert_eq!(chips[0].range, 0.."🏙 fog0".len(), "one stack from the emoji");
+  assert_eq!(chips[0].glyph.as_deref(), Some("🏙"));
+  // a translucent band, so the emoji under it shows through
+  for _ in 0..3 {
+    app.input_dirty = true;
+    app.redraw();
+    while let Ok(c) = asked.try_recv() {
+      let Cmd::Image(id, _, h) = c else { continue };
+      let px: Vec<u8> = (0..28 * 28).flat_map(|i| if (i / 28) % 7 < 2 { [0, 255, 255, 160] } else { [0; 4] }).collect();
+      let img = Decoded { w: 28, h: 28, frames: vec![Frame { rgba: px.into(), delay_ms: 0 }] };
+      app.on_net(NetEvent::Image(id, h, Ok(img)));
+    }
+  }
+  crate::bench::dump(&app.canvas);
+  assert!(app.canvas.inked(0x00ffff) > 0, "the overlay is drawn");
+  // plain words never stack on an emoji
+  app.line.set_text("🏙 what ".into());
+  app.line.cursor = app.line.text.len();
+  app.chip_spaced();
+  assert!(!app.line.chips.contains("what"));
+}
