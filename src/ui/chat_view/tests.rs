@@ -617,6 +617,33 @@ fn a_hit_on_a_stacked_emote_yields_every_layer() {
 }
 
 #[test]
+fn a_stream_line_s_name_answers_the_pointer_and_a_notice_does_not() {
+  let mut res = Res::new(1.0);
+  let area = Rect::new(0, 0, 700, 40);
+  let hits = |m: Message, res: &mut Res| {
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(700);
+    v.push(m);
+    let mut c = Canvas::new(700, 40);
+    v.draw(&mut c, res, area, area);
+    (0..700).step_by(2).filter_map(|x| (0..40).find_map(|y| v.who_at(area, x, y, res))).collect::<Vec<_>>()
+  };
+  let mut ev = Message::system(0, Platform::Twitch, "");
+  ev.kind = Kind::Event;
+  ev.login = "xqc".into();
+  ev.nick = "xQc".into();
+  ev.x = Some(Box::new(crate::model::message::Extra {
+    tail: vec![crate::model::message::Seg { text: " switched to forsen".into(), ink: theme::CYAN, bold: false }].into(),
+    ..Default::default()
+  }));
+  let got = hits(ev, &mut res);
+  assert!(!got.is_empty(), "the streamer's name is hoverable");
+  assert!(got.iter().all(|h| h.mention.is_none()), "names in its words are not people");
+  assert!(hits(Message::system(0, Platform::Twitch, "xqc was timed out"), &mut res).is_empty());
+}
+
+#[test]
 fn names_in_words_wear_their_color_and_answer_the_pointer() {
   let mut res = Res::new(1.0);
   let mut alice = said("alice", "x");
@@ -1040,7 +1067,7 @@ fn alert_lines_get_the_mention_fill_and_copies_keep_their_room() {
     pic: None,
     late: false,
     held: None,
-    ..Extra::default()
+    ..Default::default()
   }));
   let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
   let n = l.layout.lines().count();

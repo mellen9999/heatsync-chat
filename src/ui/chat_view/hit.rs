@@ -4,7 +4,7 @@ use super::layout::layout_row;
 use super::{ChatView, EmoteHit, Laid, Layer, MARK_W, Mentioned, WhoHit, room};
 use crate::emotes::resolve::find_word;
 use crate::images::ImgId;
-use crate::model::message::{Message, Platform};
+use crate::model::message::{Kind, Message, Platform};
 use crate::ui::canvas::Rect;
 use crate::ui::res::Res;
 use crate::ui::text::TextLayout;
@@ -287,14 +287,18 @@ impl ChatView {
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
         let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-        if !m.kind.said() {
+        // a stream line (went live, switched to) heads with the streamer's name: that name is them too
+        let stream = m.kind == Kind::Event && !m.login.is_empty();
+        if !m.kind.said() && !stream {
           return None;
         }
         let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let mut ranges = Vec::with_capacity(1 + laid.mentions.len());
         ranges.push(laid.nick.clone());
-        ranges.extend(laid.mentions.iter().map(|n| n.range.clone()));
+        if !stream {
+          ranges.extend(laid.mentions.iter().map(|n| n.range.clone()));
+        }
         let k = over(&laid.layout, lx, ly, &ranges)?;
         let seq = self.rows[i].seq;
         return Some(match k.checked_sub(1).and_then(|k| laid.mentions.get(k)) {
