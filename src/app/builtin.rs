@@ -49,6 +49,7 @@ fn make(kind: Kind) -> Tab {
     under: None,
     count: Default::default(),
     stats: Default::default(),
+    temp: false,
   }
 }
 

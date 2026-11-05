@@ -18,6 +18,8 @@ pub struct TabLabel<'a> {
   pub cursor: bool,
   // its channel is live: a red dot at its right end, centered on the line (ext data-live)
   pub live: bool,
+  // the one unsaved tab: its name is underlined
+  pub temp: bool,
 }
 
 // the buttons after the tabs: which is under the pointer (or open), and a newer version's label
@@ -93,6 +95,13 @@ pub fn draw(
     };
     if t.live {
       dot(c, Rect::new(r.right() - d - 2, r.y + (r.h - d) / 2, d, d).intersect(inner), d, theme::RED);
+    }
+    if t.temp && !t.cursor {
+      // under the name, not the padding
+      let pad = text.layout(" ", &[], &[], f32::MAX).width().ceil() as i32;
+      let u =
+        Rect::new(r.x + pad, r.bottom() - 2, (r.w - 2 * pad - if t.live && !column { d + 2 } else { 0 }).max(1), 1);
+      c.fill(u.intersect(inner), if t.active { theme::BLACK } else { theme::WHITE });
     }
     if t.cursor {
       let u = Rect::new(r.x + 2, r.bottom() - 2, (r.w - 4).max(1), 1);

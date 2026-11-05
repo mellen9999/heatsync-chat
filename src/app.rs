@@ -73,6 +73,7 @@ mod suggest;
 mod tabs;
 mod tabsync;
 mod tagcard;
+mod temp;
 #[cfg(test)]
 mod tests_cardclip;
 #[cfg(test)]
@@ -173,6 +174,8 @@ struct Tab {
   count: crate::model::tab_count::Count,
   // its stream stats (/summary)
   stats: stats::Count,
+  // the one unsaved tab: a channel opened to look at (temp.rs). never written, never synced
+  temp: bool,
 }
 
 impl Tab {
@@ -391,6 +394,7 @@ impl App {
         under: None,
         count: Default::default(),
         stats: Default::default(),
+        temp: false,
       });
     }
     // no channel to open (a first run, or nothing saved): the add-channel form greets the window

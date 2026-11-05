@@ -251,11 +251,11 @@ impl App {
     self.play(&url);
   }
 
-  // enter or a click on a row: a chat tab for them, or the one you already have
+  // enter or a click on a row: the tab you already have for them, else the temporary one
   pub(super) fn following_pick(&mut self, i: usize) {
     let Some(l) = self.following.list.rows().get(i).cloned() else { return };
     self.close_screen();
-    let has = |t: &super::Tab| t.sources.iter().any(|s| l.legs.iter().any(|g| g.0 == s.0 && g.1 == s.1));
+    let has = |t: &super::Tab| !t.temp && t.sources.iter().any(|s| l.legs.iter().any(|g| g.0 == s.0 && g.1 == s.1));
     if let Some(t) = self.tabs.iter().position(has) {
       return if self.visible(t) {
         self.select(t)
@@ -266,7 +266,7 @@ impl App {
     let key = |p: Platform| l.legs.iter().find(|g| g.0 == p).map_or("", |g| &*g.1);
     let spec = Spec::parse(key(Platform::Twitch), key(Platform::Kick), key(Platform::Youtube));
     match spec.and_then(|s| s.check(&self.other_specs(None)).map(|_| s)) {
-      Ok(s) => self.add_tab(&s),
+      Ok(s) => self.open_look(&s),
       Err(e) => self.say(e.msg()),
     }
   }
@@ -295,6 +295,10 @@ mod tests {
       packs: vec![],
     });
     (app, asked)
+  }
+
+  fn t_temp(app: &App) -> bool {
+    app.tabs.last().is_some_and(|t| t.temp)
   }
 
   fn streams() -> Vec<Live> {
@@ -349,6 +353,7 @@ mod tests {
     let legs: Vec<_> = t.sources.iter().map(|s| (s.0.name(), &*s.1)).collect();
     assert_eq!(legs, [("twitch", "big"), ("kick", "big-k")], "one merged tab for a simulcaster");
     assert_eq!(app.active, n, "and you are in it");
+    assert!(t_temp(&app), "opened to look at: the temp tab, not a saved one");
     // again: no second tab, the one you have
     app.select(0);
     app.toggle_following();

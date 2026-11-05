@@ -177,7 +177,16 @@ impl App {
           let count = if back { "" } else { count.as_str() };
           let cursor = self.rover.as_ref().is_some_and(|r| r.at == i);
           let live = t.sources.iter().any(|(p, k)| self.live.has(*p, k));
-          TabLabel { name, count, active: i == self.active, unread: !back && (t.unread || t.event), hot, cursor, live }
+          TabLabel {
+            name,
+            count,
+            active: i == self.active,
+            unread: !back && (t.unread || t.event),
+            hot,
+            cursor,
+            live,
+            temp: t.temp,
+          }
         })
         .collect();
       let bar = self.bar();

@@ -43,7 +43,10 @@ pub static KEYS: [Group; 13] = [
       k("ctrl-shift-l", "log out"),
       k("/login /logout", "like ctrl-l and ctrl-shift-l"),
       k("/account", "who you're logged in as · log out"),
-      k("ctrl-b", "who you follow is live: enter opens a tab, w watches (also /following, /live)"),
+      k(
+        "ctrl-b",
+        "who you follow is live: enter opens an underlined temporary tab (one slot; /keep or chatting in it saves it), w watches (also /following, /live)",
+      ),
       k("/import", "your twitch follows, live first: space picks, enter adds them as tabs"),
       k("ctrl-p", "your emotes: rename, reorder, remove, undo, sets, share (/emotes)"),
       k("ctrl-o", "upload a picture or video"),
@@ -176,7 +179,10 @@ pub static KEYS: [Group; 13] = [
       k("alt-1 .. alt-9", "jump to a tab"),
       k("ctrl-tab", "next tab (shift for previous)"),
       k("click", "open a tab; the ⚙ is settings, the ? is this screen"),
-      k("right-click", "clear a red, cyan or yellow tab; else edit or remove it (built-ins: hide)"),
+      k(
+        "right-click",
+        "clear a red, cyan or yellow tab; else edit or remove it (a temporary tab: keep or remove; built-ins: hide)",
+      ),
       k("edit form", "tab to the buttons: watch, status, predictions, summary; j l next, k h back, enter runs"),
       v("gt  gT  space ] [", "next, previous tab"),
       v("space 1 .. space 9", "jump to a tab"),

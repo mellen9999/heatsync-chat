@@ -190,6 +190,8 @@ pub enum Cmd {
   // None = open the form
   Join(Option<String>),
   Part,
+  // save the temporary tab
+  Keep,
   // this tab's stream, in mpv or the browser
   Watch,
   // copy the whole lineup as a heatsync.org/m/ link
@@ -204,6 +206,7 @@ pub fn command(text: &str) -> Option<Cmd> {
   match head.to_ascii_lowercase().as_str() {
     "/join" => Some(Cmd::Join((!rest.trim().is_empty()).then(|| rest.trim().to_owned()))),
     "/part" if rest.trim().is_empty() => Some(Cmd::Part),
+    "/keep" if rest.trim().is_empty() => Some(Cmd::Keep),
     "/watch" if rest.trim().is_empty() => Some(Cmd::Watch),
     // the ext's names; /share and /open stay as aliases
     "/sharelayout" | "/sl" | "/share" if rest.trim().is_empty() => Some(Cmd::Share),
@@ -343,6 +346,7 @@ mod tests {
     assert_eq!(command("/join"), Some(Cmd::Join(None)));
     assert_eq!(command(" /JOIN  forsen kick:x "), Some(Cmd::Join(Some("forsen kick:x".into()))));
     assert_eq!(command("/part"), Some(Cmd::Part));
+    assert_eq!(command("/keep"), Some(Cmd::Keep));
     assert_eq!(command("/watch"), Some(Cmd::Watch));
     assert_eq!(command("/share"), Some(Cmd::Share));
     assert_eq!(command("/sharelayout"), Some(Cmd::Share));

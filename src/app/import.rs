@@ -270,7 +270,6 @@ impl App {
       return;
     }
     let mut have = self.other_specs(None);
-    let first = self.tabs.len();
     let mut added = 0;
     for login in &picks {
       if let Ok(spec) = Spec::parse(login, "", "")
@@ -287,7 +286,7 @@ impl App {
     }
     self.save_tabs();
     self.close_screen();
-    self.activate(first);
+    self.activate(self.tabs.len() - added);
     self.say(format!("added {added} tab{}", if added == 1 { "" } else { "s" }));
   }
 }

@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 85] = [
+const FIXED: [Slash; 86] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -21,6 +21,7 @@ const FIXED: [Slash; 85] = [
   s("/r", "<text>", "answer the last whisper or dm"),
   s("/join", "<channel>", "open a channel tab"),
   s("/part", "", "close this tab"),
+  s("/keep", "", "save this temporary tab (a channel opened from following)"),
   s("/sharelayout", "", "copy your tabs as a heatsync.org/m/ link (/sl)"),
   s("/layout", "<link>", "open the tabs of a heatsync.org/m/ link"),
   s("/watch", "", "watch this channel's stream (mpv, else the browser)"),

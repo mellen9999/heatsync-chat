@@ -4,6 +4,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::overlay::Overlay;
 use super::screen::Page;
+use super::temp::overlaps;
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Act, Cmd as ChanCmd, Form, Spec};
 use crate::model::layout_link;
@@ -31,6 +32,8 @@ enum Button {
 pub enum TabAct {
   Edit,
   Remove,
+  // the temp tab becomes a saved one
+  Keep,
   // a built-in tab leaves the bar
   Hide,
 }
@@ -107,6 +110,7 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
     under: None,
     count: Default::default(),
     stats: Default::default(),
+    temp: false,
   }
 }
 
@@ -154,7 +158,7 @@ impl App {
   // every other real tab's feeds (the tab being edited, if any, is left out)
   pub(super) fn other_specs(&self, skip: Option<usize>) -> Vec<Spec> {
     (0..self.tabs.len())
-      .filter(|&i| Some(i) != skip && !self.tabs[i].sources.is_empty())
+      .filter(|&i| Some(i) != skip && !self.tabs[i].sources.is_empty() && !self.tabs[i].temp)
       .map(|i| spec_of(&self.tabs[i]))
       .collect()
   }
@@ -166,8 +170,14 @@ impl App {
   }
 
   pub(super) fn store_tabs(&self) {
-    let lines: Vec<Box<str>> =
-      self.tabs.iter().map(|t| spec_of(t).line()).filter(|l| !l.is_empty()).map(Into::into).collect();
+    let lines: Vec<Box<str>> = self
+      .tabs
+      .iter()
+      .filter(|t| !t.temp)
+      .map(|t| spec_of(t).line())
+      .filter(|l| !l.is_empty())
+      .map(Into::into)
+      .collect();
     super::persist(&lines);
   }
 
@@ -216,6 +226,7 @@ impl App {
       self.chain = None;
     }
     let t = self.tabs.remove(i);
+    let saved = !t.temp;
     for (p, key) in t.sources {
       self.leave(p, key);
     }
@@ -223,13 +234,18 @@ impl App {
       self.active -= 1;
     }
     self.active = self.active.min(self.tabs.len().saturating_sub(1));
-    self.save_tabs();
+    // a temp tab was never saved: dropping it changes nothing on disk or on the account
+    if saved {
+      self.save_tabs();
+    }
     self.fix_active();
     self.activate(self.active);
   }
 
   // a new last tab for `spec`, joined (not yet saved or shown)
   pub(super) fn push_tab(&mut self, spec: &Spec) {
+    // saving a channel the temp tab holds replaces it
+    self.drop_temp_if(|t| overlaps(t, spec));
     let mut tab = make_tab(&self.net, spec);
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
@@ -238,6 +254,10 @@ impl App {
   }
 
   pub(super) fn add_tab(&mut self, spec: &Spec) {
+    // the temp tab already is this channel: keep it, with its lines
+    if let Some(i) = self.temp_at().filter(|&i| spec_of(&self.tabs[i]) == *spec) {
+      return self.keep_tab(i);
+    }
     self.push_tab(spec);
     self.save_tabs();
     self.activate(self.tabs.len() - 1);
@@ -292,6 +312,10 @@ impl App {
           Err(e) => self.say(e.msg()),
         }
       }
+      ChanCmd::Keep => match self.temp_at().filter(|&i| i == self.active) {
+        Some(i) => self.keep_tab(i),
+        None => self.say("nothing to keep: only a temporary tab can be kept"),
+      },
       ChanCmd::Share => self.share_lineup(),
       ChanCmd::Open(Some(link)) => self.open_layout(&link),
       ChanCmd::Open(None) => self.say("paste a heatsync.org/m/ link after /layout"),
@@ -323,7 +347,6 @@ impl App {
     };
     let (specs, skipped) = layout_link::to_specs(&layout_link::parse(&layout));
     let mut have = self.other_specs(None);
-    let first = self.tabs.len();
     let mut names: Vec<String> = Vec::new();
     for spec in &specs {
       if let Some(s) = layout_link::fresh(spec, &have) {
@@ -337,7 +360,7 @@ impl App {
       return self.say(if specs.is_empty() { format!("nothing to open there{note}") } else { "already open".into() });
     }
     self.save_tabs();
-    self.activate(first);
+    self.activate(self.tabs.len() - names.len());
     let n = names.len();
     self.say(format!("added {n} tab{}: {}{note}", if n == 1 { "" } else { "s" }, names.join(", ")));
   }
@@ -597,6 +620,7 @@ impl App {
     let at = self.off_bar(self.bar_hits[p]);
     let items: Vec<(TabAct, String)> = match self.tabs[i].kind {
       Kind::Chat if self.tabs[i].sources.is_empty() => return,
+      Kind::Chat if self.tabs[i].temp => vec![(TabAct::Keep, "keep".into()), (TabAct::Remove, "remove".into())],
       Kind::Chat => vec![(TabAct::Edit, "edit".into()), (TabAct::Remove, "remove".into())],
       _ => vec![(TabAct::Hide, "hide".into())],
     };
@@ -637,6 +661,7 @@ impl App {
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
       Some(TabAct::Remove) => self.remove_tab(m.tab),
+      Some(TabAct::Keep) => self.keep_tab(m.tab),
       Some(TabAct::Hide) => {
         if let Some(k) = self.tabs.get(m.tab).map(|t| t.kind) {
           self.set_shown(k, false);

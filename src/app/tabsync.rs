@@ -18,7 +18,8 @@ use crate::util::time::now_ms;
 const SAVED: &str = "tabsync";
 
 fn is_channel(t: &Tab) -> bool {
-  t.kind == Kind::Chat && !t.sources.is_empty()
+  // the temp tab is yours to look at, not part of the list that follows your account
+  t.kind == Kind::Chat && !t.sources.is_empty() && !t.temp
 }
 
 // a tab, by what it is rather than where it is

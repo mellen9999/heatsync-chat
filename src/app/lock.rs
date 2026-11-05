@@ -36,6 +36,10 @@ impl App {
   // twitch or kick said a line of ours was refused for a lasting reason (Some), or got through (None)
   pub(super) fn lock_told(&mut self, p: Platform, chan: &str, cause: Option<Cause>) {
     let Some(c) = cause else {
+      // a line got through: chatting in the temporary tab saves it
+      if let Some(i) = self.temp_at().filter(|&i| self.tabs[i].sources.iter().any(|s| s.0 == p && &*s.1 == chan)) {
+        self.keep_tab(i);
+      }
       if self.locks.clear(p, chan) {
         self.lock_changed();
       }
