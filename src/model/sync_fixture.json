@@ -75,6 +75,16 @@
   "scope": "sync",
   "default": true
  },
+ "flame": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "heatBars": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "hermesEvents": {
   "type": "boolmap",
   "scope": "sync",
@@ -229,6 +239,11 @@
   "default": true
  },
  "showPlatformBadges": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
+ "subFlair": {
   "type": "bool",
   "scope": "sync",
   "default": true

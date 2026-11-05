@@ -334,7 +334,7 @@ pub static DEFS: [Def; 72] = [
     alias: "flair sub badge",
     ctl: pill!(sub_flair),
     fx: Fx::Look,
-    wire: Wire::None,
+    wire: Wire::Bool("subFlair"),
   },
   Def {
     id: "flame",
@@ -346,7 +346,7 @@ pub static DEFS: [Def; 72] = [
     alias: "fire marker hsflame",
     ctl: pill!(flame),
     fx: Fx::Look,
-    wire: Wire::None,
+    wire: Wire::Bool("flame"),
   },
   Def {
     id: "heat_bars",
@@ -358,7 +358,7 @@ pub static DEFS: [Def; 72] = [
     alias: "heat score border",
     ctl: pill!(heat_bars),
     fx: Fx::Look,
-    wire: Wire::None,
+    wire: Wire::Bool("heatBars"),
   },
   Def {
     id: "text_badges",
