@@ -1055,9 +1055,11 @@ pub struct Preset {
   pub name: &'static str,
   pub tip: &'static str,
   pub diff: &'static [(&'static str, bool)],
+  // pick rows by value name (emote size and the like)
+  pub picks: &'static [(&'static str, &'static str)],
 }
 
-pub static PRESETS: [Preset; 3] = [
+pub static PRESETS: [Preset; 5] = [
   Preset {
     name: "normal",
     tip: "the defaults: every tab, paints and pictures on, plain input",
@@ -1070,6 +1072,7 @@ pub static PRESETS: [Preset; 3] = [
       ("tab_whispers", true),
       ("tab_mentions", true),
     ],
+    picks: &[],
   },
   Preset {
     name: "minimal",
@@ -1084,17 +1087,41 @@ pub static PRESETS: [Preset; 3] = [
       ("tab_whispers", false),
       ("tab_mentions", false),
     ],
+    picks: &[],
   },
   Preset {
     name: "power user",
     tip: "every tab on, timestamps, vi keys",
     diff: &[("vi", true), ("timestamps", true), ("tab_feed", true), ("tab_whispers", true), ("tab_mentions", true)],
+    picks: &[],
+  },
+  Preset {
+    name: "moderator",
+    tip: "timestamps + readable names + all-caps automod",
+    diff: &[("timestamps", true), ("automod_caps", true), ("readable", true)],
+    picks: &[],
+  },
+  Preset {
+    name: "low ram",
+    tip: "cosmetics, feed, whispers, stats and previews off; 1x emotes",
+    diff: &[
+      ("avatars", false),
+      ("media", false),
+      ("paints", false),
+      ("hs_paints", false),
+      ("tab_feed", false),
+      ("tab_whispers", false),
+      ("stream_stats", false),
+      ("tab_mentions", true),
+    ],
+    picks: &[("emote_size", "1x"), ("emoji_size", "1x")],
   },
 ];
 
 impl Preset {
   pub fn active(&self, s: &Settings) -> bool {
     self.diff.iter().all(|(id, v)| def(id).and_then(|d| d.on(s)) == Some(*v))
+      && self.picks.iter().all(|(id, v)| def(id).and_then(|d| d.picked(s)) == Some(*v))
   }
 }
 
@@ -1118,6 +1145,10 @@ mod tests {
       for (id, _) in p.diff {
         assert!(def(id).and_then(|d| d.on(&Settings::default())).is_some(), "{id}");
       }
+      for (id, v) in p.picks {
+        let mut t = Settings::default();
+        assert!(def(id).is_some_and(|d| d.pick(&mut t, v)), "{id}");
+      }
     }
     assert!(PRESETS[2].diff.iter().any(|d| d.0 == "vi"));
     // a fresh install reads as normal
@@ -1135,6 +1166,25 @@ mod tests {
     assert!(power.active(&s));
     s.vi = false;
     assert!(!power.active(&s));
+  }
+
+  #[test]
+  fn low_ram_needs_its_picks_and_moderator_is_small() {
+    let low = PRESETS.iter().find(|p| p.name == "low ram").unwrap();
+    assert!(PRESETS.iter().any(|p| p.name == "moderator"));
+    let mut s = Settings::default();
+    for (id, v) in low.diff {
+      def(id).unwrap().put(&mut s, *v);
+    }
+    // the bools alone aren't enough: emoji size defaults to 2x
+    assert!(!low.active(&s));
+    for (id, v) in low.picks {
+      assert!(def(id).unwrap().pick(&mut s, v));
+    }
+    assert!(low.active(&s));
+    assert!(def("emote_size").unwrap().pick(&mut s, "2x"));
+    assert!(!low.active(&s));
+    assert!(!PRESETS[1].active(&Settings::default()) && !low.active(&Settings::default()));
   }
 
   #[test]

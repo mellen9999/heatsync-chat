@@ -345,6 +345,13 @@ impl App {
         self.applied(d.fx);
       }
     }
+    for (id, v) in p.picks {
+      if let Some(d) = schema::def(id)
+        && d.pick(&mut self.set, v)
+      {
+        self.applied(d.fx);
+      }
+    }
     self.set.save();
     self.say(format!("preset {}", p.name));
   }
