@@ -10,9 +10,8 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // the account's settings reach the window the way a flip does (look, tabs, vi, side), are saved, and
-// nothing goes back out; a flip here goes out once the socket is signed in (scratch HOME as above)
+// nothing goes back out; a flip here goes out once the socket is signed in
 #[test]
-#[ignore]
 fn headless_account_settings() {
   use crate::model::tabs::Kind;
   use serde_json::json;
@@ -57,9 +56,8 @@ fn headless_account_settings() {
 }
 
 // tabs on each side: the bar sits there, the chat and input take the rest, a click on a tab picks it.
-// HSC_DUMP=$d/x.ppm (the last side, left) ... cargo test -j2 --release headless_tab_sides -- --ignored
+// HSC_DUMP=$d/x.ppm (the last side, left) ... cargo test -j2 --release headless_tab_sides
 #[test]
-#[ignore]
 fn headless_tab_sides() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
@@ -96,9 +94,8 @@ fn headless_tab_sides() {
 }
 
 // a picture in chat: the magnifier over it, a click fills the pane, + zooms, esc goes back.
-// HSC_DUMP=$d/x.ppm (the open view) ... cargo test -j2 --release headless_img_view -- --ignored
+// HSC_DUMP=$d/x.ppm (the open view) ... cargo test -j2 --release headless_img_view
 #[test]
-#[ignore]
 fn headless_img_view() {
   use crate::images::decode::{Decoded, Frame};
   use winit::window::CursorIcon;
@@ -184,13 +181,12 @@ fn headless_img_view() {
 }
 
 // the chat look switches take effect on lines already shown, and persist.
-// cargo test -j2 --release headless_chat_look -- --ignored
+// cargo test -j2 --release headless_chat_look
 #[test]
-#[ignore]
 fn headless_chat_look() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["aaa".into()], false);
-  // the scratch HOME keeps what the last run switched: start from the defaults
+  // start from the defaults
   app.set = crate::model::settings::Settings::default();
   app.res.apply_look(&app.set);
   app.dpi = 1.0;
@@ -225,9 +221,8 @@ fn headless_chat_look() {
 }
 
 // the unread number after a channel's name, and tab mode: the cursor moves without switching, K
-// carries a channel up, enter opens. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_tab_mode -- --ignored
+// carries a channel up, enter opens. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_tab_mode
 #[test]
-#[ignore]
 fn headless_tab_mode() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["aaa".into(), "bbb".into()], false);
@@ -270,9 +265,8 @@ fn headless_tab_mode() {
 }
 
 // a reddit link: the resolver is asked once, its answer draws as a card under the line, and the card
-// is a link to the post. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_preview_card -- --ignored
+// is a link to the post. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_preview_card
 #[test]
-#[ignore]
 fn headless_preview_card() {
   let (net, mut asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into()], false);
@@ -299,12 +293,14 @@ fn headless_preview_card() {
   app.on_net(NetEvent::Preview(link.into(), crate::model::preview::parse(link, &v)));
   app.redraw();
   crate::bench::dump(&app.canvas);
-  let cyan = app.canvas.px.iter().filter(|&&p| p == 0x00ffff).count();
+  let cyan = app.canvas.inked(0x00ffff);
   assert!(cyan > 40, "the [reddit] tag is drawn ({cyan})");
   let area = app.chat_area();
   let hit = (area.y..area.bottom()).rev().step_by(2).find_map(|y| {
     let res = &mut app.res;
-    let x = (area.x..area.right()).step_by(3).find(|&x| app.canvas.px[(y * app.canvas.w + x) as usize] == 0x00ffff)?;
+    let x = (area.x..area.right())
+      .step_by(3)
+      .find(|&x| Canvas::shade(app.canvas.px[(y * app.canvas.w + x) as usize], 0x00ffff))?;
     app.tabs[chat].view.link_at(area, x, y, res)
   });
   assert_eq!(hit.as_deref(), Some(link), "the card opens the post");
@@ -321,13 +317,12 @@ fn headless_preview_card() {
   app.on_net(NetEvent::Preview(log.into(), crate::model::preview::parse(log, &v)));
   app.redraw();
   crate::bench::dump(&app.canvas);
-  assert!(app.canvas.px.iter().filter(|&&p| p == 0x00ff00).count() > 40, "the quoted speaker in green");
+  assert!(app.canvas.inked(0x00ff00) > 40, "the quoted speaker in green");
 }
 
 // a youtube link: its still under the line with a ▶, a hand over it, a click plays it (never the
-// picture view). HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_video_still -- --ignored
+// picture view). HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_video_still
 #[test]
-#[ignore]
 fn headless_video_still() {
   use crate::images::decode::{Decoded, Frame};
   use winit::window::CursorIcon;
@@ -386,9 +381,8 @@ fn headless_video_still() {
 }
 
 // feed media, offline: a held post's box and show, the withheld files fetched, a picture under a reply,
-// the [img] tag's peek. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_feed_media -- --ignored
+// the [img] tag's peek. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_feed_media
 #[test]
-#[ignore]
 fn headless_feed_media() {
   use crate::images::decode::{Decoded, Frame};
   use crate::model::post::parse;
@@ -479,10 +473,9 @@ fn headless_feed_media() {
   crate::bench::dump(&app.canvas);
 }
 
-// the hover popup and colored mentions, offline: needs a scratch HOME (App::new reads settings):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_hover -- --ignored
+// the hover popup and colored mentions, offline:
+//   HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_hover
 #[test]
-#[ignore]
 fn headless_hover_and_mentions() {
   let (net, mut asked) = Net::tap();
   let mut app = App::new(net, Vec::new(), true);
@@ -524,7 +517,7 @@ fn headless_hover_and_mentions() {
     }
   }
   assert_eq!(cards, vec!["dave".into()], "only the stranger is asked, once");
-  let ink = |c: &Canvas, rgb: u32| c.px.iter().filter(|&&p| p == rgb).count();
+  let ink = |c: &Canvas, rgb: u32| c.inked(rgb);
   assert!(
     ink(&app.canvas, 0x00ff00) > 30 && ink(&app.canvas, 0xff00ff) > 30,
     "alice and carol are drawn in their colors"
@@ -589,10 +582,9 @@ fn headless_hover_and_mentions() {
 }
 
 // feed engagement offline: upvote and bookmark show at once and roll back on a refusal, your own post
-// edits in the box and deletes only after a yes, /op posts, logged out shows no post rows (scratch HOME as above):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_feed_engage -- --ignored
+// edits in the box and deletes only after a yes, /op posts, logged out shows no post rows:
+//   cargo test -j2 --release headless_feed_engage
 #[test]
-#[ignore]
 fn headless_feed_engage() {
   use crate::app::pop::Act;
   use crate::model::post::parse;

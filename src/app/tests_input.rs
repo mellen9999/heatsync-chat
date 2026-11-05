@@ -96,10 +96,9 @@ fn live_app_paints_ennortix() {
   assert!(painted > 0 && px > 30, "paint stored but the renderer shows none (painted names {painted}, amber px {px})");
 }
 
-// hovering a stacked emote opens the whole stack, offline (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_stack -- --ignored
+// hovering a stacked emote opens the whole stack, offline:
+//   HSC_DUMP=$d/x.ppm cargo test -j2 --release headless_stack
 #[test]
-#[ignore]
 fn headless_stack_hover() {
   use crate::emotes::{Emote, Provider};
   use crate::images::decode::{Decoded, Frame};
@@ -185,10 +184,9 @@ fn headless_stack_hover() {
 }
 
 // tab-completed emotes draw as pictures in the box, an overlay typed after one stacks on it, a hand-typed
-// channel emote stays a word, and backspace takes a picture whole (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_input_chips -- --ignored
+// channel emote stays a word, and backspace takes a picture whole:
+//   cargo test -j2 --release headless_input_chips
 #[test]
-#[ignore]
 fn headless_input_chips() {
   use crate::emotes::{Emote, Provider};
   use crate::images::decode::{Decoded, Frame};
@@ -278,9 +276,8 @@ fn headless_input_chips() {
 }
 
 // the line menu like the ext's, and private notes end to end (own HOME: it writes the notes file)
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_line_menu -- --ignored
+//   cargo test -j2 --release headless_line_menu
 #[test]
-#[ignore]
 fn headless_line_menu() {
   use crate::app::pop::Act;
   let (net, _asked) = Net::tap();
@@ -342,10 +339,9 @@ fn headless_line_menu() {
 }
 
 // vi has two modes: normal edits the box, and once a line is picked r/m/c act on it; space leads chat
-// commands (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_vi_normal -- --ignored
+// commands:
+//   cargo test -j2 --release headless_vi_normal
 #[test]
-#[ignore]
 fn headless_vi_normal() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, Vec::new(), true);
@@ -393,10 +389,9 @@ fn headless_vi_normal() {
 }
 
 // `:ka` lists emotes, `@` people, a lone `/b` commands; arrows move, enter picks into the tab cycle,
-// esc shuts the list until the text moves (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_suggest -- --ignored
+// esc shuts the list until the text moves:
+//   cargo test -j2 --release headless_suggest
 #[test]
-#[ignore]
 fn headless_suggest() {
   use crate::emotes::{Emote, Provider};
   use crate::model::suggest::Kind as S;

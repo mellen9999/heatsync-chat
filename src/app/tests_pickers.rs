@@ -18,7 +18,7 @@ fn dump_frame(app: &App) {
 
 // `:smi` lists emotes first, then emoji (glyph and :shortcode:); picking puts the glyph in the box;
 // a typed :shortcode: becomes the glyph on send. HSC_DUMP=$d/x.ppm (the list) ... cargo test -j2
-// --release headless_picker_emoji -- --ignored  (scratch HOME as above)
+// --release headless_picker_emoji
 // a stream line made before the streamer is known gets their color and twitch id when a lookup or the
 // followed colors land; the frame's own color is never overruled; followed colors beat chat's
 #[test]
@@ -172,7 +172,6 @@ fn chat_logs_left_open_on_one_tab_keep_their_keys_to_that_tab() {
 }
 
 #[test]
-#[ignore]
 fn headless_picker_emoji() {
   use crate::emotes::{Emote, Provider};
   use crate::model::suggest::Kind as S;
@@ -225,9 +224,8 @@ fn headless_picker_emoji() {
 
 // the picker's gifs tab: ctrl-tab / [ ] switch, typing asks heatsync after a rest (old answers drop),
 // an answer fills a grid of stills, the rested pick plays, enter inserts the link and keeps recents.
-// HSC_DUMP=$d/x.ppm (the grid) ... cargo test -j2 --release headless_picker_gifs -- --ignored
+// HSC_DUMP=$d/x.ppm (the grid) ... cargo test -j2 --release headless_picker_gifs
 #[test]
-#[ignore]
 fn headless_picker_gifs() {
   use crate::images::decode::{Decoded, Frame};
   use crate::model::gifs;

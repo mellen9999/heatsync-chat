@@ -210,10 +210,9 @@ fn a_reply_reaches_each_feed_in_its_own_way() {
 }
 
 // the choice rides in the tab's entry in the ext's shape: ctrl-n goes up to the account, and a choice made on
-// another client lays onto the tab even when the list of tabs is the same (scratch HOME as in tests_tabs):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_send_targets_sync -- --ignored
+// another client lays onto the tab even when the list of tabs is the same:
+//   cargo test -j2 --release headless_send_targets_sync
 #[test]
-#[ignore]
 fn headless_send_targets_sync() {
   use crate::model::tabsync::frame;
   use crate::net::hs_ws::Cmd as HsCmd;

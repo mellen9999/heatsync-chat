@@ -6,10 +6,9 @@ use crate::net::Cmd;
 use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
-// a channel's went-live lands in every chat tab; only its own tab turns yellow (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_stream_everywhere -- --ignored
+// a channel's went-live lands in every chat tab; only its own tab turns yellow:
+//   cargo test -j2 --release headless_stream_everywhere
 #[test]
-#[ignore]
 fn headless_stream_everywhere() {
   use crate::model::stream_events::{Line, Tone};
   let (net, _asked) = Net::tap();
@@ -58,10 +57,9 @@ fn headless_stream_everywhere() {
 }
 
 // an @mention while the window is away flashes the title with who it was, the latest name winning,
-// until the window comes back; focused, nothing flashes (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_mention_flash -- --ignored
+// until the window comes back; focused, nothing flashes:
+//   cargo test -j2 --release headless_mention_flash
 #[test]
-#[ignore]
 fn headless_mention_flash() {
   use crate::model::message::Kind;
   let (net, _asked) = Net::tap();
@@ -97,10 +95,9 @@ fn headless_mention_flash() {
 }
 
 // a stream line turns an unwatched tab yellow, and right-click clears a red, cyan or yellow tab
-// without opening it or its menu, offline (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_ack -- --ignored
+// without opening it or its menu, offline:
+//   cargo test -j2 --release headless_tab_ack
 #[test]
-#[ignore]
 fn headless_tab_ack() {
   use crate::model::stream_events::Tone;
   let (net, _asked) = Net::tap();
@@ -148,10 +145,9 @@ fn headless_tab_ack() {
 }
 
 // a click on a reply's >>id opens its parent's thread with the reply picked out, and a click on
-// the open thread's own >>id goes back to the list, offline (scratch HOME as below):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_feed_thread -- --ignored
+// the open thread's own >>id goes back to the list, offline:
+//   cargo test -j2 --release headless_feed_thread
 #[test]
-#[ignore]
 fn headless_feed_thread_click() {
   use crate::model::post::parse;
   use crate::net::social;
@@ -205,9 +201,8 @@ fn headless_feed_thread_click() {
   assert!(app.tabs[feed].under.is_none(), "and the list is back in its tab");
 }
 
-// right-click on a chat line opens its menu; r on a picked line starts a reply (scratch HOME as above)
+// right-click on a chat line opens its menu; r on a picked line starts a reply
 #[test]
-#[ignore]
 fn headless_line_menu_and_r() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into()], false);
@@ -237,9 +232,8 @@ fn headless_line_menu_and_r() {
   assert!(app.reply.is_some(), "r on the picked line starts a reply");
 }
 
-// 🏙 fog0: the overlay stacks on the emoji, drawn over it (scratch HOME as above; HSC_DUMP to look)
+// 🏙 fog0: the overlay stacks on the emoji, drawn over it (HSC_DUMP to look)
 #[test]
-#[ignore]
 fn headless_overlay_on_emoji() {
   use crate::emotes::{Emote, Provider};
   let (net, _asked) = Net::tap();
@@ -288,9 +282,8 @@ fn headless_overlay_on_emoji() {
   assert!(gray > 20, "the overlay was drawn ({gray} px)");
 }
 
-// a went-live line in every tab is news, not chat: never picked, menued or replied to (scratch HOME as above)
+// a went-live line in every tab is news, not chat: never picked, menued or replied to
 #[test]
-#[ignore]
 fn headless_stream_line_is_not_a_chat_line() {
   use crate::model::stream_events::{Line, Tone};
   let (net, _asked) = Net::tap();
@@ -348,10 +341,9 @@ fn headless_stream_line_is_not_a_chat_line() {
 }
 
 // a feed post lands as a line in a chat tab; its >>id opens the thread right there, the tab reads
-// `← back`, chat keeps landing underneath, and back puts the chat where it was (scratch HOME as above):
-//   ... cargo test -j2 --release headless_thread_takeover -- --ignored
+// `← back`, chat keeps landing underneath, and back puts the chat where it was:
+//   ... cargo test -j2 --release headless_thread_takeover
 #[test]
-#[ignore]
 fn headless_thread_takeover() {
   use crate::model::post::parse;
   use crate::net::social;
@@ -423,10 +415,9 @@ fn headless_thread_takeover() {
 }
 
 // right-click a line → chat logs: one person's archive over the tab, drawn as chat, older pages at
-// the top, a to swap scope, / to search, esc back (scratch HOME as above):
-//   HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_chat_logs -- --ignored
+// the top, a to swap scope, / to search, esc back:
+//   HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_chat_logs
 #[test]
-#[ignore]
 fn headless_chat_logs() {
   use crate::model::logs::{self, Who};
   use crate::net::social;
@@ -563,9 +554,8 @@ fn headless_chat_logs() {
 }
 
 // heatsync's refs for a twitch line land on our own copy of it, by id, whichever comes first; additive,
-// a name the line already has keeps its ref (scratch HOME as above)
+// a name the line already has keeps its ref
 #[test]
-#[ignore]
 fn headless_late_refs_land_on_their_line() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into()], false);
@@ -598,9 +588,8 @@ fn headless_late_refs_land_on_their_line() {
 }
 
 // a channel tab's right-click menu is edit + remove, and every other action lives in the edit form
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_menu -- --ignored
+//   cargo test -j2 --release headless_tab_menu
 #[test]
-#[ignore]
 fn headless_tab_menu_is_edit_remove() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into()], false);
@@ -645,10 +634,9 @@ fn headless_tab_menu_is_edit_remove() {
 
 // your account's tab list, saved by another client, changes the tabs here: an open tab keeps its lines, a new
 // one joins, a gone one leaves, and none of it is sent back. a stale list changes nothing; a change made here
-// goes up with what the other client stored; logged out, nothing comes in (scratch HOME as above):
-//   HOME=$d XDG_CONFIG_HOME=$d XDG_CACHE_HOME=$d cargo test -j2 --release headless_tab_sync -- --ignored
+// goes up with what the other client stored; logged out, nothing comes in:
+//   cargo test -j2 --release headless_tab_sync
 #[test]
-#[ignore]
 fn headless_tab_sync() {
   use crate::model::tabsync::frame;
   use crate::net::hs_ws::Cmd as HsCmd;

@@ -218,15 +218,18 @@ impl Canvas {
 // does not decide a test
 #[cfg(test)]
 impl Canvas {
+  // pixels drawn in `ink` at any coverage: text antialiasing (and fonts like terminus that never
+  // reach full coverage) leaves shades of it, so tests count those instead of exact matches
   pub fn inked(&self, ink: u32) -> usize {
-    let shade = |p: u32| {
-      p != 0
-        && [16, 8, 0].iter().all(|&s| {
-          let (i, c) = ((ink >> s) & 0xff, (p >> s) & 0xff);
-          if i == 0xff { c > 0 } else { c == 0 }
-        })
-    };
-    self.px.iter().filter(|&&p| shade(p)).count()
+    self.px.iter().filter(|&&p| Self::shade(p, ink)).count()
+  }
+
+  pub fn shade(p: u32, ink: u32) -> bool {
+    p != 0
+      && [16, 8, 0].iter().all(|&s| {
+        let (i, c) = ((ink >> s) & 0xff, (p >> s) & 0xff);
+        if i == 0xff { c > 0 } else { c == 0 }
+      })
   }
 }
 
