@@ -38,6 +38,9 @@ impl App {
   }
 
   pub(super) fn on_relay(&mut self, p: Platform, key: &str, mut msgs: Vec<Message>, history: bool) {
+    if p == Platform::Kick && !history {
+      self.kick_role_seen(key, &msgs);
+    }
     // your own line sent to several feeds comes back from each: one shows, the other feeds' copies fold into it
     if !history {
       let (sent, mine) = (&mut self.sentfold, &self.mentions);
@@ -413,6 +416,7 @@ impl App {
           self.feed_reset();
           self.res.blocked.clear_server();
           self.mod_in.clear();
+          self.kick_mod.clear();
           self.held = Default::default();
           self.relayout_where(None);
         }

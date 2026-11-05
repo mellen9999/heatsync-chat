@@ -28,6 +28,7 @@ pub mod mention;
 pub mod message;
 pub mod modcmd;
 pub mod modes;
+pub mod modrole;
 pub mod modsuite;
 pub mod modtools;
 pub mod notes;

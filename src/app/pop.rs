@@ -413,14 +413,19 @@ impl App {
       for (label, secs) in DURATIONS {
         rows.push((Act::Do(Verb::Timeout(secs)), format!("timeout {label}")));
       }
-      rows.push((Act::Do(Verb::Purge), "purge".into()));
+      // kick's shortest timeout is a minute, so a purge there would only be a timeout
+      if w.platform == Platform::Twitch {
+        rows.push((Act::Do(Verb::Purge), "purge".into()));
+      }
       rows.push((Act::Do(Verb::Ban), "ban".into()));
       rows.push((Act::Do(Verb::Unban), "unban".into()));
       if w.platform == Platform::Twitch {
         rows.push((Act::Warn, "warn".into()));
         rows.push((Act::Shoutout, "shoutout".into()));
       }
-      rows.push((Act::BlockedTerms, "blocked terms".into()));
+      if w.platform == Platform::Twitch {
+        rows.push((Act::BlockedTerms, "blocked terms".into()));
+      }
     }
     if w.platform == Platform::Twitch && self.is_caster(&w.chan) {
       rows.push((Act::Vip(true), "vip".into()));

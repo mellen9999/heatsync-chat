@@ -68,6 +68,8 @@ mod tagcard;
 #[cfg(test)]
 mod tests_input;
 #[cfg(test)]
+mod tests_kickmod;
+#[cfg(test)]
 mod tests_pickers;
 #[cfg(test)]
 mod tests_screens;
@@ -183,6 +185,8 @@ pub struct App {
   rooms: Vec<(Box<str>, Box<str>)>,
   // twitch channels where our badges say we moderate (or own) the room
   mod_in: std::collections::HashSet<Box<str>>,
+  // kick slugs where our own lines wear a moderator or broadcaster badge (model::modrole)
+  kick_mod: std::collections::HashSet<Box<str>>,
   // each twitch room's chat modes as its ROOMSTATE says, and a mode change on its way
   modes: std::collections::HashMap<Box<str>, crate::model::modes::Modes>,
   modes_busy: bool,
@@ -398,6 +402,7 @@ impl App {
       prof: std::env::var_os("HSC_PROF").is_some(),
       rooms: Vec::new(),
       mod_in: Default::default(),
+      kick_mod: Default::default(),
       modes: Default::default(),
       modes_busy: false,
       mute_due,

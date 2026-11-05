@@ -1,6 +1,6 @@
 // mod actions through heatsync (POST /api/mod/action). the server holds the twitch / kick mod
 // tokens; we only name the room, the person and what to do. twitch wants numeric ids, kick takes
-// the channel slug and the login
+// the channel slug and the login. youtube is not here: heatsync has no youtube moderation to call
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out, http, social};
@@ -180,6 +180,27 @@ mod tests {
     // kick's shortest timeout is a minute
     assert_eq!(b["duration_seconds"], 60);
     assert!(b.get("broadcaster_id").is_none());
+  }
+
+  #[test]
+  fn kick_delete_and_ban_shapes() {
+    // a delete names the channel and the message, never a person
+    let d = body(&req(Platform::Kick, Verb::Delete), "", None);
+    assert_eq!(
+      (d["action"].as_str(), d["channel"].as_str(), d["message_id"].as_str()),
+      (Some("delete_message"), Some("forsen"), Some("abc"))
+    );
+    assert!(d.get("target_login").is_none() && d.get("duration_seconds").is_none());
+    // a ban names the person, no message and no duration
+    let b = body(&req(Platform::Kick, Verb::Ban), "", None);
+    assert_eq!(
+      (b["action"].as_str(), b["target_login"].as_str(), b["reason"].as_str()),
+      (Some("ban"), Some("bob"), Some("spam"))
+    );
+    assert!(b.get("message_id").is_none() && b.get("duration_seconds").is_none());
+    // a long kick timeout keeps its length
+    let t = body(&req(Platform::Kick, Verb::Timeout(3600)), "", None);
+    assert_eq!(t["duration_seconds"], 3600);
   }
 
   #[test]

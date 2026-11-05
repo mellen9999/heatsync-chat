@@ -22,10 +22,32 @@ impl App {
     }
   }
 
-  // do our badges let us moderate this twitch room? (kick has no way to ask, so its mod tools are
-  // slash commands only and the server says no when we are not one)
+  // do we moderate this room? twitch: our badges say so. kick: our own lines there wear a moderator
+  // or broadcaster badge, or it is our own channel. youtube: never (heatsync has no youtube moderation)
   pub(super) fn can_mod(&self, p: Platform, chan: &str) -> bool {
-    p == Platform::Twitch && self.me.is_some() && self.mod_in.contains(chan)
+    let Some(me) = &self.me else { return false };
+    match p {
+      Platform::Twitch => self.mod_in.contains(chan),
+      Platform::Kick => {
+        self.kick_mod.contains(chan) || me.kick.as_deref().is_some_and(|k| crate::model::modrole::kick_slug(k) == chan)
+      }
+      Platform::Youtube => false,
+    }
+  }
+
+  // a live kick line of ours tells whether we moderate that room; a line without the badge takes it
+  // back (we were unmodded), like twitch's USERSTATE does
+  pub(super) fn kick_role_seen(&mut self, slug: &str, msgs: &[Message]) {
+    let mine = self.me.as_ref().and_then(|m| m.kick.as_deref());
+    let Some(own) = msgs.iter().rev().find(|m| m.kind.said() && crate::model::modrole::kick_is_me(&m.login, mine))
+    else {
+      return;
+    };
+    if crate::model::modrole::kick_badges_mod(&own.badges) {
+      self.kick_mod.insert(slug.into());
+    } else {
+      self.kick_mod.remove(slug);
+    }
   }
 
   // one line in the mod log tab: the room, then what happened

@@ -199,7 +199,10 @@ impl App {
         self.mod_in.remove(&key);
         self.net.send(Cmd::Part(key));
       }
-      Platform::Kick => self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key))),
+      Platform::Kick => {
+        self.kick_mod.remove(&key);
+        self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key)))
+      }
       Platform::Youtube => self.net.send(Cmd::Hs(HsCmd::YtUnsub(key))),
     }
   }
