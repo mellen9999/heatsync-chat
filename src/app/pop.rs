@@ -26,6 +26,11 @@ pub enum Act {
   // ask twitch for the automod permission (the hold queue in rooms you moderate)
   AllowAutomod,
   Logout,
+  // pin this line for everyone / clear the room's pin (a line that is the pin), and "yes" to the
+  // pin bar's "unpin for everyone?"
+  Pin,
+  Unpin,
+  UnpinYes,
   // allow (true) / deny the selected automod hold
   Held(bool),
   // the room's twitch blocked terms (mods)
@@ -198,6 +203,8 @@ pub struct Ctx {
   pub op: bool,
   // the line has a public heatsync log permalink
   pub link: bool,
+  // we may pin in this line's room: Some(true) = the line IS the pin (offer unpin)
+  pub pin: Option<bool>,
 }
 
 // the ext's order: card, reply, op to feed, the copies, the person (filters, mod), then note, a post's
@@ -221,6 +228,11 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   }
   rows.push((Act::Quote, "copy \u{2192} input".into()));
   rows.extend(person);
+  match c.pin {
+    Some(false) => rows.push((Act::Pin, "pin message".into())),
+    Some(true) => rows.push((Act::Unpin, "unpin".into())),
+    None => {}
+  }
   let post = |rows: &mut Vec<(Act, String)>, f: fn(&PostCtx) -> Vec<(Act, String)>| {
     rows.extend(c.post.iter().flat_map(f));
   };
@@ -312,6 +324,9 @@ impl App {
         }
       }
       (Act::Logout, ..) => self.net.send(Cmd::Logout),
+      (Act::Pin, ..) => self.pin_selected(true),
+      (Act::Unpin, ..) => self.pin_selected(false),
+      (Act::UnpinYes, ..) => self.pin_clear_go(),
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
       (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
       (Act::Why(i), _, Some(t)) => {
@@ -478,6 +493,7 @@ impl App {
       post,
       op,
       link: self.link_of(m).is_some(),
+      pin: self.pin_menu(m),
     };
     let mut rows = line_rows(&ctx, person);
     // an automod hold: allow / deny first
@@ -513,6 +529,11 @@ impl App {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => p.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => p.menu.step(-1),
       Key::Named(NamedKey::Enter) => return self.pop_pick(),
+      // "unpin for everyone? y / enter, esc to cancel"
+      Key::Character("y") if p.menu.items.first().is_some_and(|r| r.0 == Act::UnpinYes) => {
+        p.menu.at = 0;
+        return self.pop_pick();
+      }
       // a ban's reasons answer to their digit
       Key::Character(d) if p.todo.is_some() && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
         match usize::from(d.as_bytes()[0] - b'0') {
@@ -630,6 +651,7 @@ mod tests {
       post: None,
       op: false,
       link: true,
+      pin: None,
     };
     assert_eq!(
       rows(&c),
@@ -661,6 +683,7 @@ mod tests {
       post: None,
       op: false,
       link: false,
+      pin: None,
     };
     let r = rows(&c);
     assert!(r.contains(&"edit note".to_owned()) && r.contains(&"show Bob\u{2019}s paint".to_owned()));
@@ -677,6 +700,7 @@ mod tests {
       post: None,
       op: false,
       link: false,
+      pin: None,
     };
     let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
     assert_eq!(
@@ -696,7 +720,8 @@ mod tests {
 
   #[test]
   fn a_line_with_no_person_still_copies() {
-    let c = Ctx { who: None, can_reply: false, chat_tab: true, paint: None, post: None, op: false, link: false };
+    let c =
+      Ctx { who: None, can_reply: false, chat_tab: true, paint: None, post: None, op: false, link: false, pin: None };
     assert_eq!(
       rows(&c),
       ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"],
@@ -718,6 +743,7 @@ mod tests {
       post: post(false, false, false, None),
       op: false,
       link: false,
+      pin: None,
     };
     assert_eq!(rows_of(&c), ["reply", "copy name", "copy message", "copy \u{2192} input", "upvote", "bookmark"]);
     let c = Ctx { post: post(false, true, true, None), ..c };
@@ -736,6 +762,7 @@ mod tests {
       post: post(true, false, false, Some(412_000)),
       op: false,
       link: false,
+      pin: None,
     };
     let r = rows_of(&c);
     assert!(!r.iter().any(|l| l.contains("upvote")));
@@ -747,13 +774,15 @@ mod tests {
 
   #[test]
   fn logged_out_a_post_has_no_post_rows_and_a_chat_line_no_op_to_feed() {
-    let c = Ctx { who: None, can_reply: false, chat_tab: false, paint: None, post: None, op: false, link: false };
+    let c =
+      Ctx { who: None, can_reply: false, chat_tab: false, paint: None, post: None, op: false, link: false, pin: None };
     assert_eq!(rows_of(&c), ["copy name", "copy message", "copy \u{2192} input"]);
   }
 
   #[test]
   fn a_chat_line_offers_op_to_feed_after_reply() {
-    let c = Ctx { who: None, can_reply: true, chat_tab: true, paint: None, post: None, op: true, link: false };
+    let c =
+      Ctx { who: None, can_reply: true, chat_tab: true, paint: None, post: None, op: true, link: false, pin: None };
     assert_eq!(rows_of(&c)[..2], ["reply", "op to feed"]);
   }
 

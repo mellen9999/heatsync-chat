@@ -362,7 +362,7 @@ impl App {
       "N" if self.find_on() => self.find_step(-1),
       "]" => self.select(self.step_tab(self.active, false)),
       "[" => self.select(self.step_tab(self.active, true)),
-      "x" => self.pin_hide(),
+      "x" => self.pin_x(),
       "p" => self.pred_here(),
       "t" => self.rover_open(),
       "w" => self.watch_here(),

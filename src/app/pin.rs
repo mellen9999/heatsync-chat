@@ -1,8 +1,13 @@
 // the pinned-line bar under the tabs (ext pin-bar.js): newest unhidden pin of the active tab's feeds.
-// click opens/folds it, the × (or space x in vi normal mode) hides that pin for this session
+// click opens/folds it, the × (or space x in vi normal mode) hides that pin for this session, or, for the
+// owner of the room / a twitch mod, asks to unpin it for everyone. a line's menu pins / unpins it
 use super::App;
+use super::overlay::Overlay;
+use super::pop::{Act, Pop};
 use crate::model::message::Platform;
 use crate::model::pin::{Pin, Pins};
+use crate::net::Cmd;
+use crate::net::pinact::{self, Fail, Op};
 use crate::ui::canvas::Rect;
 use crate::ui::{pin_bar, theme};
 
@@ -13,6 +18,8 @@ pub(super) struct PinBar {
   pub(super) h: i32,
   pub(super) open: bool,
   pub(super) sig: (Option<Box<str>>, bool, i32, i32),
+  // the room "unpin for everyone?" is asking about
+  pub(super) ask: Option<(Platform, Box<str>)>,
 }
 
 impl App {
@@ -69,12 +76,27 @@ impl App {
       return false;
     }
     if pin_bar::hide_rect(&mut self.res.text, area).contains(x, y) {
-      self.pin_hide();
+      self.pin_x();
     } else {
       self.pin_bar.open = !self.pin_bar.open;
       self.wake();
     }
     true
+  }
+
+  // the ×: the room's owner or a twitch mod unpins for everyone (asked first), anyone else hides it here
+  pub(super) fn pin_x(&mut self) {
+    let Some(t) = self.tabs.get(self.active) else { return };
+    let Some((p, room, _)) = self.pin_bar.pins.current_in(&t.sources) else { return };
+    if !self.can_pin(p, &room) {
+      return self.pin_hide();
+    }
+    self.pin_bar.ask = Some((p, room));
+    let area = self.pin_area();
+    let rows = vec![(Act::UnpinYes, "yes, unpin".to_owned()), (Act::No, "cancel".to_owned())];
+    let head = "unpin for everyone? y / enter, esc to cancel".to_owned();
+    self.overlay = Some(Overlay::Pop(Pop::ask(head, (area.x + 24, area.y + area.h), rows)));
+    self.pop_changed();
   }
 
   pub(super) fn pin_hide(&mut self) {
@@ -83,5 +105,76 @@ impl App {
       self.pin_bar.open = false;
       self.wake();
     }
+  }
+}
+
+impl App {
+  // may we pin in this room? our own channel on that platform, or a twitch mod. kick mods are refused
+  // by the server, so on kick only the owner
+  pub(super) fn can_pin(&self, p: Platform, chan: &str) -> bool {
+    let Some(me) = &self.me else { return false };
+    let own = me.name_on(p).is_some_and(|n| match p {
+      Platform::Kick => crate::model::modrole::kick_slug(n) == chan,
+      _ => n.eq_ignore_ascii_case(chan),
+    });
+    match p {
+      Platform::Twitch => own || self.mod_in.contains(chan),
+      Platform::Kick => own,
+      Platform::Youtube => false,
+    }
+  }
+
+  // the pin row a line's menu offers: None = none, Some(true) = this line is the room's pin
+  pub(super) fn pin_menu(&self, m: &crate::model::message::Message) -> Option<bool> {
+    let t = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat)?;
+    if !m.kind.said() || m.id.is_empty() || !matches!(m.platform, Platform::Twitch | Platform::Kick) {
+      return None;
+    }
+    let chan = self.room_of(m).filter(|c| t.sources.iter().any(|s| s.0 == m.platform && s.1 == *c))?;
+    if !self.can_pin(m.platform, &chan) {
+      return None;
+    }
+    let pinned = self.pin_bar.pins.in_room(m.platform, &chan).is_some_and(|p| *p.msg_id == *m.id);
+    Some(pinned)
+  }
+
+  // the line the menu was opened on: pin it, or (it is the pin) clear the room's pin
+  pub(super) fn pin_selected(&mut self, set: bool) {
+    let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.selected()) else { return };
+    let Some(want) = self.pin_menu(m) else { return };
+    let (platform, msg_id) = (m.platform, m.id.clone());
+    let Some(chan) = self.room_of(m) else { return };
+    // the menu is stale if the pin moved under it: do what the line is now
+    let op = if set && !want { Op::Set { platform, chan, msg_id } } else { Op::Clear { platform, chan } };
+    self.net.send(Cmd::Pin(op));
+  }
+
+  // "yes" to unpin for everyone
+  pub(super) fn pin_clear_go(&mut self) {
+    if let Some((platform, chan)) = self.pin_bar.ask.take()
+      && self.can_pin(platform, &chan)
+    {
+      self.net.send(Cmd::Pin(Op::Clear { platform, chan }));
+    }
+  }
+
+  pub(super) fn on_pin_done(&mut self, d: pinact::Done) {
+    let pinact::Done { platform, chan, set, res } = d;
+    match res {
+      Ok(pin) => {
+        // the ws echo repaints too; this is the sure path for a socket that is down
+        self.on_pin(platform, &chan, if set { pin } else { None });
+        self.say(if set { "pinned" } else { "unpinned" });
+      }
+      Err(Fail::Auth) => self.say("sign in to heatsync again"),
+      Err(Fail::Relink) => {
+        self.say("link heatsync to set this");
+        self.net.send(Cmd::Relink("mod"));
+      }
+      Err(Fail::Denied) => self.say("only mods can pin here"),
+      Err(Fail::NotArchived) => self.say("not in the archive yet \u{2014} try again in a moment"),
+      Err(Fail::Other) => self.say("couldn't pin"),
+    }
+    self.wake();
   }
 }

@@ -266,6 +266,7 @@ impl App {
         }
       }
       NetEvent::ModDone(d) => self.on_mod_done(*d),
+      NetEvent::PinDone(d) => self.on_pin_done(*d),
       NetEvent::Card { platform, login, res } => self.on_card(platform, &login, res),
       NetEvent::Pronouns(uid, res) => self.on_pronouns(uid, res),
       NetEvent::Held(h) => self.on_held(*h),

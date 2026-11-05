@@ -53,8 +53,14 @@ mod tests {
   #[test]
   fn folded_is_one_line_open_wraps() {
     let mut t = Text::new(1.0);
-    let p =
-      Pin { id: "1".into(), nick: "bob".into(), color: theme::WHITE, text: "word ".repeat(80).trim().into(), at: 0 };
+    let p = Pin {
+      id: "1".into(),
+      msg_id: "".into(),
+      nick: "bob".into(),
+      color: theme::WHITE,
+      text: "word ".repeat(80).trim().into(),
+      at: 0,
+    };
     let line = t.line_px as i32;
     assert_eq!(height(&mut t, &p, 300, false), line);
     assert!(height(&mut t, &p, 300, true) > line);

@@ -12,10 +12,13 @@ const MAX_TEXT: usize = 500;
 const MAX_NAME: usize = 64;
 const MAX_ROOMS: usize = 64;
 const MAX_HIDDEN: usize = 256;
+const MAX_MSG_ID: usize = 128;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pin {
   pub id: Box<str>,
+  // the chat line it was made from (empty when the server didn't say): "is this row the pin"
+  pub msg_id: Box<str>,
   pub nick: Box<str>,
   pub color: u32,
   pub text: Box<str>,
@@ -51,7 +54,8 @@ pub fn parse(v: &Value) -> Option<Pin> {
   let nick = clean(v.get("display_name").and_then(Value::as_str).unwrap_or(login), MAX_NAME);
   let color = v.get("color").and_then(Value::as_str).and_then(color::parse_hex).map_or(theme::WHITE, color::readable);
   let at = v.get("pinned_at").and_then(Value::as_i64).unwrap_or(0);
-  Some(Pin { id: id.into(), nick, color, text, at })
+  let msg_id = v.get("message_id").and_then(Value::as_str).filter(|m| m.len() <= MAX_MSG_ID).unwrap_or("");
+  Some(Pin { id: id.into(), msg_id: msg_id.into(), nick, color, text, at })
 }
 
 #[derive(Default)]
@@ -87,13 +91,23 @@ impl Pins {
   }
 
   // the newest pin among a tab's feeds that the viewer hasn't hidden
-  pub fn current(&self, sources: &[(Platform, Box<str>)]) -> Option<&Pin> {
+  pub fn current<'a>(&'a self, sources: &[(Platform, Box<str>)]) -> Option<&'a Pin> {
+    self.current_in(sources).map(|(_, _, pin)| pin)
+  }
+
+  // the same, with the room it lives in
+  pub fn current_in(&self, sources: &[(Platform, Box<str>)]) -> Option<(Platform, Box<str>, &Pin)> {
     sources
       .iter()
       .filter(|(p, _)| matches!(p, Platform::Twitch | Platform::Kick))
-      .filter_map(|(p, k)| self.rooms.get(&(*p as u8, k.clone())))
-      .filter(|pin| !self.hidden.contains(&pin.id))
-      .max_by_key(|pin| pin.at)
+      .filter_map(|(p, k)| self.rooms.get(&(*p as u8, k.clone())).map(|pin| (*p, k.clone(), pin)))
+      .filter(|(_, _, pin)| !self.hidden.contains(&pin.id))
+      .max_by_key(|(_, _, pin)| pin.at)
+  }
+
+  // the pin a room holds right now (hidden or not): what a row's menu compares its line to
+  pub fn in_room(&self, p: Platform, key: &str) -> Option<&Pin> {
+    self.rooms.get(&(p as u8, Box::<str>::from(key)))
   }
 }
 
@@ -112,6 +126,10 @@ mod tests {
       parse(&json!({"id": 7, "content": "a\nb\u{7}c", "username": "bob", "display_name": "Bob", "color": "#f00"}))
         .unwrap();
     assert_eq!((&*p.id, &*p.text, &*p.nick), ("7", "a b c", "Bob"));
+    assert_eq!(&*p.msg_id, "");
+    let m = parse(&json!({"id": "7", "content": "x", "message_id": "abc-1"})).unwrap();
+    assert_eq!(&*m.msg_id, "abc-1");
+    assert_eq!(&*parse(&json!({"id": "7", "content": "x", "message_id": "m".repeat(129)})).unwrap().msg_id, "");
     let long = "é".repeat(600);
     assert!(parse(&json!({"id": "x", "content": long})).unwrap().text.len() <= MAX_TEXT);
     assert!(parse(&json!({"id": "", "content": "x"})).is_none());

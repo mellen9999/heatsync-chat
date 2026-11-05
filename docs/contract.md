@@ -26,6 +26,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 | name color | `GET /api/paints?ids=yt_<UC…>` → `{paints,colors}` | youtube lines only; color used iff `#rrggbb` and no paint |
 | community mutes | `GET /api/community-mutes/<chan>?threshold=25&limit=500` → `mutes[{username,platform?,since_iso}]` | ttl 600s, fail retry 60s. collapse, never hide |
 | pin | `GET /api/pin?platform=&channel=` → `{pin\|null}` | `id,message_id,username,display_name,color,content` |
+| pin / unpin | `POST /api/mod/pin {platform,channel,message_id}` → `{pin}`, `DELETE /api/mod/pin {platform,channel}` → `{pin:null}` (bearer) | the line menu's `pin message` / `unpin` and the pin bar × (asks `unpin for everyone?`), only for your own channel or a twitch mod you are (kick: owner only, the server refuses kick mods). id ≤128, room `[a-z0-9_-]{1,50}`. reply capped (`social::call`), its pin goes through the same bounds as a `pin:set` frame. 401 `relink_required` → relink `mod`, 403 `only mods can pin here`, 409 not archived yet. the ws `pin:set\|clear` echo repaints the bar |
 | backfill | `GET /api/recent/<kick\|youtube>/<chan>?limit=50` | oldest first. kick by slug, yt by lowercased UC id |
 | recent twitch | `GET /api/recent-messages/<chan>?limit=800&hide_moderation_messages=false&hide_moderated_messages=false&clearchatToNotice=true` | robotty via proxy |
 | linked accts | `GET /api/profile/<chan>?platform=twitch` → `kick_username, youtube_username, youtube_channel_id` | auto multichat |

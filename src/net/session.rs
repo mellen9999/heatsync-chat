@@ -59,6 +59,7 @@ pub enum Cmd {
   Youtube { chan: Box<str>, text: String },
   Social(super::social::Cmd),
   Mod(super::modact::Req),
+  Pin(super::pinact::Op),
   Held(super::held::Cmd),
   Following,
   Blocked(Box<str>, super::blocked::Op),
@@ -187,6 +188,9 @@ pub async fn run(
         }
         Some(Cmd::Mod(r)) => {
           tokio::spawn(super::modact::run(st.http.clone(), st.token.clone(), r, st.out.clone()));
+        }
+        Some(Cmd::Pin(op)) => {
+          tokio::spawn(super::pinact::run(st.http.clone(), st.token.clone(), op, st.out.clone()));
         }
         Some(Cmd::Held(c)) => {
           tokio::spawn(super::held::run(st.http.clone(), st.token.clone(), c, st.out.clone()));

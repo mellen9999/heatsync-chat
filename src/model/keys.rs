@@ -57,7 +57,7 @@ pub static KEYS: [Group; 13] = [
     name: "chat",
     rows: &[
       k("click", "pick a line"),
-      k("right-click", "line menu: reply, copy, note, mute, block, mod"),
+      k("right-click", "line menu: reply, copy, note, mute, block, mod, pin"),
       k("ctrl-f", "search this tab"),
       k("ctrl-g", "next match (shift: previous)"),
       v("ctrl-d ctrl-u", "scroll half a page"),
@@ -65,7 +65,7 @@ pub static KEYS: [Group; 13] = [
       v("v", "pick a line"),
       v("/  space /", "search this tab"),
       v("n  N", "next, previous match"),
-      v("space x", "hide the pinned line"),
+      v("space x", "hide the pinned line (your channel or a twitch mod: unpin for everyone)"),
       v("space p", "this twitch channel's prediction (also /predictions, or click its banner)"),
       v("space t", "tab mode: move, reorder, close tabs from the keys"),
       v("space w", "watch this channel's stream (mpv, else the browser)"),

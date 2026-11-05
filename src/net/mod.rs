@@ -23,6 +23,7 @@ pub mod modsuite;
 pub mod modtools;
 pub mod mutes;
 pub mod pin;
+pub mod pinact;
 pub mod pred;
 mod recent;
 pub mod relay;
@@ -276,6 +277,8 @@ pub enum NetEvent {
   },
   // a mod action settled
   ModDone(Box<modact::Done>),
+  // a pin / unpin for everyone settled
+  PinDone(Box<pinact::Done>),
   // a link's preview (None: nothing to show)
   Preview(Box<str>, Option<crate::model::preview::Preview>),
   // someone's pronouns (by twitch id): Ok(words or none set), Err = no answer
@@ -493,6 +496,8 @@ pub enum Cmd {
   Relink(&'static str),
   // a ban, timeout, delete… in a room we moderate
   Mod(modact::Req),
+  // pin a line for everyone / clear the room's pin
+  Pin(pinact::Op),
   // your mute list changed (synced while logged in)
   Mute(mutes::Op),
 }
@@ -921,6 +926,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Mod(r) => {
         let _ = sess_tx.send(session::Cmd::Mod(r));
+      }
+      Cmd::Pin(op) => {
+        let _ = sess_tx.send(session::Cmd::Pin(op));
       }
       Cmd::Held(c) => {
         let _ = sess_tx.send(session::Cmd::Held(c));

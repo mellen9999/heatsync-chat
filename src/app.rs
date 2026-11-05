@@ -75,6 +75,8 @@ mod tests_kickmod;
 #[cfg(test)]
 mod tests_pickers;
 #[cfg(test)]
+mod tests_pin;
+#[cfg(test)]
 mod tests_screens;
 #[cfg(test)]
 mod tests_sendto;

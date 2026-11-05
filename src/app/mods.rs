@@ -82,11 +82,7 @@ impl App {
     if !m.kind.said() || login.is_empty() {
       return None;
     }
-    let t = self.tabs.get(self.active)?;
-    let chan: Box<str> = match m.x.as_deref().map(|x| &x.chan).filter(|c| !c.is_empty()) {
-      Some(c) => c.clone(),
-      None => t.sources.iter().find(|s| s.0 == m.platform).map(|s| s.1.clone())?,
-    };
+    let chan = self.room_of(m)?;
     let own = m.has(crate::model::message::flag::OWN)
       || self.me.as_ref().is_some_and(|me| me.names.iter().any(|n| n.eq_ignore_ascii_case(login)));
     Some(Subject {
