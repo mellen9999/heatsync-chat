@@ -209,6 +209,8 @@ pub struct App {
   // each twitch room's chat modes as its ROOMSTATE says, and a mode change on its way
   modes: std::collections::HashMap<Box<str>, crate::model::modes::Modes>,
   modes_busy: bool,
+  // twitch channels whose history just loaded, asked whether they are live and since when (stream.rs)
+  live_asked: std::collections::HashSet<Box<str>>,
   // when the soonest timed mute ends
   mute_due: Option<Instant>,
   next_anim: Option<Instant>,
@@ -435,6 +437,7 @@ impl App {
       mod_in: Default::default(),
       kick_mod: Default::default(),
       modes: Default::default(),
+      live_asked: Default::default(),
       modes_busy: false,
       mute_due,
       next_anim: None,

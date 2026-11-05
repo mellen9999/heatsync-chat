@@ -265,6 +265,7 @@ impl App {
           self.scan_mention(Platform::Twitch, &ch, m);
         }
         self.tabs[i].chat().prepend(history);
+        self.ask_went_live(&ch);
         self.trim_soon();
         if i == self.active {
           self.wake();

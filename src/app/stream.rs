@@ -6,8 +6,11 @@ use std::collections::HashMap;
 use super::App;
 use crate::model::chatters::Chatters;
 use crate::model::color;
-use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg};
+use crate::model::ident;
+use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg, flag};
+use crate::model::status::Info;
 use crate::model::stream_events::{Line, Tone};
+use crate::net::Cmd;
 use crate::ui::theme;
 use crate::util::notify;
 use crate::util::time::now_ms;
@@ -154,6 +157,39 @@ impl App {
     }
   }
 
+  // a channel already live when its history loaded: twitch says since when (the /status query), and its
+  // "went live" line goes in at that time if the history reaches back that far. the realtime line only
+  // comes for a go-live while we run (the ws holds back its first 90s), so a launch had none; one from
+  // before the oldest line shown would just sit at the top, so there is none then either. history: no
+  // notification, no yellow tab, and the line's id keeps a second answer from doubling it
+  pub(super) fn ask_went_live(&mut self, chan: &str) {
+    if self.set.ev_online && ident::twitch_login(chan) && self.live_asked.insert(chan.into()) {
+      self.net.send(Cmd::StreamInfo(chan.into()));
+    }
+  }
+
+  pub(super) fn history_went_live(&mut self, chan: &str, info: &Info) {
+    let Some((_, start)) = info.live.filter(|&(_, t)| t > 0 && t <= now_ms()) else { return };
+    if !self.set.ev_online {
+      return;
+    }
+    let l = Line::went_live(Platform::Twitch, chan, &info.name, &info.game);
+    let (c, uid) = hue(&self.follow_colors, &mut self.res.chatters, Platform::Twitch, chan);
+    let mut m = row(&l, c, uid);
+    m.ts = start;
+    m.id = format!("went-live:{chan}:{start}").into();
+    m.flags |= flag::HISTORY;
+    for i in self.tabs_with(Platform::Twitch, chan) {
+      let v = self.tabs[i].chat();
+      if v.oldest_ts().is_some_and(|t| t <= start) {
+        v.prepend(vec![m.clone()]);
+        if i == self.active {
+          self.wake();
+        }
+      }
+    }
+  }
+
   pub(super) fn on_moment(&mut self, platform: Platform, key: &str, text: &str) {
     if !self.set.moments || self.tabs_with(platform, key).is_empty() {
       return;
@@ -217,5 +253,55 @@ mod tests {
     l.channel = format!("<b>\n{}", "z".repeat(100)).into();
     let (title, _) = app.stream_alert(&l).unwrap();
     assert!(title.starts_with("&lt;b&gt; zzz") && title.len() < 70, "{title}");
+  }
+
+  #[test]
+  fn a_channel_live_when_its_history_loads_gets_its_went_live_line_in_place() {
+    use crate::model::status::Info;
+    use crate::net::{NetEvent, irc::Chat};
+    let (net, mut asked) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let now = now_ms();
+    let said = |id: &str, ago: i64| {
+      let mut m = Message::system(now - ago, Platform::Twitch, id);
+      m.id = id.into();
+      Chat::Msg(m)
+    };
+    app.on_net(NetEvent::Backfill("forsen".into(), vec![said("old", 3 * 3_600_000), said("new", 3_600_000)]));
+    let asks: Vec<_> =
+      std::iter::from_fn(|| asked.try_recv().ok()).filter(|c| matches!(c, Cmd::StreamInfo(_))).collect();
+    assert_eq!(asks.len(), 1, "asked once, when the history landed");
+    let live =
+      |ago: i64| Info { name: "Forsen".into(), live: Some((900, now - ago)), game: "Chess".into(), ..Info::default() };
+    app.on_net(NetEvent::StreamInfo { chan: "forsen".into(), info: Some(live(2 * 3_600_000)) });
+    let tab = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+    let rows = |app: &mut App| -> Vec<String> {
+      app.tabs[tab]
+        .chat()
+        .msgs()
+        .map(|m| {
+          if m.id.starts_with("went-live") {
+            m.x.as_ref().map(|x| x.tail.iter().map(|s| s.text.to_string()).collect()).unwrap_or_default()
+          } else {
+            m.id.to_string()
+          }
+        })
+        .collect()
+    };
+    assert_eq!(rows(&mut app), ["old", " ◆ went live — Chess", "new"], "at the time it went live");
+    // the status screen asking again changes nothing; nor does a second answer
+    app.on_net(NetEvent::StreamInfo { chan: "forsen".into(), info: Some(live(2 * 3_600_000)) });
+    assert_eq!(rows(&mut app).len(), 3);
+    // a go-live from before the oldest line shown would just sit on top: none
+    let mut app2 = App::new(Net::tap().0, vec!["forsen".into()], false);
+    app2.on_net(NetEvent::Backfill("forsen".into(), vec![said("new", 3_600_000)]));
+    app2.on_net(NetEvent::StreamInfo { chan: "forsen".into(), info: Some(live(5 * 3_600_000)) });
+    assert_eq!(app2.tabs[tab].chat().msgs().count(), 1);
+    // went-live lines off: nothing is asked
+    let (net, mut asked) = Net::tap();
+    let mut app3 = App::new(net, vec!["forsen".into()], false);
+    app3.set.ev_online = false;
+    app3.on_net(NetEvent::Backfill("forsen".into(), vec![said("new", 3_600_000)]));
+    assert!(!std::iter::from_fn(|| asked.try_recv().ok()).any(|c| matches!(c, Cmd::StreamInfo(_))));
   }
 }

@@ -64,6 +64,31 @@ pub struct Line {
 }
 
 impl Line {
+  // `what` is the words after the diamond (`went live — game`): the verb in the tone's color, the game white
+  pub fn new(platform: Platform, channel: &str, name: &str, color: Option<u32>, tone: Tone, what: &str) -> Line {
+    let at = ["went live — ", "switched to "].iter().find_map(|v| what.strip_prefix(v).map(|g| (v.len(), g)));
+    let (verb, game) = match at {
+      Some((n, g)) => (&what[..n], g),
+      None => (what, ""),
+    };
+    Line {
+      platform,
+      channel: channel.into(),
+      text: format!("[{channel}] ◆ {what}").into(),
+      tone,
+      name: if name.is_empty() { channel.into() } else { name.into() },
+      color,
+      verb: format!("◆ {verb}").into(),
+      game: game.into(),
+    }
+  }
+
+  // a go-live already under way when a channel's history loads (the realtime one only comes while we run)
+  pub fn went_live(platform: Platform, channel: &str, name: &str, game: &str) -> Line {
+    let what = body(Kind::Online, &clean(game), "").unwrap_or_default();
+    Line::new(platform, channel, name, None, Tone::Online, &what)
+  }
+
   // whose name heads the line: the redeemer for a redeem, else the channel
   pub fn person(&self) -> Box<str> {
     if self.tone == Tone::Redeem { self.name.to_ascii_lowercase().into() } else { self.channel.clone() }
@@ -126,21 +151,7 @@ impl Gate {
       self.shown.retain(|_, t| now - *t < DEDUPE_MS);
     }
     self.shown.insert(k, now);
-    let at = ["went live — ", "switched to "].iter().find_map(|v| what.strip_prefix(v).map(|g| (v.len(), g)));
-    let (verb, game) = match at {
-      Some((n, g)) => (&what[..n], g),
-      None => (what, ""),
-    };
-    Some(Line {
-      platform: e.platform,
-      channel: e.channel.clone(),
-      text: text.into(),
-      tone,
-      name: if e.name.is_empty() { e.channel.clone() } else { e.name.clone() },
-      color: e.color,
-      verb: format!("◆ {verb}").into(),
-      game: game.into(),
-    })
+    Some(Line::new(e.platform, &e.channel, &e.name, e.color, tone, what))
   }
 
   // a channel's news that is not about the stream itself (`stream:raid`, `stream:sub-gift`, ext main.js

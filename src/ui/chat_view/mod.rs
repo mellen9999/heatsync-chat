@@ -350,6 +350,11 @@ impl ChatView {
     self.pending += 1;
   }
 
+  // when the oldest line here was said
+  pub fn oldest_ts(&self) -> Option<i64> {
+    self.rows.front().map(|r| r.msg.ts)
+  }
+
   // history arrives after live lines may already be showing, and a merged tab gets one batch per platform:
   // each line goes where its time puts it, so twitch, kick and youtube history interleave instead of
   // stacking in arrival order. a line we already have (same id) is skipped

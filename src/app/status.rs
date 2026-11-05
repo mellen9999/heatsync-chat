@@ -106,6 +106,11 @@ impl App {
   }
 
   pub(super) fn on_stream_info(&mut self, chan: Box<str>, info: Option<Info>) {
+    if self.live_asked.remove(&chan)
+      && let Some(i) = &info
+    {
+      self.history_went_live(&chan, i);
+    }
     if let Some(s) = self.screen.as_mut().filter(|s| s.page() == Page::Status && s.of == chan) {
       s.info = Some(info);
       self.wake();
