@@ -33,6 +33,7 @@ mod senders;
 mod session;
 pub mod seventv;
 pub mod social;
+pub mod twclip;
 pub mod update;
 pub mod upload;
 mod youtube;
@@ -277,6 +278,11 @@ pub enum NetEvent {
   },
   // a mod action settled
   ModDone(Box<modact::Done>),
+  // a twitch clip from the card's `clip` row settled (the card's person)
+  Clip {
+    login: Box<str>,
+    res: Result<twclip::Made, twclip::Fail>,
+  },
   // a /nuke settled
   NukeDone(Box<modact::NukeDone>),
   // a pin / unpin for everyone settled
@@ -498,6 +504,8 @@ pub enum Cmd {
   Relink(&'static str),
   // a ban, timeout, delete… in a room we moderate
   Mod(modact::Req),
+  // a clip of this twitch channel (the card's person, then the channel)
+  Clip(Box<str>, Box<str>),
   // /nuke's deletes (paced), with the term for the summary
   Nuke(Vec<modact::Req>, String),
   // pin a line for everyone / clear the room's pin
@@ -930,6 +938,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Mod(r) => {
         let _ = sess_tx.send(session::Cmd::Mod(r));
+      }
+      Cmd::Clip(login, chan) => {
+        let _ = sess_tx.send(session::Cmd::Clip(login, chan));
       }
       Cmd::Nuke(reqs, term) => {
         let _ = sess_tx.send(session::Cmd::Nuke(reqs, term));

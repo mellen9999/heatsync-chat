@@ -4,6 +4,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use super::cardclip::Clip;
 use super::overlay::Overlay;
 use super::pop::{Act, Subject};
 use crate::model::card::Info;
@@ -34,10 +35,12 @@ pub(super) fn note_of(l: &Load) -> Option<&'static str> {
 }
 
 pub struct Card {
-  who: Subject,
+  pub(super) who: Subject,
   info: Load,
   recent: Vec<(i64, Box<str>)>,
-  menu: Menu<Act>,
+  pub(super) menu: Menu<Act>,
+  // the clip row's state (cardclip.rs)
+  pub(super) clip: Clip,
   // where it was last drawn: a click outside it closes it
   rect: Rect,
 }
@@ -77,15 +80,16 @@ impl App {
         Load::Loading
       }
     };
-    let menu = Menu::new(self.card_rows(&who, &info), (0, 0));
+    let clip = Clip::default();
+    let menu = Menu::new(self.card_rows(&who, &info, &clip), (0, 0));
     self.hide_peek();
-    self.overlay = Some(Overlay::Card(Card { who, info, recent, menu, rect: Rect::new(0, 0, 0, 0) }));
+    self.overlay = Some(Overlay::Card(Card { who, info, recent, menu, clip, rect: Rect::new(0, 0, 0, 0) }));
     self.want_pronouns(self.card_twitch_id());
     self.card_changed();
   }
 
   // the ext's card has its logs cell first, then follow / unfollow once heatsync says which
-  fn card_rows(&self, who: &Subject, info: &Load) -> Vec<(Act, String)> {
+  fn card_rows(&self, who: &Subject, info: &Load, clip: &Clip) -> Vec<(Act, String)> {
     let mut rows = vec![(Act::Logs, "chat logs".to_owned())];
     if let Load::Done(i) = info
       && let Some(f) = i.follow.filter(|_| self.me.is_some() && !who.own)
@@ -93,20 +97,31 @@ impl App {
       rows.push((Act::Follow(!f), if f { "unfollow" } else { "follow" }.into()));
     }
     rows.extend(self.person_rows(who));
+    rows.extend(self.clip_row(who, info, clip));
     rows
   }
 
   // the open card read again from the cache (a follow changed it): its facts and its rows
   pub(super) fn card_refresh(&mut self, platform: Platform, login: &str) {
-    let Some(c) = self.card().filter(|c| c.who.platform == platform && *c.who.login == *login) else { return };
+    if self.card().is_none_or(|c| c.who.platform != platform || *c.who.login != *login) {
+      return;
+    }
     let info = match self.cards.get(platform, login) {
       Some(Load::Done(i)) => Load::Done(i.clone()),
       Some(Load::Failed(why)) => Load::Failed(why),
       _ => Load::Loading,
     };
-    let rows = self.card_rows(&c.who, &info);
     if let Some(c) = self.card_mut() {
       c.info = info;
+    }
+    self.card_rows_refresh();
+  }
+
+  // the open card's rows built again from what it holds (its facts or its clip changed)
+  pub(super) fn card_rows_refresh(&mut self) {
+    let Some(c) = self.card() else { return };
+    let rows = self.card_rows(&c.who, &c.info, &c.clip);
+    if let Some(c) = self.card_mut() {
       c.menu.at = c.menu.at.min(rows.len().saturating_sub(1));
       c.menu.items = rows;
     }
@@ -175,6 +190,8 @@ impl App {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) => c.menu.step(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) => c.menu.step(-1),
       Key::Named(NamedKey::Enter) => return self.card_pick(),
+      // the ext's hotkey for its clip button
+      Key::Character("c") => return self.clip_press(),
       Key::Named(NamedKey::Escape) | Key::Character("q") => self.close_card(),
       _ => return,
     }
@@ -182,6 +199,10 @@ impl App {
   }
 
   fn card_pick(&mut self) {
+    // the clip row keeps the card up: it shows `clipping…`, then `url copied`
+    if self.card().and_then(|c| c.menu.chosen()) == Some(Act::Clip) {
+      return self.clip_press();
+    }
     let Some(c) = self.take_card() else { return };
     self.card_changed();
     if let Some(act) = c.menu.chosen() {

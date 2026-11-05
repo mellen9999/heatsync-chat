@@ -220,6 +220,7 @@ pub static KEYS: [Group; 13] = [
       k("enter", "choose"),
       k("esc", "close (right-click too)"),
       k("q", "close a user card"),
+      k("c", "in a card of a live twitch channel: clip it, copies the link (again: opens the edit page)"),
     ],
   },
 ];

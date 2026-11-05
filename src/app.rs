@@ -16,6 +16,7 @@ mod acct;
 mod blocked;
 mod builtin;
 mod card;
+mod cardclip;
 mod chantools;
 mod chips;
 mod clip;
@@ -68,6 +69,8 @@ mod suggest;
 mod tabs;
 mod tabsync;
 mod tagcard;
+#[cfg(test)]
+mod tests_cardclip;
 #[cfg(test)]
 mod tests_input;
 #[cfg(test)]

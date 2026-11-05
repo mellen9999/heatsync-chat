@@ -70,6 +70,8 @@ pub enum Act {
   FilterTo,
   // their archived lines, over this tab
   Logs,
+  // the card's clip row: make a twitch clip of the live channel, then open its edit page
+  Clip,
   // the person's card, and the things a card (or a line menu) does to them
   Card,
   Mention,

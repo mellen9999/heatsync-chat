@@ -29,6 +29,8 @@ pub struct Info {
   // whether you follow them on heatsync (signed in, a real account): what /follow and the card's
   // follow row flip
   pub follow: Option<bool>,
+  // their twitch channel is live right now (the ext's gate for the card's clip action)
+  pub live: bool,
 }
 
 // "4y 3mo", "2mo 5d", "3d", "5h", "just now"
@@ -172,6 +174,10 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .filter(|r| r.is_object())
     .map(|r| ["youFollow", "isFollowing"].iter().any(|k| r.get(*k).and_then(Value::as_bool) == Some(true)));
   let follow = follow.filter(|_| profile_id.is_some());
+  let live = real.is_some_and(|p| {
+    p.get("twitch_is_live").and_then(Value::as_bool) == Some(true)
+      || p.pointer("/live_status/twitch").and_then(Value::as_bool) == Some(true)
+  });
   Info {
     registered: profile.is_some() && !anonymous,
     rows,
@@ -182,6 +188,7 @@ pub fn parse(v: &Value, now: i64) -> Info {
     profile_id,
     note,
     follow,
+    live,
   }
 }
 
@@ -244,6 +251,17 @@ mod tests {
     assert_eq!(get("ch follow").as_deref(), Some("2y"));
     assert_eq!(get("seen").as_deref(), Some("420 msgs over 1y 10mo"));
     assert_eq!((i.color, i.twitch_id), (None, None));
+  }
+
+  #[test]
+  fn live_is_the_twitch_channel_being_live_for_a_real_account_only() {
+    let live = |p: Value| parse(&json!({ "profile": p }), NOW).live;
+    assert!(live(json!({ "twitch_is_live": true })));
+    assert!(live(json!({ "live_status": { "twitch": true } })));
+    assert!(!live(json!({ "twitch_is_live": false, "live_status": { "twitch": false, "kick": true } })));
+    assert!(!live(json!({ "twitch_is_live": "yes" })));
+    assert!(!live(json!({ "is_anonymous": true, "twitch_is_live": true })));
+    assert!(!parse(&json!({}), NOW).live);
   }
 
   #[test]
