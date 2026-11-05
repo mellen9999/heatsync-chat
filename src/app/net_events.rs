@@ -72,8 +72,21 @@ impl App {
     let now = now_ms();
     let me = &self.mentions;
     let mut any = false;
+    // the feed whose echo already landed (the site's send can go to several feeds, ext retroFoldOwnEchoes)
+    let landed = std::cell::Cell::new(None);
     for v in self.tabs.iter_mut().flat_map(Tab::views) {
-      any |= v.mark_origin(|m| m.kind.said() && now - m.ts < RACE_MS && me.mine(m) && m.body.trim() == text.trim());
+      any |= v.mark_origin(|m| {
+        let hit = m.kind.said() && now - m.ts < RACE_MS && me.mine(m) && m.body.trim() == text.trim();
+        if hit {
+          landed.set(Some(m.platform));
+        }
+        hit
+      });
+    }
+    // the other feeds' copies of this one send fold into the line already shown (model::sentfold)
+    self.sentfold.track(now, &text, false);
+    if let Some(p) = landed.get() {
+      self.sentfold.folds(now, p, &text);
     }
     self.origins.note(now, text);
     if any {

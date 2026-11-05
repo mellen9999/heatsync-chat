@@ -168,6 +168,15 @@ mod tests {
     assert!(tagged(&app));
     app.on_chat("forsen", line("mellen", "something else"));
     assert!(!tagged(&app));
+    // the site sent to twitch and kick: the kick copy of the same send folds into the twitch line
+    app.tabs[i].sources.push((Platform::Kick, "forsen".into()));
+    app.on_chat("forsen", line("mellen", "both"));
+    app.on_net(NetEvent::Origin("both".into()));
+    let n = app.tabs[i].view.len();
+    let mut k = Message::system(crate::util::time::now_ms(), Platform::Kick, "both");
+    (k.kind, k.login, k.nick) = (MsgKind::Chat, "mellen".into(), "mellen".into());
+    app.on_net(NetEvent::Relay { platform: Platform::Kick, key: "forsen".into(), msgs: vec![k], history: false });
+    assert_eq!(app.tabs[i].view.len(), n, "one send, one line");
   }
 
   // a redeem line lands only in its room's tab, headed by the redeemer, and is nobody's chat line
