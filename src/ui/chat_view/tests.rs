@@ -1522,12 +1522,15 @@ fn the_flame_is_for_known_users_without_a_bar_and_never_beside_one() {
   assert_eq!(before_name(&mut res, &m).0, 0, "both off");
   res.look.flame = true;
   res.senders.set_me(Some(42));
-  assert_eq!(before_name(&mut res, &m).0, 0, "never on your own line");
+  assert_eq!(before_name(&mut res, &m).0, FLAME_W, "your own line wears it too (ext hsMarksWear)");
   res.senders.set_me(None);
   // a stranger (no set) wears none
   let mut other = marked("43");
   other.login = "amy".into();
   other.nick = "amy".into();
+  res.senders.set_me(Some(43));
+  assert_eq!(before_name(&mut res, &other).0, FLAME_W, "you, before your set loads");
+  res.senders.set_me(None);
   assert_eq!(before_name(&mut res, &other).0, 0);
 }
 

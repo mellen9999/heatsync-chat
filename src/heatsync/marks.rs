@@ -10,11 +10,11 @@ pub struct Wear {
   pub bar: Option<Bar>,
 }
 
-// `known`: we have seen heatsync content from this sender. `mine`: it is your own line (you know it is
-// you, so no 🔥, like the chatterino plugin). `heat`: their score, 0 while unknown
+// `known`: we have seen heatsync content from this sender. `mine`: it is your own line, which counts as
+// known even before your emote set loads (ext name-marks.js hsMarksWear). `heat`: their score, 0 while unknown
 pub fn wear(flame_on: bool, bars_on: bool, known: bool, mine: bool, heat: u32) -> Wear {
   let bar = if bars_on { bar(heat) } else { None };
-  Wear { flame: flame_on && known && !mine && bar.is_none(), bar }
+  Wear { flame: flame_on && (known || mine) && bar.is_none(), bar }
 }
 
 #[cfg(test)]
@@ -43,8 +43,11 @@ mod tests {
     assert_eq!(w(true, true, true, false, 3), Wear { flame: true, bar: None }, "known, cold: the flame");
     assert!(!w(true, true, true, false, 7).flame && w(true, true, true, false, 7).bar.is_some(), "warm: the bar");
     assert_eq!(w(true, true, false, false, 0), Wear::default(), "a stranger wears nothing");
-    assert!(!w(true, true, true, true, 3).flame, "no flame on your own line");
-    assert!(w(true, true, true, true, 300).bar.is_some(), "but your bar shows");
+    assert!(w(true, true, true, true, 3).flame, "your own line wears it too");
+    assert!(w(true, true, false, true, 0).flame, "even before your emote set loads");
+    assert!(!w(false, true, false, true, 0).flame, "not with the switch off");
+    let warm = w(true, true, true, true, 300);
+    assert!(warm.bar.is_some() && !warm.flame, "your bar shows, and then no flame");
     assert!(w(true, false, true, false, 300).flame, "bars off: a known user wears the flame again");
     assert_eq!(w(false, false, true, false, 300), Wear::default(), "both off");
   }
