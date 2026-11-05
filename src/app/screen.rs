@@ -31,6 +31,8 @@ pub enum Page {
   Account,
   // who you follow is live (app::following)
   Following,
+  // your twitch follows, picked into tabs (app::import)
+  Import,
   // your heatsync emotes: slots, removed, saved sets (app::inventory)
   Inventory,
 }
@@ -78,6 +80,8 @@ pub(super) enum Target {
   Account(super::account::Step),
   // the following screen: a live person (their place in the list)
   Live(usize),
+  // the import screen: a follow, a button, a way in
+  Imp(super::import::Step),
   // your emotes: a row of the current tab (its place in that tab's full list)
   Inv(usize),
   None,
@@ -140,7 +144,7 @@ impl Screen {
       Page::Status => (self.shown.clone(), self.marks.clone()),
       Page::Pred => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
-      Page::Account | Page::Following => (self.shown.clone(), self.marks.clone()),
+      Page::Account | Page::Following | Page::Import => (self.shown.clone(), self.marks.clone()),
       Page::Inventory => self.inv.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |v| v.lines(&self.q.text)),
     }
   }
@@ -408,6 +412,7 @@ impl App {
       Some(Page::ModTools) => self.tools_key(&key),
       Some(Page::Pred) => self.pred_key(&key),
       Some(Page::Following) => self.following_key(&key),
+      Some(Page::Import) => self.import_key(&key),
       Some(Page::Inventory) => self.inv_key(&key, text),
       _ => false,
     };
@@ -458,7 +463,10 @@ impl App {
         Key::Named(NamedKey::Home) => s.st.first(&lines),
         Key::Character("G") | Key::Named(NamedKey::End) => s.st.last(&lines),
         Key::Character("/")
-          if matches!(s.page, Page::Settings | Page::Blocked | Page::ModTools | Page::Following | Page::Inventory) =>
+          if matches!(
+            s.page,
+            Page::Settings | Page::Blocked | Page::ModTools | Page::Following | Page::Import | Page::Inventory
+          ) =>
         {
           s.typing = true
         }
@@ -523,6 +531,7 @@ impl App {
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
       (Some(Target::Account(step)), None) => self.account_step(step),
       (Some(Target::Live(i)), None) => self.following_pick(i),
+      (Some(Target::Imp(step)), None) => self.import_pick(step),
       (Some(t @ (Target::Allow | Target::Retry | Target::Shield | Target::Level(_) | Target::Unban(_))), _)
         if s.page == Page::ModTools =>
       {
@@ -569,6 +578,7 @@ impl App {
   pub(super) fn draw_screen(&mut self) -> Option<Rect> {
     self.account_refresh();
     self.following_refresh();
+    self.import_refresh();
     self.summary_refresh();
     self.status_refresh();
     let area = self.chat_area();
@@ -589,6 +599,7 @@ impl App {
       _ => "",
     };
     let shown = s.marks.iter().filter(|t| matches!(t, Target::Live(_))).count();
+    let imp_title = self.import.title();
     let fol_title = self.following.title(self.me.is_some(), !s.q.text.trim().is_empty(), shown);
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
     let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
@@ -643,6 +654,15 @@ impl App {
           "j k move · enter opens a tab · w watches · r refreshes · / filter · esc closes"
         },
       ),
+      (Page::Import, _) => (
+        imp_title.as_str(),
+        Some((s.q.text.as_str(), s.typing, "/ filter", "/ ")),
+        if s.typing {
+          "type to filter · enter or esc stops"
+        } else {
+          "space picks · enter adds · s picks live · r reloads · / filter · esc"
+        },
+      ),
       (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
       (Page::ModTools, _) => (
         mt_title.as_str(),
@@ -666,6 +686,7 @@ impl App {
       (_, Some(m)) if s.page == Page::ModTools => m.msg.as_str(),
       _ if s.page == Page::Keys => keys_tip(self.set.vi),
       _ if s.page == Page::Inventory => s.inv.as_deref().map_or("", |v| v.tip()),
+      _ if s.page == Page::Import => self.import.msg.as_str(),
       _ => tip,
     };
     let v = sheet::View { title, search, lines: &lines, tip, keys, col: None };

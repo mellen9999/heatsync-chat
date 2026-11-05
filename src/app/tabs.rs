@@ -228,11 +228,16 @@ impl App {
     self.activate(self.active);
   }
 
-  pub(super) fn add_tab(&mut self, spec: &Spec) {
+  // a new last tab for `spec`, joined (not yet saved or shown)
+  pub(super) fn push_tab(&mut self, spec: &Spec) {
     let mut tab = make_tab(&self.net, spec);
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
+  }
+
+  pub(super) fn add_tab(&mut self, spec: &Spec) {
+    self.push_tab(spec);
     self.save_tabs();
     self.activate(self.tabs.len() - 1);
   }
@@ -322,10 +327,7 @@ impl App {
       if let Some(s) = layout_link::fresh(spec, &have) {
         names.push(s.name());
         have.push(s.clone());
-        let mut tab = make_tab(&self.net, &s);
-        tab.view.resize(self.body().w);
-        seat_hosts(&mut self.res.chatters, &tab.sources);
-        self.tabs.push(tab);
+        self.push_tab(&s);
       }
     }
     let note = if skipped > 0 { format!(", skipped {skipped} it can't open") } else { String::new() };

@@ -20,6 +20,7 @@ pub mod gifs;
 pub mod held;
 pub mod ident;
 pub mod ime;
+pub mod import;
 pub mod inbox;
 pub mod inventory;
 pub mod keys;

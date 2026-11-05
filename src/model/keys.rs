@@ -43,6 +43,7 @@ pub static KEYS: [Group; 13] = [
       k("/login /logout", "like ctrl-l and ctrl-shift-l"),
       k("/account", "who you're logged in as · log out"),
       k("ctrl-b", "who you follow is live: enter opens a tab, w watches (also /following, /live)"),
+      k("/import", "your twitch follows, live first: space picks, enter adds them as tabs"),
       k("ctrl-p", "your emotes: rename, reorder, remove, undo, sets, share (/emotes)"),
       k("ctrl-o", "upload a picture or video"),
       k("ctrl-;", "emote picker"),

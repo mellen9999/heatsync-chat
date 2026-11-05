@@ -13,6 +13,7 @@ pub mod following;
 pub mod held;
 pub mod hs_ws;
 pub mod http;
+pub mod import;
 pub mod inventory;
 pub mod irc;
 mod links;
@@ -320,6 +321,8 @@ pub enum NetEvent {
   // who you follow is live: the full answer from heatsync, the socket's catch-up on sign-in (adds only),
   // and one go-live / game switch / sign-off of a followed channel
   Following(Result<Vec<crate::model::following::Live>, following::Fail>),
+  // your twitch follows for /import
+  Import(Result<import::Got, import::Fail>),
   FollowSnapshot(Vec<crate::model::following::Live>),
   FollowChange(crate::model::following::Change),
   // a room's blocked terms answered (by twitch room id)
@@ -461,6 +464,8 @@ pub enum Cmd {
   TagCard(Box<str>),
   // who you follow that is live (heatsync)
   Following,
+  // your twitch follows, the live ones marked (heatsync): /import
+  Import,
   // a room's blocked terms (by twitch room id): list, add, remove
   Blocked(Box<str>, blocked::Op),
   // set a twitch room's chat mode (by login)
@@ -963,6 +968,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Following => {
         let _ = sess_tx.send(session::Cmd::Following);
+      }
+      Cmd::Import => {
+        let _ = sess_tx.send(session::Cmd::Import);
       }
       Cmd::Blocked(room, op) => {
         let _ = sess_tx.send(session::Cmd::Blocked(room, op));

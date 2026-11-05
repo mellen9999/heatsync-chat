@@ -33,6 +33,7 @@ mod gifs;
 mod held;
 mod ime;
 mod img_view;
+mod import;
 mod input;
 mod inventory;
 mod jump;
@@ -243,6 +244,8 @@ pub struct App {
   held: held::Queue,
   // who you follow that is live (following.rs)
   following: following::Following,
+  // your twitch follows being picked into tabs (import.rs)
+  import: import::Import,
   notes: crate::model::notes::Notes,
   occluded: bool,
   damage: render::Damage,
@@ -455,6 +458,7 @@ impl App {
       tag: Default::default(),
       held: Default::default(),
       following: Default::default(),
+      import: Default::default(),
       notes: crate::model::notes::Notes::load(),
       occluded: false,
       damage: Default::default(),

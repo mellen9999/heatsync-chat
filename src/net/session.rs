@@ -64,6 +64,7 @@ pub enum Cmd {
   Clip(Box<str>, Box<str>),
   Held(super::held::Cmd),
   Following,
+  Import,
   Blocked(Box<str>, super::blocked::Op),
   Modes(Box<str>, crate::model::modes::Set),
   StreamInfo(Box<str>),
@@ -208,6 +209,9 @@ pub async fn run(
         }
         Some(Cmd::Following) => {
           tokio::spawn(super::following::run(st.http.clone(), st.token.clone(), st.out.clone()));
+        }
+        Some(Cmd::Import) => {
+          tokio::spawn(super::import::run(st.http.clone(), st.token.clone(), st.out.clone()));
         }
         Some(Cmd::Blocked(room, op)) => {
           tokio::spawn(super::blocked::run(st.http.clone(), st.token.clone(), room, op, st.out.clone()));

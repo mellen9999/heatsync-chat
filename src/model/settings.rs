@@ -482,6 +482,8 @@ pub enum Local {
   Account,
   // /following, /live: who you follow that is live
   Following,
+  // /import: your twitch follows, picked into tabs
+  Import,
   // /emotes: your heatsync emotes, managed
   Emotes,
   // /blocked: the twitch room's blocked terms
@@ -564,6 +566,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/logout" => Some(Local::Logout),
     "/account" => Some(Local::Account),
     "/following" | "/live" => Some(Local::Following),
+    "/import" => Some(Local::Import),
     "/emotes" => Some(Local::Emotes),
     "/lclear" => Some(Local::Lclear),
     "/blocked" => Some(Local::Blocked),
@@ -837,6 +840,7 @@ mod tests {
     assert_eq!(local_cmd("/ACCOUNT"), Some(Local::Account));
     assert_eq!(local_cmd("/Following"), Some(Local::Following));
     assert_eq!(local_cmd("/live"), Some(Local::Following));
+    assert_eq!(local_cmd("/Import"), Some(Local::Import));
     // every switch in the table answers to its own command
     for d in &schema::DEFS {
       if let (Some(c), Ctl::Pill(..)) = (d.cmd, d.ctl) {

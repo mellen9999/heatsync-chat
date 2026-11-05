@@ -284,6 +284,8 @@ impl App {
       // an answer that outlived its login must not show the next one
       NetEvent::Following(_) | NetEvent::FollowSnapshot(_) | NetEvent::FollowChange(_) if self.me.is_none() => {}
       NetEvent::Following(res) => self.on_following(res),
+      NetEvent::Import(_) if self.me.is_none() => {}
+      NetEvent::Import(res) => self.on_import(res),
       NetEvent::FollowSnapshot(rows) => self.on_follow_snapshot(rows),
       NetEvent::FollowChange(c) => self.on_follow_change(c),
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
@@ -442,6 +444,7 @@ impl App {
           self.kick_mod.clear();
           self.held = Default::default();
           self.following_reset();
+          self.import_reset();
           self.relayout_where(None);
         }
         self.me = me;
@@ -455,6 +458,9 @@ impl App {
           self.tab_sync_ready();
           if self.screen_is(super::screen::Page::Following) {
             self.following_ask();
+          }
+          if self.screen_is(super::screen::Page::Import) {
+            self.import_reload();
           }
         } else {
           self.res.emotes.set_subs(Default::default());
