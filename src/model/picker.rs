@@ -28,6 +28,8 @@ pub enum Sec {
   Gif,
   // the 7tv / ffz / heatsync catalogs' hits for the word typed: not yours, a thumbnail until picked
   Remote,
+  // the emoji tab: one section, the ext's whole table
+  Emoji,
 }
 
 impl Sec {
@@ -39,6 +41,7 @@ impl Sec {
       Sec::Global => "global",
       Sec::Gif => "gifs",
       Sec::Remote => "catalog",
+      Sec::Emoji => "emoji",
     }
   }
 }
@@ -48,23 +51,31 @@ impl Sec {
 pub enum Tab {
   Emotes,
   Gifs,
+  Emoji,
 }
 
 impl Tab {
-  pub const ALL: [Tab; 2] = [Tab::Emotes, Tab::Gifs];
+  pub const ALL: [Tab; 3] = [Tab::Emotes, Tab::Gifs, Tab::Emoji];
 
   pub fn label(self) -> &'static str {
     match self {
       Tab::Emotes => "emotes",
       Tab::Gifs => "gifs",
+      Tab::Emoji => "emoji",
     }
   }
 
-  pub fn other(self) -> Tab {
-    match self {
-      Tab::Emotes => Tab::Gifs,
-      Tab::Gifs => Tab::Emotes,
-    }
+  fn at(self) -> usize {
+    Self::ALL.iter().position(|&t| t == self).unwrap_or(0)
+  }
+
+  // the tab to the right, and to the left, wrapping
+  pub fn next(self) -> Tab {
+    Self::ALL[(self.at() + 1) % Self::ALL.len()]
+  }
+
+  pub fn prev(self) -> Tab {
+    Self::ALL[(self.at() + Self::ALL.len() - 1) % Self::ALL.len()]
   }
 }
 
@@ -225,8 +236,10 @@ pub struct Picker {
   gifs: Vec<Gif>,
   gif_items: Vec<Item>,
   pub tab: Tab,
-  // the other tab's filter text, selection and scroll, swapped in on a switch
-  away: (String, usize, i32),
+  // each tab's filter text, selection and scroll while it is not the one showing (the showing tab's slot is empty)
+  away: [(String, usize, i32); 3],
+  // the emoji tab's cells: name = shortcode, url = the glyph. built the first time the tab opens
+  emoji_items: Vec<Item>,
   // a line for the footer or the empty grid ("searching…", why it failed)
   pub note: String,
   // the picked gif has rested long enough to play
@@ -274,7 +287,8 @@ impl Picker {
       gifs: Vec::new(),
       gif_items: Vec::new(),
       tab: Tab::Emotes,
-      away: (String::new(), 0, 0),
+      away: Default::default(),
+      emoji_items: Vec::new(),
       note: String::new(),
       hot: false,
       rev: 0,
@@ -295,6 +309,7 @@ impl Picker {
     match self.tab {
       Tab::Emotes => &self.items,
       Tab::Gifs => &self.gif_items,
+      Tab::Emoji => &self.emoji_items,
     }
   }
 
@@ -312,6 +327,20 @@ impl Picker {
       }
       // gifs are not filtered here: the text is the search, and what comes back replaces the list
       Tab::Gifs => self.shown.extend(0..self.gif_items.len() as u32),
+      // the ext's picker: every emoji, alphabetical; a word ranks them by fuzzy score, best first
+      Tab::Emoji => {
+        let q = self.query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+          self.shown.extend(0..self.emoji_items.len() as u32);
+        } else {
+          let mut hits: Vec<(u32, f32)> = (0..self.emoji_items.len() as u32)
+            .map(|n| (n, crate::model::emoji::fuzzy(&q, &self.emoji_items[n as usize].name)))
+            .filter(|h| h.1 > 0.0)
+            .collect();
+          hits.sort_by(|a, b| b.1.total_cmp(&a.1));
+          self.shown.extend(hits.into_iter().map(|h| h.0));
+        }
+      }
     }
     self.sel = 0;
     self.scroll = 0;
@@ -321,7 +350,7 @@ impl Picker {
   // the filter text changed: emotes narrow now, gifs wait for the search to answer
   fn edited(&mut self) {
     match self.tab {
-      Tab::Emotes => self.refilter(),
+      Tab::Emotes | Tab::Emoji => self.refilter(),
       Tab::Gifs => self.rev += 1,
     }
   }
@@ -423,11 +452,15 @@ impl Picker {
     if to == self.tab {
       return;
     }
-    std::mem::swap(&mut self.query, &mut self.away.0);
-    let (sel, scroll) = (self.away.1, self.away.2);
-    self.away.1 = self.sel;
-    self.away.2 = self.scroll;
+    self.away[self.tab.at()] = (std::mem::take(&mut self.query), self.sel, self.scroll);
+    let (query, sel, scroll) = std::mem::take(&mut self.away[to.at()]);
+    self.query = query;
     self.tab = to;
+    if to == Tab::Emoji && self.emoji_items.is_empty() {
+      self.emoji_items = crate::model::emoji::rows()
+        .map(|(n, g)| Item { sec: Sec::Emoji, name: n.into(), url: g.into(), w: 0, h: 0 })
+        .collect();
+    }
     self.note.clear();
     self.refilter();
     self.sel = sel.min(self.shown.len().saturating_sub(1));
@@ -842,7 +875,7 @@ mod tests {
     assert_eq!(p.len(), 7);
     p.switch(Tab::Gifs);
     assert_eq!((p.query.as_str(), p.len(), p.item(0).map(|i| i.sec)), ("zzz", 1, Some(Sec::Recent)));
-    assert_eq!(Tab::Gifs.other(), Tab::Emotes);
+    assert_eq!((Tab::Gifs.next(), Tab::Emoji.next(), Tab::Emotes.prev()), (Tab::Emoji, Tab::Emotes, Tab::Emoji));
   }
 
   #[test]

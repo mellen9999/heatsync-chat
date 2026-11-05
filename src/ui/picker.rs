@@ -49,7 +49,20 @@ pub fn geo_of(area: Rect, res: &Res, tab: Tab) -> Geo {
       let w = res.images.px(GIF_W) as i32;
       geo(area, line, res.images.px(GIF_PX) as i32, w, w, false)
     }
+    // square cells just big enough for a glyph at EMOJI_K times the font
+    Tab::Emoji => {
+      let side = emoji_side(res);
+      geo(area, line, side, side, side, false)
+    }
   }
+}
+
+// the emoji tab's glyphs draw this many times the font size (the chat's own emoji size)
+const EMOJI_K: u16 = 2;
+
+// a cell's side: the glyph's line height at that size
+fn emoji_side(res: &Res) -> i32 {
+  (res.text.font_px * EMOJI_K as f32 * 1.2).ceil() as i32
 }
 
 // an animated cell on screen: repainted alone when its frame flips
@@ -72,7 +85,7 @@ pub struct View {
   visible: Vec<ImgId>,
   due: Option<Instant>,
   // where the tab names were painted, for clicks
-  pub tabs: [Rect; 2],
+  pub tabs: [Rect; 3],
   // the chips: 7tv, ffz, hs, exact (zero width = not drawn)
   pub chips: [Rect; 4],
 }
@@ -92,9 +105,9 @@ impl View {
 const TAB_PAD: i32 = 6;
 
 // the tab names, right-aligned in the filter row, each padded and square (reversed when current)
-fn tab_rects(text: &mut super::text::Text, row: Rect) -> [Rect; 2] {
+fn tab_rects(text: &mut super::text::Text, row: Rect) -> [Rect; 3] {
   let mut x = row.right();
-  let mut out = [Rect::new(0, 0, 0, 0); 2];
+  let mut out = [Rect::new(0, 0, 0, 0); 3];
   for (n, t) in Tab::ALL.into_iter().enumerate().rev() {
     let w = text.layout(t.label(), &[], &[], 100_000.0).full_width().ceil() as i32 + 2 * TAB_PAD;
     x -= w;
@@ -171,6 +184,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
   }
   let Res { text, images, blocked, .. } = res;
   let gifs = p.tab == Tab::Gifs;
+  let emoji = p.tab == Tab::Emoji;
   let wpx = images.px(GIF_W);
   let (mut anims, mut visible) = (std::mem::take(&mut p.view.anims), std::mem::take(&mut p.view.visible));
   anims.clear();
@@ -244,6 +258,20 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
             c.fill(clip, theme::WHITE);
           }
           let inner = Rect::new(cell.x + GAP / 2, cell.y + GAP / 2, cell.w - GAP, cell.h - GAP);
+          if emoji {
+            // the glyph centered in its cell; the font draws its own colors, a plain-text fallback goes dark on the pick
+            let ink = Ink(if on { theme::BLACK } else { theme::WHITE });
+            // U+FE0F asks for the color font even for a glyph the monospace font has a text form of
+            let glyph = if it.url.contains('\u{fe0f}') { it.url.to_string() } else { format!("{}\u{fe0f}", it.url) };
+            let span = Span { range: 0..glyph.len(), ink, bold: false };
+            let gl = text.layout_at(&glyph, &[span], &[], 100_000.0, row_h as f32, (0..glyph.len(), EMOJI_K));
+            let (gx, gy) = (
+              inner.x + (inner.w - gl.full_width().ceil() as i32) / 2,
+              inner.y + (inner.h - gl.height().ceil() as i32) / 2,
+            );
+            text.draw(&gl, c, gx as f32, gy as f32, clip, |_, _| {});
+            continue;
+          }
           if !gifs && blocked.contains(&it.name, &it.url) {
             c.dashed(inner, clip, if on { theme::BLACK } else { theme::WHITE });
             continue;
@@ -285,6 +313,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
       (true, false) => &*p.note,
       (true, true) => "type to search gifs",
       (false, false) => &*p.note,
+      _ if emoji => "no emoji match",
       _ => "no emotes match",
     };
     let span = Span { range: 0..msg.len(), ink: Ink(theme::DIM), bold: false };
@@ -294,11 +323,13 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
 
   // hint row: what's selected, then the keys that work now
   let keys = match p.focus {
+    Focus::Search if emoji => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
     Focus::Search if !gifs => "enter insert · tab hjkl · ctrl-tab tabs · alt-1-4 sources · esc close",
     Focus::Search => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
     Focus::Grid => "hjkl move · / filter · [ ] tabs · enter insert · esc close",
   };
-  let name = if p.note.is_empty() || empty { p.selected().map_or("", |i| &i.name) } else { &*p.note };
+  let picked = p.selected().map(|i| if emoji { format!(":{}:", i.name) } else { i.name.to_string() });
+  let name = if p.note.is_empty() || empty { picked.as_deref().unwrap_or("") } else { &*p.note };
   let t = if name.is_empty() { keys.to_owned() } else { format!("{name}  {keys}") };
   let spans = [
     Span { range: 0..name.len(), ink: Ink(theme::WHITE), bold: true },

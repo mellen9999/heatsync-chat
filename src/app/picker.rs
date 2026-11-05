@@ -71,7 +71,7 @@ impl App {
   // go to the other tab (or `to`): each keeps its own text and place
   pub(super) fn picker_tab(&mut self, to: Option<Tab>) {
     let Some(p) = &mut self.picker else { return };
-    let to = to.unwrap_or(p.tab.other());
+    let to = to.unwrap_or(p.tab.next());
     if to == p.tab {
       return;
     }
@@ -98,6 +98,9 @@ impl App {
     if self.picker.as_ref().is_some_and(|p| p.tab == Tab::Gifs) {
       return self.gif_pick(keep);
     }
+    if self.picker.as_ref().is_some_and(|p| p.tab == Tab::Emoji) {
+      return self.emoji_pick(keep);
+    }
     let Some(it) = self.picker.as_ref().and_then(|p| p.selected()) else { return };
     let (name, url) = (it.name.clone(), it.url.clone());
     // a catalog tile is a candidate in the box, remembered like a tab-completed one: sending the line is
@@ -122,6 +125,19 @@ impl App {
       self.input_dirty = true;
       self.wake();
     }
+  }
+
+  // the emoji tab's pick: the glyph itself goes in the box (the ext types :name:, which turns into this on send)
+  fn emoji_pick(&mut self, keep: bool) {
+    let Some(glyph) = self.picker.as_ref().and_then(|p| p.selected()).map(|i| i.url.clone()) else { return };
+    self.line.insert_word(&glyph);
+    self.complete = None;
+    if keep {
+      self.input_dirty = true;
+      return self.wake();
+    }
+    self.close_picker();
+    self.enter_insert();
   }
 
   pub fn picker_wheel(&mut self, px: i32) {
@@ -215,7 +231,11 @@ impl App {
       Key::Character("l") if !ctrl => p.step(1, 0, g.m),
       Key::Character("k") if !ctrl => p.step(0, -1, g.m),
       Key::Character("j") if !ctrl => p.step(0, 1, g.m),
-      Key::Character("]" | "[") if !ctrl => return self.picker_tab(None),
+      Key::Character("]") if !ctrl => return self.picker_tab(None),
+      Key::Character("[") if !ctrl => {
+        let to = p.tab.prev();
+        return self.picker_tab(Some(to));
+      }
       Key::Character("g") => p.home(),
       Key::Character("G") => p.end(),
       Key::Character("d") if ctrl => p.scroll_by(half, g.m, g.grid.h),

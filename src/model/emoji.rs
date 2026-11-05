@@ -7,7 +7,7 @@ const TABLE: &str = include_str!("emoji.txt");
 // a completion list never needs more than this (the ext stops at 50 shared with emotes)
 pub const MAX: usize = 50;
 
-fn rows() -> impl Iterator<Item = (&'static str, &'static str)> {
+pub fn rows() -> impl Iterator<Item = (&'static str, &'static str)> {
   TABLE.lines().filter_map(|l| l.split_once(' '))
 }
 
@@ -35,6 +35,22 @@ pub fn search(query: &str, limit: usize) -> Vec<(&'static str, &'static str)> {
   pre.extend(held);
   pre.truncate(limit);
   pre
+}
+
+// the ext picker's fuzzy score (heatsync-button.js fuzzyScore) of a lowercase query against a name: a
+// substring beats a scattered match, 0 = no match. higher is better
+pub fn fuzzy(query: &str, name: &str) -> f32 {
+  let lower = name.to_ascii_lowercase();
+  if lower.contains(query) {
+    return 2.0 + query.len() as f32 / lower.len() as f32;
+  }
+  let mut want = query.chars().peekable();
+  for c in lower.chars() {
+    if want.peek() == Some(&c) {
+      want.next();
+    }
+  }
+  if want.peek().is_some() { 0.0 } else { query.chars().count() as f32 / lower.chars().count() as f32 }
 }
 
 fn code_char(c: char) -> bool {
@@ -104,6 +120,16 @@ mod tests {
     assert_eq!(search(":smile:", 1)[0].0, "smile");
     assert!(search("", 5).is_empty() && search(":", 5).is_empty());
     assert!(search("zzzzzz", 5).is_empty());
+  }
+
+  #[test]
+  fn fuzzy_matches_like_the_ext_picker() {
+    // a substring beats a scattered match; no match is 0; an empty name never divides by zero
+    assert!(fuzzy("smi", "smile") > fuzzy("sml", "smile"));
+    assert!(fuzzy("sml", "smile") > 0.0 && fuzzy("sml", "smile") < 1.0);
+    assert_eq!(fuzzy("xyz", "smile"), 0.0);
+    assert_eq!(fuzzy("smile", "smile"), 3.0);
+    assert!(fuzzy("e", "").is_nan() || fuzzy("e", "") == 0.0);
   }
 
   #[test]

@@ -360,7 +360,7 @@ fn headless_picker_gifs() {
   let g = app.picker.as_ref().unwrap().selected_gif().cloned().unwrap();
   assert_eq!(&*g.url, "https://media.giphy.com/media/cat1/giphy.gif");
   app.redraw();
-  app.picker_tab(None);
+  app.picker_tab(Some(Tab::Emotes));
   assert_eq!(app.picker.as_ref().unwrap().tab, Tab::Emotes);
   app.close_picker();
   assert!(app.gifs.due().is_none());
@@ -636,4 +636,61 @@ mod catalog_search {
     assert!(app.pick_due.is_none() && asks(&mut rx).is_empty());
     assert_eq!(Prefs::load().on, [false; 3]);
   }
+}
+
+// the picker's emoji tab (ext heatsync-button.js): the whole table, a fuzzy search, enter puts the glyph in
+// the box. HSC_DUMP=$d/x.ppm to see the grid ... cargo test --release headless_picker_emoji_tab
+#[test]
+fn headless_picker_emoji_tab() {
+  use crate::model::picker::Tab;
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(720, 400);
+  for t in &mut app.tabs {
+    t.view.resize(720);
+  }
+  let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  app.select(chat);
+  app.enter_insert();
+  app.toggle_picker();
+  // ] twice: emotes -> gifs -> emoji; [ walks back
+  app.picker_key(Key::Named(NamedKey::Tab), None);
+  app.picker_key(Key::Character("]"), Some("]"));
+  app.picker_key(Key::Character("]"), Some("]"));
+  assert_eq!(app.picker.as_ref().unwrap().tab, Tab::Emoji);
+  assert!(app.picker.as_ref().unwrap().len() > 1900, "the whole table");
+  app.redraw();
+  dump_frame(&app);
+  assert!(app.canvas.px.iter().filter(|&&p| p != crate::ui::theme::BLACK).count() > 2000, "glyphs are drawn");
+  // search: best match first, the footer names it as :shortcode:
+  app.picker_key(Key::Character("/"), Some("/"));
+  for c in ["s", "m", "i", "l", "e"] {
+    app.picker_key(Key::Character(c), Some(c));
+  }
+  let first = app.picker.as_ref().unwrap().selected().map(|i| (i.name.to_string(), i.url.to_string())).unwrap();
+  assert_eq!(first.0, "smile");
+  assert!(app.picker.as_ref().unwrap().len() < 100);
+  // each tab keeps its own text: emotes has no filter
+  app.picker_key(Key::Named(NamedKey::Tab), None);
+  app.picker_key(Key::Character("["), Some("["));
+  app.picker_key(Key::Character("["), Some("["));
+  assert_eq!(app.picker.as_ref().unwrap().tab, Tab::Emotes);
+  assert!(app.picker.as_ref().unwrap().query.is_empty());
+  app.picker_tab(Some(Tab::Emoji));
+  assert_eq!(app.picker.as_ref().unwrap().query, "smile");
+  // enter inserts the glyph and closes; the box holds it
+  app.picker_key(Key::Named(NamedKey::Enter), None);
+  assert!(app.picker.is_none());
+  assert_eq!(app.line.text, format!("{} ", first.1));
+  // nothing matching draws the empty note and picks nothing
+  app.toggle_picker();
+  app.picker_tab(Some(Tab::Emoji));
+  for c in ["q", "q", "q", "q", "q"] {
+    app.picker_key(Key::Character(c), Some(c));
+  }
+  assert_eq!(app.picker.as_ref().unwrap().len(), 0);
+  app.picker_key(Key::Named(NamedKey::Enter), None);
+  assert!(app.picker.is_some());
 }
