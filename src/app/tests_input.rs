@@ -489,3 +489,19 @@ fn words_past_the_limit_draw_red() {
   typed(&mut app, format!("{}{}", "wörd ".repeat(100), "wwwwwwwwww"));
   assert!(red(&app) > 20, "the 10 past it are red");
 }
+
+// one word longer than the box wraps inside itself, so its end (and the red past the limit) is on screen
+#[test]
+fn one_long_word_wraps_and_its_end_shows() {
+  let (net, _rx) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(520, 300);
+  app.line.set_text("a".repeat(600));
+  app.line.cursor = app.line.text.len();
+  app.input_dirty = true;
+  app.redraw();
+  crate::bench::dump(&app.canvas);
+  assert!(app.canvas.inked(crate::ui::theme::RED) > 0, "the tail past 500 is in view");
+}

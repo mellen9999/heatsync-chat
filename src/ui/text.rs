@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use parley::{
   Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, InlineBox, Layout, LayoutContext,
-  LineHeight, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
+  LineHeight, OverflowWrap, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
 };
 use swash::FontRef;
 use swash::scale::image::Content;
@@ -115,6 +115,9 @@ impl Text {
     b.push_default(StyleProperty::FontSize(self.font_px));
     b.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line)));
     b.push_default(StyleProperty::Brush(Ink::default()));
+    // a word wider than the line breaks where it must instead of running off the edge (the ext's
+    // overflow-wrap: anywhere on chat lines and the message box)
+    b.push_default(StyleProperty::OverflowWrap(OverflowWrap::Anywhere));
     for s in spans {
       b.push(StyleProperty::Brush(s.ink), s.range.clone());
       if s.bold {
@@ -368,7 +371,21 @@ fn emoji_runs(text: &str) -> Vec<Range<usize>> {
 
 #[cfg(test)]
 mod tests {
-  use super::{emoji_forced, emoji_runs};
+  use super::{Text, emoji_forced, emoji_runs};
+
+  #[test]
+  fn a_word_wider_than_the_line_breaks_inside_it() {
+    let mut t = Text::new(1.0);
+    let word = "a".repeat(600);
+    let l = t.layout(&word, &[], &[], 200.0);
+    assert!(l.lines().count() > 5, "{} lines", l.lines().count());
+    assert!(l.full_width() <= 200.0, "nothing past the edge ({})", l.full_width());
+    // words that fit still break between words, never inside one
+    let w = t.layout("hello ther", &[], &[], f32::MAX).full_width();
+    let l = t.layout("hello there", &[], &[], w);
+    assert_eq!(l.lines().count(), 2);
+    assert_eq!(l.lines().next().map(|x| x.text_range()), Some(0..6));
+  }
 
   fn scaled(s: &str) -> Vec<&str> {
     emoji_runs(s).into_iter().map(|r| &s[r]).collect()
