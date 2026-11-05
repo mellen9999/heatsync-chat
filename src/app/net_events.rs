@@ -307,6 +307,8 @@ impl App {
         self.feed_show();
       }
       NetEvent::Seen { surface, at } => self.on_seen(surface, at),
+      NetEvent::Notif(it) => self.on_notif(it),
+      NetEvent::NotifCount(n) => self.on_notif_count(n),
       // an answer that outlived its login must not seed the next one
       NetEvent::UiState(_) if self.me.is_none() => {}
       NetEvent::UiState(st) => self.on_ui_state(st),
@@ -315,6 +317,7 @@ impl App {
       NetEvent::HsAuth(on) => {
         self.hs_authed = on;
         if on {
+          self.notifs_ask();
           self.ui_state_fetch();
           self.held_reconnected();
           self.tab_sync_ready();
@@ -410,6 +413,7 @@ impl App {
         // a different login starts with a clean whispers tab
         if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
           self.whispers_reset();
+          self.notifs_reset();
           self.locks.clear_all();
           // the new account's own seen times arrive with SeenGet below
           self.unseen = Default::default();
@@ -442,6 +446,7 @@ impl App {
           self.res.emotes.set_subs(Default::default());
         }
         self.whisper_empty();
+        self.notifs_empty();
         self.set_mention_names();
         self.filter_names();
         self.entered();

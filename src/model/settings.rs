@@ -245,6 +245,7 @@ pub struct Settings {
   pub tab_feed: bool,
   pub tab_whispers: bool,
   pub tab_mentions: bool,
+  pub tab_notifs: bool,
   pub tab_modlog: bool,
   // a desktop notification for an @mention while the window is not focused. default off, like the
   // ext's hs_notifications: nothing leaves the window unless asked
@@ -322,6 +323,7 @@ impl Default for Settings {
       tab_feed: true,
       tab_whispers: true,
       tab_mentions: true,
+      tab_notifs: true,
       tab_modlog: false,
       notify: false,
       title_flash: true,
@@ -364,6 +366,7 @@ impl Settings {
       Kind::Feed => self.tab_feed,
       Kind::Whispers => self.tab_whispers,
       Kind::Mentions => self.tab_mentions,
+      Kind::Notifs => self.tab_notifs,
       Kind::ModLog => self.tab_modlog,
     }
   }
@@ -374,6 +377,7 @@ impl Settings {
       Kind::Feed => self.tab_feed = on,
       Kind::Whispers => self.tab_whispers = on,
       Kind::Mentions => self.tab_mentions = on,
+      Kind::Notifs => self.tab_notifs = on,
       Kind::ModLog => self.tab_modlog = on,
     }
   }
@@ -620,6 +624,7 @@ mod tests {
         tab_feed: true,
         tab_whispers: true,
         tab_mentions: true,
+        tab_notifs: true,
         tab_modlog: false,
         notify: false,
         title_flash: true,

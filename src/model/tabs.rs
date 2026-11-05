@@ -1,4 +1,4 @@
-// the built-in tabs, in the ext's order (tab-registry.js): feed, whispers, mentions, mod log, then your channels.
+// the built-in tabs, in the ext's order (tab-registry.js): feed, whispers, mentions, (notifs: ours, the ext has only a toolbar badge), mod log, then your channels.
 // the names are the reserved ids a channel may never take
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -6,11 +6,13 @@ pub enum Kind {
   Feed,
   Whispers,
   Mentions,
+  // heatsync's own notifications: mentions of you, replies, fixed reports (ext toolbar badge)
+  Notifs,
   // every mod action seen in your channels (ext modlog)
   ModLog,
 }
 
-pub const BUILTIN: [Kind; 4] = [Kind::Feed, Kind::Whispers, Kind::Mentions, Kind::ModLog];
+pub const BUILTIN: [Kind; 5] = [Kind::Feed, Kind::Whispers, Kind::Mentions, Kind::Notifs, Kind::ModLog];
 
 impl Kind {
   pub fn name(self) -> &'static str {
@@ -19,6 +21,7 @@ impl Kind {
       Kind::Feed => "feed",
       Kind::Whispers => "whispers",
       Kind::Mentions => "mentions",
+      Kind::Notifs => "notifs",
       Kind::ModLog => "modlog",
     }
   }

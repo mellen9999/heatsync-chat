@@ -217,6 +217,10 @@ pub enum NetEvent {
     surface: crate::model::unseen::Surface,
     at: i64,
   },
+  // a heatsync notification for you (ws `notification:new`), checked
+  Notif(crate::model::inbox::Item),
+  // how many are unread on the account (GET /api/notifications)
+  NotifCount(u32),
   // your settings as the account holds them (only the keys the window maps)
   UiState(crate::model::sync::Inbound),
   // the heatsync socket is signed in (or is not, again)

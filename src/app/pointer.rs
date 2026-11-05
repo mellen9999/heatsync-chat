@@ -102,6 +102,8 @@ impl App {
     let picked = self.tabs.get_mut(self.active).is_some_and(|t| t.view.select_at(chat, y, res));
     if picked && self.tabs[self.active].kind == Kind::Mentions {
       self.jump_to_mention();
+    } else if picked && self.tabs[self.active].kind == Kind::Notifs {
+      self.notifs_open();
     } else if picked && self.set.vi && self.mode == Mode::Insert {
       // a picked line's keys (r, m, c) are normal mode's
       self.leave_insert();

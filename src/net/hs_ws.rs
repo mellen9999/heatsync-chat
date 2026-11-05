@@ -532,8 +532,15 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "seen:update" => {
       use crate::model::unseen::{Surface, at};
-      let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?)?;
+      // `inbox` is the site's dm badge time, not the notifications': another client reading its dms must not
+      // clear the notifs tab (that comes back as the account's count, re-read on every sign-in)
+      let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?).filter(|s| *s != Surface::Inbox)?;
       send(NetEvent::Seen { surface, at: at(v.get("at"))? })
+    }
+    // a heatsync notification for you: a mention, a reply, a fixed report (the list is this session's)
+    "notification:new" => {
+      let it = crate::model::inbox::parse(v, crate::util::time::now_ms())?;
+      send(NetEvent::Notif(it))
     }
     "authenticated" => {
       // a link or unlink while we were away sent its account:changed to nobody: read the account again
@@ -578,6 +585,25 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_notification_frame_is_checked_and_an_inbox_look_is_heard() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    // the envelope's type is the event name; the kind is the notification's own
+    let v = json!({"type": "notification:new", "kind": "reply", "message_id": "ab12", "content": "yo", "parent_is_op": false});
+    dispatch(&v, &mut st, &out);
+    let Ok(NetEvent::Notif(it)) = rx.try_recv() else { panic!("no notification") };
+    assert_eq!((it.post.as_deref(), &*it.text), (Some("ab12"), "replied to your reply: yo"));
+    // nothing usable, or hostile: nothing reaches the app
+    for bad in [json!({"type": "notification:new"}), json!({"type": "notification:new", "kind": 7, "content": 7})] {
+      dispatch(&bad, &mut st, &out);
+    }
+    assert!(rx.try_recv().is_err());
+    dispatch(&json!({"type": "seen:update", "surface": "inbox", "at": 1_700_000_000_000i64}), &mut st, &out);
+    assert!(rx.try_recv().is_err(), "the site's dm inbox time is not the notifications'");
+  }
 
   #[test]
   fn a_followed_channel_going_live_is_a_stream_line() {

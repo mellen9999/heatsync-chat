@@ -15,6 +15,9 @@ impl App {
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();
     }
+    if self.kind() == Kind::Notifs {
+      return "enter or a click opens it: a post in the feed, a page in the browser".into();
+    }
     if let Some(l) = self.logs_shown() {
       return l.hint();
     }
@@ -96,7 +99,7 @@ impl App {
       }
       Local::Tab(Some(k), shown) => self.set_shown(k, shown),
       Local::Tab(None, shown) => {
-        self.say(format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }))
+        self.say(format!("usage: /{} feed, whispers, mentions or notifs", if shown { "show" } else { "hide" }))
       }
       Local::Zoom(Some(pct)) => self.zoom_to(pct),
       Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.5 to 3)"),
@@ -205,6 +208,9 @@ impl App {
     }
     if self.kind() == Kind::Mentions {
       return self.say("mentions is read-only. open a line to answer it");
+    }
+    if self.kind() == Kind::Notifs {
+      return self.say("notifs is read-only. open one to answer it");
     }
     let legs: Vec<(Platform, Box<str>)> = self.legs().into_iter().map(|(p, k)| (p, k.into())).collect();
     if legs.is_empty() {

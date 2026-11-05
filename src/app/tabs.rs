@@ -599,14 +599,14 @@ impl App {
     self.tab_menu_changed();
   }
 
-  // right-click on a tab calling for you (mentions red, whispers cyan, a stream line yellow) clears
+  // right-click on a tab calling for you (mentions red, whispers cyan, notifs magenta, a stream line yellow) clears
   // the call without opening it; a plain unread chat tab keeps its menu (ext tab contextmenu)
   fn acknowledge(&mut self, i: usize) -> bool {
     let t = &mut self.tabs[i];
     match t.kind {
       // red and cyan go out everywhere you are logged in
-      Kind::Mentions | Kind::Whispers if t.unread => {
-        let s = super::unseen::surface(t.kind).expect("mentions and whispers are surfaces");
+      Kind::Mentions | Kind::Whispers | Kind::Notifs if t.unread => {
+        let s = super::unseen::surface(t.kind).expect("mentions, whispers and notifs are surfaces");
         self.unseen_clear(s);
       }
       Kind::Chat if std::mem::take(&mut t.event) => {

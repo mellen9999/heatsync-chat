@@ -80,7 +80,7 @@ pub static KEYS: [Group; 12] = [
       v("c", "user card"),
       v("o", "open its first link (a video plays)"),
       v("ctrl-c", "copy the line"),
-      v("enter", "open it (mentions, feed)"),
+      v("enter", "open it (mentions, notifs, feed)"),
       v("u", "upvote (feed)"),
       v("h", "back out of a thread, like the ← back tab"),
       v("v esc", "let go"),
