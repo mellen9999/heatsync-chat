@@ -95,11 +95,17 @@ impl App {
       || self.tag_press()
       || self.emote_press(false)
       || self.name_press()
+      || self.reply_press()
     {
       return;
     }
     let res = &mut self.res;
     let picked = self.tabs.get_mut(self.active).is_some_and(|t| t.view.select_at(chat, y, res));
+    // a click on nothing, outside the lines of an open reply thread, goes back
+    if !picked && self.chain_shown() {
+      self.chain_close();
+      return self.wake();
+    }
     if picked && self.tabs[self.active].kind == Kind::Mentions {
       self.jump_to_mention();
     } else if picked && self.tabs[self.active].kind == Kind::Notifs {

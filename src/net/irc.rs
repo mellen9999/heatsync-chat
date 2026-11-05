@@ -12,8 +12,9 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 use super::dupe::Dupes;
 use super::http::ws_config;
 use super::{Out, Reply, backoff};
+use crate::model::chain;
 use crate::model::color;
-use crate::model::message::{Kind, Message, Notice, Platform, REPLY_TEXT, flag};
+use crate::model::message::{Extra, Kind, Message, Notice, Platform, REPLY_TEXT, flag};
 use crate::util::clamp;
 use crate::util::time::now_ms;
 
@@ -203,8 +204,16 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     reply_to: l.tag("reply-parent-display-name").map(Into::into),
     reply_text: l.tag("reply-parent-msg-body").map(|t| clamp(super::dupe::strip(&t), REPLY_TEXT).into()),
     system: None,
-    x: None,
+    x: reply_ids(l.tag("reply-parent-msg-id").as_deref(), l.tag("reply-thread-parent-msg-id").as_deref()),
   }
+}
+
+// the ids that tie a reply into its chain (model::chain): the line it answers and the chain's first line
+fn reply_ids(parent: Option<&str>, root: Option<&str>) -> Option<Box<Extra>> {
+  let parent = parent.and_then(chain::clean_id);
+  let root = root.and_then(chain::clean_id);
+  (parent.is_some() || root.is_some())
+    .then(|| Box::new(Extra { parent: parent.unwrap_or_default(), root: root.unwrap_or_default(), ..Extra::default() }))
 }
 
 // what event a USERNOTICE tells of (ext main.js noticeKind): its line takes the kind's color
@@ -534,6 +543,9 @@ async fn session(
               if let Some(i) = pending.iter().position(|p| &*p.chan == ch) {
                 let Some(p) = pending.remove(i) else { continue };
                 let mut m = own_message(&line, &nick, &me_id, &p.text);
+                if let Some(r) = &p.reply {
+                  m.extra().parent = chain::clean_id(&r.id).unwrap_or_default();
+                }
                 (m.reply_to, m.reply_text) = p.reply.map(|r| (r.nick, clamp(&r.text, REPLY_TEXT).into())).unzip();
                 if !out.chat(p.chan, Chat::Msg(m)) {
                   return End::Quit;
@@ -733,6 +745,19 @@ mod tests {
     let long = format!("@reply-parent-display-name=w;reply-parent-msg-body={} :b!b@b PRIVMSG #c :x", "a".repeat(5000));
     let (_, Chat::Msg(m)) = to_chat(&parse(&long).unwrap()).unwrap() else { panic!() };
     assert_eq!(m.reply_text.map(|t| t.len()), Some(REPLY_TEXT), "bounded");
+  }
+
+  #[test]
+  fn a_reply_keeps_the_ids_of_its_chain_bounded() {
+    let raw = "@reply-parent-msg-id=p-1;reply-thread-parent-msg-id=r-0;id=1 :b!b@b PRIVMSG #c :hi";
+    let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
+    let x = m.x.unwrap();
+    assert_eq!((&*x.parent, &*x.root), ("p-1", "r-0"));
+    let long = format!("@reply-parent-msg-id={};id=1 :b!b@b PRIVMSG #c :hi", "a".repeat(chain::ID_MAX + 1));
+    let (_, Chat::Msg(m)) = to_chat(&parse(&long).unwrap()).unwrap() else { panic!() };
+    assert!(m.x.is_none(), "an overlong id is dropped");
+    let (_, Chat::Msg(m)) = to_chat(&parse("@id=1 :b!b@b PRIVMSG #c :hi").unwrap()).unwrap() else { panic!() };
+    assert!(m.x.is_none(), "plain chat pays nothing");
   }
 
   #[test]

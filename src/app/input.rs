@@ -21,6 +21,9 @@ impl App {
     if let Some(l) = self.logs_shown() {
       return l.hint();
     }
+    if self.chain_shown() {
+      return "reply thread · t or esc goes back · r replies".into();
+    }
     if self.feedish() {
       return self.feed_hint();
     }

@@ -110,6 +110,9 @@ pub struct Extra {
   pub bits: u32,
   // your own line sent through heatsync.org (model::origin): tagged [H] in heatsync orange
   pub origin: bool,
+  // the line it answers and the first line of its chain (model::chain); empty = none
+  pub parent: Box<str>,
+  pub root: Box<str>,
 }
 
 // one picture (a video's still) and the video it plays

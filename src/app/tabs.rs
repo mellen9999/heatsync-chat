@@ -213,6 +213,7 @@ impl App {
     }
     if self.tabs[i].under.is_some() {
       self.logs = None;
+      self.chain = None;
     }
     let t = self.tabs.remove(i);
     for (p, key) in t.sources {

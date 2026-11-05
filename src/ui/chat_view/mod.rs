@@ -87,6 +87,8 @@ struct Laid {
   // the feed's ▲ and the post's own >>id (empty on every other line)
   vote: std::ops::Range<usize>,
   thread: std::ops::Range<usize>,
+  // a reply's `↳ @name words` line (the chain it opens)
+  hdr: std::ops::Range<usize>,
   // a feed post's media: its `[img]` tag, the held box's button, and the frames drawn around them
   media: std::ops::Range<usize>,
   reveal: std::ops::Range<usize>,
@@ -301,6 +303,16 @@ impl ChatView {
       last_text: "".into(),
       search: None,
     }
+  }
+
+  // an empty view that reads like this one (room, look, filters, hidden people): a reply chain over the tab
+  pub fn sibling(&self, cap: usize) -> Self {
+    let mut v = Self::new(cap, self.channel.clone());
+    v.glow = false;
+    (v.zebra, v.timestamps, v.tags, v.filtered) = (self.zebra, self.timestamps, self.tags, self.filtered);
+    v.tab_hidden = self.tab_hidden.clone();
+    v.resize(self.width);
+    v
   }
 
   pub fn set_empty(&mut self, text: &str) {
@@ -846,7 +858,7 @@ impl ChatView {
   }
 
   // every line held, oldest first
-  pub fn msgs(&self) -> impl Iterator<Item = &Message> {
+  pub fn msgs(&self) -> impl DoubleEndedIterator<Item = &Message> {
     self.rows.iter().map(|r| &r.msg)
   }
 

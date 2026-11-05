@@ -56,7 +56,7 @@ pub static KEYS: [Group; 13] = [
   Group {
     name: "chat",
     rows: &[
-      k("click", "pick a line"),
+      k("click", "pick a line; a reply's ↳ line opens its thread"),
       k("right-click", "line menu: reply, copy, note, mute, block, mod, pin"),
       k("ctrl-f", "search this tab"),
       k("ctrl-g", "next match (shift: previous)"),
@@ -77,6 +77,7 @@ pub static KEYS: [Group; 13] = [
     rows: &[
       v("j k", "move the pick"),
       v("r", "reply to it"),
+      v("t", "its reply thread, oldest first (again, esc or h goes back; the menu copies it)"),
       v("m", "line menu: copy, note, mute, block, hide; a post: upvote, bookmark, edit, delete; op to feed"),
       v("c", "user card"),
       v("o", "open its first link (a video plays)"),

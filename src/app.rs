@@ -17,6 +17,7 @@ mod blocked;
 mod builtin;
 mod card;
 mod cardclip;
+mod chain;
 mod chantools;
 mod chips;
 mod clip;
@@ -72,6 +73,8 @@ mod tabsync;
 mod tagcard;
 #[cfg(test)]
 mod tests_cardclip;
+#[cfg(test)]
+mod tests_chain;
 #[cfg(test)]
 mod tests_input;
 #[cfg(test)]
@@ -282,6 +285,8 @@ pub struct App {
   img_view: Option<img_view::ImgView>,
   // one person's archived lines over the active tab (the tab's own lines wait in `Tab::under`)
   logs: Option<crate::model::logs::Logs>,
+  // a reply chain over the active tab (the tab's own lines wait in `Tab::under`)
+  chain: Option<chain::Open>,
   // tab mode's cursor on the tab bar (space t)
   rover: Option<rover::Rover>,
   // the settings screen or the key map, covering the chat
@@ -472,6 +477,7 @@ impl App {
       cursor: winit::window::CursorIcon::Default,
       img_view: None,
       logs: None,
+      chain: None,
       rover: None,
       screen: None,
       bar_hits: Vec::new(),

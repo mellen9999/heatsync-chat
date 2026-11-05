@@ -121,6 +121,7 @@ impl App {
         for m in &msgs {
           self.tally(i, key, m);
           self.bump_count(i);
+          self.chain_live(i, m);
         }
         self.touched(i);
       }
@@ -191,8 +192,12 @@ impl App {
     let tab = self.tabs[i].chat();
     match ev {
       Chat::Msg(m) => {
+        let live = self.chain.is_some().then(|| m.clone());
         tab.push(m);
         self.bump_count(i);
+        if let Some(m) = live {
+          self.chain_live(i, &m);
+        }
       }
       Chat::ClearMsg(id, login) => {
         tab.clear_msg(&id);

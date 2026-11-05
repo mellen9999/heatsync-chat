@@ -152,6 +152,7 @@ impl App {
     for t in pool {
       if t.under.is_some() {
         self.logs = None;
+        self.chain = None;
       }
       for (p, k) in t.sources {
         self.leave(p, k);

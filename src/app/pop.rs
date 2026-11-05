@@ -55,6 +55,8 @@ pub enum Act {
   Reply,
   CopyName,
   CopyMessage,
+  // the whole reply chain, oldest first
+  CopyThread,
   CopyLink,
   // the message's words into the box
   Quote,
@@ -214,6 +216,8 @@ pub struct Ctx {
   pub link: bool,
   // we may pin in this line's room: Some(true) = the line IS the pin (offer unpin)
   pub pin: Option<bool>,
+  // the line is in a reply chain of 2+ lines
+  pub thread: bool,
 }
 
 // the ext's order: card, reply, op to feed, the copies, the person (filters, mod), then note, a post's
@@ -232,6 +236,9 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   }
   rows.push((Act::CopyName, "copy name".into()));
   rows.push((Act::CopyMessage, "copy message".into()));
+  if c.thread {
+    rows.push((Act::CopyThread, "copy thread".into()));
+  }
   if c.link {
     rows.push((Act::CopyLink, "copy link".into()));
   }
@@ -354,6 +361,7 @@ impl App {
       (Act::OpToFeed, ..) => self.op_to_feed(),
       (Act::CopyName, ..) => self.copy_name(),
       (Act::CopyMessage, ..) => self.copy_selected(),
+      (Act::CopyThread, ..) => self.copy_thread(),
       (Act::CopyLink, ..) => self.copy_link_selected(),
       (Act::Quote, ..) => self.quote_selected(),
       (Act::HideInTab(hide), Some(who), _) => {
@@ -504,6 +512,7 @@ impl App {
       op,
       link: self.link_of(m).is_some(),
       pin: self.pin_menu(m),
+      thread: t.kind == Kind::Chat && self.chain_of(&m.id).is_some_and(|f| f.lines.len() >= 2),
     };
     let mut rows = line_rows(&ctx, person);
     // an automod hold: allow / deny first
@@ -662,6 +671,7 @@ mod tests {
       op: false,
       link: true,
       pin: None,
+      thread: false,
     };
     assert_eq!(
       rows(&c),
@@ -694,6 +704,7 @@ mod tests {
       op: false,
       link: false,
       pin: None,
+      thread: false,
     };
     let r = rows(&c);
     assert!(r.contains(&"edit note".to_owned()) && r.contains(&"show Bob\u{2019}s paint".to_owned()));
@@ -711,6 +722,7 @@ mod tests {
       op: false,
       link: false,
       pin: None,
+      thread: false,
     };
     let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
     assert_eq!(
@@ -730,8 +742,17 @@ mod tests {
 
   #[test]
   fn a_line_with_no_person_still_copies() {
-    let c =
-      Ctx { who: None, can_reply: false, chat_tab: true, paint: None, post: None, op: false, link: false, pin: None };
+    let c = Ctx {
+      who: None,
+      can_reply: false,
+      chat_tab: true,
+      paint: None,
+      post: None,
+      op: false,
+      link: false,
+      pin: None,
+      thread: false,
+    };
     assert_eq!(
       rows(&c),
       ["copy name", "copy message", "copy \u{2192} input", "mute", "hide in tab"],
@@ -754,6 +775,7 @@ mod tests {
       op: false,
       link: false,
       pin: None,
+      thread: false,
     };
     assert_eq!(rows_of(&c), ["reply", "copy name", "copy message", "copy \u{2192} input", "upvote", "bookmark"]);
     let c = Ctx { post: post(false, true, true, None), ..c };
@@ -773,6 +795,7 @@ mod tests {
       op: false,
       link: false,
       pin: None,
+      thread: false,
     };
     let r = rows_of(&c);
     assert!(!r.iter().any(|l| l.contains("upvote")));
@@ -784,20 +807,54 @@ mod tests {
 
   #[test]
   fn logged_out_a_post_has_no_post_rows_and_a_chat_line_no_op_to_feed() {
-    let c =
-      Ctx { who: None, can_reply: false, chat_tab: false, paint: None, post: None, op: false, link: false, pin: None };
+    let c = Ctx {
+      who: None,
+      can_reply: false,
+      chat_tab: false,
+      paint: None,
+      post: None,
+      op: false,
+      link: false,
+      pin: None,
+      thread: false,
+    };
     assert_eq!(rows_of(&c), ["copy name", "copy message", "copy \u{2192} input"]);
   }
 
   #[test]
   fn a_chat_line_offers_op_to_feed_after_reply() {
-    let c =
-      Ctx { who: None, can_reply: true, chat_tab: true, paint: None, post: None, op: true, link: false, pin: None };
+    let c = Ctx {
+      who: None,
+      can_reply: true,
+      chat_tab: true,
+      paint: None,
+      post: None,
+      op: true,
+      link: false,
+      pin: None,
+      thread: false,
+    };
     assert_eq!(rows_of(&c)[..2], ["reply", "op to feed"]);
   }
 
   fn rows_of(c: &Ctx) -> Vec<String> {
     line_rows(c, Vec::new()).into_iter().map(|r| r.1).collect()
+  }
+
+  #[test]
+  fn copy_thread_shows_only_when_the_line_has_a_thread() {
+    let c = Ctx {
+      who: None,
+      can_reply: false,
+      chat_tab: true,
+      paint: None,
+      post: None,
+      op: false,
+      link: false,
+      pin: None,
+      thread: true,
+    };
+    assert_eq!(rows_of(&c), ["copy name", "copy message", "copy thread", "copy \u{2192} input"]);
   }
 
   #[test]

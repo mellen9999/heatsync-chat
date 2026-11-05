@@ -35,12 +35,13 @@ impl App {
 
   // the tab a thread has taken over (the one it was opened from), if one is open
   pub(super) fn thread_tab(&self) -> Option<usize> {
-    self.takeover_tab().filter(|_| self.logs.is_none())
+    self.takeover_tab().filter(|_| self.logs.is_none() && self.chain.is_none())
   }
 
   // the active tab reads the feed: the feed tab, or any tab a thread has taken over
   pub(super) fn feedish(&self) -> bool {
-    self.kind() == Kind::Feed || (self.logs.is_none() && self.tabs.get(self.active).is_some_and(|t| t.under.is_some()))
+    self.kind() == Kind::Feed
+      || (self.logs.is_none() && self.chain.is_none() && self.tabs.get(self.active).is_some_and(|t| t.under.is_some()))
   }
 
   // redraw the list and the open thread from the state, keeping scroll and selection
@@ -224,7 +225,7 @@ impl App {
   // a reply opens its parent's thread, picked out once it lands (ext openThread's highlightId). it
   // takes over the tab it was opened from, which reads `← back` until it closes
   pub(super) fn feed_open(&mut self, id: &str) {
-    if self.logs_shown().is_some() {
+    if self.logs_shown().is_some() || self.chain_shown() {
       return;
     }
     let root = self.feed_root(id);
@@ -258,6 +259,7 @@ impl App {
   pub(super) fn takeover_close(&mut self) -> bool {
     let Some(i) = self.takeover_tab() else { return false };
     self.logs = None;
+    self.chain = None;
     let t = &mut self.tabs[i];
     let Some(under) = t.under.take() else { return false };
     t.view = under;

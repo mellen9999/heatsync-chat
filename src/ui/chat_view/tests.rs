@@ -726,6 +726,32 @@ fn a_reply_headers_name_is_a_mention() {
 }
 
 #[test]
+fn a_reply_headers_line_answers_a_click_with_the_replys_id_and_the_words_below_it_do_not() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(10, "c".into());
+  v.zebra = false;
+  v.resize(700);
+  let mut m = said("bob", "lol");
+  m.id = "r1".into();
+  m.reply_to = Some("wollip".into());
+  m.reply_text = Some("short one".into());
+  v.push(m);
+  v.push(said("amy", "plain"));
+  let area = Rect::new(0, 0, 700, 200);
+  let mut c = Canvas::new(700, 200);
+  v.draw(&mut c, &mut res, area, area);
+  let hits: Vec<(i32, i32)> = (0..200)
+    .step_by(2)
+    .flat_map(|y| (0..700).step_by(4).map(move |x| (x, y)))
+    .filter(|&(x, y)| v.reply_at(area, x, y, &mut res).is_some())
+    .collect();
+  assert!(!hits.is_empty(), "the header line is a target");
+  assert!(v.reply_at(area, hits[0].0, hits[0].1, &mut res).as_deref() == Some("r1"));
+  let (top, bottom) = (hits.iter().map(|h| h.1).min().unwrap(), hits.iter().map(|h| h.1).max().unwrap());
+  assert!(bottom - top < 40, "one line tall, not the whole row: {top}..{bottom}");
+}
+
+#[test]
 fn a_channel_owner_answers_the_pointer_by_bare_name_without_speaking() {
   let mut res = Res::new(1.0);
   res.chatters.host(Platform::Twitch, "nl_kripp");

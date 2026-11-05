@@ -64,6 +64,8 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
   let mut reply = None;
+  // the `↳ @name words` line of a reply: a click on it opens the chain
+  let mut hdr = 0..0;
   // a line copied into another tab (mentions) still resolves against its own room
   let x = m.x.as_deref();
   let chan = room(m, chan);
@@ -121,6 +123,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     for sp in spans.iter_mut().filter(|sp| sp.range.start >= r0 && sp.ink.0 == theme::DIM) {
       sp.ink.0 |= Ink::LIFT;
     }
+    hdr = r0..s.len();
     s.push('\n');
   }
   if ts {
@@ -338,6 +341,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     nick,
     vote,
     thread,
+    hdr,
     media,
     reveal,
     allow,

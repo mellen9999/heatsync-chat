@@ -2,6 +2,7 @@ pub mod automod;
 pub mod blocked;
 pub mod card;
 pub mod catalog;
+pub mod chain;
 pub mod chan;
 pub mod chantools;
 pub mod chatters;

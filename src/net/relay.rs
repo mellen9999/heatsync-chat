@@ -5,6 +5,7 @@ use serde_json::Value;
 use crate::heatsync::content::emote_hidden;
 use crate::heatsync::valid_name;
 use crate::images::url::allowed;
+use crate::model::chain;
 use crate::model::color;
 use crate::model::message::{HsEmote, Kind, Message, Notice, Placed, Platform, REPLY_TEXT};
 use crate::util::clamp;
@@ -134,6 +135,19 @@ pub fn kick(v: &Value) -> Option<Message> {
   m.badges = crate::badges::relay::kick(v.get("badges"));
   m.reply_to = v.get("replyTo").and_then(|r| str_of(r, "username")).map(|u| clamp(u, MAX_NAME).into());
   m.reply_text = v.get("replyTo").and_then(|r| str_of(r, "content")).map(|t| clamp(t, REPLY_TEXT).into());
+  if let Some(r) = v.get("replyTo") {
+    // ids come as strings (the ext's relay) or bare numbers
+    let id = |k: &str| match r.get(k)? {
+      Value::String(s) => chain::clean_id(s),
+      Value::Number(n) => chain::clean_id(&n.to_string()),
+      _ => None,
+    };
+    let (parent, root) = (id("id").unwrap_or_default(), id("threadId").unwrap_or_default());
+    if !parent.is_empty() || !root.is_empty() {
+      let x = m.extra();
+      (x.parent, x.root) = (parent, root);
+    }
+  }
   Some(m)
 }
 
@@ -268,6 +282,13 @@ mod tests {
     assert_eq!(&*m.hs[0].0, "catJAM");
     assert_eq!((m.reply_to.as_deref(), m.reply_text.as_deref()), (Some("bob"), Some("first")));
     assert_eq!((&*m.login, m.ts), ("sov", 5));
+    assert!(m.x.is_none(), "a reply with no ids carries none");
+    let r = kick(&json!({"username": "a", "content": "x", "replyTo": {"id": "m9", "threadId": 77, "username": "b"}}));
+    let x = r.unwrap().x.unwrap();
+    assert_eq!((&*x.parent, &*x.root), ("m9", "77"));
+    let hostile = json!({"id": "m\n9", "threadId": "z".repeat(300)});
+    let bad = kick(&json!({"username": "a", "content": "x", "replyTo": hostile})).unwrap();
+    assert!(bad.x.is_none(), "hostile ids are dropped");
     assert!(m.user_id.is_empty(), "no sender id on the frame: plain name");
     let with = kick(&json!({"username": "sov", "senderId": 4242, "content": "x"})).unwrap();
     assert_eq!(&*with.user_id, "4242");
