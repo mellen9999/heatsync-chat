@@ -171,6 +171,8 @@ pub enum NetEvent {
   },
   // went live / offline / switched game, already paired and de-duplicated
   Stream(crate::model::stream_events::Line),
+  // `follow:history`: switched / offline lines of the last 15 min with their own times, oldest first
+  StreamHistory(Vec<(i64, crate::model::stream_events::Line)>),
   // something you sent through heatsync.org, by its words (`chat:origin_broadcast`)
   Origin(Box<str>),
   // a chat-rate spike in a channel (text ready to show)

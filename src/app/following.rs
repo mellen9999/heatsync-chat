@@ -166,10 +166,7 @@ impl App {
       .flat_map(|l| l.legs.iter().map(move |leg| (l, leg)))
       .filter(|(_, leg)| !prev.contains(*leg))
       .filter(|(_, (p, k))| self.tabs_with(*p, k).is_empty())
-      .map(|(l, (p, k))| {
-        let name = if l.name.eq_ignore_ascii_case(k) { &*l.name } else { &**k };
-        Line::went_live(*p, k, name, &l.game)
-      })
+      .map(|(l, (p, k))| Line::went_live(*p, k, &l.game))
       .collect()
   }
 
@@ -486,13 +483,13 @@ mod tests {
     back.extend(more);
     app.on_net(NetEvent::Following(Ok(back)));
     assert_eq!(told(&app).len(), 1, "newk dropped and came back without signing off: still one");
-    app.on_stream(Line::went_live(Platform::Kick, "newk", "NewK", ""));
+    app.on_stream(Line::went_live(Platform::Kick, "newk", ""));
     assert_eq!(told(&app).len(), 1, "the push after the poll: no double");
     // after a sign-off the next go-live is news again
-    let mut off = Line::went_live(Platform::Kick, "newk", "NewK", "");
+    let mut off = Line::went_live(Platform::Kick, "newk", "");
     off.tone = crate::model::stream_events::Tone::Offline;
     app.on_stream(off);
-    app.on_stream(Line::went_live(Platform::Kick, "newk", "NewK", ""));
+    app.on_stream(Line::went_live(Platform::Kick, "newk", ""));
     assert_eq!(told(&app).len(), 2);
   }
 }

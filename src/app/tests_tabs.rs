@@ -23,6 +23,7 @@ fn headless_stream_everywhere() {
     tone: Tone::Online,
     name: ch.into(),
     color: None,
+    user_id: None,
     verb: "◆ went live".into(),
     game: "".into(),
   };
@@ -312,6 +313,7 @@ fn headless_stream_line_is_not_a_chat_line() {
     tone: Tone::Online,
     name: "xQc".into(),
     color: Some(0xff0000),
+    user_id: None,
     verb: "◆ went live — ".into(),
     game: "Chess".into(),
   });
@@ -761,6 +763,7 @@ fn headless_live_tab_has_a_red_dot() {
     tone,
     name: "forsen".into(),
     color: None,
+    user_id: None,
     verb: "◆ went live".into(),
     game: "".into(),
   };

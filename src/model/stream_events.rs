@@ -45,9 +45,10 @@ pub struct Ev {
   pub channel: Box<str>,
   pub game: Box<str>,
   pub prev_game: Box<str>,
-  // how the streamer writes their name, and their color, when the frame says (else the channel key)
-  pub name: Box<str>,
+  // the streamer's helix chat color and their id on the line's platform (`userId`, checked by `user_id`),
+  // when the frame says
   pub color: Option<u32>,
+  pub user_id: Option<Box<str>>,
   // a followed channel's go-live (`follow:stream:online`): heatsync sends one per go-live and its
   // catch-up of the ones you just missed on connect, so the connect window doesn't hold it (ext `fresh`)
   pub fresh: bool,
@@ -64,6 +65,8 @@ pub struct Line {
   // in the tone's color, the game in white
   pub name: Box<str>,
   pub color: Option<u32>,
+  // the streamer's id on the platform of the line (twitch id, kick id, youtube channel id), if the frame had it
+  pub user_id: Option<Box<str>>,
   pub verb: Box<str>,
   pub game: Box<str>,
 }
@@ -83,20 +86,25 @@ impl Line {
       tone,
       name: if name.is_empty() { channel.into() } else { name.into() },
       color,
+      user_id: None,
       verb: format!("◆ {verb}").into(),
       game: game.into(),
     }
   }
 
   // a go-live already under way when a channel's history loads (the realtime one only comes while we run)
-  pub fn went_live(platform: Platform, channel: &str, name: &str, game: &str) -> Line {
+  pub fn went_live(platform: Platform, channel: &str, game: &str) -> Line {
     let what = body(Kind::Online, &clean(game), "").unwrap_or_default();
-    Line::new(platform, channel, name, None, Tone::Online, &what)
+    Line::new(platform, channel, "", None, Tone::Online, &what)
   }
 
-  // whose name heads the line: the redeemer for a redeem, else the channel
+  // whose name heads the line, always the lowercase login: the redeemer for a redeem, else the channel
   pub fn person(&self) -> Box<str> {
-    if self.tone == Tone::Redeem { self.name.to_ascii_lowercase().into() } else { self.channel.clone() }
+    if self.tone == Tone::Redeem {
+      self.name.to_ascii_lowercase().into()
+    } else {
+      self.channel.to_ascii_lowercase().into()
+    }
   }
 }
 
@@ -112,6 +120,62 @@ pub fn follow_colors(v: &serde_json::Value) -> Vec<(Box<str>, u32)> {
     .filter(|(k, _)| ident::twitch_login(k))
     .filter_map(|(k, c)| Some((k.to_ascii_lowercase().into(), crate::model::color::parse_hex(c.as_str()?)?)))
     .collect()
+}
+
+// a frame's `userId`: the streamer's id on the line's platform, as a string. hostile: twitch and kick
+// ids are plain digits (no `kick_` / `yt_` prefix games), youtube's is `UC` + 22. anything else is dropped
+pub fn user_id(platform: Platform, v: Option<&serde_json::Value>) -> Option<Box<str>> {
+  use crate::cosmetics::id::PaintId;
+  let s = v?.as_str().filter(|s| s.len() <= 24)?;
+  match (platform, PaintId::of(platform.name(), s)?) {
+    (Platform::Twitch, PaintId::Twitch(n)) | (Platform::Kick, PaintId::Kick(n))
+      if s.bytes().all(|b| b.is_ascii_digit()) =>
+    {
+      Some(n.to_string().into())
+    }
+    (Platform::Youtube, PaintId::Youtube(c)) => Some(c),
+    _ => None,
+  }
+}
+
+// the longest the server's `follow:history` may be and how far back a row may reach
+const MAX_HISTORY: usize = 200;
+const HISTORY_MS: i64 = 15 * 60_000;
+
+// `follow:history {rows}`: the last 24h of followed channels' stream news. only switched and offline rows
+// under 15 minutes old come back (online is covered by the went-live line at the stream's start), each
+// with the time it happened, its stored color and userId. ≤200 rows read, the rest dropped
+pub fn history(now: i64, v: &serde_json::Value) -> Vec<(i64, Line)> {
+  use serde_json::Value;
+  let Some(rows) = v.get("rows").and_then(Value::as_array) else { return Vec::new() };
+  let mut out: Vec<(i64, Line)> = rows
+    .iter()
+    .take(MAX_HISTORY)
+    .filter_map(|r| {
+      let at = r.get("ts").and_then(Value::as_i64).filter(|t| (now - HISTORY_MS..=now).contains(t))?;
+      let platform = match r.get("platform").and_then(Value::as_str)? {
+        "twitch" => Platform::Twitch,
+        "kick" => Platform::Kick,
+        _ => return None,
+      };
+      let channel: Box<str> = r.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
+      if !ident::relay_key(&channel) {
+        return None;
+      }
+      let text = |k: &str| clean(r.get(k).and_then(Value::as_str).unwrap_or(""));
+      let (tone, what) = match r.get("type").and_then(Value::as_str)? {
+        "switched" | "update" => (Tone::Switch, body(Kind::Update, &text("game"), &text("prevGame"))?),
+        "offline" => (Tone::Offline, body(Kind::Offline, "", "")?),
+        _ => return None,
+      };
+      let color = r.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
+      let mut l = Line::new(platform, &channel, "", color, tone, &what);
+      l.user_id = user_id(platform, r.get("userId"));
+      Some((at, l))
+    })
+    .collect();
+  out.sort_by_key(|(t, _)| *t);
+  out
 }
 
 pub fn clean(s: &str) -> Box<str> {
@@ -156,7 +220,9 @@ impl Gate {
       self.shown.retain(|_, t| now - *t < DEDUPE_MS);
     }
     self.shown.insert(k, now);
-    Some(Line::new(e.platform, &e.channel, &e.name, e.color, tone, what))
+    let mut l = Line::new(e.platform, &e.channel, "", e.color, tone, what);
+    l.user_id = e.user_id.clone();
+    Some(l)
   }
 
   // a channel's news that is not about the stream itself (`stream:raid`, `stream:sub-gift`, ext main.js
@@ -168,8 +234,8 @@ impl Gate {
       channel,
       game: "".into(),
       prev_game: "".into(),
-      name: "".into(),
       color: None,
+      user_id: None,
       fresh: false,
     };
     self.line(now, &e, tone, what)
@@ -191,11 +257,12 @@ impl Gate {
       channel,
       game: "".into(),
       prev_game: "".into(),
-      name: who.clone(),
       color: None,
+      user_id: None,
       fresh: false,
     };
     let mut l = self.line(now, &e, Tone::Redeem, &format!("{what} · {who}"))?;
+    l.name = who.clone();
     l.verb = format!("◆ {what}").into();
     l.text = format!("[{}] {who} ◆ {what}", l.channel).into();
     Some(l)
@@ -370,15 +437,14 @@ mod tests {
   use super::*;
 
   fn ev(kind: Kind, game: &str, prev: &str) -> Ev {
-    let (name, color) = ("Cyr".into(), None);
     Ev {
       kind,
       platform: Platform::Twitch,
       channel: "cyr".into(),
       game: game.into(),
       prev_game: prev.into(),
-      name,
-      color,
+      color: None,
+      user_id: None,
       fresh: false,
     }
   }
@@ -394,7 +460,7 @@ mod tests {
     assert_eq!(g.next_due(), Some(LATE + HOLD_MS));
     let l = g.event(LATE + 10, ev(Kind::Online, "Chess", "")).unwrap();
     assert_eq!(&*l.text, "[cyr] ◆ went live — Chess");
-    assert_eq!((&*l.name, &*l.verb, &*l.game), ("Cyr", "◆ went live — ", "Chess"), "drawn in three parts");
+    assert_eq!((&*l.name, &*l.verb, &*l.game), ("cyr", "◆ went live — ", "Chess"), "drawn in three parts");
     assert_eq!(l.tone, Tone::Online);
     assert!(g.due(LATE + 5000).is_empty());
     // an update echoing the go-live right after is dropped

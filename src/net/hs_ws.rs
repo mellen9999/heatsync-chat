@@ -465,9 +465,6 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         "stream:offline" => Kind::Offline,
         _ => Kind::Update,
       };
-      // the name as they write it, only when it is their channel key in other letters
-      let name = text("displayName");
-      let name = if name.eq_ignore_ascii_case(&channel) { name } else { "".into() };
       // the followed list hears every sign-on, switch and sign-off of a channel you follow, ahead of the
       // chat lines' own gates (which may hold or drop the line)
       if followed
@@ -482,9 +479,23 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         return None;
       }
       let color = v.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
-      let ev =
-        Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color, fresh: followed };
+      let user_id = stream_events::user_id(platform, v.get("userId"));
+      let ev = Ev {
+        kind,
+        platform,
+        channel,
+        game: text("game"),
+        prev_game: text("prevGame"),
+        color,
+        user_id,
+        fresh: followed,
+      };
       st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
+    }
+    // the server's last 24h of followed channels' stream news, once after sign-in
+    "follow:history" => {
+      let rows = stream_events::history(crate::util::time::now_ms(), v);
+      (!rows.is_empty()).then(|| send(NetEvent::StreamHistory(rows))).flatten()
     }
     // the room's own news: a raid out, a gift bomb (in the room's tab only)
     "stream:raid" | "stream:sub-gift" => {
@@ -649,6 +660,66 @@ mod tests {
     let got: Vec<_> = rx.try_iter().collect();
     assert!(got.iter().any(|e| matches!(e, NetEvent::FollowChange(_))));
     assert!(!got.iter().any(|e| matches!(e, NetEvent::Stream(_))), "its room speaks for it");
+  }
+
+  #[test]
+  fn a_frame_user_id_and_color_ride_the_line_and_hostile_ones_are_dropped() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    st.gate.start(0);
+    let mut id = |n: &str, ch: &str, plat: &str| {
+      let v = json!({"type": "follow:stream:online", "platform": plat, "channel": ch, "game": "Chess",
+        "displayName": "MixedCase", "userId": n, "color": "#ff0000"});
+      dispatch(&v, &mut st, &out);
+      rx.try_iter()
+        .find_map(|e| if let NetEvent::Stream(l) = e { Some(l) } else { None })
+        .map(|l| (l.user_id, l.color, l.name))
+    };
+    let got = id("12345", "aaa", "twitch").unwrap();
+    assert_eq!((got.0.as_deref(), got.1, &*got.2), (Some("12345"), Some(0xff0000), "aaa"));
+    assert_eq!(id("77", "bbb", "kick").unwrap().0.as_deref(), Some("77"));
+    for bad in ["12a", "kick_5", "yt_UCabcdefghijklmnopqrstuv", "", "0", &"9".repeat(25), "-1"] {
+      assert_eq!(id(bad, &format!("c{}", bad.len()), "twitch").unwrap().0, None, "{bad}");
+    }
+    assert_eq!(
+      super::stream_events::user_id(Platform::Youtube, Some(&json!("UCabcdefghijklmnopqrstuv"))).as_deref(),
+      Some("UCabcdefghijklmnopqrstuv")
+    );
+    assert_eq!(super::stream_events::user_id(Platform::Youtube, Some(&json!("UCshort"))), None);
+    assert_eq!(super::stream_events::user_id(Platform::Twitch, Some(&json!(5))), None);
+  }
+
+  #[test]
+  fn follow_history_keeps_recent_switched_and_offline_rows_only() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let now = crate::util::time::now_ms();
+    let row = |ty: &str, ago: i64| {
+      json!({"type": ty, "platform": "twitch", "channel": "Ennortix", "game": "Chess", "prevGame": "Go",
+      "ts": now - ago, "color": "#00ff00", "userId": "99"})
+    };
+    let rows = vec![
+      row("switched", 60_000),
+      row("offline", 120_000),
+      row("online", 30_000),
+      row("switched", 20 * 60_000),
+      json!({"type": "offline", "platform": "youtube", "channel": "x", "ts": now}),
+      json!(7),
+    ];
+    dispatch(&json!({"type": "follow:history", "rows": rows}), &mut st, &out);
+    let Ok(NetEvent::StreamHistory(got)) = rx.try_recv() else { panic!("no history") };
+    let got: Vec<_> = got.iter().map(|(t, l)| (now - t, &*l.text, l.color, l.user_id.as_deref())).collect();
+    assert_eq!(got.len(), 2);
+    assert!(got[0].0 >= 120_000 && got[1].0 >= 60_000, "oldest first, at their own times");
+    assert_eq!((got[0].1, got[0].2, got[0].3), ("[ennortix] ◆ went offline", Some(0x00ff00), Some("99")));
+    assert_eq!(got[1].1, "[ennortix] ◆ switched to Chess");
+    // bounded: 200 rows are read, no more
+    let many: Vec<_> = (0..500).map(|_| row("offline", 1000)).collect();
+    dispatch(&json!({"type": "follow:history", "rows": many}), &mut st, &out);
+    let Ok(NetEvent::StreamHistory(got)) = rx.try_recv() else { panic!("no history") };
+    assert_eq!(got.len(), 200);
   }
 
   // the plain `stream:*` of a room is no follow: the list ignores it. the snapshot is bounded and checked

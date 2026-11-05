@@ -737,16 +737,20 @@ impl ChatView {
     }
   }
 
-  // stream lines whose name color the frame didn't give take what the app knows of them now:
-  // `f` says (color, twitch id) for a login. stream lines are rare; this runs on a lookup or a color
-  // frame, never per frame
-  pub fn restyle_late(&mut self, mut f: impl FnMut(Platform, &str) -> (u32, Option<u64>)) {
-    for r in self.rows.iter_mut().filter(|r| r.msg.x.as_ref().is_some_and(|x| x.late)) {
-      let (color, uid) = f(r.msg.platform, &r.msg.login);
-      let uid: Box<str> = uid.map(|n| n.to_string().into()).unwrap_or_else(|| r.msg.user_id.clone());
-      if r.msg.color != color || r.msg.user_id != uid {
+  // stream lines whose name color or streamer id the frame didn't give take what the app knows of them now:
+  // `f` says (color, id on the line's platform) for a login. a frame's own color stays; an id seats once.
+  // stream lines are rare; this runs on a lookup or a color frame, never per frame
+  pub fn restyle_late(&mut self, mut f: impl FnMut(Platform, &str) -> (u32, Option<Box<str>>)) {
+    for r in self.rows.iter_mut() {
+      let Some((late, late_id)) = r.msg.x.as_ref().map(|x| (x.late, x.late_id)).filter(|(a, b)| *a || *b) else {
+        continue;
+      };
+      let (color, id) = f(r.msg.platform, &r.msg.login);
+      let color = if late { color } else { r.msg.color };
+      let id = if late_id { id.unwrap_or_else(|| r.msg.user_id.clone()) } else { r.msg.user_id.clone() };
+      if r.msg.color != color || r.msg.user_id != id {
         r.msg.color = color;
-        r.msg.user_id = uid;
+        r.msg.user_id = id;
         Self::touch(r);
         self.stale = true;
       }

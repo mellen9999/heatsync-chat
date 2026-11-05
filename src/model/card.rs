@@ -20,6 +20,10 @@ pub struct Info {
   pub twitch_name: Option<Box<str>>,
   // their twitch user id: what their paints hang off
   pub twitch_id: Option<u64>,
+  // their kick user id / youtube channel id, from the account linked to a kick / youtube login: what a
+  // stream line's paint hangs off on those platforms
+  pub kick_id: Option<u64>,
+  pub youtube_id: Option<Box<str>>,
   // their picture (ext card-model avatarUrl): heatsync's copy, else twitch's own, asked by the net layer
   pub avatar: Option<Box<str>>,
   // their heatsync user id (only a real account's: what a server note hangs off) and the note the
@@ -162,6 +166,17 @@ pub fn parse(v: &Value, now: i64) -> Info {
     .and_then(|p| ["/twitch_user_id", "/twitch_id"].iter().find_map(|k| p.pointer(k)))
     .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
     .filter(|n| *n > 0);
+  let kick_id = real
+    .and_then(|p| ["/kick_user_id", "/kick_id"].iter().find_map(|k| p.pointer(k)))
+    .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+    .filter(|n| *n > 0);
+  let youtube_id = real
+    .and_then(|p| text(p, "/youtube_channel_id"))
+    .and_then(|c| crate::cosmetics::id::PaintId::of("youtube", c))
+    .and_then(|p| match p {
+      crate::cosmetics::id::PaintId::Youtube(c) => Some(c),
+      _ => None,
+    });
   let twitch_name = real.and_then(|p| text(p, "/twitch_username")).filter(|n| ident::twitch_login(n)).map(Into::into);
   let avatar = real
     .and_then(|p| ["/twitch_profile_pic", "/kick_profile_pic", "/profile_image_url"].iter().find_map(|k| text(p, k)))
@@ -184,6 +199,8 @@ pub fn parse(v: &Value, now: i64) -> Info {
     color,
     twitch_name,
     twitch_id,
+    kick_id,
+    youtube_id,
     avatar,
     profile_id,
     note,

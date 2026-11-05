@@ -259,8 +259,12 @@ impl App {
     if let Ok(i) = &res {
       // their heatsync color, else twitch's hash palette (ext hsResolveUserColor step 3)
       let c = i.color.unwrap_or_else(|| color::default_for(login));
-      let paint =
-        (platform == Platform::Twitch).then(|| i.twitch_id.map(crate::cosmetics::id::PaintId::Twitch)).flatten();
+      use crate::cosmetics::id::PaintId;
+      let paint = match platform {
+        Platform::Twitch => i.twitch_id.map(PaintId::Twitch),
+        Platform::Kick => i.kick_id.map(PaintId::Kick),
+        Platform::Youtube => i.youtube_id.clone().map(PaintId::Youtube),
+      };
       self.res.chatters.learned(platform, login, c, paint);
       for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
         v.touch_person(platform, login);

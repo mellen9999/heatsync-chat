@@ -102,6 +102,8 @@ pub struct Extra {
   pub pic: Option<Box<Pic>>,
   // a stream line whose name color the frame didn't give: it follows what the app learns of them later
   pub late: bool,
+  // the same line's streamer id (paint, `+`, badges) still unknown: it is filled in when a lookup lands
+  pub late_id: bool,
   // an automod hold's row: its allow / deny, or how it ended
   pub held: Option<Box<crate::model::held::Row>>,
   // the event a notice row tells of (its system line's color)

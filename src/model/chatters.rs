@@ -161,6 +161,23 @@ impl Chatters {
     }
   }
 
+  // the id on this platform their paints hang off (twitch id, kick id, youtube channel id), as a line's
+  // `user_id` writes it. unknown = None with the lookup queued (asked once)
+  pub fn id_of(&mut self, p: Platform, login: &str) -> Option<Box<str>> {
+    let mut buf = [0u8; NAME_MAX];
+    let l = lower(login, &mut buf)?;
+    let id = match self.by[slot(p)].get(l).and_then(|c| c.paint.as_ref()) {
+      Some(PaintId::Twitch(n)) if p == Platform::Twitch => Some(n.to_string().into()),
+      Some(PaintId::Kick(n)) if p == Platform::Kick => Some(n.to_string().into()),
+      Some(PaintId::Youtube(c)) if p == Platform::Youtube => Some(c.clone()),
+      _ => None,
+    };
+    if id.is_none() {
+      self.ask(p, l);
+    }
+    id
+  }
+
   // a channel we sit in: its owner is a known person (bare name hovers like one who spoke), their
   // color and paint asked for like any stranger's. twitch and kick channel keys are the owner's login
   pub fn host(&mut self, p: Platform, login: &str) {

@@ -350,6 +350,7 @@ impl App {
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
+      NetEvent::StreamHistory(rows) => self.on_stream_history(rows),
       NetEvent::Origin(text) => self.on_origin(text),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),

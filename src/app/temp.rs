@@ -141,7 +141,7 @@ mod tests {
     let (mut app, _rx) = boot();
     let f = forsen(&app);
     app.select(f);
-    app.on_stream(Line::went_live(Platform::Twitch, "xqc", "xQc", "just chatting"));
+    app.on_stream(Line::went_live(Platform::Twitch, "xqc", "just chatting"));
     assert!(click_last(&mut app));
     let t = &app.tabs[app.active];
     assert!(t.temp && &*t.name == "xqc", "{}", t.name);
@@ -149,7 +149,7 @@ mod tests {
     // the same line in xqc's own tab is that tab's: the click is an ordinary one
     assert!(!click_last(&mut app));
     // a channel with a tab of its own opens that tab, no temp tab
-    app.on_stream(Line::went_live(Platform::Twitch, "forsen", "forsen", ""));
+    app.on_stream(Line::went_live(Platform::Twitch, "forsen", ""));
     assert!(click_last(&mut app));
     assert_eq!(app.active, forsen(&app));
     assert!(app.temp_at().is_some(), "the temp tab stays till the next look");

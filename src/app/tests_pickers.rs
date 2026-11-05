@@ -35,6 +35,7 @@ fn stream_lines_resolve_late() {
     tone: Tone::Switch,
     name: ch.into(),
     color,
+    user_id: None,
     verb: "◆ switched to ".into(),
     game: "Chess".into(),
   };
