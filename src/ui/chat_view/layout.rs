@@ -757,11 +757,19 @@ pub(super) fn badges(
   for (url, bg) in found {
     push_badge(res, &url, bg, s, ib, boxes);
   }
+  super::marks::marks(res, m, s, spans, ib, boxes);
   avatar(res, m, s, ib, boxes);
 }
 
 // one badge picture at the end of the text so far, then the ext's 2px
-fn push_badge(res: &mut Res, url: &str, bg: Option<u32>, s: &str, ib: &mut Vec<InlineBox>, boxes: &mut Vec<EmoteBox>) {
+pub(super) fn push_badge(
+  res: &mut Res,
+  url: &str,
+  bg: Option<u32>,
+  s: &str,
+  ib: &mut Vec<InlineBox>,
+  boxes: &mut Vec<EmoteBox>,
+) {
   let h = res.images.px(BADGE_PX);
   let img = res.images.id(url, BADGE_PX);
   let w = res.images.width(img, (18, 18));

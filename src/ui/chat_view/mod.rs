@@ -265,6 +265,7 @@ macro_rules! opts {
 mod draw;
 mod hit;
 mod layout;
+mod marks;
 #[cfg(test)]
 mod tests;
 
@@ -676,8 +677,8 @@ impl ChatView {
     }
   }
 
-  // their picture url arrived: re-lay out the lines that wear it
-  pub fn touch_avatar(&mut self, p: Platform, login: &str) {
+  // something drawn before this chatter's name arrived (their picture, their heat bar): re-lay out their lines
+  pub fn touch_chatter(&mut self, p: Platform, login: &str) {
     for r in self.rows.iter_mut().filter(|r| r.msg.platform == p && *r.msg.login == *login) {
       Self::touch(r);
       self.stale = true;

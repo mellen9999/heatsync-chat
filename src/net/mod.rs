@@ -14,6 +14,7 @@ pub mod hs_ws;
 pub mod http;
 pub mod irc;
 mod links;
+pub mod marks;
 pub mod modact;
 pub mod modes;
 pub mod modsuite;
@@ -137,6 +138,10 @@ pub enum NetEvent {
   Cosmetics(Vec<(crate::cosmetics::id::PaintId, Option<crate::cosmetics::Cosmetic>)>),
   // 7tv says this twitch user's cosmetics changed: ask again
   CosmeticsStale(crate::cosmetics::id::PaintId),
+  // chatters' heat by login (an answer, or the server's push)
+  Heat(Vec<(Box<str>, u32)>),
+  // chatters' sub flair by twitch id (None = wears none)
+  Flair(Vec<(u64, Option<crate::badges::Badge>)>),
   // heatsync says these twitch ids changed their paint: ask again
   CosmeticsChanged(Vec<crate::cosmetics::id::PaintId>),
   // a live edit of a channel's 7tv emote set
@@ -451,6 +456,8 @@ pub enum Cmd {
   Avatar(Platform, Box<str>),
   // chatters' 7tv paints + badges
   Cosmetics(crate::cosmetics::id::PaintId),
+  // a chatter's heat bar or sub flair
+  Mark(marks::Ask),
   // our own twitch id, for watching our own 7tv cosmetics
   SevenTvMe(Option<u64>),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
@@ -830,6 +837,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   watch("login", session::run(http.clone(), sess_rx, irc_tx.clone(), hs_auth, out.clone()), out.clone());
   let (cos_tx, cos_rx) = mpsc::unbounded_channel();
   watch("paints", cosmetics::run(http.clone(), cos_rx, out.clone()), out.clone());
+  let (mk_tx, mk_rx) = mpsc::unbounded_channel();
+  watch("marks", marks::run(http.clone(), mk_rx, out.clone()), out.clone());
   let (av_tx, av_rx) = mpsc::unbounded_channel();
   watch("avatars", avatars::run(http.clone(), av_rx, out.clone()), out.clone());
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
@@ -980,6 +989,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Cosmetics(id) => {
         let _ = cos_tx.send(id);
+      }
+      Cmd::Mark(a) => {
+        let _ = mk_tx.send(a);
       }
       Cmd::SevenTvMe(id) => {
         let _ = stv_tx.send(seventv::Cmd::Me(id));

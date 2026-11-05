@@ -1,6 +1,9 @@
 // heatsync's own data and the rules for when it renders
 pub mod content;
+pub mod flair;
+pub mod heat;
 pub mod late_refs;
+pub mod marks;
 pub mod senders;
 
 pub const MAX_NAME: usize = 100;

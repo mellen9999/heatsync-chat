@@ -89,6 +89,17 @@ impl Senders {
     self.map.get(&id)?.set.get(word).filter(|x| x.at(ts, skew))
   }
 
+  // we have seen heatsync content from `id` (a set with a row in it): a heatsync user. never asks, so a
+  // silent chatter costs no request
+  pub fn known(&self, id: u64) -> bool {
+    self.map.get(&id).is_some_and(|e| !e.set.is_empty())
+  }
+
+  // the viewer's own twitch id
+  pub fn is_me(&self, id: u64) -> bool {
+    self.me == Some(id)
+  }
+
   // `word` as `id` owns it right now, without asking for the set (our own is fetched at login)
   pub fn peek(&self, id: u64, word: &str, now: i64) -> Option<&HsEmote> {
     self.map.get(&id)?.set.get(word).filter(|x| x.now(now))
@@ -224,6 +235,22 @@ mod tests {
     let set = parse_set(&rows);
     assert_eq!(set.len(), 1);
     assert!(set.contains_key("ok"));
+  }
+
+  #[test]
+  fn known_means_a_set_with_a_row_and_never_asks() {
+    let mut s = Senders::default();
+    assert!(!s.known(1));
+    assert!(s.take_wanted().is_empty(), "looking does not ask");
+    s.lookup(1, "ok", T);
+    s.take_wanted();
+    assert!(!s.known(1), "asked, nothing back yet");
+    s.put(1, parse_set(&json!([])));
+    assert!(!s.known(1), "an empty set is not a heatsync user");
+    s.put(1, parse_set(&json!([row("ok")])));
+    assert!(s.known(1));
+    s.set_me(Some(1));
+    assert!(s.is_me(1) && !s.is_me(2));
   }
 
   #[test]

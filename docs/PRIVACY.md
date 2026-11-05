@@ -40,13 +40,13 @@ clicking a link or a video ▶ hands it to your own browser or `mpv`. those talk
 
 `heatsync.org` is first-party: same people as the app. it sees:
 
-- **always:** your ip and the app version. the channels you have open (twitch, kick, youtube): the app joins each on heatsync's live connection and sends a heartbeat every 25s, and asks for each channel's recent lines, pin and linked accounts. the ids of the chatters whose lines are on your screen (to fetch their emote sets, paints and badges). a name you open a card or hover popup for, and the channel you were in. a `#tag` you hover.
+- **always:** your ip and the app version. the channels you have open (twitch, kick, youtube): the app joins each on heatsync's live connection and sends a heartbeat every 25s, and asks for each channel's recent lines, pin and linked accounts. the ids of the chatters whose lines are on your screen (to fetch their emote sets, paints and badges, and their sub flair), and the names of the twitch chatters on screen (to fetch their heat for the heat bar; `/heatbars` off stops it, `/subflair` off stops the flair asks). a name you open a card or hover popup for, and the channel you were in. a `#tag` you hover.
 - **links and pictures in chat** (`/media` on, which is the default): the link of a line that previews (to resolve it) and the address of pictures from other sites (to proxy them). turn `/media` off and neither is sent.
 - **things you search:** gif search words, chat-log searches, and which person's chat logs you open.
 - **when you log in:** all of the above is tied to your account, and your token is sent with requests that need it: your synced settings (only the switches that sync, see `docs/contract.md`), follows, mutes and blocks, notes, whispers and dms, feed posts, uploads, sending to kick and youtube, twitch moderation actions (they run through heatsync, not from your machine), your emote inventory, and which tabs you have looked at.
 - **uploads:** the file you pick. jpeg, png, webp and gif are stripped of gps, camera and phone model, timestamps, comments, xmp and thumbnails first (a phone photo keeps its rotation). avif, bmp, tiff and video go as they are, so strip those yourself if they carry a location.
 
-it does **not** get your twitch chat lines from this app (they go straight to twitch), and a switch that is off sends nothing: `/media` for links and pictures, `/pronouns`, `/avatars`, `/updates`, `/predbanner` (opening the prediction view still asks), `/paints` + `/hspaints` for name paints and badges.
+it does **not** get your twitch chat lines from this app (they go straight to twitch), and a switch that is off sends nothing: `/media` for links and pictures, `/pronouns`, `/avatars`, `/updates`, `/predbanner` (opening the prediction view still asks), `/paints` + `/hspaints` for name paints and badges, `/heatbars` and `/subflair` for heat and flair.
 
 a heatsync emote only draws on a line if that sender's own heatsync inventory has it, and never from a search or a catalog. that holds for live lines, kick and youtube lines, and archived chat logs.
 

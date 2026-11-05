@@ -198,6 +198,11 @@ pub struct Settings {
   pub bttv_badges: bool,
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // what a twitch line wears before the name from heatsync itself: the sub flair a chatter picked there,
+  // a flame for a known heatsync user, a heat bar. all default on; the ext has no key for them
+  pub sub_flair: bool,
+  pub flame: bool,
+  pub heat_bars: bool,
   // badges as short text chips instead of pictures (ext textBadges). default off, like the ext
   pub text_badges: bool,
   // who wins an emote name two third-party providers share (ext emoteProviderPriority). default ffz
@@ -290,6 +295,9 @@ impl Default for Settings {
       bttv_badges: true,
       ffz_badges: true,
       chatterino_badges: true,
+      sub_flair: true,
+      flame: true,
+      heat_bars: true,
       text_badges: false,
       emote_provider: EmoteProvider::Ffz,
       pronouns: true,
@@ -582,6 +590,9 @@ mod tests {
         bttv_badges: true,
         ffz_badges: true,
         chatterino_badges: true,
+        sub_flair: true,
+        flame: true,
+        heat_bars: true,
         text_badges: false,
         emote_provider: EmoteProvider::Ffz,
         pronouns: true,

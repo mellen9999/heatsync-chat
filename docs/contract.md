@@ -21,8 +21,8 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 | own id | `GET /api/profile/<login>` → `data.profile.id` | numeric or `^\d+$`; shadow users `u_<login>` / `is_shadow` → no inventory |
 | own inventory | `GET /api/users/<id>/emotes[?v=<seq>]` → `emotes\|data\|items` | row: `custom_name\|name\|code, url\|src, width, height, zero_width, added_at, until, nsfw, cw_cats, usage_count\|uses`. edge-cached 60s → bust with ws `_seq`. refetch 15min |
 | sender sets | `GET /api/users/emotes/batch?ids=twitch:<id>,…[&v=]` → `sets["twitch:<id>"]=[rows]` | batch ≤15, 2s flush, single-flight. ttl +15min / −90s. lru 500 |
-| heat | `POST /api/users/heat {usernames}` → `users{login:{heat,op,re}}` | batch 25, ttl 120s, logins `^[a-z0-9_]{1,25}$` |
-| flair | `GET /api/users/flair?ids=` → `flairs{id:{flair_type:"twitch_sub",broadcaster_login,badge_url,badge_url_4x,tier}}` | batch 50, ttl 600s |
+| heat | `POST /api/users/heat {usernames}` → `users{login:{heat,op,re}}` | batch 25, ttl 120s, logins `^[a-z0-9_]{1,25}$`. asked when a twitch line lays out (500ms gather, one in flight, ≤600 queued, failures wait 5s doubling to 60s). held for ≤1000 logins (oldest out). a score is a finite number ≥0 clamped to 1e9; a login the answer lacks is 0. kept live by ws `user:heat_batch_update`, applied to held logins only |
+| flair | `GET /api/users/flair?ids=` → `flairs{id:{flair_type:"twitch_sub",broadcaster_login,badge_url,badge_url_4x,tier}}` | batch 50, ttl 600s, ≤500 chatters held. ids are the chatter's twitch id (a twitch-first heatsync account's id is its twitch id). only `twitch_sub`; `badge_url` ≤512 and on the image allowlist, drawn 18px; title = `<channel> sub`, channel cut to login characters |
 | name color | `GET /api/paints?ids=yt_<UC…>` → `{paints,colors}` | youtube lines only; color used iff `#rrggbb` and no paint |
 | community mutes | `GET /api/community-mutes/<chan>?threshold=25&limit=500` → `mutes[{username,platform?,since_iso}]` | ttl 600s, fail retry 60s. collapse, never hide |
 | pin | `GET /api/pin?platform=&channel=` → `{pin\|null}` | `id,message_id,username,display_name,color,content` |
@@ -72,7 +72,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - cw gate: skip `nsfw` or `cw_cats` ∋ `sexual|gore` unless the viewer opted in (`viewer_show_*`)
 - size: scale by height only — cdn 1x is ≤32px tall but stored dims are native; never trust stored width. 7tv `.avif` → `.webp`
 - heat bar: hidden <5. tiers 5 `▎` white · 20 `▍` white · 50 `▍` yellow · 100/200/500 `▌` yellow · 1000/5000 `▊` red. twitch lines only. never 🔥 beside it
-- marker order before name: chatterino badge, sub flair, 🔥 (known heatsync user), heat bar
+- marker order before name: chatterino badge, sub flair, 🔥 (known heatsync user), heat bar. twitch lines only (`ui/chat_view/marks.rs`, decided by `heatsync/marks.rs`). the 🔥 and the bar never sit together: a bar shows → no 🔥 (someone with heat ≥5 is plainly on heatsync); 🔥 only for a known user under 5. known = we hold a non-empty emote set for the sender (never asked for just this); never on your own lines. switches `flame`, `heat_bars`, `sub_flair` (all default on, local: the ext has no key for them)
 - modifiers: `w! h!/x! v!/y! z! c! l! r! p! s!`, `ffzX ffzY ffzW ffzWide ffzTall ffzCursed ffzHyper ffzRainbow ffzBounce ffzJam ffzSlide ffzArrive ffzLeave ffzSpin`, tint `c!#hex`. prefix or postfix, chainable, token word hidden. grammar: ext `src/lib/modifiers.js`
 - threadlink `>>id` → `https://heatsync.org/thread/<id>`
 

@@ -6,6 +6,7 @@ use crate::model::settings::Counter;
 use crate::model::tabs::Kind;
 use crate::model::vi::Mode;
 use crate::net::Cmd;
+use crate::net::marks::Ask;
 use crate::ui::canvas::Rect;
 use crate::ui::chat_view::{ChatView, Paint};
 use crate::ui::tab_bar::TabLabel;
@@ -304,6 +305,12 @@ impl App {
     self.ask_people();
     for id in self.res.cosmetics.take_wanted() {
       self.net.send(Cmd::Cosmetics(id));
+    }
+    for login in self.res.heats.take_wanted() {
+      self.net.send(Cmd::Mark(Ask::Heat(login)));
+    }
+    for id in self.res.flairs.take_wanted() {
+      self.net.send(Cmd::Mark(Ask::Flair(id)));
     }
     for (p, login) in self.res.avatars.take_wanted() {
       self.net.send(Cmd::Avatar(p, login));

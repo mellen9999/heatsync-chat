@@ -25,6 +25,8 @@ pub fn run(total: usize) {
   let mut c = Canvas::new(w, h);
   let mut res = Res::new(1.0);
   crate::fake::seed_paints(&mut res.cosmetics);
+  res.heats.mute();
+  res.flairs.mute();
   res.arts.set_motion(std::env::var("HSC_MOTION").as_deref() != Ok("0"));
   let mut chat = ChatView::new(1000, "bench".into());
   let mut fake = Fake::new(0x5eed);

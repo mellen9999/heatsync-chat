@@ -4,6 +4,8 @@ use crate::cosmetics::Cosmetics;
 use crate::emotes::Emotes;
 use crate::emotes::block::Blocked;
 use crate::emotes::resolve::Sources;
+use crate::heatsync::flair::Flairs;
+use crate::heatsync::heat::Heats;
 use crate::heatsync::senders::Senders;
 use crate::images::Images;
 use crate::model::chatters::Chatters;
@@ -45,6 +47,10 @@ pub struct Look {
   pub bttv_badges: bool,
   pub ffz_badges: bool,
   pub chatterino_badges: bool,
+  // heatsync's own marks before a twitch name
+  pub sub_flair: bool,
+  pub flame: bool,
+  pub heat_bars: bool,
   // badges as text chips, not pictures
   pub text_badges: bool,
   // a picture beside each name
@@ -69,6 +75,9 @@ impl Look {
       bttv_badges: s.bttv_badges,
       ffz_badges: s.ffz_badges,
       chatterino_badges: s.chatterino_badges,
+      sub_flair: s.sub_flair,
+      flame: s.flame,
+      heat_bars: s.heat_bars,
       text_badges: s.text_badges,
       avatars: s.avatars,
       inventory_emotes: s.render_inventory,
@@ -103,6 +112,8 @@ pub struct Res {
   pub emotes: Emotes,
   pub badges: Badges,
   pub senders: Senders,
+  pub heats: Heats,
+  pub flairs: Flairs,
   pub cosmetics: Cosmetics,
   pub avatars: crate::avatars::Avatars,
   pub arts: NameArts,
@@ -132,6 +143,8 @@ impl Res {
       emotes: Emotes::default(),
       badges: Badges::default(),
       senders: Senders::default(),
+      heats: Heats::default(),
+      flairs: Flairs::default(),
       cosmetics: Cosmetics::default(),
       avatars: Default::default(),
       arts: NameArts::default(),

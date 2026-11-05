@@ -1381,3 +1381,183 @@ fn a_list_read_from_the_top_has_no_jump_bar() {
   v.take_paint(&mut res, 100);
   assert_eq!(v.jump(), None);
 }
+
+// ---- heatsync's marks before a twitch name: sub flair, flame, heat bar
+
+fn marked(uid: &str) -> Message {
+  let mut m = said("bob", "hi");
+  m.user_id = uid.into();
+  m
+}
+
+// how much text sits before the name, and how many pictures (badges) the line holds
+fn before_name(res: &mut Res, m: &Message) -> (usize, usize) {
+  let l = layout_row(res, "c", m, false, 400, NO_OPTS);
+  (l.nick.start, l.boxes.len())
+}
+
+// a heat score landed for bob, and his set says he uses heatsync
+fn heated(res: &mut Res, heat: u32, known: bool) {
+  res.heats.get("bob");
+  res.heats.put("bob", heat);
+  if known {
+    let row = serde_json::json!({"custom_name": "kek", "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32,
+      "height": 32, "added_at": "2026-10-30T22:26:51.099Z"});
+    res.senders.lookup(42, "kek", 1);
+    res.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+  }
+}
+
+const BAR_W: usize = "\u{258c}".len();
+const FLAME_W: usize = "\u{1f525}".len();
+
+#[test]
+fn heat_bars_follow_the_ladder_and_draw_in_its_colors() {
+  let mut res = Res::new(1.0);
+  let m = marked("42");
+  let bar = |res: &mut Res, heat| {
+    res.heats.put("bob", heat);
+    before_name(res, &m).0
+  };
+  heated(&mut res, 0, false);
+  assert_eq!(before_name(&mut res, &m), (0, 0), "no score: nothing");
+  assert_eq!(bar(&mut res, 4), 0, "under 5 is hidden");
+  for heat in [5, 20, 50, 100, 200, 500, 1000, 5000] {
+    assert_eq!(bar(&mut res, heat), 3, "one 3-byte bar glyph at {heat}");
+  }
+  // pixels: white under 50, yellow from 50, red from 1000 (the name is red/green/etc., so count the other two)
+  let ink = |res: &mut Res, heat, c| {
+    res.heats.put("bob", heat);
+    let mut m = m.clone();
+    m.color = theme::BLUE;
+    drawn(res, m, [c, c]).0
+  };
+  let base = |res: &mut Res, c| ink(res, 0, c);
+  let (w0, y0, r0) = (base(&mut res, theme::WHITE), base(&mut res, theme::YELLOW), base(&mut res, theme::RED));
+  assert!(ink(&mut res, 10, theme::WHITE) > w0, "cold is white");
+  assert_eq!(ink(&mut res, 10, theme::YELLOW), y0, "and not yellow");
+  assert!(ink(&mut res, 100, theme::YELLOW) > y0, "warm is yellow");
+  assert!(ink(&mut res, 5000, theme::RED) > r0, "blowing up is red");
+  assert_eq!(ink(&mut res, 5000, theme::YELLOW), y0, "and not yellow");
+}
+
+#[test]
+fn the_flame_is_for_known_users_without_a_bar_and_never_beside_one() {
+  let mut res = Res::new(1.0);
+  let m = marked("42");
+  heated(&mut res, 0, true);
+  assert_eq!(before_name(&mut res, &m).0, FLAME_W, "known and cold: the flame");
+  res.heats.put("bob", 3);
+  assert_eq!(before_name(&mut res, &m).0, FLAME_W, "under 5 has no bar, the flame stays");
+  res.heats.put("bob", 120);
+  assert_eq!(before_name(&mut res, &m).0, BAR_W, "a bar replaces the flame, they are never together");
+  res.look.heat_bars = false;
+  assert_eq!(before_name(&mut res, &m).0, FLAME_W, "bars off: the flame is back");
+  // it really draws: more pixels lit than with the flame off
+  let lit = |res: &mut Res| {
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(400);
+    v.push(m.clone());
+    let area = Rect::new(0, 0, 400, 40);
+    let mut c = Canvas::new(400, 40);
+    v.draw(&mut c, res, area, area);
+    c.px.iter().filter(|&&p| p != 0).count()
+  };
+  let with = lit(&mut res);
+  res.look.flame = false;
+  assert!(with > lit(&mut res) + 20, "the flame has pixels");
+  res.look.flame = true;
+  res.look.flame = false;
+  assert_eq!(before_name(&mut res, &m).0, 0, "both off");
+  res.look.flame = true;
+  res.senders.set_me(Some(42));
+  assert_eq!(before_name(&mut res, &m).0, 0, "never on your own line");
+  res.senders.set_me(None);
+  // a stranger (no set) wears none
+  let mut other = marked("43");
+  other.login = "amy".into();
+  other.nick = "amy".into();
+  assert_eq!(before_name(&mut res, &other).0, 0);
+}
+
+#[test]
+fn the_marks_come_flair_then_flame_then_bar_and_only_on_twitch() {
+  use crate::badges::Badge;
+  let mut res = Res::new(1.0);
+  let m = marked("42");
+  heated(&mut res, 0, true);
+  res.flairs.get(42);
+  let sub = Badge { url: "https://static-cdn.jtvnw.net/badges/v1/a/1".into(), title: "x sub".into(), bg: None };
+  res.flairs.put(42, Some(sub));
+  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  // the flair is a picture at the start of the text; the flame follows it
+  assert_eq!((l.boxes.len(), l.nick.start), (1, FLAME_W));
+  let at = |l: &Laid| l.boxes[0].img;
+  assert_eq!(at(&l), res.images.id("https://static-cdn.jtvnw.net/badges/v1/a/1", crate::ui::res::BADGE_PX));
+  res.heats.put("bob", 300);
+  assert_eq!(before_name(&mut res, &m), (BAR_W, 1), "flair, then the bar in place of the flame");
+  res.look.sub_flair = false;
+  assert_eq!(before_name(&mut res, &m), (BAR_W, 0), "flair off");
+  // kick and youtube lines never wear them, and never ask
+  res.heats.take_wanted();
+  res.flairs.take_wanted();
+  res.look.sub_flair = true;
+  for p in [Platform::Kick, Platform::Youtube] {
+    let mut k = marked("42");
+    k.platform = p;
+    k.login = "kickbob".into();
+    assert_eq!(before_name(&mut res, &k), (0, 0));
+  }
+  assert!(res.heats.take_wanted().is_empty() && res.flairs.take_wanted().is_empty());
+  // a system line has no marks either
+  let mut s = Message::system(1, Platform::Twitch, "raid");
+  s.user_id = "42".into();
+  s.login = "bob".into();
+  assert_eq!(before_name(&mut res, &s), (0, 0));
+}
+
+#[test]
+fn seeing_a_twitch_chatter_asks_once_for_their_heat_and_flair() {
+  let mut res = Res::new(1.0);
+  let m = marked("42");
+  before_name(&mut res, &m);
+  assert_eq!(res.heats.take_wanted(), ["bob".into()]);
+  assert_eq!(res.flairs.take_wanted(), [42]);
+  before_name(&mut res, &m);
+  assert!(res.heats.take_wanted().is_empty() && res.flairs.take_wanted().is_empty(), "not asked twice");
+  // switches off: nothing is asked
+  let mut res = Res::new(1.0);
+  res.look.heat_bars = false;
+  res.look.sub_flair = false;
+  before_name(&mut res, &m);
+  assert!(res.heats.take_wanted().is_empty() && res.flairs.take_wanted().is_empty());
+  // a line with no twitch id (heatsync's archive) still gets a bar by login, but no flair or flame
+  let mut res = Res::new(1.0);
+  let bare = marked("");
+  heated(&mut res, 120, false);
+  assert_eq!(before_name(&mut res, &bare).0, BAR_W);
+  assert!(res.flairs.take_wanted().is_empty());
+}
+
+#[test]
+fn a_heat_answer_lays_out_only_that_chatters_lines_again() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(10, "x".into());
+  v.resize(500);
+  for who in ["bob", "amy", "bob"] {
+    let mut m = said(who, "hi");
+    m.user_id = "42".into();
+    v.push(m);
+  }
+  let area = Rect::new(0, 0, 500, 200);
+  let mut c = Canvas::new(500, 200);
+  v.draw(&mut c, &mut res, area, area);
+  let bars = |v: &ChatView| v.rows.iter().map(|r| r.laid.as_ref().map_or(99, |l| l.nick.start)).collect::<Vec<_>>();
+  assert_eq!(bars(&v), [0, 0, 0]);
+  assert!(res.heats.put("bob", 300));
+  v.touch_chatter(Platform::Twitch, "bob");
+  assert_eq!(bars(&v), [99, 0, 99], "bob's two lines are stale, amy's is not");
+  v.draw(&mut c, &mut res, area, area);
+  assert_eq!(bars(&v), [BAR_W, 0, BAR_W]);
+}

@@ -426,6 +426,11 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
         .flatten();
       send(NetEvent::SendersStale { ids, ver, removed })
     }
+    // the server's heat push for chatters whose score moved (about every minute): kept for those on screen
+    "user:heat_batch_update" => {
+      let got = crate::heatsync::heat::parse_push(v);
+      (!got.is_empty()).then(|| send(NetEvent::Heat(got))).flatten()
+    }
     // a chatter's heatsync paint changed (ids only; the spec stays behind the entitlement gate): ask again
     "cosmetic:changed" => {
       let ids = cosmetic_ids(v);
@@ -595,6 +600,21 @@ mod tests {
     assert_eq!(got(&rx), Some(("bob".into(), None)));
     dispatch(&f("ban", "a b\n"), &mut st, &out);
     assert_eq!(got(&rx), None);
+  }
+
+  #[test]
+  fn the_heat_push_becomes_scores_by_login_and_a_bad_one_is_dropped() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let f = json!({"type": "user:heat_batch_update", "updates": [
+      {"username": "Bob", "userHeat": 120, "op": 1, "re": 2}, {"username": "bad name", "userHeat": 5}, {"userHeat": 9}, 7]});
+    dispatch(&f, &mut st, &out);
+    let Ok(NetEvent::Heat(got)) = rx.try_recv() else { panic!("no heat") };
+    assert_eq!(got, vec![("bob".into(), 120)]);
+    dispatch(&json!({"type": "user:heat_batch_update", "updates": "x"}), &mut st, &out);
+    dispatch(&json!({"type": "user:heat_batch_update"}), &mut st, &out);
+    assert!(rx.try_recv().is_err(), "nothing readable: nothing sent");
   }
 
   #[test]

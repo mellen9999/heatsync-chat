@@ -375,6 +375,8 @@ impl App {
     res.arts.set_motion(set.paint_motion);
     if flood {
       crate::fake::seed_paints(&mut res.cosmetics);
+      res.heats.mute();
+      res.flairs.mute();
     }
     res.media = set.media;
     res.apply_look(&set);

@@ -469,10 +469,28 @@ impl App {
         }
         self.trim_soon();
       }
+      NetEvent::Heat(got) => {
+        for (login, heat) in got {
+          if self.res.heats.put(&login, heat) {
+            for v in self.tabs.iter_mut().flat_map(Tab::views) {
+              v.touch_chatter(Platform::Twitch, &login);
+            }
+            self.wake();
+          }
+        }
+      }
+      NetEvent::Flair(got) => {
+        for (id, badge) in got {
+          if self.res.flairs.put(id, badge) {
+            self.touch_sender(id);
+          }
+        }
+        self.trim_soon();
+      }
       NetEvent::Avatar(p, login, url) => {
         if self.res.avatars.put(p, &login, url) {
           for v in self.tabs.iter_mut().flat_map(Tab::views) {
-            v.touch_avatar(p, &login);
+            v.touch_chatter(p, &login);
           }
           self.wake();
         }

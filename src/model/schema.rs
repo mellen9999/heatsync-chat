@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 66] = [
+pub static DEFS: [Def; 69] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -323,6 +323,42 @@ pub static DEFS: [Def; 66] = [
     ctl: pill!(chatterino_badges),
     fx: Fx::Look,
     wire: Wire::Bool("chatterinoBadges"),
+  },
+  Def {
+    id: "sub_flair",
+    cmd: Some("/subflair"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "sub flair",
+    tip: "the twitch sub badge a chatter picked on heatsync, before their name (twitch lines only). asks heatsync about the names on screen",
+    alias: "flair sub badge",
+    ctl: pill!(sub_flair),
+    fx: Fx::Look,
+    wire: Wire::None,
+  },
+  Def {
+    id: "flame",
+    cmd: Some("/flame"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "heatsync user flame",
+    tip: "a flame before the name of a chatter you have seen use heatsync emotes (twitch lines only, never on your own lines). it gives way to the heat bar when they have one",
+    alias: "fire marker hsflame",
+    ctl: pill!(flame),
+    fx: Fx::Look,
+    wire: Wire::None,
+  },
+  Def {
+    id: "heat_bars",
+    cmd: Some("/heatbars"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "heat bars",
+    tip: "a thin bar before the name of a chatter with heat on heatsync, 5 and up: white while cold, yellow warming, red from 1000, thicker as it climbs (twitch lines only). asks heatsync about the names on screen",
+    alias: "heat score border",
+    ctl: pill!(heat_bars),
+    fx: Fx::Look,
+    wire: Wire::None,
   },
   Def {
     id: "text_badges",
