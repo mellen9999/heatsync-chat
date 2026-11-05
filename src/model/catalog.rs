@@ -12,6 +12,8 @@ use crate::images::url::allowed;
 // a short page is the end of a provider (the ext's MC_PAGE_SIZE; 7tv's tab-complete page is 60)
 pub const PAGE_STV: usize = 60;
 pub const PAGE_FFZ: usize = 200;
+// the heatsync route answers with at most this many native uploads
+pub const PAGE_HS: usize = 100;
 // start asking this many picks before the end of the cycle
 pub const LOOKAHEAD: usize = 5;
 // the whole cycle, locals included
@@ -31,6 +33,8 @@ pub const MAX_QUERY: usize = 50;
 pub enum Source {
   SevenTv,
   Ffz,
+  // heatsync's own emote directory (the picker's `hs` chip)
+  Heatsync,
 }
 
 impl Source {
@@ -38,6 +42,7 @@ impl Source {
     match self {
       Source::SevenTv => "catalog · 7tv",
       Source::Ffz => "catalog · ffz",
+      Source::Heatsync => "catalog · hs",
     }
   }
 }
@@ -100,6 +105,15 @@ pub fn eligible(search: &str) -> bool {
   !(FFZ_MODS.contains(&low.as_str()) || tint || affixed)
 }
 
+// what the picker may search for: 2-50 of `[a-z0-9_\-:.]` (the heatsync route's own rule, so one word fits
+// all three providers), lowercased. None = nothing to ask
+pub fn picker_query(typed: &str) -> Option<String> {
+  let q = typed.trim().to_ascii_lowercase();
+  let ok = (MIN_NAME..=MAX_QUERY).contains(&q.len())
+    && q.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-' | b':' | b'.'));
+  ok.then_some(q)
+}
+
 fn items<'a>(v: &'a Value, path: &[&str], key: &str) -> &'a [Value] {
   let mut at = v;
   for p in path {
@@ -154,6 +168,23 @@ pub fn parse_ffz(v: &Value) -> Page {
     .collect();
   hits.sort_by_key(|a| std::cmp::Reverse(a.0));
   Page { hits: hits.into_iter().map(|h| h.1).collect(), more: rows.len() >= PAGE_FFZ }
+}
+
+// heatsync `GET /api/emote-search?p=hs` -> `results.hs[{name, url, id, animated, pop}]`, already ranked by the
+// server and one page only (the route has no paging). names must be legal emote names, urls on the image
+// allowlist; the server's own `merged` is ignored
+pub fn parse_hs(v: &Value) -> Page {
+  let rows = v.pointer("/results/hs").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+  let hits = rows
+    .iter()
+    .take(PAGE_HS)
+    .filter_map(|e| {
+      let name = e.get("name")?.as_str().filter(|n| n.chars().count() >= MIN_NAME && crate::heatsync::valid_name(n))?;
+      let url = e.get("url")?.as_str().filter(|u| allowed(u))?;
+      Some(Hit { name: name.into(), url: url.into(), source: Source::Heatsync, zero_width: false })
+    })
+    .collect();
+  Page { hits, more: false }
 }
 
 // what the next page asks for
@@ -454,6 +485,38 @@ mod tests {
     for junk in [json!(null), json!({}), json!({"emoticons": "x"}), json!([])] {
       assert_eq!(parse_ffz(&junk), Page::default());
     }
+  }
+
+  #[test]
+  fn picker_queries_follow_the_routes_rule() {
+    assert_eq!(picker_query(" KEKw ").as_deref(), Some("kekw"));
+    assert_eq!(picker_query("a_b-c:d.e").as_deref(), Some("a_b-c:d.e"));
+    for bad in ["", "k", "a b", "kek!", "@bob", "a\u{7}b", "é", &"a".repeat(51)] {
+      assert!(picker_query(bad).is_none(), "{bad:?}");
+    }
+  }
+
+  #[test]
+  fn heatsync_page_is_checked_and_ignores_merged() {
+    let v = json!({"results": {"hs": [
+      {"name": "hsKek", "url": "https://cdn.heatsync.org/e/abc.webp", "id": "abc", "animated": true, "pop": 3},
+      {"name": "evil", "url": "https://evil.example/x.png"},
+      {"name": "bad name", "url": "https://cdn.heatsync.org/e/d.webp"},
+      {"name": "/me", "url": "https://cdn.heatsync.org/e/d.webp"},
+      {"name": "x", "url": "https://cdn.heatsync.org/e/d.webp"},
+      {"name": "ctl\u{7}", "url": "https://cdn.heatsync.org/e/d.webp"},
+      {"name": "http", "url": "http://cdn.heatsync.org/e/d.webp"},
+      {"url": "https://cdn.heatsync.org/e/d.webp"}, 5, null
+    ]}, "merged": [{"name": "merged", "url": "https://cdn.heatsync.org/e/m.webp"}]});
+    let p = parse_hs(&v);
+    assert_eq!(p.hits.len(), 1);
+    assert_eq!((&*p.hits[0].name, p.hits[0].source, p.more), ("hsKek", Source::Heatsync, false));
+    for junk in [json!(null), json!({}), json!({"results": {"hs": 4}}), json!({"results": []})] {
+      assert_eq!(parse_hs(&junk), Page::default());
+    }
+    let many: Vec<_> =
+      (0..300).map(|i| json!({"name": format!("hs{i}"), "url": "https://cdn.heatsync.org/e/a.webp"})).collect();
+    assert_eq!(parse_hs(&json!({"results": {"hs": many}})).hits.len(), PAGE_HS);
   }
 
   fn pick(n: &str) -> Pick {

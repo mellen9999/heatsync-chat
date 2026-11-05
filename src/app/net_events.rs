@@ -335,6 +335,7 @@ impl App {
       NetEvent::Logs { epoch, res } => self.on_logs(epoch, res),
       NetEvent::Gifs { epoch, q, res } => self.on_gifs(epoch, q, res),
       NetEvent::Catalog { epoch, stv, ffz } => self.on_catalog(epoch, stv, ffz),
+      NetEvent::PickerSearch { epoch, pages } => self.on_picker_search(epoch, pages),
       NetEvent::FeedLive(p) => self.on_feed_live(p),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),

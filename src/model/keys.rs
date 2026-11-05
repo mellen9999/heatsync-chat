@@ -142,6 +142,7 @@ pub static KEYS: [Group; 13] = [
       k("enter", "pick (shift-enter keeps it open)"),
       k("/ i  tab", "search, switch search and grid"),
       k("] [  ctrl-tab", "emotes and gifs tab (gifs: type to search, enter inserts the link)"),
+      k("alt-1 alt-2 alt-3 alt-4", "search 7tv, ffz, heatsync, exact names only (the chips; kept on this machine)"),
       k("g G", "first, last"),
       k("ctrl-d ctrl-u", "page down, up"),
       k("esc q", "close"),

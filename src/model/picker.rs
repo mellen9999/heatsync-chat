@@ -1,12 +1,17 @@
 // emote picker state + grid geometry, no drawing. sections in order: recent, your heatsync
-// emotes, this channel, globals. filter is a case-insensitive substring over names already
-// loaded locally — never a catalog search, so nothing here can reach the render path.
+// emotes, this channel, globals, then the catalogs' hits for the word typed (`Sec::Remote`, fed by
+// `picker_search`). the filter is a case-insensitive substring over names already loaded locally. remote
+// tiles live and die with this struct: nothing here can reach the render path
 // a second tab holds gifs (model::gifs): the same grid, one section, filled by heatsync's search
 // instead of filtered, and picking inserts a link rather than an emote
 use std::cell::{Ref, RefCell};
 use std::ops::Range;
 
+use std::collections::HashSet;
+
+use super::catalog::{Hit, picker_query};
 use super::gifs::Gif;
+use super::picker_search::{Prefs, Search};
 use crate::store;
 
 pub const RECENT_CAP: usize = 40;
@@ -21,6 +26,8 @@ pub enum Sec {
   Global,
   // a gif search's results (a gif you sent lately sits under `Recent`)
   Gif,
+  // the 7tv / ffz / heatsync catalogs' hits for the word typed: not yours, a thumbnail until picked
+  Remote,
 }
 
 impl Sec {
@@ -31,6 +38,7 @@ impl Sec {
       Sec::Channel => "channel",
       Sec::Global => "global",
       Sec::Gif => "gifs",
+      Sec::Remote => "catalog",
     }
   }
 }
@@ -207,6 +215,12 @@ impl Layout {
 
 pub struct Picker {
   items: Vec<Item>,
+  // the first `n_local` items are local; the rest are `remote` tiles, one each, in the same order
+  n_local: usize,
+  remote: Vec<Hit>,
+  // the catalog leg: the word asked, the pages so far, and the chips
+  pub search: Search,
+  pub prefs: Prefs,
   // the gifs tab: the records, and a cell for each (same index) the grid lays out
   gifs: Vec<Gif>,
   gif_items: Vec<Item>,
@@ -250,8 +264,13 @@ impl Picker {
     items.extend(mine);
     items.extend(channel);
     items.extend(global);
+    let n_local = items.len();
     let mut p = Self {
       items,
+      n_local,
+      remote: Vec::new(),
+      search: Search::default(),
+      prefs: Prefs::default(),
       gifs: Vec::new(),
       gif_items: Vec::new(),
       tab: Tab::Emotes,
@@ -284,10 +303,12 @@ impl Picker {
     self.shown.clear();
     match self.tab {
       Tab::Emotes => {
-        let q = &self.query;
-        self
-          .shown
-          .extend(self.items.iter().enumerate().filter(|(_, i)| contains_ci(&i.name, q)).map(|(n, _)| n as u32));
+        let (q, exact) = (&self.query, self.prefs.exact && !self.query.is_empty());
+        let hit = |n: &str| if exact { n.eq_ignore_ascii_case(q) } else { contains_ci(n, q) };
+        // remote tiles answer one word: typing on hides them at once, until the next answer
+        let remote = picker_query(q).is_some_and(|w| *w == *self.search.q);
+        let keep = |(n, i): &(usize, &Item)| if n >= &self.n_local { remote } else { hit(&i.name) };
+        self.shown.extend(self.items.iter().enumerate().filter(keep).map(|(n, _)| n as u32));
       }
       // gifs are not filtered here: the text is the search, and what comes back replaces the list
       Tab::Gifs => self.shown.extend(0..self.gif_items.len() as u32),
@@ -303,6 +324,75 @@ impl Picker {
       Tab::Emotes => self.refilter(),
       Tab::Gifs => self.rev += 1,
     }
+  }
+
+  // the chips: flip one (the providers, then exact), keep it on this machine, and show the grid for it
+  pub fn flip(&mut self, chip: usize) {
+    self.prefs.flip(chip);
+    self.prefs.save();
+    if chip == 3 {
+      self.refilter();
+      self.rerank();
+    } else {
+      // the rows are for the providers that were on: ask afresh for the ones that are
+      self.search.reset(None);
+      self.install(Vec::new());
+    }
+    self.rev += 1;
+  }
+
+  // the word the catalogs are asked: a new one clears the old answers at once
+  pub fn want(&mut self, word: Option<&str>) {
+    self.search.reset(word);
+    self.install(Vec::new());
+  }
+
+  // rank what the catalogs gave against what is already local, and show it. false = nothing changed on screen
+  pub fn rerank(&mut self) {
+    let hits = {
+      let local = &self.items[..self.n_local];
+      let names: HashSet<&str> = local.iter().map(|i| &*i.name).collect();
+      let urls: HashSet<&str> = local.iter().map(|i| &*i.url).collect();
+      self.search.ranked(&self.prefs, &names, &urls)
+    };
+    self.install(hits);
+  }
+
+  // swap the remote tiles; the pick and scroll stay on what they were on (a page loading must not jump)
+  fn install(&mut self, hits: Vec<Hit>) {
+    let pick = self.selected().map(|i| (i.sec, i.name.clone(), i.url.clone()));
+    let scroll = self.scroll;
+    self.items.truncate(self.n_local);
+    self.items.extend(hits.iter().map(|h| Item {
+      sec: Sec::Remote,
+      name: h.name.clone(),
+      url: h.url.clone(),
+      w: 0,
+      h: 0,
+    }));
+    self.remote = hits;
+    if self.tab != Tab::Emotes {
+      self.rev += 1;
+      return;
+    }
+    self.refilter();
+    if let Some((sec, name, url)) = pick
+      && let Some(at) =
+        (0..self.shown.len()).find(|&n| self.item(n).is_some_and(|i| i.sec == sec && i.name == name && i.url == url))
+    {
+      self.sel = at;
+    }
+    self.scroll = scroll;
+  }
+
+  // the catalog hit behind a shown tile (None for anything local)
+  pub fn hit(&self, shown_idx: usize) -> Option<&Hit> {
+    let at = *self.shown.get(shown_idx)? as usize;
+    at.checked_sub(self.n_local).and_then(|n| self.remote.get(n)).filter(|_| self.tab == Tab::Emotes)
+  }
+
+  pub fn selected_hit(&self) -> Option<&Hit> {
+    self.hit(self.sel)
   }
 
   pub fn epoch(&self) -> u64 {
@@ -367,7 +457,6 @@ impl Picker {
     self.gifs.get(*self.shown.get(shown_idx)? as usize)
   }
 
-  #[cfg(test)]
   pub fn len(&self) -> usize {
     self.shown.len()
   }

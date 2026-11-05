@@ -39,6 +39,7 @@ pub mod origin;
 pub mod pace;
 pub mod pathcomp;
 pub mod picker;
+pub mod picker_search;
 pub mod pin;
 pub mod post;
 pub mod postcmd;

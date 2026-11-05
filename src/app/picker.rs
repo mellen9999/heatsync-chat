@@ -2,6 +2,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use crate::emotes::Provider;
 use crate::model::picker::{Focus, Item, Picker, Sec, Tab};
 use crate::ui::picker::{Geo, draw, geo_of};
 use crate::util::time::now_ms;
@@ -33,13 +34,19 @@ impl App {
     let global =
       self.res.emotes.global_entries().into_iter().map(|(n, e)| item(Sec::Global, n, &e.url, e.w, e.h)).collect();
     self.close_menu();
-    self.picker = Some(Picker::new(mine, channel, global, &self.recents));
+    let mut p = Picker::new(mine, channel, global, &self.recents);
+    p.prefs = crate::model::picker_search::Prefs::load();
+    p.search.ffz_first =
+      self.set.emote_provider.order().iter().find(|p| matches!(p, Provider::Ffz | Provider::SevenTv))
+        == Some(&Provider::Ffz);
+    self.picker = Some(p);
     self.picker_changed();
   }
 
   pub fn close_picker(&mut self) {
     self.hide_tip();
     self.picker = None;
+    self.pick_due = None;
     self.gifs_leave();
     self.ime.clear();
     if let Some(t) = self.tabs.get_mut(self.active) {
@@ -52,6 +59,7 @@ impl App {
 
   pub(super) fn picker_changed(&mut self) {
     self.gifs_sync();
+    self.picker_search_sync();
     self.input_dirty = true;
     self.wake();
   }
@@ -92,10 +100,17 @@ impl App {
     }
     let Some(it) = self.picker.as_ref().and_then(|p| p.selected()) else { return };
     let (name, url) = (it.name.clone(), it.url.clone());
+    // a catalog tile is a candidate in the box, remembered like a tab-completed one: sending the line is
+    // what adds it to your inventory. anything local is the emote you mean by that name
+    let remote = self.picker.as_ref().and_then(|p| p.selected_hit()).cloned();
     if self.res.blocked.contains(&name, &url) {
       self.say(format!("{name} is blocked (right-click it in chat to unblock)"));
       self.bar_dirty = true;
       return self.wake();
+    }
+    match &remote {
+      Some(h) => self.catalog_reg.track(h),
+      None => self.catalog_reg.forget(&name),
     }
     self.line.insert_chip(&name);
     self.used_emote(&name);
@@ -114,6 +129,7 @@ impl App {
     if let Some(p) = &mut self.picker {
       p.scroll_by(-px, g.m, g.grid.h);
     }
+    self.picker_search_scrolled();
     self.wake();
   }
 
@@ -139,6 +155,10 @@ impl App {
     if let Some((t, _)) = tab {
       return self.picker_tab(Some(t));
     }
+    let chip = self.picker.as_ref().and_then(|p| p.view.chips.iter().position(|r| r.w > 0 && r.contains(x, y)));
+    if let Some(i) = chip {
+      return self.picker_chip(i);
+    }
     let hit = self
       .picker
       .as_ref()
@@ -149,7 +169,7 @@ impl App {
       }
       return self.picker_pick(self.mods.shift_key());
     }
-    if g.search.contains(x, y) || g.grid.contains(x, y) {
+    if g.search.contains(x, y) || g.chips.contains(x, y) || g.grid.contains(x, y) {
       if let Some(p) = &mut self.picker {
         p.focus = Focus::Search;
       }
@@ -174,6 +194,9 @@ impl App {
       Key::Named(NamedKey::PageUp) => p.scroll_by(-half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::PageDown) => p.scroll_by(half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::Tab) if ctrl => return self.picker_tab(None),
+      Key::Character(c @ ("1" | "2" | "3" | "4")) if alt && !ctrl => {
+        return self.picker_chip(c.parse::<usize>().map_or(0, |n| n - 1));
+      }
       Key::Named(NamedKey::Tab) => p.focus = if focus == Focus::Search { Focus::Grid } else { Focus::Search },
       Key::Named(NamedKey::Escape) if focus == Focus::Search && !p.query.is_empty() => p.clear_query(),
       Key::Named(NamedKey::Escape) => return self.close_picker(),

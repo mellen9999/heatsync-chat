@@ -257,6 +257,11 @@ pub enum NetEvent {
     stv: Option<crate::model::catalog::Page>,
     ffz: Option<crate::model::catalog::Page>,
   },
+  // the emote picker's catalog search: one page from 7tv, ffz and heatsync (None = failed or not asked)
+  PickerSearch {
+    epoch: u32,
+    pages: [Option<crate::model::catalog::Page>; 3],
+  },
   // followed streamers' twitch colors (lowercase login, rgb)
   FollowColors(Vec<(Box<str>, u32)>),
   // your mute / block lists on heatsync, read after a login
@@ -475,6 +480,8 @@ pub enum Cmd {
   Inventory(inventory::Op),
   // search the 7tv / ffz catalogs for tab-complete: the word, the ask's number, which page, from whom
   Catalog { q: Box<str>, epoch: u32, page: u32, stv: bool, ffz: bool },
+  // the picker's: the same catalogs plus heatsync's directory ([7tv, ffz, hs] = which to ask)
+  PickerSearch { q: Box<str>, epoch: u32, page: u32, ask: [bool; 3] },
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
   // a pasted picture: its own bytes (png, jpeg, webp or gif), checked like any upload
@@ -1013,6 +1020,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Catalog { q, epoch, page, stv, ffz } => {
         tokio::spawn(catalog::run(http.clone(), q, epoch, page, (stv, ffz), out.clone()));
+      }
+      Cmd::PickerSearch { q, epoch, page, ask } => {
+        tokio::spawn(catalog::search(http.clone(), q, epoch, page, ask, out.clone()));
       }
       Cmd::Upload(p) => {
         let _ = sess_tx.send(session::Cmd::Upload(p));

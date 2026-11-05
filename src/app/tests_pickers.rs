@@ -365,3 +365,275 @@ fn headless_picker_gifs() {
   app.close_picker();
   assert!(app.gifs.due().is_none());
 }
+
+// ---- the picker's catalog search ----
+
+mod catalog_search {
+  use super::*;
+  use crate::emotes::{Emote, Provider};
+  use crate::model::catalog::{Hit, Page, Source};
+  use crate::model::picker::Sec;
+  use crate::model::picker_search::Prefs;
+  use crate::net::NetEvent;
+  use crate::net::emote_ops::EmoteCmd;
+  use winit::keyboard::ModifiersState;
+
+  fn sign_in(app: &mut App) {
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: Some(1),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+  }
+
+  fn hit(name: &str, id: &str, source: Source) -> Hit {
+    let url = match source {
+      Source::Heatsync => format!("https://cdn.heatsync.org/e/{id}.webp"),
+      _ => format!("https://cdn.7tv.app/emote/{id}/1x.webp"),
+    };
+    Hit { name: name.into(), url: url.into(), source, zero_width: false }
+  }
+
+  fn page(hits: Vec<Hit>, more: bool) -> Page {
+    Page { hits, more }
+  }
+
+  fn asks(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<Cmd> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter(|c| matches!(c, Cmd::PickerSearch { .. } | Cmd::Emote(_) | Cmd::HoldSends | Cmd::Send { .. }))
+      .collect()
+  }
+
+  fn type_word(app: &mut App, w: &str) {
+    for c in w.chars() {
+      let s = c.to_string();
+      app.picker_key(Key::Character(&s), Some(&s));
+    }
+  }
+
+  fn shown(app: &App) -> Vec<(Sec, String)> {
+    let p = app.picker.as_ref().unwrap();
+    (0..p.len()).map(|i| p.item(i).map(|it| (it.sec, it.name.to_string())).unwrap()).collect()
+  }
+
+  fn epoch_of(c: &[Cmd]) -> u32 {
+    match c {
+      [Cmd::PickerSearch { epoch, .. }] => *epoch,
+      other => panic!("one picker search, got {}", other.len()),
+    }
+  }
+
+  fn answer(app: &mut App, epoch: u32, pages: [Option<Page>; 3]) {
+    app.on_net(NetEvent::PickerSearch { epoch, pages });
+  }
+
+  // typing rests 200ms and asks once; local matches stay first; the answer is ranked under them; a stale
+  // answer is dropped; picking a catalog tile puts the name in the box and sending it adds it, once
+  #[test]
+  fn typing_searches_the_catalogs_and_a_pick_is_added_on_send() {
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    sign_in(&mut app);
+    let e = Emote { url: "https://cdn.7tv.app/emote/LOCAL/1x.webp".into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(None, Provider::SevenTv, [("zzkekLocal".into(), e)].into());
+    app.toggle_picker();
+    type_word(&mut app, "zzk");
+    assert!(app.pick_due.is_some(), "a rest is running");
+    assert!(asks(&mut rx).is_empty(), "nothing is asked before the rest is over");
+    app.picker_search_tick();
+    let sent = asks(&mut rx);
+    let epoch = epoch_of(&sent);
+    assert!(matches!(&sent[0], Cmd::PickerSearch { q, page: 1, ask: [true, true, true], .. } if &**q == "zzk"));
+    assert_eq!(app.picker.as_ref().unwrap().note, "searching…");
+    // a stale answer changes nothing
+    answer(&mut app, epoch.wrapping_add(5), [Some(page(vec![hit("zzkOld", "o", Source::SevenTv)], false)), None, None]);
+    assert_eq!(shown(&app), [(Sec::Global, "zzkekLocal".into())]);
+    let stv = page(
+      vec![
+        hit("zzkekLocal", "OTHER", Source::SevenTv),
+        hit("zzkWide", "w", Source::SevenTv),
+        hit("zzk", "x", Source::SevenTv),
+      ],
+      false,
+    );
+    let hs = page(vec![hit("zzkHs", "h", Source::Heatsync)], false);
+    answer(&mut app, epoch, [Some(stv), Some(page(vec![], false)), Some(hs)]);
+    assert_eq!(
+      shown(&app),
+      [
+        (Sec::Global, "zzkekLocal".into()),
+        (Sec::Remote, "zzk".into()),
+        (Sec::Remote, "zzkWide".into()),
+        (Sec::Remote, "zzkHs".into())
+      ],
+      "local first; a remote tile under a name you already have is not offered"
+    );
+    assert!(app.picker.as_ref().unwrap().note.is_empty());
+    // everything fit and no provider has more: nothing else is asked
+    assert!(asks(&mut rx).is_empty());
+    // typing on hides the remote tiles at once
+    type_word(&mut app, "e");
+    assert!(shown(&app).iter().all(|t| t.0 == Sec::Global));
+    // back to the word: it is asked again, and pick zzkWide
+    app.picker_key(Key::Named(NamedKey::Backspace), None);
+    app.picker_search_tick();
+    let epoch = epoch_of(&asks(&mut rx));
+    answer(&mut app, epoch, [Some(page(vec![hit("zzkWide", "w", Source::SevenTv)], false)), None, None]);
+    let at = shown(&app).iter().position(|t| t.1 == "zzkWide").expect("the tile is back");
+    app.picker.as_mut().unwrap().sel = at;
+    app.picker_key(Key::Named(NamedKey::Enter), None);
+    assert!(app.picker.is_none());
+    assert!(app.line.text.starts_with("zzkWide"));
+    assert!(app.line.chips.contains("zzkWide"));
+    assert_eq!(app.box_url("zzkWide").as_deref(), Some("https://cdn.7tv.app/emote/w/1x.webp"));
+    app.line.insert("hello zzkWide zzkWide");
+    app.send();
+    let sent = asks(&mut rx);
+    let adds: Vec<_> = sent
+      .iter()
+      .filter_map(|c| if let Cmd::Emote(EmoteCmd::Add { name, url, .. }) = c { Some((&**name, &**url)) } else { None })
+      .collect();
+    assert_eq!(adds, [("zzkWide", "https://cdn.7tv.app/emote/w/1x.webp")]);
+  }
+
+  // PRIVACY INVARIANT: a word that is only in a catalog search result (and even one you picked, before it
+  // is sent) never becomes an emote in a chat line: the sender's own inventory is the only source
+  #[test]
+  fn a_catalog_only_word_never_renders_as_an_emote_in_chat() {
+    use crate::emotes::resolve::find_word;
+    use crate::model::message::{Kind, Message, Platform};
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    sign_in(&mut app);
+    app.toggle_picker();
+    type_word(&mut app, "zzonly");
+    app.picker_search_tick();
+    let epoch = epoch_of(&asks(&mut rx));
+    let stv = page(vec![hit("zzonlyKek", "RK", Source::SevenTv)], false);
+    let hs = page(vec![hit("zzonlyHs", "RH", Source::Heatsync)], false);
+    answer(&mut app, epoch, [Some(stv), None, Some(hs)]);
+    assert_eq!(shown(&app).iter().filter(|t| t.0 == Sec::Remote).count(), 2, "the search found them");
+    let line = |who: &str, body: &str| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "x");
+      m.kind = Kind::Chat;
+      m.nick = "bob".into();
+      m.user_id = who.into();
+      m.body = body.into();
+      m
+    };
+    let resolves = |app: &mut App, who: &str, word: &str| {
+      let m = line(who, word);
+      find_word(&mut app.res.sources(), "forsen", &m, 0, word.len(), word).is_some()
+    };
+    // in the picker: other people's lines and your own
+    for who in ["7", "1"] {
+      assert!(!resolves(&mut app, who, "zzonlyKek") && !resolves(&mut app, who, "zzonlyHs"), "sender {who}");
+    }
+    // picked (so it is in the box and remembered for auto-add) but not sent: still plain text in chat
+    let at = shown(&app).iter().position(|t| t.1 == "zzonlyKek").unwrap();
+    app.picker.as_mut().unwrap().sel = at;
+    app.picker_key(Key::Named(NamedKey::Enter), None);
+    assert!(app.catalog_reg.get("zzonlyKek").is_some());
+    for who in ["7", "1"] {
+      assert!(!resolves(&mut app, who, "zzonlyKek"), "sender {who}, picked");
+    }
+    // and with the picker closed, its results are gone
+    assert!(app.picker.is_none() && app.pick_due.is_none());
+    // control: the sender's OWN inventory does make it one
+    let row = serde_json::json!({"custom_name": "zzonlyKek", "url": "https://cdn.7tv.app/emote/RK/1x.webp",
+      "width": 32, "height": 32, "added_at": "2026-10-30T22:26:51.099Z"});
+    app.res.senders.lookup(7, "zzonlyKek", 0);
+    app.res.senders.put(7, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    let mut m = line("7", "zzonlyKek");
+    m.ts = now_ms();
+    assert!(find_word(&mut app.res.sources(), "forsen", &m, 0, 9, "zzonlyKek").is_some());
+    assert!(!resolves(&mut app, "8", "zzonlyKek"), "someone else's line");
+  }
+
+  // a grid that is not full asks for the next page until it is or the catalogs run out; only providers that
+  // have more are asked; words the routes would refuse are never sent
+  #[test]
+  fn more_pages_follow_a_short_grid_and_bad_words_are_not_sent() {
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.resized(420, 300);
+    app.toggle_picker();
+    type_word(&mut app, "k");
+    assert!(app.pick_due.is_none(), "one letter is nothing to search");
+    app.picker_key(Key::Named(NamedKey::Space), Some(" "));
+    type_word(&mut app, "k");
+    assert!(app.pick_due.is_none(), "a space in the word: not sent");
+    app.picker.as_mut().unwrap().clear_query();
+    type_word(&mut app, "zzm");
+    app.picker_search_tick();
+    let epoch = epoch_of(&asks(&mut rx));
+    let stv = page(vec![hit("zzmA", "a", Source::SevenTv)], true);
+    let ffz = page(vec![hit("zzmB", "b", Source::Ffz)], false);
+    answer(&mut app, epoch, [Some(stv), Some(ffz), Some(page(vec![], false))]);
+    let sent = asks(&mut rx);
+    assert!(
+      matches!(sent.as_slice(), [Cmd::PickerSearch { page: 2, ask: [true, false, false], .. }]),
+      "page 2 from the one that has more"
+    );
+    let epoch = epoch_of(&sent);
+    answer(&mut app, epoch, [Some(page(vec![hit("zzmC", "c", Source::SevenTv)], false)), None, None]);
+    assert_eq!(shown(&app).len(), 3);
+    assert!(asks(&mut rx).is_empty(), "done");
+    // all of them down: said plainly
+    app.picker.as_mut().unwrap().clear_query();
+    type_word(&mut app, "zzq");
+    app.picker_search_tick();
+    let epoch = epoch_of(&asks(&mut rx));
+    answer(&mut app, epoch, [None, None, None]);
+    assert_eq!(app.picker.as_ref().unwrap().note, "can't reach the catalogs");
+  }
+
+  // the chips: 7tv ffz hs exact. flipping one is kept on this machine, asks only the providers left on, and
+  // exact narrows what is shown (local too) without a new request
+  #[test]
+  fn chips_choose_providers_are_kept_and_exact_narrows() {
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let e = Emote { url: "https://cdn.7tv.app/emote/LOCAL/1x.webp".into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(None, Provider::SevenTv, [("zzcLocal".into(), e)].into());
+    app.toggle_picker();
+    // alt-2 = ffz off
+    app.mods = ModifiersState::ALT;
+    app.picker_key(Key::Character("2"), Some("2"));
+    app.mods = ModifiersState::empty();
+    assert_eq!(Prefs::load().on, [true, false, true]);
+    type_word(&mut app, "zzc");
+    app.picker_search_tick();
+    let sent = asks(&mut rx);
+    let epoch = epoch_of(&sent);
+    assert!(matches!(&sent[0], Cmd::PickerSearch { ask: [true, false, true], .. }));
+    let stv = page(vec![hit("zzc", "a", Source::SevenTv), hit("zzcWide", "b", Source::SevenTv)], false);
+    answer(&mut app, epoch, [Some(stv), None, Some(page(vec![], false))]);
+    assert_eq!(shown(&app).len(), 3);
+    // exact: only the name typed in full, nothing asked again
+    app.picker_chip(3);
+    assert!(Prefs::load().exact);
+    assert_eq!(shown(&app), [(Sec::Remote, "zzc".into())]);
+    assert!(asks(&mut rx).is_empty());
+    app.picker_chip(3);
+    assert_eq!(shown(&app).len(), 3);
+    // a provider flipped back on asks afresh after the rest
+    app.picker_chip(1);
+    assert!(app.pick_due.is_some());
+    app.picker_search_tick();
+    assert!(matches!(&asks(&mut rx)[..], [Cmd::PickerSearch { page: 1, ask: [true, true, true], .. }]));
+    // all off: the word is never sent
+    for i in 0..3 {
+      app.picker_chip(i);
+    }
+    assert!(app.pick_due.is_none() && asks(&mut rx).is_empty());
+    assert_eq!(Prefs::load().on, [false; 3]);
+  }
+}

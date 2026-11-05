@@ -22,17 +22,20 @@ const GIF_W: u16 = 112;
 
 pub struct Geo {
   pub search: Rect,
+  // the provider chips under the filter row (emotes tab only; zero height elsewhere)
+  pub chips: Rect,
   pub grid: Rect,
   pub foot: Rect,
   pub m: Metrics,
 }
 
-pub fn geo(area: Rect, line: i32, ih: i32, min_w: i32, max_w: i32) -> Geo {
+pub fn geo(area: Rect, line: i32, ih: i32, min_w: i32, max_w: i32, chips: bool) -> Geo {
   let search = Rect::new(area.x, area.y, area.w, line);
   let foot = Rect::new(area.x, area.bottom() - line, area.w, line);
-  let grid = Rect::new(area.x, search.bottom() + 1, area.w, (area.h - 2 * line - 1).max(0));
+  let chips = Rect::new(area.x, search.bottom() + 1, area.w, if chips { line } else { 0 });
+  let grid = Rect::new(area.x, chips.bottom(), area.w, (area.h - 2 * line - 1 - chips.h).max(0));
   let m = Metrics { w: grid.w, head: line, ih, min_w, max_w, gap: GAP };
-  Geo { search, grid, foot, m }
+  Geo { search, chips, grid, foot, m }
 }
 
 pub fn geo_of(area: Rect, res: &Res, tab: Tab) -> Geo {
@@ -40,11 +43,11 @@ pub fn geo_of(area: Rect, res: &Res, tab: Tab) -> Geo {
   match tab {
     Tab::Emotes => {
       let ih = res.images.px(EMOTE_PX) as i32;
-      geo(area, line, ih, ih, res.images.px(MAX_W) as i32)
+      geo(area, line, ih, ih, res.images.px(MAX_W) as i32, true)
     }
     Tab::Gifs => {
       let w = res.images.px(GIF_W) as i32;
-      geo(area, line, res.images.px(GIF_PX) as i32, w, w)
+      geo(area, line, res.images.px(GIF_PX) as i32, w, w, false)
     }
   }
 }
@@ -70,6 +73,8 @@ pub struct View {
   due: Option<Instant>,
   // where the tab names were painted, for clicks
   pub tabs: [Rect; 2],
+  // the chips: 7tv, ffz, hs, exact (zero width = not drawn)
+  pub chips: [Rect; 4],
 }
 
 impl View {
@@ -94,6 +99,29 @@ fn tab_rects(text: &mut super::text::Text, row: Rect) -> [Rect; 2] {
     let w = text.layout(t.label(), &[], &[], 100_000.0).full_width().ceil() as i32 + 2 * TAB_PAD;
     x -= w;
     out[n] = Rect::new(x, row.y, w, row.h);
+  }
+  out
+}
+
+const CHIPS: [&str; 4] = ["7tv", "ffz", "hs", "exact"];
+
+// the chips, left to right under the filter row: on = white with black text, off = dim on black
+fn draw_chips(c: &mut Canvas, text: &mut super::text::Text, p: &Picker, row: Rect) -> [Rect; 4] {
+  let mut out = [Rect::new(0, 0, 0, 0); 4];
+  if row.h == 0 {
+    return out;
+  }
+  let mut x = row.x + theme::PAD_X as i32;
+  for (i, name) in CHIPS.into_iter().enumerate() {
+    let w = text.layout(name, &[], &[], 100_000.0).full_width().ceil() as i32 + 2 * TAB_PAD;
+    let r = Rect::new(x, row.y, w, row.h);
+    let on = p.prefs.is_on(i);
+    c.fill(r, if on { theme::WHITE } else { theme::BLACK });
+    let ink = Ink(if on { theme::BLACK } else { theme::DIM });
+    let l = text.layout(name, &[Span { range: 0..name.len(), ink, bold: on }], &[], 100_000.0);
+    text.draw(&l, c, (r.x + TAB_PAD) as f32, r.y as f32, r, |_, _| {});
+    out[i] = r;
+    x += w + GAP;
   }
   out
 }
@@ -181,6 +209,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     text.draw(&tl, c, (r.x + TAB_PAD) as f32, r.y as f32, r, |_, _| {});
   }
   c.fill(Rect::new(g.search.x, g.search.bottom(), g.search.w, 1), theme::DIM);
+  let chips = draw_chips(c, text, p, g.chips);
 
   // grid: only rows intersecting the view are walked
   let row_h = g.m.row_h();
@@ -255,6 +284,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     let msg = match (gifs, p.note.is_empty()) {
       (true, false) => &*p.note,
       (true, true) => "type to search gifs",
+      (false, false) => &*p.note,
       _ => "no emotes match",
     };
     let span = Span { range: 0..msg.len(), ink: Ink(theme::DIM), bold: false };
@@ -264,6 +294,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
 
   // hint row: what's selected, then the keys that work now
   let keys = match p.focus {
+    Focus::Search if !gifs => "enter insert · tab hjkl · ctrl-tab tabs · alt-1-4 sources · esc close",
     Focus::Search => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
     Focus::Grid => "hjkl move · / filter · [ ] tabs · enter insert · esc close",
   };
@@ -282,6 +313,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     visible,
     due: next.map(|ms| now + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64)),
     tabs,
+    chips,
   };
   Some(area)
 }
@@ -323,6 +355,25 @@ mod tests {
     p.type_str("zzzz");
     draw(&mut c, &mut res, area, &mut p, "");
     assert!(res.images.take_wanted().is_empty());
+  }
+
+  // the chips sit under the filter row: on = a white tile, off = black; the grid starts below them, and the
+  // gifs tab has none
+  #[test]
+  fn chips_show_which_providers_are_on() {
+    let mut res = Res::new(1.0);
+    let mut p = Picker::new(Vec::new(), Vec::new(), vec![item(0, 28)], &Recents::default());
+    p.flip(1);
+    p.flip(3);
+    let mut c = Canvas::new(400, 300);
+    let area = Rect::new(0, 0, 400, 300);
+    draw(&mut c, &mut res, area, &mut p, "");
+    let g = geo_of(area, &res, Tab::Emotes);
+    let [stv, ffz, hs, exact] = p.view.chips;
+    assert!(stv.w > 0 && stv.y == g.chips.y && stv.bottom() <= g.grid.y && ffz.x >= stv.right());
+    let at = |r: Rect| c.px[(r.y * c.w + r.x) as usize];
+    assert_eq!((at(stv), at(ffz), at(hs), at(exact)), (theme::WHITE, theme::BLACK, theme::WHITE, theme::WHITE));
+    assert_eq!(geo_of(area, &res, Tab::Gifs).chips.h, 0);
   }
 
   #[test]

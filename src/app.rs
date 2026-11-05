@@ -51,6 +51,7 @@ mod notifs;
 mod overlay;
 mod peek;
 mod picker;
+mod picker_search;
 mod pin;
 mod pointer;
 mod pop;
@@ -297,6 +298,8 @@ pub struct App {
   dpi: f32,
   zoom_acc: f32,
   picker: Option<Picker>,
+  // when the picker's typed word has rested long enough to be searched in the catalogs
+  pick_due: Option<std::time::Instant>,
   gifs: gifs::State,
   recents: Recents,
   // how often each emote gets picked: tab ranks by it
@@ -479,6 +482,7 @@ impl App {
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
+      pick_due: None,
       gifs: Default::default(),
       recents: Recents::load(),
       frecency: Frecency::load(Recents::load().names(), now_ms()),
@@ -767,6 +771,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.gifs.due().is_some_and(|t| t <= now) {
       self.gifs_tick(now);
     }
+    if self.pick_due.is_some_and(|t| t <= now) {
+      self.picker_search_tick();
+    }
     if self.upd.due.is_some_and(|t| t <= now) {
       self.update_check();
     }
@@ -805,6 +812,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.peek_due,
       self.tag_due(),
       self.gifs.due(),
+      self.pick_due,
       self.upd.due,
       self.heat_due,
       self.pace_due,
