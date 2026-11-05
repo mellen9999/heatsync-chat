@@ -48,6 +48,9 @@ pub struct Ev {
   // how the streamer writes their name, and their color, when the frame says (else the channel key)
   pub name: Box<str>,
   pub color: Option<u32>,
+  // a followed channel's go-live (`follow:stream:online`): heatsync sends one per go-live and its
+  // catch-up of the ones you just missed on connect, so the connect window doesn't hold it (ext `fresh`)
+  pub fresh: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,8 +162,16 @@ impl Gate {
   // a channel's news that is not about the stream itself (`stream:raid`, `stream:sub-gift`, ext main.js
   // stream-event text): same dedupe, nothing held
   pub fn news(&mut self, now: i64, platform: Platform, channel: Box<str>, tone: Tone, what: &str) -> Option<Line> {
-    let e =
-      Ev { kind: Kind::Update, platform, channel, game: "".into(), prev_game: "".into(), name: "".into(), color: None };
+    let e = Ev {
+      kind: Kind::Update,
+      platform,
+      channel,
+      game: "".into(),
+      prev_game: "".into(),
+      name: "".into(),
+      color: None,
+      fresh: false,
+    };
     self.line(now, &e, tone, what)
   }
 
@@ -182,6 +193,7 @@ impl Gate {
       prev_game: "".into(),
       name: who.clone(),
       color: None,
+      fresh: false,
     };
     let mut l = self.line(now, &e, Tone::Redeem, &format!("{what} · {who}"))?;
     l.verb = format!("◆ {what}").into();
@@ -227,7 +239,7 @@ impl Gate {
           self.went_live.clear();
         }
         self.went_live.insert(k);
-        if now - start < GRACE_MS {
+        if !e.fresh && now - start < GRACE_MS {
           return None;
         }
         let what = body(Kind::Online, &e.game, "")?;
@@ -367,6 +379,7 @@ mod tests {
       prev_game: prev.into(),
       name,
       color,
+      fresh: false,
     }
   }
   const T0: i64 = 1_000_000;
@@ -454,5 +467,18 @@ mod tests {
     assert!(!m.allow(MOMENT_GAP_MS - 1, Platform::Twitch, "cyr"));
     assert!(m.allow(0, Platform::Kick, "cyr"));
     assert!(m.allow(MOMENT_GAP_MS, Platform::Twitch, "cyr"));
+  }
+
+  #[test]
+  fn a_followed_go_live_is_not_held_by_the_connect_window_but_still_says_it_once() {
+    let mut g = Gate::default();
+    g.start(T0);
+    // a tabbed room's go-live inside the window: the snapshot, dropped
+    assert!(g.event(T0 + 1, ev(Kind::Online, "chess", "")).is_none());
+    let mut f = ev(Kind::Online, "art", "");
+    f.channel = "other".into();
+    f.fresh = true;
+    assert!(g.event(T0 + 2, f.clone()).is_some(), "followed: heatsync vetted it, it shows");
+    assert!(g.event(LATE, f).is_none(), "once a session");
   }
 }

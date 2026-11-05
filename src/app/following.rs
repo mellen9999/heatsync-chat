@@ -2,8 +2,11 @@
 // /following or /live. a row is the person, their game, viewers and how long they have been live; enter
 // opens them as a chat tab (or goes to the one you have), w plays the stream, r asks again, / filters.
 // the list is kept by the socket (catch-up on sign-in, then every go-live, game switch and sign-off) and
-// asked in full when the screen opens and every two minutes while it is up, like the ext's poll; the
-// uptime moves once a minute, only while the screen shows. nothing runs while it is closed
+// asked in full every two minutes while signed in, like the ext's poll, and when the screen opens; the
+// uptime moves once a minute, only while the screen shows. the poll is also how a kick or youtube go-live
+// is ever seen (heatsync pushes twitch's): a channel that wasn't live at the last ask and is now gets its
+// went-live line (ext announceWentLive). the first answer after sign-in is only the baseline
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use winit::keyboard::Key;
@@ -13,6 +16,7 @@ use super::screen::{Page, Target};
 use crate::model::chan::Spec;
 use crate::model::following::{self, Change, Follows, Live};
 use crate::model::message::Platform;
+use crate::model::stream_events::Line;
 use crate::model::video;
 use crate::net::Cmd;
 use crate::net::following::Fail;
@@ -24,6 +28,8 @@ const REFRESH: Duration = Duration::from_secs(120);
 const MINUTE: Duration = Duration::from_secs(60);
 // an ask that never came back is forgotten after this
 const LOST: Duration = Duration::from_secs(20);
+// the first background ask after sign-in: the baseline, soon, so a go-live after it is caught
+const FIRST: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub(super) struct Following {
@@ -35,6 +41,10 @@ pub(super) struct Following {
   fetched: Option<Instant>,
   // when the open screen next reads the clock
   tick: Option<Instant>,
+  // when the background poll next asks (None = signed out)
+  bg: Option<Instant>,
+  // every (platform, channel) live at the last answer; None = no answer yet, the next is the baseline
+  seen: Option<HashSet<(Platform, Box<str>)>>,
 }
 
 // why the screen has no rows to show, in plain words
@@ -112,15 +122,26 @@ impl App {
 
   // when the open screen next wants a look (None = it isn't showing)
   pub(super) fn following_due(&self) -> Option<Instant> {
-    self.following.tick.filter(|_| self.screen_is(Page::Following) && !self.occluded)
+    let screen = self.following.tick.filter(|_| self.screen_is(Page::Following) && !self.occluded);
+    let bg = self.following.bg.filter(|_| self.me.is_some());
+    screen.into_iter().chain(bg).min()
   }
 
   pub(super) fn following_tick(&mut self, now: Instant) {
-    self.following.tick = Some(now + MINUTE);
-    if self.following.fetched.is_none_or(|t| now.duration_since(t) >= REFRESH) {
-      self.following_ask();
+    let stale = self.following.fetched.is_none_or(|t| now.duration_since(t) >= REFRESH);
+    if self.following.bg.is_some_and(|t| t <= now) {
+      self.following.bg = Some(now + REFRESH);
+      if stale {
+        self.following_ask();
+      }
     }
-    self.wake();
+    if self.following.tick.is_some_and(|t| t <= now) && self.screen_is(Page::Following) {
+      self.following.tick = Some(now + MINUTE);
+      if stale {
+        self.following_ask();
+      }
+      self.wake();
+    }
   }
 
   // a different login starts with nobody
@@ -128,10 +149,37 @@ impl App {
     self.following = Default::default();
   }
 
+  // signed in: the background poll starts (its first answer is the baseline)
+  pub(super) fn following_arm(&mut self) {
+    if self.following.bg.is_none() {
+      self.following.bg = Some(Instant::now() + FIRST);
+    }
+  }
+
+  // the channels live now that weren't at the last answer, as went-live lines. a channel you have a tab
+  // for is left to its room's own frames (ext: the follow path skips config.channels)
+  fn went_live(&mut self, rows: &[Live]) -> Vec<Line> {
+    let now: HashSet<(Platform, Box<str>)> = rows.iter().flat_map(|l| l.legs.iter().cloned()).collect();
+    let Some(prev) = self.following.seen.replace(now) else { return Vec::new() };
+    rows
+      .iter()
+      .flat_map(|l| l.legs.iter().map(move |leg| (l, leg)))
+      .filter(|(_, leg)| !prev.contains(*leg))
+      .filter(|(_, (p, k))| self.tabs_with(*p, k).is_empty())
+      .map(|(l, (p, k))| {
+        let name = if l.name.eq_ignore_ascii_case(k) { &*l.name } else { &**k };
+        Line::went_live(*p, k, name, &l.game)
+      })
+      .collect()
+  }
+
   pub(super) fn on_following(&mut self, res: Result<Vec<Live>, Fail>) {
     self.following.asked = None;
     match res {
       Ok(rows) => {
+        for l in self.went_live(&rows) {
+          self.on_stream(l);
+        }
         self.following.list.replace(rows);
         (self.following.loaded, self.following.failed) = (true, None);
         self.following.fetched = Some(Instant::now());
@@ -392,5 +440,54 @@ mod tests {
     let white = crate::ui::theme::WHITE;
     assert!(app.canvas.inked(white) > 400, "the picked row is a white bar");
     assert_eq!(app.following.tip(Some(0)), "hello");
+  }
+
+  // who the forsen tab's stream lines are about (a stream line is a row with no id)
+  fn told(app: &App) -> Vec<String> {
+    let t = app.tabs.iter().find(|t| &*t.name == "forsen").expect("the forsen tab");
+    t.view.msgs().filter(|m| m.id.is_empty()).map(|m| m.login.to_string()).collect()
+  }
+
+  #[test]
+  fn the_background_poll_announces_who_came_live_since_the_last_answer() {
+    let (mut app, mut asked) = app();
+    // signed in: the poll runs with the screen closed, first soon, then every two minutes
+    app.following_arm();
+    let due = app.following_due().expect("armed");
+    assert!(due <= Instant::now() + FIRST);
+    app.following_tick(due);
+    assert_eq!(asks(&mut asked), 1);
+    assert!(app.following_due().is_some_and(|t| t >= due + REFRESH - Duration::from_secs(1)));
+    // the first answer is the baseline: nobody already live is announced
+    app.on_net(NetEvent::Following(Ok(streams())));
+    assert!(told(&app).is_empty(), "{:?}", told(&app));
+    // a kick channel comes live (no push for kick: the poll is the only word), and forsen, who has a tab
+    let more = following::parse(Some(&json!([
+      {"platform": "kick", "username": "newk", "displayName": "NewK", "category": "Slots", "viewerCount": 5},
+      {"platform": "twitch", "username": "forsen", "category": "Chess", "viewerCount": 9000},
+    ])));
+    let mut rows = streams();
+    rows.extend(more.clone());
+    app.on_net(NetEvent::Following(Ok(rows.clone())));
+    let t = told(&app);
+    assert_eq!(t.len(), 1, "newk only; forsen's own room says his: {t:?}");
+    assert_eq!(t[0], "newk");
+    // still live at the next answer: nothing more
+    app.on_net(NetEvent::Following(Ok(rows.clone())));
+    assert_eq!(told(&app).len(), 1);
+    // the socket says it too (twitch push after the poll for a twitch leg): one line per go-live
+    app.on_net(NetEvent::Following(Ok(streams())));
+    let mut back = streams();
+    back.extend(more);
+    app.on_net(NetEvent::Following(Ok(back)));
+    assert_eq!(told(&app).len(), 1, "newk dropped and came back without signing off: still one");
+    app.on_stream(Line::went_live(Platform::Kick, "newk", "NewK", ""));
+    assert_eq!(told(&app).len(), 1, "the push after the poll: no double");
+    // after a sign-off the next go-live is news again
+    let mut off = Line::went_live(Platform::Kick, "newk", "NewK", "");
+    off.tone = crate::model::stream_events::Tone::Offline;
+    app.on_stream(off);
+    app.on_stream(Line::went_live(Platform::Kick, "newk", "NewK", ""));
+    assert_eq!(told(&app).len(), 2);
   }
 }

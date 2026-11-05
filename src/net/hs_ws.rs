@@ -455,7 +455,8 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let ty = ty.strip_prefix("follow:").unwrap_or(ty);
       let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
       let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
-      if !ident::relay_key(&channel) || !(followed || st.rooms.contains(&(plat(platform), channel.clone()))) {
+      let tabbed = st.rooms.contains(&(plat(platform), channel.clone()));
+      if !ident::relay_key(&channel) || !(followed || tabbed) {
         return None;
       }
       let text = |k: &str| stream_events::clean(v.get(k).and_then(Value::as_str).unwrap_or(""));
@@ -475,8 +476,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       {
         return Some(end);
       }
+      // a followed channel you have a tab for speaks through its room's own frames (ext: the follow path
+      // skips config.channels), so its go-live is one line, not two
+      if followed && tabbed {
+        return None;
+      }
       let color = v.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
-      let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color };
+      let ev =
+        Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color, fresh: followed };
       st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
     }
     // the room's own news: a raid out, a gift bomb (in the room's tab only)
@@ -630,6 +637,19 @@ mod tests {
     let room = json!({"type": "stream:online", "platform": "twitch", "channel": "ennortix", "game": "Chess"});
     dispatch(&room, &mut st, &out);
     assert!(rx.try_recv().is_err());
+    // a followed go-live inside the connect window (heatsync's catch-up of ones you just missed) still
+    // shows; one for a channel you have a tab for is left to its room: the list hears it, the chat doesn't
+    let mut st = State::default();
+    st.gate.start(crate::util::time::now_ms());
+    dispatch(&v, &mut st, &out);
+    let got: Vec<_> = rx.try_iter().collect();
+    assert!(got.iter().any(|e| matches!(e, NetEvent::Stream(_))), "the catch-up is not held");
+    apply(&mut st, Cmd::Join(Platform::Twitch, "other".into()));
+    let tabbed = json!({"type": "follow:stream:online", "platform": "twitch", "channel": "other", "game": "Chess"});
+    dispatch(&tabbed, &mut st, &out);
+    let got: Vec<_> = rx.try_iter().collect();
+    assert!(got.iter().any(|e| matches!(e, NetEvent::FollowChange(_))));
+    assert!(!got.iter().any(|e| matches!(e, NetEvent::Stream(_))), "its room speaks for it");
   }
 
   // the plain `stream:*` of a room is no follow: the list ignores it. the snapshot is bounded and checked

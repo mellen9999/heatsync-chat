@@ -458,6 +458,7 @@ impl App {
         self.held.reset();
         self.held_sweep();
         if self.me.is_some() {
+          self.following_arm();
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
           self.net.send(Cmd::Emote(crate::net::emote_ops::EmoteCmd::Subs));
           self.ui_state_fetch();

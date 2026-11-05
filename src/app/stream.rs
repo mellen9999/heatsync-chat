@@ -119,6 +119,19 @@ impl App {
     if matches!(l.tone, Tone::Online | Tone::Offline) {
       self.stats_stream(l.platform, &l.channel, l.tone == Tone::Online);
       self.live_mark(l.platform, &l.channel, l.tone == Tone::Online);
+      // one went-live per channel until it signs off, whichever of the socket and the poll says it first
+      // (ext sessionWentLiveSeen)
+      let k = (l.platform, l.channel.clone());
+      if l.tone == Tone::Offline {
+        self.told.remove(&k);
+      } else {
+        if self.told.len() >= 2000 {
+          self.told.clear();
+        }
+        if !self.told.insert(k) {
+          return;
+        }
+      }
     }
     let shown = match l.tone {
       Tone::Online => self.set.ev_online,
