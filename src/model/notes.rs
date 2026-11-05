@@ -147,10 +147,13 @@ impl Notes {
 pub enum Cmd {
   // empty text = delete
   Set(Platform, String, String),
+  // /delnote: delete theirs, whatever else was typed
+  Del(Platform, String),
   Usage(&'static str),
 }
 
 const USAGE: &str = "usage: /note <user> [text] (kick:user, youtube:user). no text deletes it";
+const USAGE_DEL: &str = "/delnote <user>";
 
 // `bob`, `kick:bob`, `twitch:bob`, `youtube:bob` / `yt:bob`; bare = twitch
 pub fn who(w: &str) -> Option<(Platform, String)> {
@@ -176,19 +179,29 @@ pub fn tag(p: Platform, login: &str) -> String {
 pub fn command(text: &str) -> Option<Cmd> {
   let t = text.trim();
   let (cmd, rest) = t.split_once(char::is_whitespace).unwrap_or((t, ""));
-  if !cmd.eq_ignore_ascii_case("/note") {
+  let del = cmd.eq_ignore_ascii_case("/delnote");
+  if !del && !cmd.eq_ignore_ascii_case("/note") {
     return None;
   }
   let (first, tail) = rest.trim().split_once(char::is_whitespace).unwrap_or((rest.trim(), ""));
   Some(match who(first) {
+    Some((p, l)) if del => Cmd::Del(p, l),
     Some((p, l)) => Cmd::Set(p, l, tail.trim().to_owned()),
-    None => Cmd::Usage(USAGE),
+    None => Cmd::Usage(if del { USAGE_DEL } else { USAGE }),
   })
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn delnote_names_one_person() {
+    assert_eq!(command("/delnote kick:Bob"), Some(Cmd::Del(Platform::Kick, "bob".into())));
+    assert_eq!(command("/DELNOTE bob and some text"), Some(Cmd::Del(Platform::Twitch, "bob".into())));
+    assert_eq!(command("/delnote"), Some(Cmd::Usage(USAGE_DEL)));
+    assert_eq!(command("/delnotes bob"), None);
+  }
 
   #[test]
   fn the_cap_counts_like_the_server() {

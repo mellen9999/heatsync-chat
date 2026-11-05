@@ -10,24 +10,15 @@ use crate::net::{Cmd as NetCmd, social};
 
 impl App {
   pub(super) fn note_cmd(&mut self, cmd: Cmd) {
-    let Cmd::Set(platform, login, text) = cmd else {
-      if let Cmd::Usage(u) = cmd {
-        self.say(u);
-      }
-      return;
+    let (platform, login, text) = match cmd {
+      Cmd::Set(p, l, t) => (p, l, t),
+      Cmd::Del(p, l) => return self.note_delete(p, &l, true),
+      Cmd::Usage(u) => return self.say(u),
     };
     let tag = notes::tag(platform, &login);
     let pid = self.card_pid(platform, &login);
     if notes::clean(&text).is_empty() {
-      let had = self.notes.delete(platform, &login);
-      self.notes.save();
-      let existed = had.is_some();
-      // the server keeps its copy until told: clear it too
-      if let Some(id) = had.and_then(|n| n.pid).or(pid) {
-        self.put_note(platform, &login, id, String::new());
-      }
-      self.card_changed();
-      return self.say(if existed { "note deleted".to_owned() } else { format!("no note on {tag}") });
+      return self.note_delete(platform, &login, false);
     }
     if !self.notes.set(platform, &login, &text, pid) {
       return self.say("too many notes: delete one first");
@@ -39,6 +30,26 @@ impl App {
     }
     self.card_changed();
     self.say(format!("note on {tag} saved"));
+  }
+
+  // drop a note here and, signed in, on the server (an empty put). `del` = the /delnote wording (ext copy)
+  fn note_delete(&mut self, platform: Platform, login: &str, del: bool) {
+    let pid = self.card_pid(platform, login);
+    let had = self.notes.delete(platform, login);
+    self.notes.save();
+    let existed = had.is_some();
+    // the server keeps its copy until told: clear it too
+    if let Some(id) = had.and_then(|n| n.pid).or(pid) {
+      self.put_note(platform, login, id, String::new());
+    }
+    self.card_changed();
+    let tag = notes::tag(platform, login);
+    self.say(match (existed, del) {
+      (true, true) => format!("note removed for {tag}"),
+      (false, true) => format!("no note for {tag}"),
+      (true, false) => "note deleted".to_owned(),
+      (false, false) => format!("no note on {tag}"),
+    })
   }
 
   // the heatsync id their card told us, when it is a real account and we are signed in

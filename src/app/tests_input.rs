@@ -329,6 +329,10 @@ fn headless_line_menu() {
   app.line.take();
   app.note_cmd(crate::model::notes::command("/note bob").unwrap());
   assert_eq!(app.notes.text(Platform::Twitch, "bob"), "");
+  // /delnote drops it too, and a second one finds nothing
+  app.note_cmd(crate::model::notes::command("/note BOB again").unwrap());
+  app.note_cmd(crate::model::notes::command("/delnote @bob").unwrap());
+  assert_eq!(app.notes.text(Platform::Twitch, "bob"), "");
   // hide in tab flips the row
   let who = app.pop().and_then(|p| p.subject.clone());
   app.act(Act::HideInTab(true), who, None);
