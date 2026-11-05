@@ -50,7 +50,6 @@ mod modsuite;
 mod modtools;
 mod net_events;
 mod notes;
-mod notifs;
 mod overlay;
 mod peek;
 mod picker;
@@ -356,8 +355,8 @@ pub struct App {
   focused: bool,
   whisper: whispers::Whispers,
   unseen: crate::model::unseen::Unseen,
-  // the notifs tab's list and unread count
-  notifs: crate::model::inbox::Inbox,
+  // heatsync notification rows in the mentions tab the account doesn't know are read yet
+  notif_unread: bool,
   // the feed tab's posts and open thread; the text of a post in flight (put back if it fails)
   feed: Feed,
   pending_post: Option<String>,
@@ -537,7 +536,7 @@ impl App {
       focused: true,
       whisper: Default::default(),
       unseen: Default::default(),
-      notifs: Default::default(),
+      notif_unread: false,
       feed: Feed::default(),
       pending_post: None,
       edit: None,

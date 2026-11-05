@@ -29,7 +29,7 @@ src/
   main.rs      boot, args, winit loop, ui⇄net channels (EventLoopProxy wake)
   app.rs       the App: tabs, settings, wiring. app/ holds one file per concern
                (keys, pointer, render, layout, input, ime, net_events, tabs, complete, picker,
-               overlay = the one floating menu slot, card, feed, whispers, mentions, notifs, following, inventory,
+               overlay = the one floating menu slot, card, feed, whispers, mentions, following, inventory,
                sendto, lock, jump, tabsync, mods, pred, pin, update…)
   ui/          canvas (own blitter), text (parley + glyph cache), chat_view/ (virtualized rows:
                layout, draw, hit), tab_bar, input_bar, picker, card, menu, form, sheet,
@@ -76,7 +76,7 @@ src/
 ## added beyond the ext (named, not hidden)
 - the message box says why you can't chat (timed out with the time left, banned, a room mode) and holds the send while timed out. the ext only toasts
 - a reply thread covers the tab (like chat logs) instead of floating above and below the line; `/nuke` paces its deletes to the server's limit
-- a followed-live screen (ctrl-b) and a notifs tab with rows, built on the data the ext only shows as a list item or a badge count
+- a followed-live screen (ctrl-b) and heatsync notification rows in the mentions tab, built on the data the ext only shows as a list item or a badge count
 
 ## milestones (each ships complete + verified)
 1. **skeleton + render gate** — window, text w/ fallback, scroll-blit, fake 10k-msg flood. GATE: RSS <20MB, flood redraw <2ms/frame on heatlaptop; if parley/softbuffer misses, swap before building on it

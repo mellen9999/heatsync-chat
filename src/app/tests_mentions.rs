@@ -4,8 +4,9 @@
 use super::*;
 use crate::model::mention_file as file;
 use crate::model::message::{Extra, Kind as MsgKind, Message, flag};
-use crate::net::NetEvent;
 use crate::net::auth::Me;
+use crate::net::{Cmd, NetEvent};
+use serde_json::json;
 
 fn me(name: &str) -> Me {
   Me {
@@ -151,4 +152,154 @@ fn a_file_with_some_bad_lines_restores_the_good_ones_and_is_written_again() {
   let mut b = app();
   login(&mut b, "mellen");
   assert_eq!(rows(&b).len(), 1);
+}
+
+// heatsync notifications are rows of this tab, like the ext's hsNotifIn
+fn notif(a: &mut App, v: serde_json::Value) {
+  let it = crate::model::inbox::parse(&v, now_ms());
+  if let Some(it) = it {
+    a.on_net(NetEvent::Notif(it));
+  }
+}
+
+fn reads(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> usize {
+  let mut n = 0;
+  while let Ok(c) = rx.try_recv() {
+    n += matches!(c, Cmd::Social(crate::net::social::Cmd::NotifsRead)) as usize;
+  }
+  n
+}
+
+#[test]
+fn each_kind_is_a_row_in_the_exts_words_and_an_unknown_one_is_dropped() {
+  fresh();
+  let mut a = app();
+  login(&mut a, "mellen");
+  let all = [
+    json!({"kind": "reply", "message_id": "a1", "content": "lol", "parent_is_op": true}),
+    json!({"kind": "reply", "message_id": "a2", "parent_is_op": false}),
+    json!({"kind": "reply", "message_id": "a3", "from_username": "Anonymous"}),
+    json!({"kind": "mention", "message_id": "a4"}),
+    json!({"kind": "feedback_fixed"}),
+    json!({"kind": "system", "content": "a terminal logged in", "url": "/cli"}),
+    json!({"kind": "follow", "content": "bob followed you"}),
+  ];
+  for v in all {
+    notif(&mut a, v);
+  }
+  let got: Vec<String> = rows(&a).into_iter().map(|r| r.0).collect();
+  assert_eq!(
+    got,
+    [
+      "replied to your post: lol",
+      "replied to your reply",
+      "anonymous: replied to you",
+      "you were mentioned in a post",
+      "your report was fixed"
+    ]
+  );
+  let t = a.tabs.iter().find(|t| t.kind == Kind::Mentions).unwrap();
+  let m = t.view.last_msg().unwrap();
+  assert_eq!((&*m.nick, m.platform), ("heatsync", Platform::Twitch));
+}
+
+#[test]
+fn nobody_signed_in_keeps_no_notification() {
+  fresh();
+  let mut a = app();
+  notif(&mut a, json!({"kind": "mention", "message_id": "ab12"}));
+  assert!(rows(&a).is_empty() && !a.notif_unread);
+}
+
+#[test]
+fn a_notification_lights_the_mentions_tab_and_looking_reads_it_once() {
+  fresh();
+  let (net, mut rx) = Net::tap();
+  let mut a = App::new(net, vec!["forsen".into()], false);
+  a.focused = true;
+  login(&mut a, "mellen");
+  let tab = a.tab_of(Kind::Mentions).unwrap();
+  assert!(!a.tabs[tab].unread);
+  notif(&mut a, json!({"kind": "reply", "message_id": "ab12", "content": "hi"}));
+  assert!(a.tabs[tab].unread, "the tab is lit like for any mention");
+  assert!(a.mentions_save.is_some(), "and the row is kept across restarts");
+  reads(&mut rx);
+  a.select(tab);
+  assert!(!a.tabs[tab].unread);
+  assert_eq!(reads(&mut rx), 1, "the account is told they are read");
+  // looking again with nothing new asks for nothing
+  a.unseen_clear(crate::model::unseen::Surface::Mentions);
+  assert_eq!(reads(&mut rx), 0);
+  // one arriving while you look is read at once
+  notif(&mut a, json!({"kind": "mention", "message_id": "cd34"}));
+  assert_eq!(reads(&mut rx), 1);
+  assert!(!a.tabs[tab].unread);
+}
+
+#[test]
+fn enter_on_a_notification_opens_its_post_in_the_feed() {
+  fresh();
+  let mut a = app();
+  a.canvas.resize(720, 360);
+  login(&mut a, "mellen");
+  notif(&mut a, json!({"kind": "mention", "message_id": "ab12", "content": "look"}));
+  let tab = a.tab_of(Kind::Mentions).unwrap();
+  a.select(tab);
+  let id = a.tabs[tab].view.last_msg().unwrap().id.clone();
+  let h = a.chat_area().h;
+  let res = &mut a.res;
+  assert!(a.tabs[tab].view.select_id(&id, res, h));
+  a.jump_to_mention();
+  let feed = a.tab_of(Kind::Feed).unwrap();
+  assert_eq!(a.active, feed);
+  assert_eq!(a.feed.thread.as_ref().map(|t| &*t.id), Some("ab12"));
+}
+
+#[test]
+fn notification_rows_survive_a_restart_as_history_and_the_next_look_reads_them() {
+  fresh();
+  let mut a = app();
+  login(&mut a, "mellen");
+  notif(&mut a, json!({"kind": "reply", "message_id": "ab12", "content": "yo", "parent_is_op": true}));
+  mention(&mut a, "1");
+  a.mentions_flush();
+  let (net, mut rx) = Net::tap();
+  let mut b = App::new(net, vec!["forsen".into()], false);
+  b.focused = true;
+  login(&mut b, "mellen");
+  let got = rows(&b);
+  assert_eq!(got.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), ["replied to your post: yo", "hey @mellen 1"]);
+  assert!(got.iter().all(|r| r.1 & flag::HISTORY != 0));
+  let tab = b.tab_of(Kind::Mentions).unwrap();
+  let m = b.tabs[tab].view.msgs().next().unwrap();
+  assert_eq!(crate::model::inbox::post_of(m), Some("ab12"));
+  reads(&mut rx);
+  b.select(tab);
+  assert_eq!(reads(&mut rx), 1);
+}
+
+#[test]
+fn logout_or_another_login_clears_them() {
+  fresh();
+  let mut a = app();
+  login(&mut a, "mellen");
+  notif(&mut a, json!({"kind": "mention", "message_id": "ab12"}));
+  a.mentions_flush();
+  login(&mut a, "someone");
+  assert!(rows(&a).is_empty() && !a.notif_unread && !exists(file::FILE));
+  notif(&mut a, json!({"kind": "mention", "message_id": "ab12"}));
+  a.on_net(NetEvent::Me(None));
+  assert!(rows(&a).is_empty() && !a.notif_unread);
+}
+
+// a notification row in the file with a hostile id or body is junk, never a crash
+#[test]
+fn a_hostile_notification_line_in_the_file_is_dropped() {
+  use crate::model::mention_file::{Read, decode};
+  let head = json!({"v": 1, "owner": "mellen", "ts": now_ms()}).to_string();
+  let line = |id: &str| json!({"id": id, "body": "x\u{7}y", "ts": 1}).to_string();
+  let file = format!("{head}\n{}\n{}\n{}\n", line("hsn-m-1-ab"), line("hsn-q-1-ab"), line("hsn-m-1-../etc"));
+  let Read::Rows { rows, junk } = decode(&file, "mellen", now_ms()) else { panic!() };
+  assert_eq!((rows.len(), junk), (1, 2));
+  assert_eq!(&*rows[0].body, "xy");
 }

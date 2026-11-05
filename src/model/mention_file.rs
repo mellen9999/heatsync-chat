@@ -1,4 +1,5 @@
-// the mentions tab between runs (ext main.js hs_mentions_v2): the last 500 lines that pinged you, written to
+// the mentions tab between runs (ext main.js hs_mentions_v2): the last 500 lines that pinged you (heatsync
+// notification rows too, as the ext's persistMentions keeps them), written to
 // the `mentions` file with the heatsync account they belong to and when. a run restores them only for that
 // same account and only while the file is under a day old; they come back as history (no ping, no flash).
 // the file is local but read like any other input: a size cap before reading, a line cap, every field
@@ -6,6 +7,7 @@
 // own line. one line of json per mention under a header line
 use serde_json::{Value, json};
 
+use super::inbox;
 use super::message::{Extra, HsEmote, Kind, Message, Placed, Platform, REPLY_TEXT, flag};
 use crate::heatsync::valid_name;
 use crate::images::url::allowed;
@@ -146,6 +148,12 @@ fn pairs<'a>(v: &'a Value, k: &str, max: usize) -> Vec<&'a Vec<Value>> {
 }
 
 fn message(v: &Value) -> Option<Message> {
+  // a heatsync notification row (model::inbox): its id says what it was, the body what it said
+  if let Some(id) = text(v, "id", MAX_ID).filter(|i| inbox::is_id(i)) {
+    let mut m = inbox::restore(&id, &text(v, "body", MAX_BODY)?)?;
+    m.flags |= flag::HISTORY;
+    return Some(m);
+  }
   let platform = untag(v.get("p")?.as_str()?)?;
   let body = text(v, "body", MAX_BODY)?;
   let login = text(v, "login", MAX_NAME).filter(|l| !l.is_empty())?;

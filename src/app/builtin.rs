@@ -6,7 +6,6 @@ use crate::ui::chat_view::ChatView;
 
 // the ext keeps 500 mentions (MAX_BUFFER) and 150 feed posts
 const MENTIONS: usize = 500;
-const NOTIFS: usize = crate::model::inbox::MAX_ITEMS;
 const POSTS: usize = 150;
 const WHISPERS: usize = 500;
 // the ext keeps 300 mod actions
@@ -22,7 +21,6 @@ fn make(kind: Kind) -> Tab {
     Kind::Feed => POSTS,
     Kind::Whispers => WHISPERS,
     Kind::Mentions => MENTIONS,
-    Kind::Notifs => NOTIFS,
     Kind::ModLog => MOD_LOG,
     Kind::Chat => SCROLLBACK,
   };
@@ -33,10 +31,9 @@ fn make(kind: Kind) -> Tab {
   view.timestamps = kind != Kind::Feed;
   view.tags = kind == Kind::Mentions;
   view.set_empty(match kind {
-    Kind::Mentions => "no mentions yet. lines that @ you or reply to you, in any joined channel, land here",
+    Kind::Mentions => "no mentions yet. lines that @ you or reply to you, in any joined channel, and your heatsync notifications land here",
     Kind::ModLog => "no mod actions yet. bans, timeouts, unbans and deletes in your channels land here",
     Kind::Whispers => "log in to read and send whispers and dms (ctrl-l)",
-    Kind::Notifs => "log in to see your heatsync notifications (ctrl-l)",
     Kind::Feed => "loading...",
     Kind::Chat => "",
   });
@@ -120,7 +117,7 @@ mod tests {
   fn builtins_are_in_the_ext_order_and_sized_like_it() {
     let tabs = make_all();
     let names: Vec<&str> = tabs.iter().map(|t| &*t.name).collect();
-    assert_eq!(names, ["feed", "whispers", "mentions", "notifs", "modlog"]);
+    assert_eq!(names, ["feed", "whispers", "mentions", "modlog"]);
     assert!(tabs[0].view.top && !tabs[1].view.top && !tabs[2].view.top);
     assert!(tabs.iter().all(|t| t.sources.is_empty() && !t.view.glow));
   }

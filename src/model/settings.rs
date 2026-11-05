@@ -249,7 +249,6 @@ pub struct Settings {
   pub tab_feed: bool,
   pub tab_whispers: bool,
   pub tab_mentions: bool,
-  pub tab_notifs: bool,
   pub tab_modlog: bool,
   // a desktop notification for an @mention while the window is not focused. default off, like the
   // ext's hs_notifications: nothing leaves the window unless asked
@@ -329,7 +328,6 @@ impl Default for Settings {
       tab_feed: true,
       tab_whispers: true,
       tab_mentions: true,
-      tab_notifs: true,
       tab_modlog: false,
       notify: false,
       title_flash: true,
@@ -372,7 +370,6 @@ impl Settings {
       Kind::Feed => self.tab_feed,
       Kind::Whispers => self.tab_whispers,
       Kind::Mentions => self.tab_mentions,
-      Kind::Notifs => self.tab_notifs,
       Kind::ModLog => self.tab_modlog,
     }
   }
@@ -383,7 +380,6 @@ impl Settings {
       Kind::Feed => self.tab_feed = on,
       Kind::Whispers => self.tab_whispers = on,
       Kind::Mentions => self.tab_mentions = on,
-      Kind::Notifs => self.tab_notifs = on,
       Kind::ModLog => self.tab_modlog = on,
     }
   }
@@ -638,7 +634,6 @@ mod tests {
         tab_feed: true,
         tab_whispers: true,
         tab_mentions: true,
-        tab_notifs: true,
         tab_modlog: false,
         notify: false,
         title_flash: true,
@@ -822,6 +817,21 @@ mod tests {
     let back = Settings::parse(&s.render());
     assert!(!back.shown(Kind::Whispers) && back.shown(Kind::Feed) && back.notify);
     assert!(back.shown(Kind::Chat));
+  }
+
+  // the notifs tab is gone: a settings file from when it was there loads clean, keeps every other
+  // setting, and is written back without it. /show notifs is no tab, just the usage line
+  #[test]
+  fn a_saved_notifs_tab_is_ignored() {
+    let old = "vi=true\ntab_notifs=false\ntab_whispers=false\nzoom=1.5\nnotifs=true\n";
+    assert!(Settings::usable(old));
+    let s = Settings::parse(old);
+    assert!(s.vi && !s.shown(Kind::Whispers) && s.shown(Kind::Mentions) && s.zoom > 100);
+    assert!(!s.render().contains("notifs"));
+    assert!(!Settings::usable("tab_notifs=true\n"), "a file of only that names nothing of ours");
+    assert_eq!(Kind::parse("notifs"), None);
+    assert_eq!(local_cmd("/show notifs"), Some(Local::Tab(None, true)));
+    assert_eq!(local_cmd("/hide notifs"), None, "a name after /hide is the user filter");
   }
 
   #[test]

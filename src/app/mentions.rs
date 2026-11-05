@@ -5,9 +5,12 @@
 use std::time::{Duration, Instant};
 
 use super::App;
+use crate::model::inbox::{self, Item};
 use crate::model::mention_file::{self as file, Read};
 use crate::model::message::{Extra, Message, Platform, flag};
 use crate::model::tabs::Kind;
+use crate::model::unseen::Surface;
+use crate::net::{Cmd, social};
 use crate::store;
 use crate::util::notify;
 use crate::util::time::now_ms;
@@ -44,19 +47,44 @@ impl App {
       self.unseen_note(crate::model::unseen::Surface::Mentions);
       self.mentions_changed();
     }
+    let title = format!("{} in #{}", notify::name(&m.nick), notify::name(room));
+    self.mention_alert(&title, &m.nick, &m.body);
+  }
+
+  // a mention while the window is away: the desktop notification (if on), the ping and the title flash
+  fn mention_alert(&mut self, title: &str, nick: &str, body: &str) {
     if self.focused {
       return;
     }
     if self.set.notify {
-      let title = format!("{} in #{}", notify::name(&m.nick), notify::name(room));
-      notify::send("mention", &title, &m.body);
+      notify::send("mention", title, body);
     }
     crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
     if self.set.title_flash {
       // the latest name; an already running flash picks it up on its next turn
       let shown = self.flash.as_ref().is_some_and(|f| f.1);
-      self.flash = Some((m.nick.chars().filter(|c| !c.is_control()).take(40).collect::<String>().into(), shown));
+      self.flash = Some((nick.chars().filter(|c| !c.is_control()).take(40).collect::<String>().into(), shown));
       self.flash_due.get_or_insert_with(Instant::now);
+    }
+  }
+
+  // a heatsync notification (a reply to your post, an @ in a post, a fixed report) is a row of the mentions
+  // tab like any mention: it lights the tab, pings, is kept across restarts and counts against the same cap
+  // (ext hsNotifIn). only a signed-in account is sent these
+  pub(super) fn on_notif(&mut self, it: Item) {
+    let Some(i) = self.tab_of(Kind::Mentions).filter(|_| self.me.is_some()) else { return };
+    self.tabs[i].chat().push(inbox::message(&it));
+    self.notif_unread = true;
+    self.unseen_note(Surface::Mentions);
+    self.mentions_changed();
+    self.mention_alert(&notify::name("heatsync"), "heatsync", &it.text);
+  }
+
+  // you looked at the mentions tab: the account marks its heatsync notifications read, for every device
+  // (ext hsNotifsRead). once, and only if one came that it hasn't been told of
+  pub(super) fn notifs_read(&mut self) {
+    if std::mem::take(&mut self.notif_unread) && self.me.is_some() {
+      self.net.send(Cmd::Social(social::Cmd::NotifsRead));
     }
   }
 
@@ -101,6 +129,8 @@ impl App {
           store::set_aside(file::FILE, Some(junk));
         }
         if !rows.is_empty() {
+          // restored notification rows were never marked read here: the next look tells the account
+          self.notif_unread |= rows.iter().any(inbox::is_row);
           self.tabs[i].chat().prepend(rows);
           // a file with unusable lines is written again without them
           if junk > 0 {
@@ -118,6 +148,7 @@ impl App {
   // logged out, or another account came in: the file and the tab's lines were the last one's
   pub(super) fn mentions_forget(&mut self) {
     self.mentions_save = None;
+    self.notif_unread = false;
     store::remove(file::FILE);
     if let Some(i) = self.tab_of(Kind::Mentions) {
       self.tabs[i].chat().clear();
@@ -148,10 +179,28 @@ impl App {
     }
   }
 
+  // the feed tab is where posts open; bring it back if it was hidden
+  fn notif_open(&mut self, post: &str) {
+    if !self.set.shown(Kind::Feed) {
+      self.set_shown(Kind::Feed, true);
+    }
+    let Some(i) = self.tab_of(Kind::Feed) else { return };
+    self.select(i);
+    self.feed_open(post);
+    self.wake();
+  }
+
   // Enter / click on a mention: open its room's tab with the line selected
   pub(super) fn jump_to_mention(&mut self) {
     let Some(t) = self.tabs.get(self.active).filter(|t| t.kind == Kind::Mentions) else { return };
     let Some(m) = t.view.selected() else { return };
+    // a heatsync notification: its post opens in the feed
+    if inbox::is_row(m) {
+      return match inbox::post_of(m).map(Box::<str>::from) {
+        Some(post) => self.notif_open(&post),
+        None => self.say("that one has nothing to open"),
+      };
+    }
     let (p, id) = (m.platform, m.id.clone());
     let Some(room) = m.x.as_ref().map(|x| x.chan.clone()) else { return };
     let Some(i) = self.tabs_with(p, &room).first().copied() else {

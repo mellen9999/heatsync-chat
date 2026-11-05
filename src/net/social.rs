@@ -57,9 +57,7 @@ pub enum Cmd {
   PutNote { platform: Platform, login: Box<str>, profile_id: Box<str>, text: String },
   // when you last looked at the mentions, whispers and feed tabs, on any client
   SeenGet,
-  // how many notifications are unread on the account (every time the socket signs in, like the ext)
-  NotifsGet,
-  // you looked at them all
+  // you looked at the heatsync notifications in the mentions tab: the account marks them read, for every device
   NotifsRead,
   // your settings as the account holds them
   UiStateGet,
@@ -92,16 +90,11 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         ui_state_get(&http, &t, &out).await;
       }
     }
-    Cmd::NotifsGet => {
-      if let Some(t) = token {
-        notifs_get(&http, &t, &out).await;
-      }
-    }
     Cmd::NotifsRead => {
       if let Some(t) = token {
         let body = json!({ "type": "all" }).to_string();
         let (status, _) = call(authed(&http, &t, "/api/notifications/mark-read", body)).await;
-        // still unread on the account then, and the next count says so
+        // still unread on the account then, and the next look says so
         if status != 200 {
           eprintln!("notifications/mark-read: heatsync said {status}");
         }
@@ -389,20 +382,12 @@ async fn ui_state_get(http: &reqwest::Client, token: &str, out: &Out) {
   }
 }
 
-async fn notifs_get(http: &reqwest::Client, token: &str, out: &Out) {
-  let (status, v) = call(get(http, token, "/api/notifications").timeout(std::time::Duration::from_secs(8))).await;
-  if let (200, Some(n)) = (status, crate::model::inbox::parse_count(&v)) {
-    void(out.send(NetEvent::NotifCount(n)));
-  }
-}
-
 async fn seen_get(http: &reqwest::Client, token: &str, out: &Out) {
   let (status, v) = call(get(http, token, "/api/user/seen-state")).await;
   if status != 200 {
     return;
   }
-  // `inbox` there is the site's dm badge time, not the notifications' (their read state is the count)
-  for surface in unseen::ALL.into_iter().filter(|s| s.written()) {
+  for surface in unseen::ALL {
     if let Some(at) = unseen::at(v.get(surface.key())) {
       void(out.send(NetEvent::Seen { surface, at }));
     }

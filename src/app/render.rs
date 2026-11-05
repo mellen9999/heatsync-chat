@@ -155,11 +155,7 @@ impl App {
         .map(|&i| {
           let active = i == self.active;
           let t = &mut self.tabs[i];
-          match t.kind {
-            Kind::Chat => t.count.text(mode, active, now),
-            Kind::Notifs => self.notifs_count(),
-            _ => String::new(),
-          }
+          if t.kind == Kind::Chat { t.count.text(mode, active, now) } else { String::new() }
         })
         .collect();
       self.heat_due = (mode == Counter::Heat && counts.iter().any(|c| !c.is_empty()))
@@ -172,7 +168,6 @@ impl App {
           let hot = match t.kind {
             Kind::Mentions => crate::ui::theme::RED,
             Kind::Whispers => crate::ui::theme::CYAN,
-            Kind::Notifs => crate::ui::theme::MAGENTA,
             _ if t.event => crate::ui::theme::YELLOW,
             _ => crate::ui::theme::WHITE,
           };

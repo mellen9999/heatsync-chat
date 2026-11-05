@@ -45,7 +45,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 
 ## what's in it
 
-- twitch, kick and youtube in one tab or many, plus feed, whispers, mentions and notifs tabs. a merged tab sends one line to all its feeds at once
+- twitch, kick and youtube in one tab or many, plus feed, whispers and mentions tabs (heatsync replies and @s land in mentions). a merged tab sends one line to all its feeds at once
 - heatsync emotes: a word shows as someone's heatsync emote only if *they* own it. 7tv, bttv, ffz and native emotes, overlay (zero-width) emotes, animated
 - heatsync paints, badges and name colors, live. bttv badges, sub flair and heat bars
 - emote picker (searches 7tv, ffz and heatsync too; an emoji tab, a gifs tab with search), picture and video upload (pictures lose their hidden location and camera data first)

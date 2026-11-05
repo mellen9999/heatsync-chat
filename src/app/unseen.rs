@@ -1,5 +1,6 @@
 // the mentions, whispers and feed tabs light up for something new and go out when you look, here or
-// on any other heatsync client (ext seen-state.js bumpSeen / applySeenUpdate)
+// on any other heatsync client (ext seen-state.js bumpSeen / applySeenUpdate). looking at mentions also
+// reads its heatsync notification rows on the account (ext hsNotifsRead)
 use super::App;
 use crate::model::tabs::Kind;
 use crate::model::unseen::Surface;
@@ -11,7 +12,6 @@ pub(super) fn surface(k: Kind) -> Option<Surface> {
     Kind::Mentions => Some(Surface::Mentions),
     Kind::Whispers => Some(Surface::Whispers),
     Kind::Feed => Some(Surface::Live),
-    Kind::Notifs => Some(Surface::Inbox),
     _ => None,
   }
 }
@@ -41,16 +41,10 @@ impl App {
   pub(super) fn unseen_clear(&mut self, s: Surface) {
     let at = now_ms();
     self.unseen.saw(s, at);
-    if s == Surface::Inbox {
-      // the account keeps its own unread: tell it, once, and only when something was unread
-      let unread = self.notifs.unread() > 0;
-      self.notifs.read(at);
-      if unread && self.me.is_some() {
-        self.net.send(Cmd::Social(social::Cmd::NotifsRead));
-      }
-      self.bar_dirty = true;
+    if s == Surface::Mentions {
+      self.notifs_read();
     }
-    if self.me.is_some() && s.written() {
+    if self.me.is_some() {
       self.net.send(Cmd::Social(social::Cmd::SeenBump { surface: s, at }));
     }
     self.unseen_paint(s);
@@ -59,10 +53,6 @@ impl App {
   // you looked on another client (or before this one started)
   pub(super) fn on_seen(&mut self, s: Surface, at: i64) {
     self.unseen.saw(s, at);
-    if s == Surface::Inbox {
-      self.notifs.read(at);
-      self.bar_dirty = true;
-    }
     self.unseen_paint(s);
   }
 

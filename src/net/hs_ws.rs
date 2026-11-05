@@ -546,9 +546,8 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "seen:update" => {
       use crate::model::unseen::{Surface, at};
-      // `inbox` is the site's dm badge time, not the notifications': another client reading its dms must not
-      // clear the notifs tab (that comes back as the account's count, re-read on every sign-in)
-      let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?).filter(|s| *s != Surface::Inbox)?;
+      // `inbox` (the site's dm badge time) is none of ours: it parses to nothing
+      let surface = Surface::parse(v.get("surface").and_then(Value::as_str)?)?;
       send(NetEvent::Seen { surface, at: at(v.get("at"))? })
     }
     // a heatsync notification for you: a mention, a reply, a fixed report (the list is this session's)

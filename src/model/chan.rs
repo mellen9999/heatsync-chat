@@ -4,8 +4,8 @@ use super::ident;
 use crate::model::line::Line;
 
 // ids a channel may never take: the ext's page tabs, plus this app's synthetic flood tab
-pub const RESERVED: [&str; 11] =
-  ["feed", "discover", "whispers", "mentions", "notifs", "pinned", "modlog", "live", "add", "settings", "flood"];
+pub const RESERVED: [&str; 10] =
+  ["feed", "discover", "whispers", "mentions", "pinned", "modlog", "live", "add", "settings", "flood"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Err {

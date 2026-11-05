@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 72] = [
+pub static DEFS: [Def; 71] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -971,18 +971,6 @@ pub static DEFS: [Def; 72] = [
     ctl: pill!(tab_mentions),
     fx: Fx::Tab(Kind::Mentions),
     wire: Wire::Hidden("hiddenTabs", "mentions"),
-  },
-  Def {
-    id: "tab_notifs",
-    cmd: None,
-    cat: Cat::System,
-    section: "tabs",
-    label: "notifs tab",
-    tip: "heatsync notifications in the tab bar: mentions of you, replies, fixed reports. /show notifs, /hide notifs",
-    alias: "visible tabs inbox notifications",
-    ctl: pill!(tab_notifs),
-    fx: Fx::Tab(Kind::Notifs),
-    wire: Wire::None,
   },
   Def {
     id: "tab_modlog",

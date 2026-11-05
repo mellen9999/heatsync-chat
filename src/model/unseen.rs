@@ -9,12 +9,9 @@ pub enum Surface {
   Whispers,
   // the feed tab (the server's name for it)
   Live,
-  // the notifs tab: only ever cleared by a look here or a seen:update from another client; the server's own
-  // `inbox` time belongs to the site's dm badge, so a look here is never written to it
-  Inbox,
 }
 
-pub const ALL: [Surface; 4] = [Surface::Mentions, Surface::Whispers, Surface::Live, Surface::Inbox];
+pub const ALL: [Surface; 3] = [Surface::Mentions, Surface::Whispers, Surface::Live];
 
 // a server time later than this is junk (year 2286); 0 and below are "never"
 const MAX_AT: i64 = 9_999_999_999_999;
@@ -25,14 +22,7 @@ impl Surface {
       Surface::Mentions => "mentions",
       Surface::Whispers => "whispers",
       Surface::Live => "live",
-      Surface::Inbox => "inbox",
     }
-  }
-
-  // the surfaces shared with the account (seen-state, `seen:update`): every one but the notifs tab, whose
-  // read state is the account's unread count. the server's `inbox` time is the site's dm badge
-  pub fn written(self) -> bool {
-    self != Surface::Inbox
   }
 
   pub fn parse(s: &str) -> Option<Self> {
@@ -47,8 +37,8 @@ pub fn at(v: Option<&Value>) -> Option<i64> {
 
 #[derive(Default)]
 pub struct Unseen {
-  seen: [i64; 4],
-  latest: [i64; 4],
+  seen: [i64; 3],
+  latest: [i64; 3],
 }
 
 impl Unseen {
@@ -95,8 +85,7 @@ mod tests {
   #[test]
   fn hostile_frames_are_bounded() {
     assert_eq!(Surface::parse("live"), Some(Surface::Live));
-    assert_eq!(Surface::parse("inbox"), Some(Surface::Inbox));
-    assert_eq!(Surface::parse("tabs"), None);
+    assert_eq!(Surface::parse("inbox"), None);
     assert_eq!(at(Some(&json!(1_700_000_000_000i64))), Some(1_700_000_000_000));
     for bad in [json!(0), json!(-5), json!("1"), json!(1.5), json!(MAX_AT + 1)] {
       assert_eq!(at(Some(&bad)), None, "{bad}");
