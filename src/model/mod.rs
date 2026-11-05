@@ -29,6 +29,7 @@ pub mod links;
 pub mod lock;
 pub mod logs;
 pub mod mention;
+pub mod mention_file;
 pub mod message;
 pub mod modcmd;
 pub mod modes;

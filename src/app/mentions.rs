@@ -5,12 +5,17 @@
 use std::time::{Duration, Instant};
 
 use super::App;
+use crate::model::mention_file::{self as file, Read};
 use crate::model::message::{Extra, Message, Platform, flag};
 use crate::model::tabs::Kind;
+use crate::store;
 use crate::util::notify;
+use crate::util::time::now_ms;
 
 pub(super) const TITLE: &str = "heatsync";
 const FLASH_EVERY: Duration = Duration::from_millis(1200);
+// a mention is written this long after it lands (a burst is one write)
+const SAVE_AFTER: Duration = Duration::from_millis(1500);
 
 impl App {
   // names that ping you changed (login / logout)
@@ -37,6 +42,7 @@ impl App {
     if let Some(i) = self.tab_of(Kind::Mentions) {
       self.tabs[i].chat().push(copy);
       self.unseen_note(crate::model::unseen::Surface::Mentions);
+      self.mentions_changed();
     }
     if self.focused {
       return;
@@ -51,6 +57,73 @@ impl App {
       let shown = self.flash.as_ref().is_some_and(|f| f.1);
       self.flash = Some((m.nick.chars().filter(|c| !c.is_control()).take(40).collect::<String>().into(), shown));
       self.flash_due.get_or_insert_with(Instant::now);
+    }
+  }
+
+  // the heatsync account the saved mentions belong to: its username, lowercased (the ext's owner)
+  fn mentions_owner(&self) -> Option<String> {
+    self.me.as_ref().map(|m| m.username.to_lowercase()).filter(|u| !u.is_empty())
+  }
+
+  // a mention landed: the file is written soon
+  fn mentions_changed(&mut self) {
+    self.mentions_save.get_or_insert_with(|| Instant::now() + SAVE_AFTER);
+  }
+
+  pub(super) fn mentions_save_tick(&mut self, now: Instant) {
+    if self.mentions_save.is_some_and(|t| t <= now) {
+      self.mentions_flush();
+    }
+  }
+
+  // write the tab's last lines now (when one is due), tagged with the account. also on the way out
+  pub(super) fn mentions_flush(&mut self) {
+    if self.mentions_save.take().is_none() {
+      return;
+    }
+    let (Some(owner), Some(i)) = (self.mentions_owner(), self.tab_of(Kind::Mentions)) else { return };
+    let v = self.tabs[i].chat();
+    if v.len() == 0 {
+      return store::remove(file::FILE);
+    }
+    // a failed save is said once by the store
+    let _ = store::write(file::FILE, &file::encode(&owner, now_ms(), v.msgs()));
+  }
+
+  // signed in as someone: the tab gets their last mentions back, as history, if the file is theirs and
+  // under a day old. another account's file is left alone; a stale or unreadable one is dealt with
+  pub(super) fn mentions_restore(&mut self) {
+    let (Some(owner), Some(i)) = (self.mentions_owner(), self.tab_of(Kind::Mentions)) else { return };
+    let Some(text) = store::read_capped(file::FILE, file::MAX_BYTES) else { return };
+    match file::decode(&text, &owner, now_ms()) {
+      Read::Rows { rows, junk } => {
+        if junk > 0 {
+          store::set_aside(file::FILE, Some(junk));
+        }
+        if !rows.is_empty() {
+          self.tabs[i].chat().prepend(rows);
+          // a file with unusable lines is written again without them
+          if junk > 0 {
+            self.mentions_changed();
+          }
+          self.wake();
+        }
+      }
+      Read::Stale => store::remove(file::FILE),
+      Read::Bad => store::set_aside(file::FILE, None),
+      Read::NotYours => {}
+    }
+  }
+
+  // logged out, or another account came in: the file and the tab's lines were the last one's
+  pub(super) fn mentions_forget(&mut self) {
+    self.mentions_save = None;
+    store::remove(file::FILE);
+    if let Some(i) = self.tab_of(Kind::Mentions) {
+      self.tabs[i].chat().clear();
+      self.tabs[i].unread = false;
+      self.bar_dirty = true;
+      self.wake();
     }
   }
 

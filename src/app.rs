@@ -80,6 +80,8 @@ mod tests_input;
 #[cfg(test)]
 mod tests_kickmod;
 #[cfg(test)]
+mod tests_mentions;
+#[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
 mod tests_pickers;
@@ -329,6 +331,8 @@ pub struct App {
   follow_colors: std::collections::HashMap<Box<str>, u32>,
   // names that ping you, and whether the window has focus (notifications only fire when it does not)
   mentions: Mentions,
+  // the mentions tab's lines are written to disk at this time (debounced)
+  mentions_save: Option<Instant>,
   // what you sent through heatsync.org lately: its echo wears [H]
   origins: crate::model::origin::Origins,
   // sends to several feeds, so their echoes fold into one line
@@ -505,6 +509,7 @@ impl App {
       moments: Moments::default(),
       follow_colors: Default::default(),
       mentions: Mentions::default(),
+      mentions_save: None,
       origins: Default::default(),
       sentfold: Default::default(),
       focused: true,
@@ -664,7 +669,10 @@ impl ApplicationHandler<NetEvent> for App {
 
   fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
     match ev {
-      WindowEvent::CloseRequested => el.exit(),
+      WindowEvent::CloseRequested => {
+        self.mentions_flush();
+        el.exit()
+      }
       WindowEvent::Resized(s) => self.resize(s.width, s.height),
       WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
         self.dpi = scale_factor as f32;
@@ -789,6 +797,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.flash_due.is_some_and(|t| t <= now) {
       self.flash_tick();
     }
+    self.mentions_save_tick(now);
     if self.held.due().is_some_and(|t| t <= now) {
       self.held_tick();
     }
@@ -823,6 +832,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.heat_due,
       self.pace_due,
       self.flash_due,
+      self.mentions_save,
       self.held.due(),
       self.ui_state_due(),
       self.following_due(),

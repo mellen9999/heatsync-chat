@@ -8,7 +8,7 @@ every host heatsync-chat talks to, what it gets, and why. no analytics, no telem
 - your heatsync login token goes to `heatsync.org` and nowhere else. the one other token in play is the twitch chat token heatsync hands you at login: it goes to twitch's chat server, so you can send.
 - tokens are never written to a log or drawn on screen.
 - every request says `heatsync-chat/<version>` as its user agent and, like any website visit, the other side sees your ip.
-- chat lines are never saved to disk. what is saved is listed at the bottom.
+- chat lines are never saved to disk, bar the lines that pinged you (the mentions tab, see the bottom). what is saved is listed at the bottom.
 
 ## every host
 
@@ -55,6 +55,7 @@ a heatsync emote only draws on a line if that sender's own heatsync inventory ha
 in `~/.config/heatsync-chat` (the folder is private to you, `0700`, and so is every file, `0600`; older installs are tightened at start):
 
 - `settings`, `tabs`, `notes`, `filters`, `blocked` (emotes you hid), `hidden_paints`, `emote-frecency`, `recent`, `recent-gifs`, `picker-search` (which picker chips are on; never synced)
+- `mentions`: the last 500 lines that pinged you, with who sent them and which channel, tagged with your heatsync name so only you get them back. the mentions tab uses it to survive a restart; a file over a day old is dropped, and logging out (or another account logging in) deletes it
 - `token`: your heatsync login
 - `crash.log`: a line per crash, with anything secret cut out. it stays here; nothing sends it anywhere
 - `<name>.bak`: a file the app couldn't read gets moved here and the chat says so, so nothing is lost silently

@@ -420,7 +420,12 @@ impl App {
           self.say(format!("logged in as {}", m.username));
         }
         // a different login starts with a clean whispers tab
-        if self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username) {
+        let switched = self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username);
+        // logged out, or another account over this one: their mentions are not the next one's
+        if me.is_none() || (switched && self.me.is_some()) {
+          self.mentions_forget();
+        }
+        if switched {
           self.whispers_reset();
           self.notifs_reset();
           self.locks.clear_all();
@@ -457,6 +462,9 @@ impl App {
         self.whisper_empty();
         self.notifs_empty();
         self.set_mention_names();
+        if switched {
+          self.mentions_restore();
+        }
         self.filter_names();
         self.entered();
         self.bar_dirty = true;

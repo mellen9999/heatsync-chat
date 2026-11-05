@@ -145,6 +145,15 @@ pub fn read(name: &str) -> Option<String> {
   }
 }
 
+// like `read`, but a file past `max` bytes is not one of ours: it is set aside unread
+pub fn read_capped(name: &str, max: u64) -> Option<String> {
+  if std::fs::metadata(dir()?.join(name)).is_ok_and(|m| m.len() > max) {
+    set_aside(name, None);
+    return None;
+  }
+  read(name)
+}
+
 // `<name>` → `<name>.bak` (a copy from an earlier fall is replaced), and a plain line saying so.
 // `part`: how many lines were unusable when the rest still is
 pub fn set_aside(name: &str, part: Option<usize>) {
