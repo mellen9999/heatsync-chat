@@ -1,10 +1,11 @@
 // the temp tab, like the ext's and the site's: one unsaved channel tab for the stream you're looking at.
-// opening a channel to look at (enter on a following row) fills the slot, the next one takes it; /keep, the
+// opening a channel to look at (enter on a following row, a click on a went-live line) fills the slot, the next one takes it; /keep, the
 // tab's menu or chatting in it saves it. it is never written to the tabs file and never synced: every place
 // that lists tabs to save skips `temp` (store_tabs, tabsync::is_channel, other_specs)
 use super::tabs::{make_tab, seat_hosts, sources_of};
 use super::{App, Tab};
 use crate::model::chan::Spec;
+use crate::model::message::Platform;
 
 // does tab `t` hold any feed `spec` names
 pub(super) fn overlaps(t: &Tab, spec: &Spec) -> bool {
@@ -13,6 +14,39 @@ pub(super) fn overlaps(t: &Tab, spec: &Spec) -> bool {
 }
 
 impl App {
+  // a click on a went-live line (not its name: that's their card) for a channel this tab isn't
+  pub(super) fn went_live_press(&mut self) -> bool {
+    let (chat, y) = (self.chat_area(), self.pointer.1);
+    let res = &mut self.res;
+    let Some((p, chan)) = self.tabs.get_mut(self.active).and_then(|t| t.view.opens_at(chat, y, res)) else {
+      return false;
+    };
+    let own = self.tabs[self.active].sources.iter().any(|s| s.0 == p && s.1.eq_ignore_ascii_case(&chan));
+    if own {
+      return false;
+    }
+    self.open_channel(p, &chan);
+    self.wake();
+    true
+  }
+
+  // a channel a line names opens: its own tab when one shows it, else the temp tab. youtube's channel key
+  // isn't something a tab can be made from, so only a tab it already has
+  pub(super) fn open_channel(&mut self, p: Platform, chan: &str) {
+    if let Some(i) = self.tabs_with(p, chan).into_iter().find(|&i| self.visible(i)) {
+      return self.select(i);
+    }
+    let spec = match p {
+      Platform::Twitch => Spec::parse(chan, "", ""),
+      Platform::Kick => Spec::parse("", chan, ""),
+      Platform::Youtube => return self.say(format!("{chan} has no tab")),
+    };
+    match spec.and_then(|s| s.check(&self.other_specs(None)).map(|_| s)) {
+      Ok(s) => self.open_look(&s),
+      Err(e) => self.say(e.msg()),
+    }
+  }
+
   pub(super) fn temp_at(&self) -> Option<usize> {
     self.tabs.iter().position(|t| t.temp)
   }
@@ -91,6 +125,37 @@ mod tests {
 
   fn forsen(app: &App) -> usize {
     app.tabs.iter().position(|t| &*t.name == "forsen").unwrap()
+  }
+
+  // a click on the newest line of the active tab, away from the name at its left
+  fn click_last(app: &mut App) -> bool {
+    app.redraw();
+    let c = app.chat_area();
+    app.pointer = (c.x + c.w - 40, c.bottom() - 4);
+    app.went_live_press()
+  }
+
+  #[test]
+  fn a_click_on_a_went_live_line_opens_its_channel_as_the_temp_tab_or_its_own_tab() {
+    use crate::model::stream_events::Line;
+    let (mut app, _rx) = boot();
+    let f = forsen(&app);
+    app.select(f);
+    app.on_stream(Line::went_live(Platform::Twitch, "xqc", "xQc", "just chatting"));
+    assert!(click_last(&mut app));
+    let t = &app.tabs[app.active];
+    assert!(t.temp && &*t.name == "xqc", "{}", t.name);
+    assert!(!saved(&app).iter().any(|l| l.contains("xqc")), "a look is never saved");
+    // the same line in xqc's own tab is that tab's: the click is an ordinary one
+    assert!(!click_last(&mut app));
+    // a channel with a tab of its own opens that tab, no temp tab
+    app.on_stream(Line::went_live(Platform::Twitch, "forsen", "forsen", ""));
+    assert!(click_last(&mut app));
+    assert_eq!(app.active, forsen(&app));
+    assert!(app.temp_at().is_some(), "the temp tab stays till the next look");
+    // any other line is not one
+    app.say("hello");
+    assert!(!click_last(&mut app));
   }
 
   fn saved(app: &App) -> Vec<String> {

@@ -42,7 +42,8 @@ fn row(l: &Line, color: u32, user_id: Option<u64>) -> Message {
   if !l.game.is_empty() {
     tail.push(Seg { text: l.game.clone(), ink: theme::WHITE, bold: false });
   }
-  m.x = Some(Box::new(Extra { tail: tail.into(), edge: ink, late: l.color.is_none(), ..Extra::default() }));
+  let opens = l.tone == Tone::Online;
+  m.x = Some(Box::new(Extra { tail: tail.into(), edge: ink, late: l.color.is_none(), opens, ..Extra::default() }));
   m
 }
 

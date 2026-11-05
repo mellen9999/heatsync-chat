@@ -61,7 +61,10 @@ pub static KEYS: [Group; 13] = [
   Group {
     name: "chat",
     rows: &[
-      k("click", "pick a line; a reply's ↳ line opens its thread"),
+      k(
+        "click",
+        "pick a line; a reply's ↳ line opens its thread; a went-live line opens that channel (its tab, else a temporary one)",
+      ),
       k("right-click", "line menu: reply, copy, note, mute, block, mod, pin"),
       k("ctrl-f", "search this tab"),
       k("ctrl-g", "next match (shift: previous)"),

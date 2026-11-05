@@ -4,7 +4,7 @@ use super::layout::layout_row;
 use super::{ChatView, EmoteHit, Laid, Layer, MARK_W, Mentioned, WhoHit, room};
 use crate::emotes::resolve::find_word;
 use crate::images::ImgId;
-use crate::model::message::Message;
+use crate::model::message::{Message, Platform};
 use crate::ui::canvas::Rect;
 use crate::ui::res::Res;
 use crate::ui::text::TextLayout;
@@ -53,6 +53,23 @@ impl ChatView {
       bottom = top;
     }
     false
+  }
+
+  // the went-live line under y (a click there opens its channel): its platform and channel
+  pub fn opens_at(&mut self, area: Rect, y: i32, res: &mut Res) -> Option<(Platform, Box<str>)> {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        break;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        let m = &self.rows[i].msg;
+        return m.x.as_ref().filter(|x| x.opens).map(|_| (m.platform, m.login.clone()));
+      }
+      bottom = top;
+    }
+    None
   }
 
   // the emote under (x, y), as drawn last. badges and plain text are not emotes

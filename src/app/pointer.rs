@@ -95,6 +95,7 @@ impl App {
       || self.tag_press()
       || self.emote_press(false)
       || self.name_press()
+      || self.went_live_press()
       || self.reply_press()
     {
       return;

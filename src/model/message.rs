@@ -113,6 +113,8 @@ pub struct Extra {
   // the line it answers and the first line of its chain (model::chain); empty = none
   pub parent: Box<str>,
   pub root: Box<str>,
+  // a went-live line: a click or enter on it opens its channel (its tab, else the temp tab)
+  pub opens: bool,
 }
 
 // one picture (a video's still) and the video it plays
