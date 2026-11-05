@@ -1185,6 +1185,30 @@ fn a_gap_fill_keeps_the_picked_line_and_the_cap() {
 }
 
 #[test]
+fn a_merged_tabs_history_interleaves_by_time_whatever_order_it_lands_in() {
+  let mut v = ChatView::new(50, "c".into());
+  v.push(at("live", 100));
+  // youtube's history answers first, then twitch's: before, twitch's stacked on top of youtube's
+  v.prepend(vec![at("y1", 15), at("y2", 35), at("y3", 55)]);
+  v.prepend(vec![at("t1", 10), at("t2", 30), at("t3", 50), at("y2", 35)]);
+  assert_eq!(ids(&v), ["t1", "y1", "t2", "y2", "t3", "y3", "live"], "time order, the repeat skipped");
+  let seqs: Vec<i64> = v.rows.iter().map(|r| r.seq).collect();
+  assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
+  v.push(at("next", 101));
+  assert_eq!(v.rows.back().unwrap().seq, seqs[6] + 1);
+}
+
+#[test]
+fn plain_history_keeps_the_numbers_of_the_lines_already_shown() {
+  let mut v = ChatView::new(50, "c".into());
+  v.push(at("l1", 10));
+  let seq = v.rows[0].seq;
+  v.prepend(vec![at("h1", 1), at("h2", 2)]);
+  assert_eq!(ids(&v), ["h1", "h2", "l1"]);
+  assert_eq!(v.rows[2].seq, seq, "a popup holding l1's number still finds it");
+}
+
+#[test]
 fn history_then_live_lines_can_be_picked() {
   let mut res = Res::new(1.0);
   let mut v = ChatView::new(50, "c".into());

@@ -350,22 +350,13 @@ impl ChatView {
     self.pending += 1;
   }
 
-  // history arrives after live lines may already be showing: slot it in front, skip dupes
+  // history arrives after live lines may already be showing, and a merged tab gets one batch per platform:
+  // each line goes where its time puts it, so twitch, kick and youtube history interleave instead of
+  // stacking in arrival order. a line we already have (same id) is skipped
   pub fn prepend(&mut self, history: Vec<Message>) {
     let have: HashSet<&str> = self.rows.iter().map(|r| &*r.msg.id).filter(|id| !id.is_empty()).collect();
-    let room = self.cap.saturating_sub(self.rows.len());
     let fresh: Vec<Message> = history.into_iter().filter(|m| m.id.is_empty() || !have.contains(&*m.id)).collect();
-    let skip = fresh.len().saturating_sub(room);
-    // seq is one unbroken run (index_of counts on it): history takes the numbers just before the oldest
-    // line, or just before the next live one when there is none yet
-    let mut front = self.rows.front().map_or(self.seq_back + 1, |r| r.seq);
-    for msg in fresh.into_iter().skip(skip).rev() {
-      front -= 1;
-      let miss = self.missed(&msg);
-      self.rows.push_front(Row { seq: front, msg, height: 0, laid: None, look: 0, miss });
-    }
-    self.refilter();
-    self.stale = true;
+    self.slot_in(fresh);
   }
 
   // lines that landed while the feed was down, fetched once it was back: each goes where its time puts it
@@ -374,40 +365,58 @@ impl ChatView {
   pub fn fill_gap(&mut self, msgs: Vec<Message>) -> usize {
     let mut have: HashSet<Box<str>> = self.rows.iter().map(|r| r.msg.id.clone()).filter(|id| !id.is_empty()).collect();
     let oldest = self.rows.front().map(|r| r.msg.ts);
-    let mut fresh: Vec<Message> = msgs
+    let fresh: Vec<Message> = msgs
       .into_iter()
       .filter(|m| !m.id.is_empty() && oldest.is_none_or(|t| m.ts >= t) && have.insert(m.id.clone()))
+      .map(|mut m| {
+        m.flags |= flag::HISTORY;
+        m
+      })
       .collect();
+    let n = fresh.len();
+    self.slot_in(fresh);
+    n
+  }
+
+  // merge lines from earlier in time into the rows by timestamp (one pass; a line goes in front of the first
+  // row newer than it). seq stays one unbroken run (index_of counts on it): when every new line is older
+  // than every row (plain history) the rows keep their numbers, else the ones after a slotted-in line move
+  // up. over the cap, the oldest go
+  fn slot_in(&mut self, mut fresh: Vec<Message>) {
     if fresh.is_empty() {
-      return 0;
+      return;
     }
     fresh.sort_by_key(|m| m.ts);
-    let n = fresh.len();
-    // the picked line is followed by position through the shuffle
-    let mut picked = self.selected.and_then(|s| self.index_of(s));
-    let base = self.rows.front().map_or(0, |r| r.seq);
-    for mut msg in fresh {
-      msg.flags |= flag::HISTORY;
-      let at = self.rows.iter().rposition(|r| r.msg.ts <= msg.ts).map_or(0, |i| i + 1);
-      let miss = self.missed(&msg);
-      self.rows.insert(at, Row { seq: 0, msg, height: 0, laid: None, look: 0, miss });
-      if let Some(p) = picked.as_mut().filter(|p| at <= **p) {
-        *p += 1;
+    let base = self.rows.front().map_or(self.seq_back + 1, |r| r.seq) - fresh.len() as i64;
+    let picked = self.selected;
+    let old = std::mem::take(&mut self.rows);
+    let mut rows = VecDeque::with_capacity(old.len() + fresh.len());
+    let mut fresh = fresh.into_iter().peekable();
+    let mut moved = None;
+    for r in old {
+      while let Some(m) = fresh.next_if(|m| m.ts < r.msg.ts) {
+        let miss = self.missed(&m);
+        rows.push_back(Row { seq: 0, msg: m, height: 0, laid: None, look: 0, miss });
       }
+      if picked == Some(r.seq) {
+        moved = Some(rows.len());
+      }
+      rows.push_back(r);
     }
-    while self.rows.len() > self.cap {
-      self.rows.pop_front();
-      picked = picked.and_then(|p| p.checked_sub(1));
+    for m in fresh {
+      let miss = self.missed(&m);
+      rows.push_back(Row { seq: 0, msg: m, height: 0, laid: None, look: 0, miss });
     }
-    // seq stays one run (the lookups count on it), so the rows after a slotted-in line move up by one
-    for (i, r) in self.rows.iter_mut().enumerate() {
-      r.seq = base + i as i64;
+    let drop = rows.len().saturating_sub(self.cap);
+    rows.drain(..drop);
+    for (i, r) in rows.iter_mut().enumerate() {
+      r.seq = base + (drop + i) as i64;
     }
-    self.seq_back = base + self.rows.len() as i64 - 1;
-    self.selected = picked.map(|p| base + p as i64);
+    self.seq_back = base + (drop + rows.len()) as i64 - 1;
+    self.selected = moved.and_then(|p| p.checked_sub(drop)).map(|p| base + (drop + p) as i64);
+    self.rows = rows;
     self.refilter();
     self.stale = true;
-    n
   }
 
   // the search says this line is not one of its matches
