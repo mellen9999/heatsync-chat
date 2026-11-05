@@ -37,15 +37,19 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - `?` shows every key, `ctrl-,` opens settings (or click ⚙)
 - `ctrl-f` searches the tab, `tab` completes emotes and names (7tv, bttv and ffz too: `nyan` or `:nyan`)
 - `/vi` turns on vim keys (`j`/`k`, `gg`/`G`, `gt`/`gT`)
+- `ctrl-b` shows who you follow that's live, `ctrl-p` your heatsync emotes (rename, reorder, remove, share)
+- `ctrl-n` picks which feeds a merged tab sends to (all of them by default)
 - `/sharelayout` (or `/sl`) copies your tabs as a `heatsync.org/m/…` link, `/layout <link>` opens someone else's
 
 ## what's in it
 
-- twitch, kick and youtube in one tab or many, plus feed, whispers and mentions tabs
+- twitch, kick and youtube in one tab or many, plus feed, whispers, mentions and notifs tabs. a merged tab sends one line to all its feeds at once
 - heatsync emotes: a word shows as someone's heatsync emote only if *they* own it. 7tv, bttv, ffz and native emotes, overlay (zero-width) emotes, animated
-- heatsync paints, badges and name colors, live
+- heatsync paints, badges and name colors, live. bttv badges, sub flair and heat bars
 - emote picker, gif search, picture and video upload (pictures lose their hidden location and camera data first)
-- replies, pins, predictions, polls, went-live lines, mod actions, mention highlights + desktop notification + sound
+- replies, pins, predictions, polls, subs, raids, cheers and redeems, mod actions on twitch and kick, mention highlights + desktop notification + sound
+- went-live lines (+ a desktop notification), and who you follow that's live
+- the message box says when you're timed out or banned and for how long, and marks text past the limit red
 - links open in your browser, video links in mpv if you have it
 - settings, presets and keys match the extension's
 

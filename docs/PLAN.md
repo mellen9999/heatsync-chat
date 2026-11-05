@@ -29,12 +29,14 @@ src/
   main.rs      boot, args, winit loop, ui⇄net channels (EventLoopProxy wake)
   app.rs       the App: tabs, settings, wiring. app/ holds one file per concern
                (keys, pointer, render, layout, input, ime, net_events, tabs, complete, picker,
-               overlay = the one floating menu slot, card, feed, whispers, mentions, mods, pred, pin, update…)
+               overlay = the one floating menu slot, card, feed, whispers, mentions, notifs, following, inventory,
+               sendto, lock, jump, tabsync, mods, pred, pin, update…)
   ui/          canvas (own blitter), text (parley + glyph cache), chat_view/ (virtualized rows:
                layout, draw, hit), tab_bar, input_bar, picker, card, menu, form, sheet,
                name_art/ (animated paints), theme (ansi 0-7 + the few named extras, nowhere else)
   model/       message, chan + ident (channel/login rules), schema (THE settings table),
-               keys (feeds the ? screen), slash, filters/automod/rules, feed, whisper, pred, layout_link…
+               keys (feeds the ? screen), slash, filters/automod/rules, feed, whisper, inbox, following,
+               inventory, sendto, lock, origin, tabsync, pred, layout_link…
   emotes/      resolve.rs (THE render chokepoint: privacy invariant), providers (7tv/bttv/ffz/twitch/kick),
                live (7tv EventAPI), block
   heatsync/    senders (each chatter's own set + ownership window), late_refs, content gates
@@ -67,7 +69,12 @@ src/
 ## skipped (named, not hidden)
 - lost natively (need twitch web-session integrity tokens): prediction/poll voting, channel-point redeems + auto-claim, follow/unfollow, highlighted messages, resub share — read-only banners for predictions/polls only if eventsub allows, else skipped
 - browser-only: overlay positioning, player volume, title flash, noise-hide css, yt layout toggles
+- youtube moderation: heatsync has no youtube mod endpoint, so youtube lines get no mod menu
 - i18n 35 langs: english first, string table structured for later (ext strings reusable)
+
+## added beyond the ext (named, not hidden)
+- the message box says why you can't chat (timed out with the time left, banned, a room mode) and holds the send while timed out. the ext only toasts
+- a followed-live screen (ctrl-b) and a notifs tab with rows, built on the data the ext only shows as a list item or a badge count
 
 ## milestones (each ships complete + verified)
 1. **skeleton + render gate** — window, text w/ fallback, scroll-blit, fake 10k-msg flood. GATE: RSS <20MB, flood redraw <2ms/frame on heatlaptop; if parley/softbuffer misses, swap before building on it
