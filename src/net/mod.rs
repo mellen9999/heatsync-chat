@@ -9,6 +9,7 @@ mod clip;
 mod cosmetics;
 pub mod dupe;
 pub mod emote_ops;
+pub mod following;
 pub mod held;
 pub mod hs_ws;
 pub mod http;
@@ -290,6 +291,11 @@ pub enum NetEvent {
   },
   // a #tag's hover card: Ok(None) = heatsync doesn't know it, Err = no answer
   TagCard(Box<str>, Result<Option<crate::model::tagcard::Card>, ()>),
+  // who you follow is live: the full answer from heatsync, the socket's catch-up on sign-in (adds only),
+  // and one go-live / game switch / sign-off of a followed channel
+  Following(Result<Vec<crate::model::following::Live>, following::Fail>),
+  FollowSnapshot(Vec<crate::model::following::Live>),
+  FollowChange(crate::model::following::Change),
   // a room's blocked terms answered (by twitch room id)
   Blocked {
     room: Box<str>,
@@ -427,6 +433,8 @@ pub enum Cmd {
   Held(held::Cmd),
   // a #tag's hover card (signed in: whether you follow it)
   TagCard(Box<str>),
+  // who you follow that is live (heatsync)
+  Following,
   // a room's blocked terms (by twitch room id): list, add, remove
   Blocked(Box<str>, blocked::Op),
   // set a twitch room's chat mode (by login)
@@ -907,6 +915,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::TagCard(tag) => {
         let _ = sess_tx.send(session::Cmd::TagCard(tag));
+      }
+      Cmd::Following => {
+        let _ = sess_tx.send(session::Cmd::Following);
       }
       Cmd::Blocked(room, op) => {
         let _ = sess_tx.send(session::Cmd::Blocked(room, op));

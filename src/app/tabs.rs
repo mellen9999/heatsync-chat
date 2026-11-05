@@ -152,7 +152,7 @@ pub(super) fn edit_line(l: &mut crate::model::line::Line, key: &Key<&str>, ctrl:
 
 impl App {
   // every other real tab's feeds (the tab being edited, if any, is left out)
-  fn other_specs(&self, skip: Option<usize>) -> Vec<Spec> {
+  pub(super) fn other_specs(&self, skip: Option<usize>) -> Vec<Spec> {
     (0..self.tabs.len())
       .filter(|&i| Some(i) != skip && !self.tabs[i].sources.is_empty())
       .map(|i| spec_of(&self.tabs[i]))
@@ -227,7 +227,7 @@ impl App {
     self.activate(self.active);
   }
 
-  fn add_tab(&mut self, spec: &Spec) {
+  pub(super) fn add_tab(&mut self, spec: &Spec) {
     let mut tab = make_tab(&self.net, spec);
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);

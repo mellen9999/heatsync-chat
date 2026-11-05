@@ -13,6 +13,7 @@ pub mod feed;
 pub mod filter;
 pub mod filtercmd;
 pub mod find;
+pub mod following;
 pub mod frecency;
 pub mod gifs;
 pub mod held;

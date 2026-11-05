@@ -273,6 +273,11 @@ impl App {
       NetEvent::HeldWatched { chan, res } => self.on_held_watched(chan, res),
       NetEvent::HeldActed { chan, id, allow, res } => self.on_held_acted(chan, id, allow, res),
       NetEvent::Blocked { room, res } => self.on_blocked(room, res),
+      // an answer that outlived its login must not show the next one
+      NetEvent::Following(_) | NetEvent::FollowSnapshot(_) | NetEvent::FollowChange(_) if self.me.is_none() => {}
+      NetEvent::Following(res) => self.on_following(res),
+      NetEvent::FollowSnapshot(rows) => self.on_follow_snapshot(rows),
+      NetEvent::FollowChange(c) => self.on_follow_change(c),
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
       NetEvent::StreamInfo { chan, info } => self.on_stream_info(chan, info),
       NetEvent::Pred { chan, res } => self.on_pred(chan, res),
@@ -418,6 +423,7 @@ impl App {
           self.mod_in.clear();
           self.kick_mod.clear();
           self.held = Default::default();
+          self.following_reset();
           self.relayout_where(None);
         }
         self.me = me;
@@ -429,6 +435,9 @@ impl App {
           self.net.send(Cmd::Emote(crate::net::emote_ops::EmoteCmd::Subs));
           self.ui_state_fetch();
           self.tab_sync_ready();
+          if self.screen_is(super::screen::Page::Following) {
+            self.following_ask();
+          }
         } else {
           self.res.emotes.set_subs(Default::default());
         }

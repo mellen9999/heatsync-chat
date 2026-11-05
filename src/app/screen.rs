@@ -29,6 +29,8 @@ pub enum Page {
   Pred,
   // who you are logged in as (app::account)
   Account,
+  // who you follow is live (app::following)
+  Following,
 }
 
 pub struct Screen {
@@ -71,6 +73,8 @@ pub(super) enum Target {
   Unban(usize),
   // the account screen: log in, link, log out
   Account(super::account::Step),
+  // the following screen: a live person (their place in the list)
+  Live(usize),
   None,
 }
 
@@ -129,7 +133,7 @@ impl Screen {
       Page::Status => (self.shown.clone(), self.marks.clone()),
       Page::Pred => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
-      Page::Account => (self.shown.clone(), self.marks.clone()),
+      Page::Account | Page::Following => (self.shown.clone(), self.marks.clone()),
     }
   }
 
@@ -388,6 +392,7 @@ impl App {
       Some(Page::Blocked) => self.blocked_key(&key, text),
       Some(Page::ModTools) => self.tools_key(&key),
       Some(Page::Pred) => self.pred_key(&key),
+      Some(Page::Following) => self.following_key(&key),
       _ => false,
     };
     if spent {
@@ -436,7 +441,9 @@ impl App {
         Key::Character("g") => s.chord = true,
         Key::Named(NamedKey::Home) => s.st.first(&lines),
         Key::Character("G") | Key::Named(NamedKey::End) => s.st.last(&lines),
-        Key::Character("/") if matches!(s.page, Page::Settings | Page::Blocked | Page::ModTools) => s.typing = true,
+        Key::Character("/") if matches!(s.page, Page::Settings | Page::Blocked | Page::ModTools | Page::Following) => {
+          s.typing = true
+        }
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
         Key::Character("?") => act = Do::Settings,
         Key::Named(NamedKey::Enter | NamedKey::Space) if !ctrl => act = Do::Toggle,
@@ -497,6 +504,7 @@ impl App {
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
       (Some(Target::Account(step)), None) => self.account_step(step),
+      (Some(Target::Live(i)), None) => self.following_pick(i),
       (Some(t @ (Target::Allow | Target::Retry | Target::Shield | Target::Level(_) | Target::Unban(_))), _)
         if s.page == Page::ModTools =>
       {
@@ -541,6 +549,7 @@ impl App {
 
   pub(super) fn draw_screen(&mut self) -> Option<Rect> {
     self.account_refresh();
+    self.following_refresh();
     self.summary_refresh();
     self.status_refresh();
     let area = self.chat_area();
@@ -554,8 +563,14 @@ impl App {
       Some(Target::Def(d)) => d.tip,
       Some(Target::Preset(p)) => p.tip,
       Some(Target::Account(step)) => step.tip(),
+      _ if s.page == Page::Following => self.following.tip(match targets.get(s.st.at) {
+        Some(Target::Live(i)) => Some(*i),
+        _ => None,
+      }),
       _ => "",
     };
+    let shown = s.marks.iter().filter(|t| matches!(t, Target::Live(_))).count();
+    let fol_title = self.following.title(self.me.is_some(), !s.q.text.trim().is_empty(), shown);
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
     let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
     let keys_title = format!("keys · heatsync-chat {}", env!("CARGO_PKG_VERSION"));
@@ -588,6 +603,15 @@ impl App {
       ),
       (Page::Pred, _) => (s.title.as_str(), None, "read only · j k scroll · r refresh · esc closes"),
       (Page::Account, _) => ("account", None, "j k move · enter picks · esc closes"),
+      (Page::Following, _) => (
+        fol_title.as_str(),
+        Some((s.q.text.as_str(), s.typing, "/ filter", "/ ")),
+        if s.typing {
+          "type to filter · enter or esc stops"
+        } else {
+          "j k move · enter opens a tab · w watches · r refreshes · / filter · esc closes"
+        },
+      ),
       (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
       (Page::ModTools, _) => (
         mt_title.as_str(),

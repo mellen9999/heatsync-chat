@@ -42,6 +42,7 @@ pub static KEYS: [Group; 12] = [
       k("ctrl-shift-l", "log out"),
       k("/login /logout", "like ctrl-l and ctrl-shift-l"),
       k("/account", "who you're logged in as · log out"),
+      k("ctrl-b", "who you follow is live: enter opens a tab, w watches (also /following, /live)"),
       k("ctrl-o", "upload a picture or video"),
       k("ctrl-;", "emote picker"),
       k("ctrl-v", "paste text or a picture"),

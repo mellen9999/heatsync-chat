@@ -460,6 +460,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       // the name as they write it, only when it is their channel key in other letters
       let name = text("displayName");
       let name = if name.eq_ignore_ascii_case(&channel) { name } else { "".into() };
+      // the followed list hears every sign-on, switch and sign-off of a channel you follow, ahead of the
+      // chat lines' own gates (which may hold or drop the line)
+      if followed
+        && let Some(c) = crate::model::following::Change::from_frame(kind, v)
+        && let Some(end) = send(NetEvent::FollowChange(c))
+      {
+        return Some(end);
+      }
       let color = v.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
       let ev = Ev { kind, platform, channel, game: text("game"), prev_game: text("prevGame"), name, color };
       st.gate.event(crate::util::time::now_ms(), ev).and_then(|l| send(NetEvent::Stream(l)))
@@ -486,6 +494,11 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     // pushed only to your own sockets: a line you sent from heatsync.org
     "chat:origin_broadcast" => crate::model::origin::text(v).and_then(|t| send(NetEvent::Origin(t))),
+    // once after sign-in: who you follow is live, from the server's cache (nothing when it is cold)
+    "follow:live:snapshot" => {
+      let rows = crate::model::following::parse(v.get("streams"));
+      (!rows.is_empty()).then(|| send(NetEvent::FollowSnapshot(rows))).flatten()
+    }
     "follow:colors" => {
       let colors = stream_events::follow_colors(v);
       (!colors.is_empty()).then(|| send(NetEvent::FollowColors(colors))).flatten()
@@ -574,6 +587,9 @@ mod tests {
     st.gate.start(0);
     let v = json!({"type": "follow:stream:online", "platform": "twitch", "channel": "Ennortix", "game": "Chess", "title": "x"});
     assert!(dispatch(&v, &mut st, &out).is_none());
+    // the followed list hears it first, then the chat gets its line
+    let Ok(NetEvent::FollowChange(c)) = rx.try_recv() else { panic!("no list change") };
+    assert_eq!((&*c.key, &*c.game, &*c.name), ("ennortix", "Chess", ""));
     let Ok(NetEvent::Stream(l)) = rx.try_recv() else { panic!("no line") };
     assert_eq!((&*l.channel, &*l.text), ("ennortix", "[ennortix] ◆ went live — Chess"));
     // the room reporting the same go-live is the same line: not shown twice
@@ -581,6 +597,36 @@ mod tests {
     let room = json!({"type": "stream:online", "platform": "twitch", "channel": "ennortix", "game": "Chess"});
     dispatch(&room, &mut st, &out);
     assert!(rx.try_recv().is_err());
+  }
+
+  // the plain `stream:*` of a room is no follow: the list ignores it. the snapshot is bounded and checked
+  #[test]
+  fn the_followed_list_hears_follow_frames_and_the_snapshot_only() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    st.gate.start(0);
+    apply(&mut st, Cmd::Join(Platform::Twitch, "ennortix".into()));
+    let room = json!({"type": "stream:online", "platform": "twitch", "channel": "ennortix", "game": "Chess"});
+    dispatch(&room, &mut st, &out);
+    assert!(!rx.try_iter().any(|e| matches!(e, NetEvent::FollowChange(_))), "a room's own news is not a follow");
+    for bad in [json!({"platform": "twitch", "channel": "a b"}), json!({"platform": "youtube", "channel": "x"})] {
+      let mut v = bad;
+      v["type"] = json!("follow:stream:offline");
+      dispatch(&v, &mut st, &out);
+    }
+    assert!(rx.try_iter().next().is_none(), "junk makes nothing");
+    let many: Vec<_> =
+      (0..2000).map(|i| json!({"platform": "twitch", "username": format!("u{i}"), "viewerCount": i})).collect();
+    dispatch(&json!({"type": "follow:live:snapshot", "streams": many}), &mut st, &out);
+    let Ok(NetEvent::FollowSnapshot(rows)) = rx.try_recv() else { panic!("no snapshot") };
+    assert_eq!(rows.len(), crate::model::following::MAX_ROWS);
+    for junk in
+      [json!({"type": "follow:live:snapshot"}), json!({"type": "follow:live:snapshot", "streams": [1, "x", null]})]
+    {
+      dispatch(&junk, &mut st, &out);
+    }
+    assert!(rx.try_recv().is_err(), "no rows, no event");
   }
 
   // kick-moderation: a timeout carries its length, a ban none; a junk name is no removal

@@ -26,6 +26,7 @@ mod feed;
 mod filters;
 mod find;
 mod follow;
+mod following;
 mod gifs;
 mod held;
 mod ime;
@@ -223,6 +224,8 @@ pub struct App {
   tag: tagcard::TagUi,
   // automod holds in rooms we moderate
   held: held::Queue,
+  // who you follow that is live (following.rs)
+  following: following::Following,
   notes: crate::model::notes::Notes,
   occluded: bool,
   damage: render::Damage,
@@ -426,6 +429,7 @@ impl App {
       pronouns: Default::default(),
       tag: Default::default(),
       held: Default::default(),
+      following: Default::default(),
       notes: crate::model::notes::Notes::load(),
       occluded: false,
       damage: Default::default(),
@@ -772,6 +776,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.pred_due(now).is_some_and(|t| t <= now) {
       self.pred_tick(now);
     }
+    if self.following_due().is_some_and(|t| t <= now) {
+      self.following_tick(now);
+    }
     self.ui_state_tick();
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
@@ -792,6 +799,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.flash_due,
       self.held.due(),
       self.ui_state_due(),
+      self.following_due(),
       self.pred_due(now),
       self.pred_bar.sec.filter(|_| !self.occluded),
       self.lock_sec.filter(|_| !self.occluded),

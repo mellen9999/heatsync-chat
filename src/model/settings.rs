@@ -470,6 +470,8 @@ pub enum Local {
   Login(String),
   Logout,
   Account,
+  // /following, /live: who you follow that is live
+  Following,
   // /blocked: the twitch room's blocked terms
   Blocked,
   // /summary: the tab's stream stats
@@ -549,6 +551,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/keys" | "/help" => Some(Local::Keys),
     "/logout" => Some(Local::Logout),
     "/account" => Some(Local::Account),
+    "/following" | "/live" => Some(Local::Following),
     "/lclear" => Some(Local::Lclear),
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
@@ -816,6 +819,8 @@ mod tests {
     assert_eq!(local_cmd("/login  Kick "), Some(Local::Login("kick".into())));
     assert_eq!(local_cmd("/logout"), Some(Local::Logout));
     assert_eq!(local_cmd("/ACCOUNT"), Some(Local::Account));
+    assert_eq!(local_cmd("/Following"), Some(Local::Following));
+    assert_eq!(local_cmd("/live"), Some(Local::Following));
     // every switch in the table answers to its own command
     for d in &schema::DEFS {
       if let (Some(c), Ctl::Pill(..)) = (d.cmd, d.ctl) {

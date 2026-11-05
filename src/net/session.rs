@@ -59,6 +59,7 @@ pub enum Cmd {
   Social(super::social::Cmd),
   Mod(super::modact::Req),
   Held(super::held::Cmd),
+  Following,
   Blocked(Box<str>, super::blocked::Op),
   Modes(Box<str>, crate::model::modes::Set),
   StreamInfo(Box<str>),
@@ -188,6 +189,9 @@ pub async fn run(
         }
         Some(Cmd::TagCard(tag)) => {
           tokio::spawn(super::tag_card(st.http.clone(), st.token.clone(), tag, st.out.clone()));
+        }
+        Some(Cmd::Following) => {
+          tokio::spawn(super::following::run(st.http.clone(), st.token.clone(), st.out.clone()));
         }
         Some(Cmd::Blocked(room, op)) => {
           tokio::spawn(super::blocked::run(st.http.clone(), st.token.clone(), room, op, st.out.clone()));

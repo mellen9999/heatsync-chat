@@ -145,6 +145,9 @@ impl App {
     if self.mods.control_key() && k == Key::Character(",") {
       return self.toggle_screen(screen::Page::Settings);
     }
+    if self.mods.control_key() && k == Key::Character("b") {
+      return self.toggle_following();
+    }
     if k == Key::Named(NamedKey::F1) {
       return self.toggle_screen(screen::Page::Keys);
     }
