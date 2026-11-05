@@ -234,6 +234,7 @@ impl App {
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
+    self.live_soon();
   }
 
   pub(super) fn add_tab(&mut self, spec: &Spec) {
@@ -250,6 +251,7 @@ impl App {
       }
     }
     seat_hosts(&mut self.res.chatters, &new);
+    self.live_soon();
     let old = std::mem::replace(&mut self.tabs[i].sources, new.clone());
     let w = self.body().w;
     let t = &mut self.tabs[i];

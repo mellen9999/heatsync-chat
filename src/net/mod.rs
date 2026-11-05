@@ -17,6 +17,7 @@ pub mod import;
 pub mod inventory;
 pub mod irc;
 mod links;
+mod live_dots;
 pub mod marks;
 pub mod modact;
 pub mod modes;
@@ -323,6 +324,11 @@ pub enum NetEvent {
   Following(Result<Vec<crate::model::following::Live>, following::Fail>),
   // your twitch follows for /import
   Import(Result<import::Got, import::Fail>),
+  // one live-status answer: per platform, the channels asked and who of them is live (None: no answer)
+  LiveDots {
+    twitch: (crate::model::live_dots::Names, Option<crate::model::live_dots::Names>),
+    kick: (crate::model::live_dots::Names, Option<crate::model::live_dots::Names>),
+  },
   FollowSnapshot(Vec<crate::model::following::Live>),
   FollowChange(crate::model::following::Change),
   // a room's blocked terms answered (by twitch room id)
@@ -466,6 +472,8 @@ pub enum Cmd {
   Following,
   // your twitch follows, the live ones marked (heatsync): /import
   Import,
+  // is each of these open twitch / kick channels live (the tab's red dot)
+  LiveDots(Vec<Box<str>>, Vec<Box<str>>),
   // a room's blocked terms (by twitch room id): list, add, remove
   Blocked(Box<str>, blocked::Op),
   // set a twitch room's chat mode (by login)
@@ -971,6 +979,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Import => {
         let _ = sess_tx.send(session::Cmd::Import);
+      }
+      Cmd::LiveDots(twitch, kick) => {
+        tokio::spawn(live_dots::ask(http.clone(), twitch, kick, out.clone()));
       }
       Cmd::Blocked(room, op) => {
         let _ = sess_tx.send(session::Cmd::Blocked(room, op));

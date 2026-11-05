@@ -27,6 +27,7 @@ pub mod keys;
 pub mod layout_link;
 pub mod line;
 pub mod links;
+pub mod live_dots;
 pub mod lock;
 pub mod logs;
 pub mod mention;

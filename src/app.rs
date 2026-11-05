@@ -40,6 +40,7 @@ mod jump;
 mod keys;
 mod layout;
 mod link;
+mod live_dots;
 mod lock;
 mod logs;
 mod media_peek;
@@ -211,6 +212,9 @@ pub struct App {
   modes_busy: bool,
   // twitch channels whose history just loaded, asked whether they are live and since when (stream.rs)
   live_asked: std::collections::HashSet<Box<str>>,
+  // which open channels are live (the tab's red dot), and when to ask again
+  live: crate::model::live_dots::Live,
+  live_due: Option<Instant>,
   // when the soonest timed mute ends
   mute_due: Option<Instant>,
   next_anim: Option<Instant>,
@@ -438,6 +442,8 @@ impl App {
       kick_mod: Default::default(),
       modes: Default::default(),
       live_asked: Default::default(),
+      live: Default::default(),
+      live_due: Some(Instant::now() + std::time::Duration::from_secs(2)),
       modes_busy: false,
       mute_due,
       next_anim: None,
@@ -822,6 +828,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.following_due().is_some_and(|t| t <= now) {
       self.following_tick(now);
     }
+    if self.live_due().is_some_and(|t| t <= now) {
+      self.live_tick(now);
+    }
     self.ui_state_tick();
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
@@ -845,6 +854,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.held.due(),
       self.ui_state_due(),
       self.following_due(),
+      self.live_due(),
       self.pred_due(now),
       self.pred_bar.sec.filter(|_| !self.occluded),
       self.lock_sec.filter(|_| !self.occluded),

@@ -116,6 +116,7 @@ impl App {
   pub(super) fn on_stream(&mut self, l: Line) {
     if matches!(l.tone, Tone::Online | Tone::Offline) {
       self.stats_stream(l.platform, &l.channel, l.tone == Tone::Online);
+      self.live_mark(l.platform, &l.channel, l.tone == Tone::Online);
     }
     let shown = match l.tone {
       Tone::Online => self.set.ev_online,

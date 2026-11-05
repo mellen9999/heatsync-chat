@@ -702,3 +702,60 @@ fn headless_tab_sync() {
   push(&mut app, json!({"type": "multichat:config", "rev": 9, "channels": []}));
   assert_eq!(names(&app), ["xqc", "kick:trainwreckstv"]);
 }
+
+// a live channel's tab carries a red dot (ext data-live): the poll asks for the open twitch and kick
+// channels, its answer and the socket's go-live / sign-off move the dot, a failed answer keeps it.
+// HSC_DUMP=x.ppm writes the frame
+#[test]
+fn headless_live_tab_has_a_red_dot() {
+  use crate::model::stream_events::{Line, Tone};
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into(), "xqc kick:xqc".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(720, 300);
+  let tab = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
+  let (forsen, xqc) = (tab(&app, "forsen"), tab(&app, "xqc"));
+  app.live_tick(Instant::now());
+  let ask = std::iter::from_fn(|| asked.try_recv().ok()).find_map(|c| match c {
+    Cmd::LiveDots(t, k) => Some((t, k)),
+    _ => None,
+  });
+  let (tw, kk) = ask.expect("asked");
+  assert_eq!(tw, vec![Box::<str>::from("forsen"), "xqc".into()]);
+  assert_eq!(kk, vec![Box::<str>::from("xqc")]);
+  // red pixels inside a tab's rect, in the tab bar
+  let red = |app: &mut App, i: usize| {
+    app.bar_dirty = true;
+    app.redraw();
+    let at = (0..app.tabs.len()).filter(|&j| app.visible(j)).position(|j| j == i).unwrap();
+    let r = app.bar_hits[at];
+    (r.y..r.bottom())
+      .flat_map(|y| (r.x..r.right()).map(move |x| (x, y)))
+      .filter(|&(x, y)| app.canvas.px[(y * app.canvas.w + x) as usize] & 0xffffff == crate::ui::theme::RED)
+      .count()
+  };
+  assert_eq!((red(&mut app, forsen), red(&mut app, xqc)), (0, 0));
+  // live on kick only: the merged tab lights
+  app.on_net(NetEvent::LiveDots { twitch: (tw.clone(), Some(vec![])), kick: (kk.clone(), Some(vec!["xqc".into()])) });
+  assert!(red(&mut app, xqc) > 4 && red(&mut app, forsen) == 0);
+  crate::bench::dump(&app.canvas);
+  // no answer: the dot stays
+  app.on_net(NetEvent::LiveDots { twitch: (tw.clone(), None), kick: (kk.clone(), None) });
+  assert!(red(&mut app, xqc) > 4);
+  // forsen goes live on the socket: now, not at the next poll; then signs off
+  let line = |tone| Line {
+    platform: Platform::Twitch,
+    channel: "forsen".into(),
+    text: "".into(),
+    tone,
+    name: "forsen".into(),
+    color: None,
+    verb: "◆ went live".into(),
+    game: "".into(),
+  };
+  app.on_stream(line(Tone::Online));
+  assert!(red(&mut app, forsen) > 4);
+  app.on_stream(line(Tone::Offline));
+  assert_eq!(red(&mut app, forsen), 0);
+}

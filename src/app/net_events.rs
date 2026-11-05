@@ -150,6 +150,8 @@ impl App {
       }
     }
     let tags = t.sources.len() > 1;
+    self.live_soon();
+    let t = &mut self.tabs[i];
     let v = t.chat();
     v.tags = tags;
     v.relayout();
@@ -287,6 +289,9 @@ impl App {
       NetEvent::Following(res) => self.on_following(res),
       NetEvent::Import(_) if self.me.is_none() => {}
       NetEvent::Import(res) => self.on_import(res),
+      NetEvent::LiveDots { twitch, kick } => {
+        self.on_live_dots([(Platform::Twitch, twitch.0, twitch.1), (Platform::Kick, kick.0, kick.1)])
+      }
       NetEvent::FollowSnapshot(rows) => self.on_follow_snapshot(rows),
       NetEvent::FollowChange(c) => self.on_follow_change(c),
       NetEvent::ModesDone { chan, set, res } => self.on_modes_done(chan, set, res),
@@ -589,6 +594,11 @@ impl App {
         self.mod_log(platform, &key, row.body.to_string());
       }
       NetEvent::YtStatus { key, status } => {
+        match &*status {
+          "connected" => self.live_mark(Platform::Youtube, &key, true),
+          "not-live" | "ended" | "chat-off" => self.live_mark(Platform::Youtube, &key, false),
+          _ => {}
+        }
         let line = match &*status {
           "not-live" => "youtube: not live right now",
           "ended" => "youtube: stream ended",

@@ -16,6 +16,8 @@ pub struct TabLabel<'a> {
   pub hot: u32,
   // tab mode's cursor is on it: underlined
   pub cursor: bool,
+  // its channel is live: a red dot in its top right corner (ext data-live)
+  pub live: bool,
 }
 
 // the buttons after the tabs: which is under the pointer (or open), and a newer version's label
@@ -51,6 +53,8 @@ pub fn draw(
   };
   let (mut x, mut y) = (inner.x, inner.y);
   let mut hits = Vec::with_capacity(tabs.len() + 3);
+  // the live dot: the ext's 8px at a 20px line, kept clear of the label by its own width
+  let d = (line * 2 / 5).max(4);
   let cell =
     |c: &mut Canvas, text: &mut Text, x: &mut i32, y: &mut i32, label: &str, ink: u32, bold: bool, on: bool| {
       let l = text.layout(
@@ -76,6 +80,20 @@ pub fn draw(
     let count = if t.count.is_empty() { String::new() } else { format!(" {}", t.count) };
     let label = if column { format!(" {}{count}", t.name) } else { format!(" {}{count} ", t.name) };
     let r = cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, t.active);
+    let r = if t.live && !column {
+      // a row tab grows by the dot; a column tab is full width already
+      let wide = Rect::new(r.x, r.y, r.w + d + 2, r.h);
+      if t.active {
+        c.fill(Rect::new(r.right(), r.y, d + 2, r.h).intersect(inner), theme::WHITE);
+      }
+      x += d + 2;
+      wide
+    } else {
+      r
+    };
+    if t.live {
+      dot(c, Rect::new(r.right() - d - 2, r.y + 2, d, d).intersect(inner), d, theme::RED);
+    }
     if t.cursor {
       let u = Rect::new(r.x + 2, r.bottom() - 2, (r.w - 4).max(1), 1);
       c.fill(u.intersect(inner), if t.active { theme::BLACK } else { theme::WHITE });
@@ -120,6 +138,19 @@ pub fn draw(
     put(text, &s, &spans, &mut x, &mut y);
   }
   hits
+}
+
+// a filled round status dot of diameter `d` at `r`'s corner (the one round shape the design allows)
+fn dot(c: &mut Canvas, r: Rect, d: i32, ink: u32) {
+  let rad = d as f32 / 2.0;
+  for y in 0..r.h.min(d) {
+    for x in 0..r.w.min(d) {
+      let (dx, dy) = (x as f32 + 0.5 - rad, y as f32 + 0.5 - rad);
+      if dx * dx + dy * dy <= rad * rad {
+        c.fill(Rect::new(r.x + x, r.y + y, 1, 1), ink);
+      }
+    }
+  }
 }
 
 // one glyph bold in the middle of `r` by its drawn pixels, not its font's line box. hover reverses it
