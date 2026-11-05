@@ -17,6 +17,8 @@ pub struct View<'a> {
   pub color: u32,
   // "he/they" beside the name (ext .hs-card-pronouns, dim); None = unknown or switched off
   pub pronouns: Option<&'a str>,
+  // the plus `+` after them, in its tenure color (ext .hs-plus-tenure); None = not a plus member
+  pub plus: Option<u32>,
   // dim words after the name ("esc closes"); empty = none
   pub hint: &'a str,
   // "[T] " style platform tag and its color
@@ -48,6 +50,10 @@ pub fn head(v: &View) -> (String, Vec<Span>) {
   if let Some(p) = v.pronouns {
     put(&mut s, " ", theme::WHITE, false);
     put(&mut s, p, theme::DIM, false);
+  }
+  if let Some(ink) = v.plus {
+    put(&mut s, " ", theme::WHITE, false);
+    put(&mut s, "+", ink, true);
   }
   put(&mut s, "  ", theme::WHITE, false);
   put(&mut s, v.tag.0.trim_end(), v.tag.1, true);
@@ -126,6 +132,7 @@ mod tests {
       nick: "bob",
       color: 0,
       pronouns: None,
+      plus: None,
       tag: ("[T] ", theme::TWITCH),
       rows: &[],
       note: None,
@@ -144,6 +151,7 @@ mod tests {
       nick: "bob",
       color: theme::GREEN,
       pronouns: Some("she/they"),
+      plus: None,
       tag: ("[T] ", theme::TWITCH),
       rows: &[],
       note: None,
@@ -155,6 +163,11 @@ mod tests {
     let p = spans.iter().find(|sp| &s[sp.range.clone()] == "she/they").expect("a span of its own");
     assert_eq!((p.ink.0, p.bold), (theme::DIM, false));
     assert!(head(&View { pronouns: None, ..v }).0.starts_with("bob  [T]\n"));
+    // a plus member: a bold `+` in their tenure color after the pronouns (ext card-render plusBadge)
+    let (s, spans) = head(&View { plus: Some(theme::DIM), ..v });
+    assert!(s.starts_with("bob she/they +  [T]\n"), "{s:?}");
+    let p = spans.iter().find(|sp| &s[sp.range.clone()] == "+").expect("a span of its own");
+    assert_eq!((p.ink.0, p.bold), (theme::DIM, true));
   }
 
   #[test]
@@ -169,6 +182,7 @@ mod tests {
       nick: "Bob",
       color: theme::GREEN,
       pronouns: Some("he/they"),
+      plus: None,
       tag: ("[T] ", theme::TWITCH),
       rows: &rows,
       note: None,

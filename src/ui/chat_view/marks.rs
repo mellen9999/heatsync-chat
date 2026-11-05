@@ -3,6 +3,8 @@
 // draws it. a line with none of them adds nothing to the text and allocates nothing
 use super::EmoteBox;
 use super::layout::{gap, push_badge};
+use crate::cosmetics::id::PaintId;
+use crate::cosmetics::plus as tenure;
 use crate::heatsync::marks::wear;
 use crate::model::message::{Message, Platform};
 use crate::ui::res::Res;
@@ -45,4 +47,15 @@ pub(super) fn marks(
     spans.push(Span { range: a..s.len(), ink: Ink(bar.ink), bold: false });
     ib.push(gap(s.len(), res.images.px(3)));
   }
+}
+
+// the plus `+` after a name (ext .hs-plus-tenure: bold, 4px before it, 2px after), on a sender and on a
+// reply's parent, never on an @name in the words. its color is the tenure
+pub(super) fn plus(res: &mut Res, uid: &PaintId, s: &mut String, spans: &mut Vec<Span>, ib: &mut Vec<InlineBox>) {
+  let Some(since) = res.cosmetics.plus(uid) else { return };
+  ib.push(gap(s.len(), res.images.px(4)));
+  let a = s.len();
+  s.push('+');
+  spans.push(Span { range: a..s.len(), ink: Ink(tenure::ink(since, crate::util::time::now_ms())), bold: true });
+  ib.push(gap(s.len(), res.images.px(2)));
 }

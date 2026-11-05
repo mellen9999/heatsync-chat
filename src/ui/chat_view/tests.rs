@@ -1611,3 +1611,44 @@ fn a_heat_answer_lays_out_only_that_chatters_lines_again() {
   v.draw(&mut c, &mut res, area, area);
   assert_eq!(bars(&v), [BAR_W, 0, BAR_W]);
 }
+
+#[test]
+fn a_plus_member_has_a_tenure_plus_after_the_name_and_never_beside_an_at_name() {
+  use crate::cosmetics::{Cosmetic, id::PaintId};
+  let mut res = Res::new(1.0);
+  let mut m = marked("42");
+  m.color = theme::BLUE;
+  // grey ink at any shade up to the dim's own (antialiased glyphs rarely land exactly on #808080)
+  let dim = |res: &mut Res, m: &Message| {
+    let mut v = ChatView::new(10, "c".into());
+    v.zebra = false;
+    v.resize(400);
+    v.push(m.clone());
+    let area = Rect::new(0, 0, 400, 40);
+    let mut c = Canvas::new(400, 40);
+    v.draw(&mut c, res, area, area);
+    c.px
+      .iter()
+      .filter(|&&p| {
+        (p >> 16 & 255, p >> 8 & 255, p & 255) == (p & 255, p & 255, p & 255) && (0x40..=0x80).contains(&(p & 255))
+      })
+      .count()
+  };
+  let plain = dim(&mut res, &m);
+  let base = layout_row(&mut res, "c", &m, false, 400, NO_OPTS).layout.width();
+  // two months on plus: a dim `+`, the ext's #808080, the switches can't hide it
+  let since = crate::util::time::now_ms() - 2 * 2_629_746_000;
+  res.cosmetics.seed(PaintId::Twitch(42), Cosmetic { plus: Some(since), ..Default::default() });
+  (res.cosmetics.on, res.cosmetics.hs_on) = (false, false);
+  assert!(dim(&mut res, &m) > plain + 4, "the + has dim pixels");
+  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  assert!(l.layout.width() > base, "it takes room after the name");
+  // the words come after the name and its +, so the nick range itself is untouched
+  assert_eq!(l.nick, layout_row(&mut Res::new(1.0), "c", &m, false, 400, NO_OPTS).nick);
+  // someone else writing @bob: no + in their words
+  let mut other = said("al", "@bob hi");
+  other.user_id = "7".into();
+  other.color = theme::BLUE;
+  let a = dim(&mut res, &other);
+  assert_eq!(a, dim(&mut Res::new(1.0), &other), "an @name in the words never sprouts one");
+}

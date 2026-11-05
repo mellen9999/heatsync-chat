@@ -96,6 +96,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     }
     s.push('\n');
   }
+  let mut ib = Vec::new();
   if let Some(parent) = m.reply_to.as_ref().filter(|_| !muted) {
     let r0 = s.len();
     dim(&mut s, &mut spans, "↳ ");
@@ -109,7 +110,11 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
       && let Some(p) = res.chatters.person(m.platform, &s[a + f.name.start..], true)
     {
       let login = parent.to_ascii_lowercase().into();
+      let uid = p.paint.clone();
       reply = Some(Mention { range: a..s.len(), login, color: p.color, paint: p.paint, art: None });
+      if let Some(uid) = uid {
+        super::marks::plus(res, &uid, &mut s, &mut spans, &mut ib);
+      }
     } else {
       spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
     }
@@ -130,7 +135,6 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     dim(&mut s, &mut spans, &clock(m.ts, res.look.twelve));
     s.push(' ');
   }
-  let mut ib = Vec::new();
   // a line sent through heatsync.org says so even where platform tags are off (ext: [H] is never the host)
   let hs = x.is_some_and(|x| x.origin);
   if tags || hs {
@@ -209,6 +213,9 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
     let name_ink = res.look.ink(m.color);
     spans.push(Span { range: n0..s.len(), ink: Ink(name_ink | tag), bold: true });
+    if let Some(uid) = PaintId::of_message(m) {
+      super::marks::plus(res, &uid, &mut s, &mut spans, &mut ib);
+    }
     for g in x.map_or(&[][..], |x| &x.tail) {
       seg(&mut s, &mut spans, g);
       if g.text.ends_with('▲') {

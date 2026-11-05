@@ -84,14 +84,22 @@ async fn batch(
   );
   let (cos, own) = (cos.ok()?, own.ok()?);
   let map = cos.get("cosmetics")?.as_object()?;
-  let own = own.get("paints").and_then(|p| p.as_object());
+  let (plus, own) = (own.get("plus").and_then(|p| p.as_object()), own.get("paints").and_then(|p| p.as_object()));
   Some(
     ids
       .iter()
       .map(|id| {
         let k = id.wire();
         let seven = if id.seven_tv() { map.get(&k) } else { None };
-        (id.clone(), cosmetics::parse(seven.unwrap_or(&serde_json::Value::Null), own.and_then(|o| o.get(&k)), paints))
+        (
+          id.clone(),
+          cosmetics::parse(
+            seven.unwrap_or(&serde_json::Value::Null),
+            own.and_then(|o| o.get(&k)),
+            plus.and_then(|o| o.get(&k)),
+            paints,
+          ),
+        )
       })
       .collect(),
   )

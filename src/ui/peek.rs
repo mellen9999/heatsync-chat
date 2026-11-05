@@ -66,6 +66,7 @@ mod tests {
       nick: "bob",
       color: theme::GREEN,
       pronouns: Some("he/him"),
+      plus: None,
       tag: ("[T] ", theme::TWITCH),
       rows: &rows,
       note: None,

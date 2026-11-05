@@ -7,6 +7,7 @@ use super::App;
 use super::cardclip::Clip;
 use super::overlay::Overlay;
 use super::pop::{Act, Subject};
+use crate::cosmetics::id::PaintId;
 use crate::model::card::Info;
 use crate::model::message::Platform;
 use crate::model::tabs::Kind;
@@ -43,6 +44,16 @@ pub struct Card {
   pub(super) clip: Clip,
   // where it was last drawn: a click outside it closes it
   rect: Rect,
+}
+
+// the plus `+` a card or popup shows after the name: the line's own id, else the twitch id the lookup
+// found (a card opened from an @name)
+impl App {
+  pub(super) fn plus_ink(&mut self, p: Platform, uid: &str, twitch: Option<u64>) -> Option<u32> {
+    let id = PaintId::of(p.name(), uid).or(twitch.map(PaintId::Twitch))?;
+    let since = self.res.cosmetics.plus(&id)?;
+    Some(crate::cosmetics::plus::ink(since, crate::util::time::now_ms()))
+  }
 }
 
 impl Card {
@@ -241,6 +252,10 @@ impl App {
     let area = self.chat_area();
     let mine = self.card().and_then(|c| self.note_of(c.who.platform, &c.who.login));
     let pronouns = self.pronouns_of(self.card_twitch_id()).map(str::to_owned);
+    let plus = self.card().map(|c| (c.who.platform, c.who.user_id.clone())).and_then(|(p, uid)| {
+      let twitch = self.card_twitch_id();
+      self.plus_ink(p, &uid, twitch)
+    });
     let Some(Overlay::Card(c)) = &mut self.overlay else { return None };
     let note = note_of(&c.info);
     let rows: &[(&'static str, String)] = match &c.info {
@@ -253,6 +268,7 @@ impl App {
       nick: &c.who.nick,
       color: c.who.color,
       pronouns: pronouns.as_deref(),
+      plus,
       tag: tag(c.who.platform),
       rows,
       note,

@@ -107,6 +107,7 @@ impl App {
       nick: &nick,
       color: theme::MAGENTA,
       pronouns: None,
+      plus: None,
       tag: ("", theme::WHITE),
       rows: &card.rows,
       note: None,

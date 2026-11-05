@@ -224,6 +224,10 @@ impl App {
   pub(super) fn draw_peek(&mut self) -> Option<Rect> {
     let bounds = self.chat_area();
     let pronouns = self.pronouns_of(self.peek_twitch_id()).map(str::to_owned);
+    let plus = self.peek.as_ref().map(|p| (p.platform, p.uid.clone())).and_then(|(p, uid)| {
+      let twitch = self.peek_twitch_id();
+      self.plus_ink(p, &uid, twitch)
+    });
     let p = self.peek.as_ref()?;
     let load = self.cards.get(p.platform, &p.login);
     let (rows, avatar): (&[(&'static str, String)], _) = match load {
@@ -236,6 +240,7 @@ impl App {
       nick: &p.nick,
       color: if p.color == 0 { theme::WHITE } else { p.color },
       pronouns: pronouns.as_deref(),
+      plus,
       tag: tag(p.platform),
       rows,
       note,

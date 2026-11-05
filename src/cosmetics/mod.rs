@@ -6,6 +6,7 @@ mod fx_tints;
 pub mod hidden;
 pub mod id;
 pub mod paint;
+pub mod plus;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,6 +32,8 @@ pub struct Cosmetic {
   // their 7tv paint under a heatsync one: what shows when heatsync paints are switched off
   pub stv: Option<Arc<Paint>>,
   pub badge: Option<Badge>,
+  // an active heatsync plus member since (unix ms): the `+` after their name
+  pub plus: Option<i64>,
 }
 
 // badge image: 2x when 7tv has it (downscaled crisp), else 1x, else any webp
@@ -59,8 +62,13 @@ fn badge(v: &Value) -> Option<Badge> {
 }
 
 // one entry of the batch response. `hs` is the chatter's heatsync-native paint (`/api/paints`), which
-// outranks their 7tv one like in the ext. None = nothing to show
-pub fn parse(v: &Value, hs: Option<&Value>, paints: &mut HashMap<Box<str>, Arc<Paint>>) -> Option<Cosmetic> {
+// outranks their 7tv one like in the ext; `plus` their plus_since from the same answer. None = nothing to show
+pub fn parse(
+  v: &Value,
+  hs: Option<&Value>,
+  plus: Option<&Value>,
+  paints: &mut HashMap<Box<str>, Arc<Paint>>,
+) -> Option<Cosmetic> {
   let mut share = |p: Paint| {
     // one allocation per distinct paint: thousands of chatters share a few hundred
     if paints.len() > 400 {
@@ -72,7 +80,8 @@ pub fn parse(v: &Value, hs: Option<&Value>, paints: &mut HashMap<Box<str>, Arc<P
   let seven = v.get("paint").and_then(Paint::parse).map(&mut share);
   let (paint, stv) = if own.is_some() { (own, seven) } else { (seven, None) };
   let badge = v.get("badge").and_then(badge);
-  (paint.is_some() || badge.is_some()).then_some(Cosmetic { paint, stv, badge })
+  let plus = plus.and_then(Value::as_str).filter(|t| t.len() <= 40).and_then(crate::util::time::parse_iso);
+  (paint.is_some() || badge.is_some() || plus.is_some()).then_some(Cosmetic { paint, stv, badge, plus })
 }
 
 struct Entry {
@@ -104,6 +113,15 @@ impl Cosmetics {
     if !self.on && !self.hs_on {
       return None;
     }
+    self.entry(uid)
+  }
+
+  // the plus tenure: who someone is, not a cosmetic, so neither paint switch hides it (ext)
+  pub fn plus(&mut self, uid: &PaintId) -> Option<i64> {
+    self.entry(uid)?.plus
+  }
+
+  fn entry(&mut self, uid: &PaintId) -> Option<&Cosmetic> {
     let now = Instant::now();
     if !self.map.contains_key(uid) {
       if self.map.len() >= MAX_USERS {
@@ -171,6 +189,7 @@ impl Cosmetics {
         a.paint.as_ref().map(|p| &p.id) == b.paint.as_ref().map(|p| &p.id)
           && a.stv.as_ref().map(|p| &p.id) == b.stv.as_ref().map(|p| &p.id)
           && a.badge.as_ref().map(|x| &x.url) == b.badge.as_ref().map(|x| &x.url)
+          && a.plus == b.plus
       }
       _ => false,
     };
@@ -213,16 +232,27 @@ mod tests {
   }
 
   #[test]
+  fn plus_since_alone_is_worth_keeping_and_junk_is_not() {
+    let mut cache = HashMap::new();
+    let none = json!({"paint": null, "badge": null});
+    let c = parse(&none, None, Some(&json!("2026-08-13T01:58:02.000Z")), &mut cache).unwrap();
+    assert_eq!(c.plus, crate::util::time::parse_iso("2026-08-13T01:58:02.000Z"));
+    for bad in [json!(null), json!(5), json!("soon"), json!("x".repeat(200))] {
+      assert!(parse(&none, None, Some(&bad), &mut cache).is_none(), "{bad}");
+    }
+  }
+
+  #[test]
   fn parses_paint_and_badge_and_shares_paints() {
     let v = json!({
       "paint": {"id": "P1", "function": "linear-gradient", "angle": 0, "stops": [{"at": 0, "color": -1}]},
       "badge": {"id": "B1", "tooltip": "Subscriber", "host": {"url": "//cdn.7tv.app/badge/B1", "files": [{"name": "1x.webp"}, {"name": "2x.webp"}, {"name": "3x.avif"}]}}
     });
     let mut cache = paints();
-    let c = parse(&v, None, &mut cache).unwrap();
+    let c = parse(&v, None, None, &mut cache).unwrap();
     assert_eq!(&*c.badge.as_ref().unwrap().url, "https://cdn.7tv.app/badge/B1/2x.webp");
     assert_eq!(&*c.badge.as_ref().unwrap().title, "Subscriber");
-    let again = parse(&v, None, &mut cache).unwrap();
+    let again = parse(&v, None, None, &mut cache).unwrap();
     assert!(Arc::ptr_eq(c.paint.as_ref().unwrap(), again.paint.as_ref().unwrap()));
   }
 
@@ -232,12 +262,12 @@ mod tests {
     let seven =
       json!({"paint": {"id": "P1", "function": "linear-gradient", "angle": 0, "stops": [{"at": 0, "color": -1}]}});
     let mut cache = paints();
-    let c = parse(&seven, Some(&hs), &mut cache).unwrap();
+    let c = parse(&seven, Some(&hs), None, &mut cache).unwrap();
     assert!(c.paint.unwrap().id.starts_with("hs"));
     // ennortix: heatsync says `paint: null`, /api/paints has the row
-    let c = parse(&json!({"paint": null, "badge": null}), Some(&hs), &mut cache).unwrap();
+    let c = parse(&json!({"paint": null, "badge": null}), Some(&hs), None, &mut cache).unwrap();
     assert!(c.paint.is_some() && c.badge.is_none());
-    assert!(parse(&seven, None, &mut cache).unwrap().paint.unwrap().id.as_ref() == "P1");
+    assert!(parse(&seven, None, None, &mut cache).unwrap().paint.unwrap().id.as_ref() == "P1");
   }
 
   // showNamePaints and sevenTvPaints are two switches: heatsync's paint, 7tv's paint and badge
@@ -249,9 +279,9 @@ mod tests {
       "badge": {"id": "B1", "host": {"url": "//cdn.7tv.app/badge/B1", "files": [{"name": "1x.webp"}]}}
     });
     let mut cache = paints();
-    let both = parse(&seven, Some(&hs), &mut cache).unwrap();
+    let both = parse(&seven, Some(&hs), None, &mut cache).unwrap();
     assert!(both.paint.as_ref().unwrap().native && both.stv.is_some());
-    let only_7tv = parse(&seven, None, &mut cache).unwrap();
+    let only_7tv = parse(&seven, None, None, &mut cache).unwrap();
     assert!(!only_7tv.paint.as_ref().unwrap().native && only_7tv.stv.is_none());
     let mut s = Cosmetics::default();
     let ids = [T(1), T(2)];
@@ -282,13 +312,13 @@ mod tests {
   #[test]
   fn hostile_cosmetics_are_dropped() {
     let mut cache = paints();
-    assert!(parse(&Value::Null, None, &mut cache).is_none());
-    assert!(parse(&json!({"paint": 5, "badge": []}), None, &mut cache).is_none());
+    assert!(parse(&Value::Null, None, None, &mut cache).is_none());
+    assert!(parse(&json!({"paint": 5, "badge": []}), None, None, &mut cache).is_none());
     let evil = json!({"badge": {"host": {"url": "//evil.example/b", "files": [{"name": "1x.webp"}]}}});
-    assert!(parse(&evil, None, &mut cache).is_none());
+    assert!(parse(&evil, None, None, &mut cache).is_none());
     let traversal =
       json!({"badge": {"host": {"url": "//cdn.7tv.app/badge/x", "files": [{"name": "../../1x.webp"}, {"name": 5}]}}});
-    assert!(parse(&traversal, None, &mut cache).is_none());
+    assert!(parse(&traversal, None, None, &mut cache).is_none());
   }
 
   #[test]
