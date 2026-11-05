@@ -698,17 +698,17 @@ mod tests {
     let now = crate::util::time::now_ms();
     let row = |ty: &str, ago: i64| {
       json!({"type": ty, "platform": "twitch", "channel": "Ennortix", "game": "Chess", "prevGame": "Go",
-      "ts": now - ago, "color": "#00ff00", "userId": "99"})
+      "time": now - ago, "color": "#00ff00", "userId": "99"})
     };
     let rows = vec![
-      row("switched", 60_000),
-      row("offline", 120_000),
-      row("online", 30_000),
-      row("switched", 20 * 60_000),
-      json!({"type": "offline", "platform": "youtube", "channel": "x", "ts": now}),
+      row("follow:stream:update", 60_000),
+      row("follow:stream:offline", 120_000),
+      row("follow:stream:online", 30_000),
+      row("follow:stream:update", 20 * 60_000),
+      json!({"type": "follow:stream:offline", "platform": "youtube", "channel": "x", "time": now}),
       json!(7),
     ];
-    dispatch(&json!({"type": "follow:history", "rows": rows}), &mut st, &out);
+    dispatch(&json!({"type": "follow:history", "events": rows}), &mut st, &out);
     let Ok(NetEvent::StreamHistory(got)) = rx.try_recv() else { panic!("no history") };
     let got: Vec<_> = got.iter().map(|(t, l)| (now - t, &*l.text, l.color, l.user_id.as_deref())).collect();
     assert_eq!(got.len(), 2);
@@ -716,8 +716,8 @@ mod tests {
     assert_eq!((got[0].1, got[0].2, got[0].3), ("[ennortix] ◆ went offline", Some(0x00ff00), Some("99")));
     assert_eq!(got[1].1, "[ennortix] ◆ switched to Chess");
     // bounded: 200 rows are read, no more
-    let many: Vec<_> = (0..500).map(|_| row("offline", 1000)).collect();
-    dispatch(&json!({"type": "follow:history", "rows": many}), &mut st, &out);
+    let many: Vec<_> = (0..500).map(|_| row("follow:stream:offline", 1000)).collect();
+    dispatch(&json!({"type": "follow:history", "events": many}), &mut st, &out);
     let Ok(NetEvent::StreamHistory(got)) = rx.try_recv() else { panic!("no history") };
     assert_eq!(got.len(), 200);
   }

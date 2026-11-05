@@ -147,12 +147,12 @@ const HISTORY_MS: i64 = 15 * 60_000;
 // with the time it happened, its stored color and userId. ≤200 rows read, the rest dropped
 pub fn history(now: i64, v: &serde_json::Value) -> Vec<(i64, Line)> {
   use serde_json::Value;
-  let Some(rows) = v.get("rows").and_then(Value::as_array) else { return Vec::new() };
+  let Some(rows) = v.get("events").and_then(Value::as_array) else { return Vec::new() };
   let mut out: Vec<(i64, Line)> = rows
     .iter()
     .take(MAX_HISTORY)
     .filter_map(|r| {
-      let at = r.get("ts").and_then(Value::as_i64).filter(|t| (now - HISTORY_MS..=now).contains(t))?;
+      let at = r.get("time").and_then(Value::as_i64).filter(|t| (now - HISTORY_MS..=now).contains(t))?;
       let platform = match r.get("platform").and_then(Value::as_str)? {
         "twitch" => Platform::Twitch,
         "kick" => Platform::Kick,
@@ -163,9 +163,11 @@ pub fn history(now: i64, v: &serde_json::Value) -> Vec<(i64, Line)> {
         return None;
       }
       let text = |k: &str| clean(r.get(k).and_then(Value::as_str).unwrap_or(""));
-      let (tone, what) = match r.get("type").and_then(Value::as_str)? {
-        "switched" | "update" => (Tone::Switch, body(Kind::Update, &text("game"), &text("prevGame"))?),
-        "offline" => (Tone::Offline, body(Kind::Offline, "", "")?),
+      // the frame each row was sent as: follow:stream:update / offline / online
+      let kind = r.get("type").and_then(Value::as_str)?;
+      let (tone, what) = match kind.strip_prefix("follow:").unwrap_or(kind) {
+        "stream:update" => (Tone::Switch, body(Kind::Update, &text("game"), &text("prevGame"))?),
+        "stream:offline" => (Tone::Offline, body(Kind::Offline, "", "")?),
         _ => return None,
       };
       let color = r.get("color").and_then(Value::as_str).and_then(crate::model::color::parse_hex);
