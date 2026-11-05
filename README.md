@@ -39,6 +39,8 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - `/vi` turns on vim keys (`j`/`k`, `gg`/`G`, `gt`/`gT`)
 - `ctrl-b` shows who you follow that's live, `ctrl-p` your heatsync emotes (rename, reorder, remove, share)
 - `ctrl-n` picks which feeds a merged tab sends to (all of them by default)
+- `/import` adds the channels you follow on twitch, live ones first
+- `t` on a picked line opens its reply thread
 - `/sharelayout` (or `/sl`) copies your tabs as a `heatsync.org/m/…` link, `/layout <link>` opens someone else's
 
 ## what's in it
@@ -46,12 +48,12 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - twitch, kick and youtube in one tab or many, plus feed, whispers, mentions and notifs tabs. a merged tab sends one line to all its feeds at once
 - heatsync emotes: a word shows as someone's heatsync emote only if *they* own it. 7tv, bttv, ffz and native emotes, overlay (zero-width) emotes, animated
 - heatsync paints, badges and name colors, live. bttv badges, sub flair and heat bars
-- emote picker, gif search, picture and video upload (pictures lose their hidden location and camera data first)
-- replies, pins, predictions, polls, subs, raids, cheers and redeems, mod actions on twitch and kick, mention highlights + desktop notification + sound
+- emote picker (searches 7tv, ffz and heatsync too), gif search, picture and video upload (pictures lose their hidden location and camera data first)
+- replies and reply threads, pins (pin a line yourself if it's your channel or you mod it), predictions, polls, subs, raids, cheers and redeems, mod actions on twitch and kick (`/nuke` too), clips from a user card, mention highlights + desktop notification + sound. the mentions tab survives a restart, and a whisper pops a line while you're on another tab
 - went-live lines (+ a desktop notification), and who you follow that's live
 - the message box says when you're timed out or banned and for how long, and marks text past the limit red
 - links open in your browser, video links in mpv if you have it
-- settings, presets and keys match the extension's
+- settings, presets (normal, minimal, power user, moderator, low ram) and keys match the extension's
 
 ## optional extras
 

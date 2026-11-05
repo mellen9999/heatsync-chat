@@ -70,10 +70,12 @@ src/
 - lost natively (need twitch web-session integrity tokens): prediction/poll voting, channel-point redeems + auto-claim, follow/unfollow, highlighted messages, resub share — read-only banners for predictions/polls only if eventsub allows, else skipped
 - browser-only: overlay positioning, player volume, title flash, noise-hide css, yt layout toggles
 - youtube moderation: heatsync has no youtube mod endpoint, so youtube lines get no mod menu
+- importing kick follows: the ext reads the browser's kick.com cookie, which a native app doesn't have. `/import` is twitch only
 - i18n 35 langs: english first, string table structured for later (ext strings reusable)
 
 ## added beyond the ext (named, not hidden)
 - the message box says why you can't chat (timed out with the time left, banned, a room mode) and holds the send while timed out. the ext only toasts
+- a reply thread covers the tab (like chat logs) instead of floating above and below the line; `/nuke` paces its deletes to the server's limit
 - a followed-live screen (ctrl-b) and a notifs tab with rows, built on the data the ext only shows as a list item or a badge count
 
 ## milestones (each ships complete + verified)
