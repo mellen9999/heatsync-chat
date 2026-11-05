@@ -23,6 +23,8 @@ fn color(t: Tone) -> u32 {
     Tone::Raid => theme::TWITCH,
     Tone::Gift => theme::GREEN,
     Tone::Redeem => theme::CYAN,
+    // the ext's gold, in our palette
+    Tone::Pred => theme::YELLOW,
   }
 }
 
@@ -126,6 +128,7 @@ impl App {
       Tone::Raid => self.set.ev_raid,
       Tone::Gift => self.set.ev_sub,
       Tone::Redeem => self.set.ev_redeem,
+      Tone::Pred => self.set.ev_pred,
     };
     if !shown {
       return;

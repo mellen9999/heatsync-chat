@@ -320,6 +320,8 @@ impl Entry {
 #[derive(Default)]
 pub struct Preds {
   map: HashMap<Box<str>, Entry>,
+  // per channel: the id of the prediction last seen (None = none), present once the channel has been asked
+  told: HashMap<Box<str>, Option<Box<str>>>,
 }
 
 impl Preds {
@@ -335,6 +337,19 @@ impl Preds {
   pub fn asked(&mut self, chan: &str, now: Instant) {
     let e = self.map.entry(chan.into()).or_default();
     (e.asked, e.inflight) = (Some(now), true);
+  }
+
+  // the ext's maybeBroadcastNewPrediction: the words of a `new prediction up` line when this answer shows a new
+  // OPEN prediction, never for the first answer of a channel (a tab opened mid-prediction is not news)
+  pub fn starts(&mut self, chan: &str, p: Option<&Pred>) -> Option<String> {
+    let id = p.map(|p| p.id.clone());
+    let seen = self.told.contains_key(chan);
+    if self.told.get(chan) == Some(&id) {
+      return None;
+    }
+    self.told.insert(chan.into(), id);
+    let p = p.filter(|p| seen && p.state == State::Active)?;
+    Some(format!("new prediction up — {}", p.title))
   }
 
   // an answer came (Err = twitch didn't make sense)
@@ -357,6 +372,7 @@ impl Preds {
   // forget channels no tab holds any more
   pub fn keep(&mut self, open: impl Fn(&str) -> bool) {
     self.map.retain(|c, _| open(c));
+    self.told.retain(|c, _| open(c));
   }
 }
 

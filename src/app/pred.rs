@@ -12,6 +12,7 @@ use super::App;
 use super::screen::Page;
 use crate::model::message::Platform;
 use crate::model::pred::{self, Banner, Entry, Pred, State, bar, bettors, points};
+use crate::model::stream_events::{Line, Tone};
 use crate::net::Cmd;
 use crate::ui::canvas::Rect;
 use crate::ui::{pred_bar, sheet::L};
@@ -68,7 +69,12 @@ impl App {
     if !open && self.screen.as_ref().is_none_or(|s| s.page() != Page::Pred || s.of != chan) {
       return;
     }
+    // a new open prediction is also a line in the channel's own tab (ext event-pred, same toggle as the banner)
+    let news = res.as_ref().ok().and_then(|p| self.pred_bar.preds.starts(&chan, p.as_ref()));
     self.pred_bar.preds.got(&chan, res);
+    if let Some(what) = news {
+      self.on_stream(Line::new(Platform::Twitch, &chan, "", None, Tone::Pred, &what));
+    }
     self.pred_refresh();
     self.wake();
   }
@@ -267,6 +273,42 @@ mod tests {
         L::Row { a, b, .. } | L::Tint { a, b, .. } => format!("{a} | {b}"),
       })
       .collect()
+  }
+
+  fn last_text(app: &App) -> Option<String> {
+    let t = app.tabs.iter().position(|t| t.name.contains("forsen")).unwrap();
+    app.tabs[t]
+      .view
+      .last_msg()
+      .filter(|m| m.kind == crate::model::message::Kind::Event)
+      .map(|m| m.x.as_ref().unwrap().tail.iter().map(|s| &*s.text).collect::<String>())
+  }
+
+  #[test]
+  fn a_new_open_prediction_is_a_line_once_and_never_for_the_first_look() {
+    let (mut app, _rx) = app();
+    go(&mut app, "forsen");
+    // already open when the tab was first asked: not news
+    app.on_pred("forsen".into(), Ok(answer("ACTIVE", 10_000)));
+    assert!(last_text(&app).is_none());
+    // same one again, locked: still nothing
+    app.on_pred("forsen".into(), Ok(answer("LOCKED", 40_000)));
+    assert!(last_text(&app).is_none());
+    // none, then a new open one: a line, in the ext's words
+    app.on_pred("forsen".into(), Ok(None));
+    let mut next = answer("ACTIVE", 1_000).unwrap();
+    next.id = "e2".into();
+    app.on_pred("forsen".into(), Ok(Some(next.clone())));
+    assert_eq!(last_text(&app).as_deref(), Some(" ◆ new prediction up — boss down?"));
+    // asked again with the same id: no second line
+    let before = app.tabs[0].view.msgs().count();
+    app.on_pred("forsen".into(), Ok(Some(next.clone())));
+    assert_eq!(app.tabs[0].view.msgs().count(), before);
+    // the toggle gates the line
+    app.set.ev_pred = false;
+    next.id = "e3".into();
+    app.on_pred("forsen".into(), Ok(Some(next)));
+    assert_eq!(app.tabs[0].view.msgs().count(), before);
   }
 
   #[test]

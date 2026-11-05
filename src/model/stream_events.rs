@@ -27,6 +27,8 @@ pub enum Tone {
   Gift,
   // a channel-point redeem: the line heads with the redeemer, not the channel
   Redeem,
+  // a new twitch prediction opened (ext event-pred)
+  Pred,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
