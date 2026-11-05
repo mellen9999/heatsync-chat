@@ -32,6 +32,7 @@ mod held;
 mod ime;
 mod img_view;
 mod input;
+mod inventory;
 mod jump;
 mod keys;
 mod layout;

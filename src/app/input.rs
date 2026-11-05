@@ -125,6 +125,7 @@ impl App {
       Local::Logout => self.logout_cmd(),
       Local::Account => self.account_open(),
       Local::Following => self.toggle_following(),
+      Local::Emotes => self.inv_open(),
       Local::Blocked => self.blocked_here(),
       Local::Summary => self.summary_here(),
       Local::Status => self.status_here(),

@@ -20,6 +20,7 @@ pub mod held;
 pub mod ident;
 pub mod ime;
 pub mod inbox;
+pub mod inventory;
 pub mod keys;
 pub mod layout_link;
 pub mod line;

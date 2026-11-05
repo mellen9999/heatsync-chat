@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 80] = [
+const FIXED: [Slash; 81] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -81,6 +81,7 @@ const FIXED: [Slash; 80] = [
   s("/account", "", "who you are logged in as, and how to log out"),
   s("/following", "", "who you follow that is live: game, viewers, uptime; enter opens a tab, w watches"),
   s("/live", "", "same as /following"),
+  s("/emotes", "", "your heatsync emotes: rename, reorder, remove, undo, saved sets, share (ctrl-p)"),
   s("/settings", "", "open settings"),
   s("/keys", "", "every key"),
   s("/help", "", "same as /keys"),

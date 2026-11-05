@@ -31,7 +31,7 @@ const fn v(keys: &'static str, does: &'static str) -> Row {
   Row { keys, does, vi: true }
 }
 
-pub static KEYS: [Group; 12] = [
+pub static KEYS: [Group; 13] = [
   Group {
     name: "anywhere",
     rows: &[
@@ -43,6 +43,7 @@ pub static KEYS: [Group; 12] = [
       k("/login /logout", "like ctrl-l and ctrl-shift-l"),
       k("/account", "who you're logged in as · log out"),
       k("ctrl-b", "who you follow is live: enter opens a tab, w watches (also /following, /live)"),
+      k("ctrl-p", "your emotes: rename, reorder, remove, undo, sets, share (/emotes)"),
       k("ctrl-o", "upload a picture or video"),
       k("ctrl-;", "emote picker"),
       k("ctrl-v", "paste text or a picture"),
@@ -147,6 +148,22 @@ pub static KEYS: [Group; 12] = [
     ],
   },
   Group {
+    name: "your emotes (ctrl-p)",
+    rows: &[
+      k("j k  up down", "move"),
+      k("] [  tab", "mine, removed, sets"),
+      k("n  enter", "rename · removed: restore · sets: apply (y yes, n no)"),
+      k("m", "move it to a slot you type (a taken slot trades places)"),
+      k("J K", "carry it down, up one place"),
+      k("x", "remove it (y yes, n no)"),
+      k("u  ctrl-r", "undo, redo your last change"),
+      k("s S", "share your set (copies the link), stop sharing"),
+      k("i", "import a channel's 7tv, bttv and ffz emotes"),
+      k("/  R", "filter, read again"),
+      k("esc q", "close"),
+    ],
+  },
+  Group {
     name: "tabs",
     rows: &[
       k("alt-1 .. alt-9", "jump to a tab"),
@@ -240,6 +257,7 @@ mod tests {
       "picker" => "picker",
       "tab mode (space t)" => "tab mode",
       "picture" => "picture",
+      "your emotes (ctrl-p)" => "emotes",
       "menus and cards" => "menus",
       _ => "chat",
     }
@@ -258,6 +276,7 @@ mod tests {
       "picker" => vec!["app/picker.rs".into()],
       "tab mode" => vec!["app/rover.rs".into()],
       "picture" => vec!["app/img_view.rs".into()],
+      "emotes" => vec!["app/inventory.rs".into(), "app/screen.rs".into()],
       "menus" => ["pop", "card", "tabs", "emote"].map(|f| format!("app/{f}.rs")).to_vec(),
       _ => {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app");

@@ -106,6 +106,7 @@ impl App {
       Key::Character("g") if ctrl && self.find_on() => self.find_step(1),
       Key::Character("G") if ctrl && self.find_on() => self.find_step(-1),
       Key::Character("t") if ctrl => self.open_form(None),
+      Key::Character("p") if ctrl => self.inv_open(),
       Key::Character("l") if ctrl => self.login(),
       Key::Character("L") if ctrl => self.net.send(Cmd::Logout),
       Key::Named(NamedKey::Tab) if ctrl => self.select(self.step_tab(self.active, self.mods.shift_key())),

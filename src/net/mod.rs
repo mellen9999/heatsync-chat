@@ -13,6 +13,7 @@ pub mod following;
 pub mod held;
 pub mod hs_ws;
 pub mod http;
+pub mod inventory;
 pub mod irc;
 mod links;
 pub mod marks;
@@ -125,6 +126,11 @@ pub enum NetEvent {
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
   Inventory {
     removed: Option<Box<str>>,
+  },
+  // the inventory screen's ask answered, or why not
+  Inv {
+    op: inventory::Op,
+    res: Result<inventory::Got, String>,
   },
   Upload(upload::Upload),
   // what the clipboard held when asked (the key's target: the picker's search box or the line), or why
@@ -454,6 +460,8 @@ pub enum Cmd {
   // the mod tools screen: load, shield, an unban request, an automod level
   Tools(Box<str>, modtools::Op),
   Emote(emote_ops::EmoteCmd),
+  // the inventory screen: list, rename, move, remove, undo, restore, sets, share, import
+  Inventory(inventory::Op),
   // search the 7tv / ffz catalogs for tab-complete: the word, the ask's number, which page, from whom
   Catalog { q: Box<str>, epoch: u32, page: u32, stv: bool, ffz: bool },
   // upload this file / ask a file dialog for one, then upload it
@@ -970,6 +978,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);
+      }
+      Cmd::Inventory(op) => {
+        let _ = sess_tx.send(session::Cmd::Inventory(op));
       }
       Cmd::Emote(c) => {
         let _ = sess_tx.send(session::Cmd::Emote(c));

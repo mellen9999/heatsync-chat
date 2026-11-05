@@ -49,6 +49,7 @@ pub enum Cmd {
   // heatsync says the account changed (a link or unlink): check it now, not at the next renewal
   Recheck,
   Emote(EmoteCmd),
+  Inventory(super::inventory::Op),
   // answered once every emote op asked before it is done (they run in order): a chat line waits on it
   Barrier(tokio::sync::oneshot::Sender<()>),
   Upload(std::path::PathBuf),
@@ -166,6 +167,9 @@ pub async fn run(
           Some(t) => emote_ops::run(&st.http, t, c, &st.out).await,
           None => st.out.status("log in first (ctrl-l)"),
         },
+        Some(Cmd::Inventory(op)) => {
+          tokio::spawn(super::inventory::run(st.http.clone(), st.token.clone(), op, st.out.clone()));
+        }
         Some(Cmd::Recheck) => {
           st.recheck = true;
           next = Instant::now();

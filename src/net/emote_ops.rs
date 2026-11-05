@@ -37,13 +37,13 @@ async fn read(mut r: reqwest::Response, max: usize) -> Result<(u16, Value), Stri
   Ok((code, serde_json::from_slice(&buf).unwrap_or(Value::Null)))
 }
 
-fn why(code: u16, v: &Value) -> String {
+pub(super) fn why(code: u16, v: &Value) -> String {
   v.get("error")
     .and_then(Value::as_str)
     .map_or_else(|| super::http::plain_status(code), |e| e.chars().take(100).collect())
 }
 
-fn ok(code: u16) -> bool {
+pub(super) fn ok(code: u16) -> bool {
   (200..300).contains(&code)
 }
 

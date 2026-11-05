@@ -31,6 +31,8 @@ pub enum Page {
   Account,
   // who you follow is live (app::following)
   Following,
+  // your heatsync emotes: slots, removed, saved sets (app::inventory)
+  Inventory,
 }
 
 pub struct Screen {
@@ -42,6 +44,7 @@ pub struct Screen {
   chord: bool,
   pub(super) bt: Option<Box<super::blocked::Bt>>,
   pub(super) mt: Option<Box<super::modtools::Mt>>,
+  pub(super) inv: Option<Box<super::inventory::Inv>>,
   // the summary: whose (tab name), and its title and lines as last read
   pub(super) of: Box<str>,
   pub(super) title: String,
@@ -75,6 +78,8 @@ pub(super) enum Target {
   Account(super::account::Step),
   // the following screen: a live person (their place in the list)
   Live(usize),
+  // your emotes: a row of the current tab (its place in that tab's full list)
+  Inv(usize),
   None,
 }
 
@@ -99,6 +104,7 @@ impl Screen {
       chord: false,
       bt: None,
       mt: None,
+      inv: None,
       of: "".into(),
       title: String::new(),
       shown: Vec::new(),
@@ -118,8 +124,9 @@ impl Screen {
 
   // where typed text goes: the search, or the blocked term being added
   pub fn query_mut(&mut self) -> &mut Line {
-    match self.bt.as_deref_mut() {
-      Some(bt) if bt.adding => &mut bt.add,
+    match (self.bt.as_deref_mut(), self.inv.as_deref_mut()) {
+      (Some(bt), _) if bt.adding => &mut bt.add,
+      (_, Some(iv)) if iv.ask.is_some() => &mut iv.input,
       _ => &mut self.q,
     }
   }
@@ -134,6 +141,7 @@ impl Screen {
       Page::Pred => (self.shown.clone(), vec![Target::None; self.shown.len()]),
       Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
       Page::Account | Page::Following => (self.shown.clone(), self.marks.clone()),
+      Page::Inventory => self.inv.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |v| v.lines(&self.q.text)),
     }
   }
 
@@ -393,6 +401,7 @@ impl App {
       Some(Page::ModTools) => self.tools_key(&key),
       Some(Page::Pred) => self.pred_key(&key),
       Some(Page::Following) => self.following_key(&key),
+      Some(Page::Inventory) => self.inv_key(&key, text),
       _ => false,
     };
     if spent {
@@ -441,7 +450,9 @@ impl App {
         Key::Character("g") => s.chord = true,
         Key::Named(NamedKey::Home) => s.st.first(&lines),
         Key::Character("G") | Key::Named(NamedKey::End) => s.st.last(&lines),
-        Key::Character("/") if matches!(s.page, Page::Settings | Page::Blocked | Page::ModTools | Page::Following) => {
+        Key::Character("/")
+          if matches!(s.page, Page::Settings | Page::Blocked | Page::ModTools | Page::Following | Page::Inventory) =>
+        {
           s.typing = true
         }
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
@@ -510,6 +521,7 @@ impl App {
       {
         self.tools_pick(t, adjust)
       }
+      (Some(t @ (Target::Inv(_) | Target::Retry)), None) if s.page == Page::Inventory => self.inv_pick(t),
       (Some(t @ (Target::Term(_) | Target::Allow | Target::Retry)), None) => self.blocked_pick(t),
       (Some(t @ (Target::Mode(_) | Target::Summary | Target::BlockedTerms | Target::ModTools)), _) => {
         self.status_pick(t, adjust)
@@ -573,6 +585,7 @@ impl App {
     let fol_title = self.following.title(self.me.is_some(), !s.q.text.trim().is_empty(), shown);
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
     let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
+    let inv_title = s.inv.as_ref().map(|v| v.title()).unwrap_or_default();
     let keys_title = format!("keys · heatsync-chat {}", env!("CARGO_PKG_VERSION"));
     let (title, search, keys) = match (s.page, s.bt.as_deref()) {
       (Page::Blocked, Some(b)) => (
@@ -601,6 +614,17 @@ impl App {
           "j k move · space change · / search · ? keys · esc"
         },
       ),
+      (Page::Inventory, _) => match s.inv.as_deref() {
+        Some(v) => (
+          inv_title.as_str(),
+          Some(match v.ask {
+            Some(a) => (v.input.text.as_str(), true, "", a.mark()),
+            None => (s.q.text.as_str(), s.typing, "/ filter", "/ "),
+          }),
+          v.keys(s.typing),
+        ),
+        None => ("emotes", None, "esc closes"),
+      },
       (Page::Pred, _) => (s.title.as_str(), None, "read only · j k scroll · r refresh · esc closes"),
       (Page::Account, _) => ("account", None, "j k move · enter picks · esc closes"),
       (Page::Following, _) => (
@@ -634,6 +658,7 @@ impl App {
       (Some(b), _) if s.page == Page::Blocked => b.msg.as_str(),
       (_, Some(m)) if s.page == Page::ModTools => m.msg.as_str(),
       _ if s.page == Page::Keys => keys_tip(self.set.vi),
+      _ if s.page == Page::Inventory => s.inv.as_deref().map_or("", |v| v.tip()),
       _ => tip,
     };
     let v = sheet::View { title, search, lines: &lines, tip, keys, col: None };

@@ -476,6 +476,8 @@ pub enum Local {
   Account,
   // /following, /live: who you follow that is live
   Following,
+  // /emotes: your heatsync emotes, managed
+  Emotes,
   // /blocked: the twitch room's blocked terms
   Blocked,
   // /summary: the tab's stream stats
@@ -556,6 +558,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/logout" => Some(Local::Logout),
     "/account" => Some(Local::Account),
     "/following" | "/live" => Some(Local::Following),
+    "/emotes" => Some(Local::Emotes),
     "/lclear" => Some(Local::Lclear),
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
