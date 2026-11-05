@@ -64,6 +64,8 @@ fn t_covers_the_tab_with_the_chain_and_new_replies_land_in_it() {
   say(&mut app, line("d", "dee", "c", "a"));
   say(&mut app, line("y", "yan", "", ""));
   assert_eq!(bodies(&app), ["say a", "say b", "say c", "say d"]);
+  app.redraw();
+  crate::bench::dump(&app.canvas);
   assert_eq!(app.tabs[tab].under.as_ref().map(|v| v.len()), Some(6));
   // t again, or esc, goes back to the tab as it was
   press(&mut app, Key::Character("t"));
