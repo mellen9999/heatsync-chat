@@ -313,6 +313,11 @@
   "scope": "sync",
   "default": false
  },
+ "whisperToast": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "zebra": {
   "type": "bool",
   "scope": "sync",

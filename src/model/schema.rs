@@ -131,7 +131,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 70] = [
+pub static DEFS: [Def; 72] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -601,6 +601,18 @@ pub static DEFS: [Def; 70] = [
     wire: Wire::Bool("mentionTitleFlash"),
   },
   Def {
+    id: "whisper_toast",
+    cmd: Some("/whispertoast"),
+    cat: Cat::Notifs,
+    section: "whispers",
+    label: "whisper toast",
+    tip: "popup toast when a whisper or dm arrives while you are on another tab — click it to jump to whispers",
+    alias: "whisperToast dm popup",
+    ctl: pill!(whisper_toast),
+    fx: Fx::None,
+    wire: Wire::Bool("whisperToast"),
+  },
+  Def {
     id: "ev_online",
     cmd: Some("/online"),
     cat: Cat::Notifs,
@@ -743,6 +755,18 @@ pub static DEFS: [Def; 70] = [
     ctl: pill!(moments),
     fx: Fx::None,
     wire: Wire::Flag("inlineNotifs", "moment"),
+  },
+  Def {
+    id: "inline_dm",
+    cmd: Some("/inlinedm"),
+    cat: Cat::Notifs,
+    section: "inline notifications",
+    label: "[dm] whispers & dms",
+    tip: "a [dm] line in the chat you are on when a whisper or dm arrives while you are on another tab",
+    alias: "inline dm whisper",
+    ctl: pill!(inline_dm),
+    fx: Fx::None,
+    wire: Wire::Flag("inlineNotifs", "dm"),
   },
   Def {
     id: "confirm_ban",

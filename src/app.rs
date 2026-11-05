@@ -95,6 +95,8 @@ mod tests_sendto;
 mod tests_store;
 #[cfg(test)]
 mod tests_tabs;
+#[cfg(test)]
+mod tests_whisper_toast;
 mod tip;
 mod unseen;
 mod update;

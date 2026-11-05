@@ -231,6 +231,10 @@ pub struct Settings {
   pub inline_op: bool,
   pub inline_mop: bool,
   pub inline_re: bool,
+  // a whisper or dm while you are on another tab: a toast line (ext whisperToast, default on), and a [DM] row in
+  // the chat you are on (ext inlineNotifs dm, default off)
+  pub whisper_toast: bool,
+  pub inline_dm: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
   // host-less and defanged links (watch?v=…, r/sub/comments/…, site (dot) com) are clickable. default on, like the ext (partialLinksEnabled)
@@ -315,6 +319,8 @@ impl Default for Settings {
       inline_op: true,
       inline_mop: true,
       inline_re: true,
+      whisper_toast: true,
+      inline_dm: false,
       media: true,
       partial_links: true,
       links: true,
@@ -619,6 +625,8 @@ mod tests {
         inline_op: true,
         inline_mop: true,
         inline_re: true,
+        whisper_toast: true,
+        inline_dm: false,
         media: true,
         partial_links: true,
         links: true,

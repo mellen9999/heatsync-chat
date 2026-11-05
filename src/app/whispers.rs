@@ -5,10 +5,12 @@
 // it (or re-links twitch with the whispers permission when that is what is missing)
 use super::App;
 use super::card::Load;
-use crate::model::message::Platform;
+use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg};
 use crate::model::tabs::Kind;
 use crate::model::whisper::{self, Cmd as Slash, Status, Timeline, Via, Whisper, Who};
 use crate::net::{Cmd, social};
+use crate::ui::theme;
+use crate::util::time::now_ms;
 
 // the whispers timeline, whether this login's history was asked for, and a counter bumped on every login
 // change so a history read from an earlier one is dropped
@@ -17,7 +19,25 @@ pub(super) struct Whispers {
   pub(super) timeline: Timeline,
   pub(super) loaded: bool,
   pub(super) epoch: u32,
+  // the toasts still showing, for the per-sender count
+  toasts: Vec<Toast>,
+  toast_seq: u64,
 }
+
+// one sender's toast: how many whispers it stands for, when the last landed, and the row that says it
+struct Toast {
+  via: Via,
+  login: Box<str>,
+  n: u32,
+  at: i64,
+  id: Box<str>,
+}
+
+// a sender's whispers inside this long fold into one toast (the ext's toast lives 6s)
+const TOAST_MS: i64 = 6000;
+// how much of the whisper the toast shows
+const TOAST_CHARS: usize = 80;
+const TOASTS_MAX: usize = 32;
 
 const NEED_LOGIN: &str = "log in to heatsync.org to send whispers and dms (ctrl-l)";
 // heatsync caps a dm at 500 characters
@@ -73,8 +93,14 @@ impl App {
   pub(super) fn on_whispers(&mut self, items: Vec<Whisper>, live: bool) {
     let Some(i) = self.tab_of(Kind::Whispers) else { return };
     let mut fresh = false;
+    let mut heard = Vec::new();
     for w in items {
-      fresh |= self.whisper.timeline.add(w).is_some();
+      if let Some(added) = self.whisper.timeline.add(w) {
+        fresh = true;
+        if live && !added.out {
+          heard.push(added.clone());
+        }
+      }
     }
     if !fresh {
       return;
@@ -99,7 +125,90 @@ impl App {
     if live {
       self.unseen_note(crate::model::unseen::Surface::Whispers);
     }
+    // someone whispered while you are looking at something else (ext handleIncomingWhisper)
+    if self.kind() != Kind::Whispers {
+      for w in &heard {
+        self.whisper_heard(w);
+      }
+    }
     self.wake();
+  }
+
+  // the toast and the inline row for a whisper or dm that landed off the whispers tab. a blocked person
+  // gets neither
+  fn whisper_heard(&mut self, w: &Whisper) {
+    if crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&w.who.login))) {
+      return;
+    }
+    if self.set.whisper_toast {
+      self.whisper_toast(w);
+    }
+    if self.set.inline_dm {
+      self.whisper_inline(w);
+    }
+  }
+
+  // `{name} whispered: {first 80 chars}`, with ` ×N` for a burst from one sender. the line has no click
+  // (a status line here is a plain line in the chat): the whispers tab is a click away on the tab bar
+  fn whisper_toast(&mut self, w: &Whisper) {
+    let now = now_ms();
+    let ws = &mut self.whisper;
+    ws.toasts.retain(|t| now - t.at < TOAST_MS);
+    ws.toast_seq += 1;
+    let fresh: Box<str> = format!("whisper-toast-{}", ws.toast_seq).into();
+    let login = w.who.login.to_lowercase();
+    let at = match ws.toasts.iter().position(|t| t.via == w.who.via && *t.login == *login) {
+      Some(i) => i,
+      None => {
+        if ws.toasts.len() >= TOASTS_MAX {
+          ws.toasts.remove(0);
+        }
+        ws.toasts.push(Toast { via: w.who.via, login: login.into(), n: 0, at: now, id: fresh.clone() });
+        ws.toasts.len() - 1
+      }
+    };
+    let t = &mut ws.toasts[at];
+    (t.n, t.at) = (t.n + 1, now);
+    let more = if t.n > 1 { format!(" ×{}", t.n) } else { String::new() };
+    let snippet: String = w.text.chars().take(TOAST_CHARS).collect();
+    let mut m = Message::system(now, Platform::Twitch, format!("{} whispered: {snippet}{more}", w.who.name));
+    m.color = theme::CYAN;
+    let old = t.id.clone();
+    let Some(tab) = self.tabs.get_mut(self.active) else { return };
+    let v = tab.chat();
+    // the toast still last in the chat counts up in place; one with lines after it starts a new line
+    if *old != *fresh && v.msgs().next_back().is_some_and(|l| *l.id == *old) {
+      m.id = old.clone();
+      v.replace(&old, m);
+    } else {
+      m.id = fresh.clone();
+      t.id = fresh;
+      v.push(m);
+    }
+  }
+
+  // `[dm]` row in the chat you are on (ext injectInlineNotif 'dm'): yellow edge, the sender's name in
+  // their color. a heatsync dm's sender is a heatsync name, not a twitch login, so it carries none
+  fn whisper_inline(&mut self, w: &Whisper) {
+    if self.kind() != Kind::Chat {
+      return;
+    }
+    let twitch = w.who.via == Via::Twitch;
+    let mut m = Message::system(w.ts, Platform::Twitch, "");
+    m.kind = MsgKind::Chat;
+    m.login = if twitch { w.who.login.clone() } else { "".into() };
+    m.user_id = if twitch { w.who.id.clone() } else { "".into() };
+    m.nick = w.who.name.clone();
+    m.color = w.who.color;
+    m.body = w.text.clone();
+    m.x = Some(Box::new(Extra {
+      head: Box::new([Seg { text: "[dm] ".into(), ink: theme::YELLOW, bold: true }]),
+      edge: theme::YELLOW,
+      ..Extra::default()
+    }));
+    if let Some(t) = self.tabs.get_mut(self.active) {
+      t.chat().push(m);
+    }
   }
 
   pub(super) fn on_whisper_sent(&mut self, key: u64, res: Result<Who, whisper::Fail>) {
