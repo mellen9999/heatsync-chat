@@ -60,6 +60,7 @@ pub enum Cmd {
   Social(super::social::Cmd),
   Mod(super::modact::Req),
   Pin(super::pinact::Op),
+  Nuke(Vec<super::modact::Req>, String),
   Held(super::held::Cmd),
   Following,
   Blocked(Box<str>, super::blocked::Op),
@@ -188,6 +189,9 @@ pub async fn run(
         }
         Some(Cmd::Mod(r)) => {
           tokio::spawn(super::modact::run(st.http.clone(), st.token.clone(), r, st.out.clone()));
+        }
+        Some(Cmd::Nuke(reqs, term)) => {
+          tokio::spawn(super::modact::nuke(st.http.clone(), st.token.clone(), reqs, term, st.out.clone()));
         }
         Some(Cmd::Pin(op)) => {
           tokio::spawn(super::pinact::run(st.http.clone(), st.token.clone(), op, st.out.clone()));

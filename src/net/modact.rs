@@ -1,6 +1,8 @@
 // mod actions through heatsync (POST /api/mod/action). the server holds the twitch / kick mod
 // tokens; we only name the room, the person and what to do. twitch wants numeric ids, kick takes
 // the channel slug and the login. youtube is not here: heatsync has no youtube moderation to call
+use std::time::{Duration, Instant};
+
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out, http, social};
@@ -32,6 +34,18 @@ pub struct Done {
   pub login: Box<str>,
   pub msg_id: Option<Box<str>>,
   pub res: Result<(), Fail>,
+}
+
+// what a 429 reads as (the server's bucket: 30 actions, one more a second)
+pub const SLOW: &str = "slow down";
+
+// what the ui is told when a /nuke settles: the deletes that landed (room, message id), out of `total`,
+// and why the first failure failed (if any did)
+pub struct NukeDone {
+  pub term: String,
+  pub total: usize,
+  pub ok: Vec<(Platform, Box<str>, Box<str>)>,
+  pub fail: Option<Fail>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -90,6 +104,53 @@ pub async fn run(http: reqwest::Client, token: Option<String>, r: Req, out: Out)
   })));
 }
 
+// the first deletes go out at once (the bucket holds 30), the rest one a second, so a hundred don't tail off
+// into `rate limited`; a 429 anyway waits and tries that one again
+const BURST: usize = 20;
+const PACE: Duration = Duration::from_millis(1050);
+const RETRIES: usize = 3;
+const BUDGET: Duration = Duration::from_secs(150);
+
+// /nuke's deletes, one after another. a login that is out (Auth, Relink) ends it: the rest would only fail alike
+pub async fn nuke(http: reqwest::Client, token: Option<String>, reqs: Vec<Req>, term: String, out: Out) {
+  let total = reqs.len();
+  let (mut ok, mut fail) = (Vec::new(), None);
+  let end = Instant::now() + BUDGET;
+  'all: for (i, r) in reqs.into_iter().enumerate() {
+    if i >= BURST {
+      tokio::time::sleep(PACE).await;
+    }
+    let mut tries = 0;
+    let res = loop {
+      let res = match &token {
+        None => Err(Fail::Auth),
+        Some(t) => act(&http, t, &r).await,
+      };
+      match res {
+        Err(Fail::Other(e)) if e == SLOW && tries < RETRIES && Instant::now() < end => {
+          tries += 1;
+          tokio::time::sleep(PACE + PACE / 2).await;
+        }
+        res => break res,
+      }
+    };
+    match res {
+      Ok(()) => ok.push((r.platform, r.chan, r.msg_id.unwrap_or_default())),
+      Err(f @ (Fail::Auth | Fail::Relink)) => {
+        fail = Some(f);
+        break 'all;
+      }
+      Err(f) => {
+        fail.get_or_insert(f);
+        if Instant::now() >= end {
+          break 'all;
+        }
+      }
+    }
+  }
+  out.send(NetEvent::NukeDone(Box::new(NukeDone { term, total, ok, fail })));
+}
+
 async fn id_of(http: &reqwest::Client, login: &str) -> Result<Box<str>, Fail> {
   social::resolve(http, login).await.map(|w| w.id).map_err(|_| Fail::Other(format!("couldn't find {login} on twitch")))
 }
@@ -131,7 +192,7 @@ pub fn classify(status: u16, v: &Value) -> Result<(), Fail> {
   }
   Err(match status {
     401 => Fail::Auth,
-    429 => Fail::Other("slow down".into()),
+    429 => Fail::Other(SLOW.into()),
     0 => Fail::Other("no answer from heatsync".into()),
     403 => Fail::Other("you're not a mod here".into()),
     _ if err.is_empty() => Fail::Other(http::plain_status(status)),

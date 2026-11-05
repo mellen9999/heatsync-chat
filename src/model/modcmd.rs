@@ -1,6 +1,6 @@
 // mod slash commands (ext input.js): /ban <user> [reason], /timeout <user> [secs] [reason] (default 10
 // minutes), /unban <user> (also /untimeout, /unto), /delete <msg-id>, plus /purge <user> (the ext's
-// purge button: a 1 second timeout, which clears their lines)
+// purge button: a 1 second timeout, which clears their lines), and /nuke <term> [seconds]
 
 // what a toolbar button does, and its label in the "did it" line (ext mc_mod_label_*)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -66,6 +66,31 @@ pub enum Cmd {
   // verb, the user (or, for delete, the message id), a reason when given
   Do(Verb, String, Option<String>),
   Usage(&'static str),
+  // /nuke: the term and the lookback in seconds; None = the usage line (said after the channel checks, as the ext does)
+  Nuke(Option<(String, u32)>),
+}
+
+// /nuke: a term shorter than this is refused
+pub const NUKE_MIN_TERM: usize = 2;
+// never more than this many deletes in one go
+pub const NUKE_MAX: usize = 100;
+pub const NUKE_SECS: u32 = 30;
+pub const NUKE_MAX_SECS: u32 = 300;
+pub const NUKE_USAGE: &str = "usage: /nuke <term> [seconds] \u{2014} term must be 2+ chars";
+
+// "<term> [seconds]": the ext's /^(.+?)(?:\s+(\d+))?$/ - a trailing number is the lookback, the rest the term
+fn nuke(rest: &str) -> Option<(String, u32)> {
+  let rest = rest.trim();
+  let (term, secs) = match rest.rsplit_once(char::is_whitespace) {
+    Some((t, n)) if !t.trim().is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => (t.trim(), Some(n)),
+    _ => (rest, None),
+  };
+  if term.chars().count() < NUKE_MIN_TERM {
+    return None;
+  }
+  // a number too long to parse is just "as far back as allowed"
+  let secs = secs.map_or(NUKE_SECS, |n| n.parse::<u32>().unwrap_or(u32::MAX).clamp(1, NUKE_MAX_SECS));
+  Some((term.to_owned(), secs))
 }
 
 // "90", "10m", "2h", "1d" → seconds, clamped to what twitch allows. None = not a duration
@@ -122,6 +147,7 @@ pub fn command(text: &str) -> Option<Cmd> {
         Cmd::Usage("usage: /delete <message-id> (select a line and press m)")
       }
     }
+    "nuke" => Cmd::Nuke(nuke(rest)),
     _ => return None,
   })
 }
@@ -161,6 +187,26 @@ mod tests {
     assert_eq!(command("/purge Bob"), d(Verb::Purge, "bob", None));
     assert_eq!(command("/banana bob"), None);
     assert_eq!(command("hello"), None);
+  }
+
+  #[test]
+  fn nuke_takes_a_term_and_an_optional_lookback() {
+    let n = |t: &str, s: u32| Some(Cmd::Nuke(Some((t.to_owned(), s))));
+    assert_eq!(command("/nuke spam"), n("spam", 30));
+    assert_eq!(command("/nuke spam 60"), n("spam", 60));
+    // the term may hold spaces and stays as typed; only a trailing number is the lookback
+    assert_eq!(command("/nuke Buy Followers   90"), n("Buy Followers", 90));
+    assert_eq!(command("/nuke ab"), n("ab", 30));
+    // capped at five minutes, floored at a second, never an overflow
+    assert_eq!(command("/nuke spam 9999"), n("spam", 300));
+    assert_eq!(command("/nuke spam 0"), n("spam", 1));
+    assert_eq!(command("/nuke spam 99999999999999999999"), n("spam", 300));
+    // under two characters, or nothing but a number, is the usage line
+    for bad in ["/nuke", "/nuke a", "/nuke   a  ", "/nuke 5", "/nuke \u{e9}"] {
+      assert_eq!(command(bad), Some(Cmd::Nuke(None)), "{bad}");
+    }
+    // "ab 5" is the term ab for five seconds, and "5 ab" the term "5 ab"
+    assert_eq!(command("/nuke 5 ab"), n("5 ab", 30));
   }
 
   #[test]

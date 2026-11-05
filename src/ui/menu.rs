@@ -26,6 +26,11 @@ impl<T: Copy> Menu<T> {
     self.anchor = at;
   }
 
+  #[cfg(test)]
+  pub fn head(&self) -> Option<&str> {
+    self.head.as_deref()
+  }
+
   pub fn titled(mut self, head: impl Into<String>) -> Self {
     self.head = Some(head.into());
     self

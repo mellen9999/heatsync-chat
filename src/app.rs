@@ -73,6 +73,8 @@ mod tests_input;
 #[cfg(test)]
 mod tests_kickmod;
 #[cfg(test)]
+mod tests_nuke;
+#[cfg(test)]
 mod tests_pickers;
 #[cfg(test)]
 mod tests_pin;

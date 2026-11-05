@@ -3,13 +3,17 @@
 // heatsync's server does the twitch and kick calls (POST /api/mod/action)
 use super::App;
 use super::overlay::Overlay;
+use super::pop::Act;
 use super::pop::{Pop, Subject, Todo};
 use crate::cosmetics::id::PaintId;
 use crate::model::message::{Message, Platform};
-use crate::model::modcmd::{Cmd as Slash, Verb};
+use crate::model::modcmd::{Cmd as Slash, NUKE_MAX, NUKE_USAGE, Verb};
 use crate::net::Cmd;
-use crate::net::modact::{Done, Fail, Req};
+use crate::net::modact::{Done, Fail, NukeDone, Req};
 use crate::util::time::now_ms;
+
+// how much of a long term the question shows
+const NUKE_TERM_SHOWN: usize = 40;
 
 impl App {
   pub(super) fn on_mod_state(&mut self, ch: &str, on: bool) {
@@ -136,22 +140,33 @@ impl App {
     self.say(format!("{} {}…", verb.name(), who[0].nick));
   }
 
+  // the twitch and kick feeds of the channel tab on screen that a mod command acts on; says why when there are none
+  fn mod_srcs(&mut self, what: &str) -> Option<Vec<(Platform, Box<str>)>> {
+    let Some(t) = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat) else {
+      self.say(format!("/{what} needs a channel tab"));
+      return None;
+    };
+    if self.me.is_none() {
+      self.say("log in first (ctrl-l)");
+      return None;
+    }
+    let srcs: Vec<(Platform, Box<str>)> = t.sources.iter().filter(|s| s.0 != Platform::Youtube).cloned().collect();
+    if srcs.is_empty() {
+      self.say(format!("/{what} needs a twitch or kick channel"));
+      return None;
+    }
+    Some(srcs)
+  }
+
   // /ban and friends act on the platforms the active tab merges (twitch and kick), as the ext fans out
   pub(super) fn mod_slash(&mut self, cmd: Slash) {
     let (verb, name, reason) = match cmd {
       Slash::Usage(u) => return self.say(u),
+      Slash::Nuke(n) => return self.nuke_slash(n),
       Slash::Do(v, n, r) => (v, n, r),
     };
-    let Some(t) = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat) else {
-      return self.say(format!("/{} needs a channel tab", verb.name()));
-    };
-    if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
-    }
-    let mut srcs: Vec<(Platform, Box<str>)> = t.sources.iter().filter(|s| s.0 != Platform::Youtube).cloned().collect();
-    if srcs.is_empty() {
-      return self.say(format!("/{} needs a twitch or kick channel", verb.name()));
-    }
+    let Some(mut srcs) = self.mod_srcs(verb.name()) else { return };
+    let Some(t) = self.tabs.get(self.active) else { return };
     // a message id lives on one platform: twitch first, as the ext does
     if verb == Verb::Delete {
       srcs.truncate(1);
@@ -182,6 +197,96 @@ impl App {
       return self.mod_run(verb, who, reason);
     }
     self.mod_run(verb, who, reason);
+  }
+
+  // /nuke <term> [seconds]: the lines of this tab that say the term lately, asked about before they go
+  fn nuke_slash(&mut self, parsed: Option<(String, u32)>) {
+    let Some(srcs) = self.mod_srcs("nuke") else { return };
+    let Some((term, secs)) = parsed else { return self.say(NUKE_USAGE) };
+    let (needle, since) = (term.to_lowercase(), now_ms() - i64::from(secs) * 1000);
+    let Some(t) = self.tabs.get(self.active) else { return };
+    let mut seen = std::collections::HashSet::new();
+    let mut who: Vec<Subject> = Vec::new();
+    for m in t.view.msgs() {
+      // a line of someone's, still standing, in the window, that says the term (a substring, not a pattern)
+      if !m.kind.said()
+        || m.platform == Platform::Youtube
+        || m.id.is_empty()
+        || m.flags & crate::model::message::flag::CLEARED != 0
+        || m.ts < since
+        || !m.body.to_lowercase().contains(&needle)
+        || !seen.insert(m.id.clone())
+      {
+        continue;
+      }
+      let Some(chan) = self.room_of(m) else { continue };
+      who.push(Subject {
+        platform: m.platform,
+        chan,
+        login: m.login.clone(),
+        nick: "message".into(),
+        user_id: "".into(),
+        msg_id: m.id.clone(),
+        color: 0,
+        own: false,
+        paint: None,
+      });
+    }
+    let total = who.len();
+    if total == 0 {
+      return self.say(format!("/nuke: no messages matching \"{term}\" in the last {secs}s"));
+    }
+    // the oldest are kept if there are more than the cap: a raid's first lines go first
+    who.truncate(NUKE_MAX);
+    let n = who.len();
+    let capped = if total > n { format!("+ (capped from {total})") } else { String::new() };
+    let shown: String = term.chars().take(NUKE_TERM_SHOWN).collect();
+    let shown = if shown.len() < term.len() { format!("{shown}\u{2026}") } else { shown };
+    let head =
+      format!("nuke {n}{capped} message{} matching \"{shown}\" in #{}?", if n == 1 { "" } else { "s" }, srcs[0].1);
+    let at = (self.pointer.0.min(self.canvas.w - 160), self.pointer.1.min(self.canvas.h - 80));
+    let todo = Todo { verb: Verb::Delete, who, reason: Some(term), reasons: Vec::new() };
+    self.overlay = Some(Overlay::Pop(Pop::confirm_as(head, at, (Act::NukeYes, "nuke".to_owned()), todo)));
+    self.pop_changed();
+  }
+
+  // "nuke": every delete goes to the net, which paces them; the summary comes back as `NukeDone`
+  pub(super) fn nuke_go(&mut self, who: Vec<Subject>, term: String) {
+    if who.is_empty() {
+      return;
+    }
+    let reqs: Vec<Req> = who.iter().map(|w| self.req(w, Verb::Delete, None)).collect();
+    self.say(format!("nuking {} message{}\u{2026}", reqs.len(), if reqs.len() == 1 { "" } else { "s" }));
+    self.net.send(Cmd::Nuke(reqs, term));
+  }
+
+  pub(super) fn on_nuke_done(&mut self, d: NukeDone) {
+    let NukeDone { term, total, ok, fail } = d;
+    // twitch echoes each delete back through chat; kick echoes nothing, so its lines go grey here
+    for (platform, chan, id) in ok.iter().filter(|o| o.0 == Platform::Kick) {
+      for i in self.tabs_with(*platform, chan) {
+        self.tabs[i].chat().clear_msg(id);
+        self.touched(i);
+      }
+    }
+    match fail {
+      Some(Fail::Auth) => self.say("log in first (ctrl-l)"),
+      Some(Fail::Relink) => {
+        self.say("moderating needs a twitch permission. finish allowing it in your browser\u{2026}");
+        self.net.send(Cmd::Relink("mod"));
+      }
+      _ => {
+        let n = ok.len();
+        self.say(format!("nuked {n}/{total} matching \"{term}\""));
+        if let Some(Fail::Other(e)) = fail
+          && n < total
+        {
+          self.say(format!("delete failed: {e}"));
+        }
+      }
+    }
+    self.bar_dirty = true;
+    self.wake();
   }
 
   pub(super) fn on_mod_done(&mut self, d: Done) {

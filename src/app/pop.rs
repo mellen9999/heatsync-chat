@@ -31,6 +31,8 @@ pub enum Act {
   Pin,
   Unpin,
   UnpinYes,
+  // "yes" to /nuke's "nuke n messages…?"
+  NukeYes,
   // allow (true) / deny the selected automod hold
   Held(bool),
   // the room's twitch blocked terms (mods)
@@ -120,7 +122,12 @@ pub struct Pop {
 
 impl Pop {
   pub fn confirm(head: String, at: (i32, i32), todo: Todo) -> Self {
-    let mut rows = vec![(Act::Yes, "yes, ban".to_owned())];
+    Self::confirm_as(head, at, (Act::Yes, "yes, ban".to_owned()), todo)
+  }
+
+  // the same question with its own "yes" row
+  pub fn confirm_as(head: String, at: (i32, i32), yes: (Act, String), todo: Todo) -> Self {
+    let mut rows = vec![yes];
     // the first nine answer to their digit
     for (i, r) in todo.reasons.iter().enumerate() {
       let r = match r.char_indices().nth(REASON_SHOWN) {
@@ -329,6 +336,7 @@ impl App {
       (Act::UnpinYes, ..) => self.pin_clear_go(),
       (Act::Do(verb), Some(who), _) => self.mod_run(verb, vec![who], None),
       (Act::Yes, _, Some(t)) => self.mod_send(t.verb, t.who, t.reason),
+      (Act::NukeYes, _, Some(t)) => self.nuke_go(t.who, t.reason.unwrap_or_default()),
       (Act::Why(i), _, Some(t)) => {
         let reason = t.reasons.get(usize::from(i)).cloned().or(t.reason);
         self.mod_send(t.verb, t.who, reason)

@@ -845,7 +845,7 @@ impl ChatView {
     self.rows.back().map(|r| &r.msg)
   }
 
-  #[cfg(test)]
+  // every line held, oldest first
   pub fn msgs(&self) -> impl Iterator<Item = &Message> {
     self.rows.iter().map(|r| &r.msg)
   }

@@ -277,6 +277,8 @@ pub enum NetEvent {
   },
   // a mod action settled
   ModDone(Box<modact::Done>),
+  // a /nuke settled
+  NukeDone(Box<modact::NukeDone>),
   // a pin / unpin for everyone settled
   PinDone(Box<pinact::Done>),
   // a link's preview (None: nothing to show)
@@ -496,6 +498,8 @@ pub enum Cmd {
   Relink(&'static str),
   // a ban, timeout, delete… in a room we moderate
   Mod(modact::Req),
+  // /nuke's deletes (paced), with the term for the summary
+  Nuke(Vec<modact::Req>, String),
   // pin a line for everyone / clear the room's pin
   Pin(pinact::Op),
   // your mute list changed (synced while logged in)
@@ -926,6 +930,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Mod(r) => {
         let _ = sess_tx.send(session::Cmd::Mod(r));
+      }
+      Cmd::Nuke(reqs, term) => {
+        let _ = sess_tx.send(session::Cmd::Nuke(reqs, term));
       }
       Cmd::Pin(op) => {
         let _ = sess_tx.send(session::Cmd::Pin(op));
