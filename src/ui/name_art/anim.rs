@@ -77,7 +77,7 @@ impl Filler {
       BaseKind::Repeating => bands_lut(stops),
       _ => lut_of(&wrapped(stops)),
     };
-    let stripe = if stops.len() > 1 { stops.iter().map(|s| s.1).collect() } else { vec![stops[0].1, 0xffffff] };
+    let stripe = if stops.len() > 1 { stops.iter().map(|s| s.1).collect() } else { vec![stops[0].1, theme::WHITE] };
     Filler { base: base.clone(), lut, wrap, stripe }
   }
 
@@ -149,7 +149,7 @@ impl Filler {
         } else {
           0.8 * (0.62 - t) / 0.12
         };
-        mix(base, 0xffffff, a)
+        mix(base, theme::WHITE, a)
       }
       Kind::Stripes => {
         // 5px bands at 45 degrees, the box-sized tile sliding along x by one period per loop
@@ -173,7 +173,7 @@ impl Filler {
         };
         let under = dot(13.0, 11.0, 4.0 - 26.0 * p, 3.0 + 22.0 * p, 0.5, 0.9, 0.667);
         let over = dot(9.0, 7.0, -27.0 * p, 21.0 * p, 0.7, 1.1, 1.0);
-        mix(mix(base, 0xffffff, under), 0xffffff, over)
+        mix(mix(base, theme::WHITE, under), theme::WHITE, over)
       }
       _ => self.rest(x, y, w, h),
     }
@@ -335,7 +335,12 @@ impl AnimArt {
     });
     let ghosts = has(Kind::Glitch).then(|| {
       let g = |a: f32, b: f32| {
-        stack(&alpha, wu, hu, &[sh(a, 0.0, 0.0, 0xff << 24 | 0x00ffff), sh(b, 0.0, 0.0, 0xff << 24 | 0xff00ff)])
+        stack(
+          &alpha,
+          wu,
+          hu,
+          &[sh(a, 0.0, 0.0, 0xff << 24 | theme::CYAN), sh(b, 0.0, 0.0, 0xff << 24 | theme::MAGENTA)],
+        )
       };
       [g(-2.0, 2.0), g(2.0, -2.0), g(-1.0, 1.0)].map(beneath)
     });
