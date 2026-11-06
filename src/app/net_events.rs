@@ -112,6 +112,7 @@ impl App {
     if !history {
       for m in &msgs {
         self.logs_live(p, key, m);
+        self.chatlog.log(p, key, m);
       }
     }
     for i in self.tabs_with(p, key) {
@@ -185,6 +186,7 @@ impl App {
         self.scan_mention(Platform::Twitch, ch, &mut m);
         self.hs_origin(&mut m);
         self.logs_live(Platform::Twitch, ch, &m);
+        self.chatlog.log(Platform::Twitch, ch, &m);
         Chat::Msg(m)
       }
       ev => ev,
@@ -210,7 +212,9 @@ impl App {
       }
       Chat::ClearMsg(id, login) => {
         tab.clear_msg(&id);
-        tab.push(removed(Platform::Twitch, Removed::Line(&login)));
+        let row = removed(Platform::Twitch, Removed::Line(&login));
+        self.chatlog.log(Platform::Twitch, ch, &row);
+        tab.push(row);
         let who = if login.is_empty() { "a message".to_owned() } else { format!("{login}'s message") };
         self.mod_log(Platform::Twitch, ch, format!("deleted {who}"));
       }
@@ -218,10 +222,15 @@ impl App {
         tab.clear_user(&login);
         let row = removed(Platform::Twitch, Removed::User(&login, secs));
         self.mod_log(Platform::Twitch, ch, row.body.to_string());
+        self.chatlog.log(Platform::Twitch, ch, &row);
         self.tabs[i].chat().push(row);
         self.lock_clearchat(ch, &login, secs);
       }
-      Chat::ClearAll => tab.push(removed(Platform::Twitch, Removed::All)),
+      Chat::ClearAll => {
+        let row = removed(Platform::Twitch, Removed::All);
+        self.chatlog.log(Platform::Twitch, ch, &row);
+        tab.push(row);
+      }
       Chat::Room { id, modes } => {
         self.modes_seen(ch, modes);
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
@@ -621,6 +630,7 @@ impl App {
         let waiting = self.pacer.flush(&key);
         self.relay_show(platform, &key, waiting, false);
         let row = removed(platform, Removed::User(&login, secs));
+        self.chatlog.log(platform, &key, &row);
         for i in self.tabs_with(platform, &key) {
           let v = self.tabs[i].chat();
           v.clear_user(&login);

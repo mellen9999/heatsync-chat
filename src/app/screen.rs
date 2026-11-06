@@ -354,6 +354,7 @@ impl App {
         self.res.media = self.set.media;
         self.relayout_where(None);
       }
+      Fx::ChatLogs => self.chatlog.set(self.set.chat_logs),
       Fx::Filters => {
         self.push_flags();
         self.refilter_all();

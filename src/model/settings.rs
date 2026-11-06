@@ -260,6 +260,8 @@ pub struct Settings {
   pub mention_volume: Volume,
   // look for a newer release now and then (github sees the ask). default on
   pub updates: bool,
+  // every live line of every open channel is appended to a file on this machine (src/chatlog.rs). default off
+  pub chat_logs: bool,
   // chat filters (ext hideBots, hideCommands, hideDuplicates): all off by default
   pub hide_bots: bool,
   pub hide_cmds: bool,
@@ -338,6 +340,7 @@ impl Default for Settings {
       title_flash: true,
       mention_volume: Volume::V30,
       updates: true,
+      chat_logs: false,
       hide_bots: false,
       hide_cmds: false,
       hide_dupes: false,
@@ -655,6 +658,7 @@ mod tests {
         title_flash: true,
         mention_volume: Volume::V30,
         updates: true,
+        chat_logs: false,
         hide_bots: false,
         hide_cmds: false,
         hide_dupes: false,

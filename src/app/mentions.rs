@@ -136,6 +136,7 @@ impl App {
   // everything that waits for its turn to be written, written now: on the way out or into a restart
   pub(super) fn flush_to_disk(&mut self) {
     self.mentions_flush();
+    self.chatlog.flush();
     store::flush();
   }
 

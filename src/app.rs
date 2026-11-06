@@ -388,6 +388,8 @@ pub struct App {
   mentions: Mentions,
   // the mentions tab's lines are written to disk at this time (debounced)
   mentions_save: Option<Instant>,
+  // every live line goes to a file on disk when "save chat logs" is on (off by default)
+  chatlog: crate::chatlog::ChatLog,
   // what you sent through heatsync.org lately: its echo wears [H]
   origins: crate::model::origin::Origins,
   // sends to several feeds, so their echoes fold into one line
@@ -580,6 +582,7 @@ impl App {
       follow_colors: Default::default(),
       mentions: Mentions::default(),
       mentions_save: None,
+      chatlog: crate::chatlog::ChatLog::new(set.chat_logs),
       origins: Default::default(),
       sentfold: Default::default(),
       focused: true,

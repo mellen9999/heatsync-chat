@@ -50,6 +50,8 @@ pub enum Fx {
   Filters,
   // a content switch flipped: what flagged pictures and emotes show
   Content,
+  // chat logs flipped: the writer starts or lets go
+  ChatLogs,
   // a built-in tab came or went
   Tab(Kind),
 }
@@ -582,6 +584,18 @@ pub static DEFS: [Def; 74] = [
     alias: "update upgrade new version",
     ctl: pill!(updates),
     fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
+    id: "chat_logs",
+    cmd: Some("/chatlogs"),
+    cat: Cat::System,
+    section: "privacy",
+    label: "save chat logs",
+    tip: "writes every chat line of your open channels to text files on this computer, one per channel per day, in ~/.local/share/heatsync-chat/logs. off by default, never uploaded, whispers never saved. /chatlogs",
+    alias: "log logging history save disk record",
+    ctl: pill!(chat_logs),
+    fx: Fx::ChatLogs,
     wire: Wire::None,
   },
   Def {
