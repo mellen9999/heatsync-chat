@@ -33,6 +33,8 @@ pub enum Cmd {
   // a held post's withheld files (the viewer pressed show)
   Media { id: Box<str> },
   Vote { id: Box<str> },
+  // react to a post with an emote (`on`), or take your reaction back off
+  React { id: Box<str>, emote: u64, on: bool },
   // `on` = the state wanted: true bookmarks, false takes it off
   Bookmark { id: Box<str>, on: bool },
   // which of these (at most 100) posts you bookmarked
@@ -75,6 +77,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::Thread { id } => thread(&http, token.as_deref(), id, &out).await,
     Cmd::Media { id } => media(&http, token.as_deref(), id, &out).await,
     Cmd::Vote { id } => vote(&http, token.as_deref(), id, &out).await,
+    Cmd::React { id, emote, on } => react(&http, token.as_deref(), (id, emote), on, &out).await,
     Cmd::Bookmark { id, on } => bookmark(&http, token.as_deref(), id, on, &out).await,
     Cmd::BookmarkCheck { ids } => bookmark_check(&http, token.as_deref(), ids, &out).await,
     Cmd::Edit { id, text } => edit(&http, token.as_deref(), id, text, &out).await,
@@ -406,6 +409,27 @@ async fn vote(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &O
     Err(status)
   };
   void(out.send(NetEvent::Voted { id, res }))
+}
+
+// POST /api/messages/:id/react {emote_id} adds your reaction (`added:false` = you already had it), DELETE
+// .../react/:emote_id takes it off (ext feedReactionToggle). ok = whether the server added it. taking back one
+// that is not there (404) is as good as done
+async fn react(http: &reqwest::Client, token: Option<&str>, (id, emote): (Box<str>, u64), on: bool, out: &Out) {
+  let Some(t) = token else { return void(out.send(NetEvent::Reacted { id, emote, on, res: Err(401) })) };
+  let base = format!("/api/messages/{}/react", crate::util::path_seg(&id));
+  let (status, v) = if on {
+    call(authed(http, t, &base, json!({ "emote_id": emote }).to_string())).await
+  } else {
+    call(http.delete(format!("{ORIGIN}{base}/{emote}")).bearer_auth(t)).await
+  };
+  let res = if (200..300).contains(&status) {
+    Ok(v.get("added").and_then(Value::as_bool).unwrap_or(true))
+  } else if !on && status == 404 {
+    Ok(true)
+  } else {
+    Err(status)
+  };
+  void(out.send(NetEvent::Reacted { id, emote, on, res }))
 }
 
 // POST adds a bookmark, DELETE takes it off (ext feedBookmarkToggle); 2xx = settled

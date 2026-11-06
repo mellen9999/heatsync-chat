@@ -5,6 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use super::engage::Marks;
 use super::message::{Message, Platform};
 use super::post::{self, Post, Reveal};
+use super::reaction::{self, Change, Frame, Reaction};
 use crate::net::social::Page;
 
 // the ext keeps 150 posts
@@ -41,6 +42,8 @@ pub struct Feed {
   pub thread: Option<Thread>,
   // posts a vote is out for, with what your vote was before it (a refusal puts it back)
   voting: HashMap<Box<str>, bool>,
+  // reaction presses out (post, emote), with the chip as it was: one request per chip at a time
+  reacting: HashMap<(Box<str>, u64), Reaction>,
   // which posts you bookmarked
   pub marks: Marks,
   // held media the viewer asked to see, this session only (ext: never persisted)
@@ -137,6 +140,67 @@ impl Feed {
         x.heat = h;
       }
     });
+  }
+
+  // run `f` on the chips of every copy of a post
+  fn each_chips(&mut self, id: &str, mut f: impl FnMut(&mut Vec<Reaction>)) {
+    self.each_copy(id, |p| {
+      let mut list = std::mem::take(&mut p.reactions).into_vec();
+      f(&mut list);
+      p.reactions = list.into();
+    });
+  }
+
+  // a press on a chip: your reaction flips now, counted (ext feedReactionToggle). Some((wanted, chip)) = send
+  // that. None = the chip is not here, or one is already out for it
+  pub fn react_flip(&mut self, id: &str, emote: u64) -> Option<(bool, Reaction)> {
+    let chip = self.find(id)?.reactions.iter().find(|r| r.id == emote)?.clone();
+    if self.reacting.contains_key(&(id.into(), emote)) {
+      return None;
+    }
+    let on = !chip.mine;
+    self.react_set(id, &chip, on);
+    self.reacting.insert((id.into(), emote), chip.clone());
+    Some((on, chip))
+  }
+
+  // the answer is in (or never came): the chip as it was before the press
+  pub fn react_end(&mut self, id: &str, emote: u64) -> Option<Reaction> {
+    self.reacting.remove(&(id.into(), emote))
+  }
+
+  // your reaction on or off, on every copy of the post
+  pub fn react_set(&mut self, id: &str, chip: &Reaction, on: bool) {
+    self.each_chips(id, |l| {
+      reaction::set_mine(l, chip, on);
+    });
+  }
+
+  // the server said you had it already: the count it gave us already held you
+  pub fn react_dup(&mut self, id: &str, emote: u64) {
+    self.each_chips(id, |l| {
+      if let Some(x) = l.iter_mut().find(|x| x.id == emote) {
+        x.count = x.count.saturating_sub(1).max(1);
+        x.mine = true;
+      }
+    });
+  }
+
+  // someone else's reaction, live, on every copy. true = a copy of the post is here
+  pub fn react_frame(&mut self, f: &Frame) -> bool {
+    let had = self.find(&f.post).is_some();
+    self.each_chips(&f.post, |l| match &f.change {
+      Change::Added(r) => reaction::add(l, r),
+      Change::Removed(id) => reaction::sub(l, *id),
+    });
+    had
+  }
+
+  // a vote moved a post's heat (live)
+  pub fn heat_set(&mut self, id: &str, heat: u32) -> bool {
+    let had = self.find(id).is_some();
+    self.each_copy(id, |x| x.heat = heat);
+    had
   }
 
   // a press: flip your vote now (ext feedVoteOptimistic). false = one is already out for this post,

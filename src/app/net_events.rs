@@ -331,6 +331,9 @@ impl App {
       NetEvent::TabSync(f) => self.on_tab_sync(f),
       NetEvent::HsAuth(on) => {
         self.hs_authed = on;
+        if !on {
+          self.hs_uid = None;
+        }
         if on {
           self.ui_state_fetch();
           self.held_reconnected();
@@ -338,6 +341,10 @@ impl App {
         }
       }
       NetEvent::Voted { id, res } => self.on_voted(id, res),
+      NetEvent::Reacted { id, emote, on, res } => self.on_reacted(id, emote, on, res),
+      NetEvent::Reaction(f) => self.on_react_frame(f),
+      NetEvent::PostHeat { id, heat } => self.on_post_heat(id, heat),
+      NetEvent::HsUser(id) => self.hs_uid = Some(id),
       NetEvent::Posted { res } => self.on_posted(res),
       NetEvent::Bookmarked { id, on, res } => self.on_bookmarked(id, on, res),
       NetEvent::Marks { ids, res } => self.on_marks(ids, res),

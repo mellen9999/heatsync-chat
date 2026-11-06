@@ -246,6 +246,7 @@ impl App {
       self.bar_dirty = true;
     }
     self.feed.open(&root, (*root != *id).then_some(id));
+    self.thread_room(Some(root.clone()));
     self.net.send(Cmd::Social(social::Cmd::Thread { id: root }));
     self.feed_show();
     let res = &mut self.res;
@@ -264,6 +265,9 @@ impl App {
     let Some(under) = t.under.take() else { return false };
     t.view = under;
     t.view.invalidate();
+    if self.feed.thread.is_some() {
+      self.thread_room(None);
+    }
     self.feed.close();
     self.bar_dirty = true;
     self.input_dirty = true;

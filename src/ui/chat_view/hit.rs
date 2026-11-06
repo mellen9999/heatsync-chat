@@ -176,6 +176,30 @@ impl ChatView {
     self.spot_at(area, (x, y), res, |l| &l.vote)
   }
 
+  // the reaction chip under (x, y): its post and its emote. the chip's picture counts as the chip
+  pub fn chip_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(Box<str>, u64)> {
+    let (i, top) = self.row_at(area, y, res)?;
+    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+    if muted || m.x.as_ref().is_none_or(|x| x.react.is_empty()) {
+      return None;
+    }
+    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
+    let on_picture = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
+      PositionedLayoutItem::InlineBox(b)
+        if (b.x..b.x + b.width).contains(&lx) && (b.y..b.y + b.height).contains(&ly) =>
+      {
+        laid.chips.iter().find(|c| c.boxed == Some(b.id)).map(|c| c.emote)
+      }
+      _ => None,
+    });
+    let emote = on_picture.or_else(|| {
+      let ranges: Vec<_> = laid.chips.iter().map(|c| c.range.clone()).collect();
+      over(&laid.layout, lx, ly, &ranges).map(|k| laid.chips[k].emote)
+    })?;
+    Some((m.id.clone(), emote))
+  }
+
   // the feed post whose held box's button (show / hide / retry) is under (x, y)
   pub fn reveal_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
     self.spot_at(area, (x, y), res, |l| &l.reveal)

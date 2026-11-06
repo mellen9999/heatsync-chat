@@ -100,6 +100,8 @@ struct Laid {
   // `#tag` in the words: where, and the tag
   tags: Vec<(std::ops::Range<usize>, Box<str>)>,
   frames: Vec<(std::ops::Range<usize>, Frame)>,
+  // a feed post's reaction chips
+  chips: Vec<react::Spot>,
   // the post's pictures, asked for at draw time like `embed`
   pics: Vec<ImgId>,
   // the pictures that are a video's still (a ▶ over them), and what a click plays
@@ -268,6 +270,7 @@ mod draw;
 mod hit;
 mod layout;
 mod marks;
+mod react;
 #[cfg(test)]
 mod tests;
 

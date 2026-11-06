@@ -43,6 +43,9 @@ pub enum Cmd {
   TabSync(Vec<Value>),
   // ask the account for its tab list again (answered with `multichat:config`, nothing when none is saved)
   TabPull,
+  // the feed thread on screen (its root post id), whose live reactions and votes come here; None = none.
+  // one room at a time: naming another leaves the last (the ext's feed_thread)
+  Thread(Option<Box<str>>),
 }
 
 fn plat(p: Platform) -> &'static str {
@@ -53,6 +56,8 @@ fn plat(p: Platform) -> &'static str {
 struct State {
   rooms: BTreeSet<(&'static str, Box<str>)>,
   yt: BTreeSet<Box<str>>,
+  // the thread room joined (lowercase post id), re-joined on every new socket
+  thread: Option<Box<str>>,
   // last `_seq` seen per kick room, so the server can replay what we missed
   kick_seq: HashMap<Box<str>, u64>,
   yt_status: HashMap<Box<str>, Box<str>>,
@@ -159,6 +164,18 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
     Cmd::UiSync(patch) => vec![json!({"type": "ui-state:sync", "patch": patch})],
     Cmd::TabSync(channels) => vec![json!({"type": "multichat:sync", "channels": channels})],
     Cmd::TabPull => vec![json!({"type": "multichat:pull"})],
+    Cmd::Thread(id) => {
+      let id: Option<Box<str>> = id
+        .filter(|i| (1..=8).contains(&i.len()) && i.bytes().all(|b| b.is_ascii_alphanumeric()))
+        .map(|i| i.to_ascii_lowercase().into());
+      if id == st.thread {
+        return Vec::new();
+      }
+      let mut out: Vec<Value> = st.thread.iter().map(|i| feed_room("feed:leave", i)).collect();
+      out.extend(id.iter().map(|i| feed_room("feed:join", i)));
+      st.thread = id;
+      out
+    }
     Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)).into_iter().collect(),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
@@ -195,6 +212,11 @@ fn authenticate(token: &String) -> Value {
   json!({"type": "authenticate", "token": token})
 }
 
+// the server's room for a thread is `feed:thread:<id>`; a socket joins it with feed `thread:<id>`
+fn feed_room(ty: &str, id: &str) -> Value {
+  json!({"type": ty, "feed": format!("thread:{id}")})
+}
+
 fn yt_sub(handle: &str) -> Value {
   json!({"type": "youtube:subscribe", "url": handle, "channelId": handle.to_ascii_lowercase()})
 }
@@ -217,6 +239,7 @@ async fn session(
     hello.push(json!({"type": "ack:channels", "channels": acks}));
   }
   hello.extend(st.yt.iter().map(|h| yt_sub(h)));
+  hello.extend(st.thread.iter().map(|i| feed_room("feed:join", i)));
   st.catching = resubscribed(st);
   st.socket_authed = false;
   for f in hello {
@@ -548,6 +571,16 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let (chan, id, end) = crate::model::held::update(v)?;
       send(NetEvent::HeldEnd { chan, id, end })
     }
+    // the thread open: someone reacted, or took it back (the room is joined only for that thread)
+    "reaction:added" | "reaction:removed" if st.thread.is_some() => {
+      let f = crate::model::reaction::parse_frame(v, ty == "reaction:added")?;
+      send(NetEvent::Reaction(f))
+    }
+    "vote:updated" if st.thread.is_some() => {
+      let id = v.get("message_id").and_then(Value::as_str).filter(|i| crate::model::post::id_ok(i))?;
+      let heat = v.get("heat").and_then(Value::as_f64).filter(|h| h.is_finite() && *h >= 0.0)?;
+      send(NetEvent::PostHeat { id: id.to_ascii_lowercase().into(), heat: heat.min(1e9) as u32 })
+    }
     "new-message" => {
       let p = crate::model::post::parse(v.get("data")?)?;
       send(NetEvent::FeedLive(p))
@@ -567,6 +600,13 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       send(NetEvent::Notif(it))
     }
     "authenticated" => {
+      // who we are, for telling our own reaction frames from other people's
+      let who = v.get("userId").and_then(Value::as_str).filter(|u| {
+        (1..=64).contains(&u.len()) && u.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+      });
+      if let Some(end) = who.and_then(|u| send(NetEvent::HsUser(u.into()))) {
+        return Some(end);
+      }
       // a link or unlink while we were away sent its account:changed to nobody: read the account again
       let again = st.authed && !st.socket_authed;
       (st.authed, st.socket_authed) = (true, true);
@@ -943,5 +983,36 @@ mod tests {
     st.socket_authed = false;
     dispatch(&auth, &mut st, &out);
     assert_eq!(got(&rx), 1, "a new socket's sign-in");
+  }
+
+  // one thread room at a time (naming another leaves the last), hostile ids refused, and its frames only
+  // count while it is joined
+  #[test]
+  fn a_thread_room_is_joined_alone_and_its_frames_need_it() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let react =
+      json!({"type": "reaction:added", "message_id": "00004a", "user_id": "7", "emote_id": 1, "emote_name": "k"});
+    dispatch(&react, &mut st, &out);
+    assert!(rx.try_recv().is_err(), "no room joined: ignored");
+    let f = apply(&mut st, Cmd::Thread(Some("00004A".into())));
+    assert_eq!((f.len(), f[0]["type"].clone(), f[0]["feed"].clone()), (1, json!("feed:join"), json!("thread:00004a")));
+    assert!(apply(&mut st, Cmd::Thread(Some("00004a".into()))).is_empty());
+    let f = apply(&mut st, Cmd::Thread(Some("00004b".into())));
+    assert_eq!((&f[0]["type"], &f[1]["type"]), (&json!("feed:leave"), &json!("feed:join")));
+    assert!(apply(&mut st, Cmd::Thread(Some("bad id!".into()))).len() == 1, "a bad id only leaves");
+    apply(&mut st, Cmd::Thread(Some("00004a".into())));
+    dispatch(&react, &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::Reaction(_))));
+    dispatch(&json!({"type": "vote:updated", "message_id": "00004a", "heat": 12.0}), &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::PostHeat { heat: 12, .. })));
+    dispatch(&json!({"type": "vote:updated", "message_id": "no way", "heat": 1}), &mut st, &out);
+    assert!(rx.try_recv().is_err());
+    dispatch(&json!({"type": "authenticated", "userId": "u-9"}), &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::HsUser(u)) if &*u == "u-9"));
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::HsAuth(true))));
+    let f = apply(&mut st, Cmd::Thread(None));
+    assert_eq!(f[0]["type"], "feed:leave");
   }
 }

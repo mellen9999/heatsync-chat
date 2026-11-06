@@ -62,6 +62,7 @@ mod pred;
 mod presets;
 mod pronouns;
 mod quick;
+mod react;
 mod render;
 mod resume;
 mod rover;
@@ -95,6 +96,8 @@ mod tests_nuke;
 mod tests_pickers;
 #[cfg(test)]
 mod tests_pin;
+#[cfg(test)]
+mod tests_react;
 #[cfg(test)]
 mod tests_screens;
 #[cfg(test)]
@@ -289,6 +292,8 @@ pub struct App {
   // when the settings were last asked for
   acct: crate::model::sync::Acct,
   hs_authed: bool,
+  // our heatsync user id, as the socket signed in (our own reaction frames are told apart by it)
+  hs_uid: Option<Box<str>>,
   ui_get_at: Option<Instant>,
   // your channel tabs as the account holds them (tabsync.rs)
   tabsync: crate::model::tabsync::TabSync,
@@ -501,6 +506,7 @@ impl App {
       me: None,
       acct,
       hs_authed: false,
+      hs_uid: None,
       tabsync: Default::default(),
       ui_get_at: None,
       ime: Ime::default(),

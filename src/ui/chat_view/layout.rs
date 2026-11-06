@@ -168,6 +168,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   let mut refs = Vec::new();
   let mut tags = Vec::new();
   let mut pics = Vec::new();
+  let mut chips = Vec::new();
   let mut plays = Vec::new();
   // where the words sit in the text, for search hits
   let mut words_at = 0..0;
@@ -328,7 +329,40 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   }
   let line = (res.text.line_px * res.look.spacing).round();
   let emoji = (words_at.clone(), res.look.emoji_mul);
-  let layout = res.text.layout_at(&s, &spans, &ib, (width - MARK_W) as f32 - 2.0 * theme::PAD_X, line, emoji);
+  let room = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
+  // a post's reaction chips: after its last word when they fit, else one more line at most
+  if let Some(x) = x.filter(|x| !x.react.is_empty() && !muted && m.kind != Kind::System) {
+    let base = (s.len(), spans.len(), ib.len(), boxes.len());
+    // lines the row takes with `k` chips (None: without any)
+    let lines =
+      |res: &mut Res, k: Option<usize>, s: &mut String, spans: &mut Vec<Span>, ib: &mut Vec<_>, boxes: &mut Vec<_>| {
+        s.truncate(base.0);
+        spans.truncate(base.1);
+        ib.truncate(base.2);
+        boxes.truncate(base.3);
+        if let Some(k) = k {
+          super::react::chips(res, &x.react, k, s, spans, ib, boxes);
+        }
+        res.text.layout_at(s, spans, ib, room, line, (emoji.0.clone(), emoji.1)).len()
+      };
+    let own = lines(res, None, &mut s, &mut spans, &mut ib, &mut boxes);
+    // the most chips that keep the row within one extra line (the `+N` is counted)
+    let (mut lo, mut hi) = (0, x.react.len());
+    while lo < hi {
+      let mid = (lo + hi).div_ceil(2);
+      if lines(res, Some(mid), &mut s, &mut spans, &mut ib, &mut boxes) <= own + 1 {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    s.truncate(base.0);
+    spans.truncate(base.1);
+    ib.truncate(base.2);
+    boxes.truncate(base.3);
+    chips = super::react::chips(res, &x.react, lo, &mut s, &mut spans, &mut ib, &mut boxes);
+  }
+  let layout = res.text.layout_at(&s, &spans, &ib, room, line, emoji);
   let mut names = Vec::new();
   if let Some((uid, paint)) = painted
     && let Some((x, w, baseline)) = painted_run(&layout, &nick)
@@ -356,6 +390,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     refs,
     tags,
     frames,
+    chips,
     pics,
     plays,
     boxes,

@@ -211,6 +211,22 @@ pub enum NetEvent {
     id: Box<str>,
     res: Result<(bool, Option<u32>), u16>,
   },
+  // a reaction press settled (`on` = what was asked); ok = whether the server added it
+  Reacted {
+    id: Box<str>,
+    emote: u64,
+    on: bool,
+    res: Result<bool, u16>,
+  },
+  // a live reaction on a post of the thread open (ws `reaction:added` / `reaction:removed`), checked
+  Reaction(crate::model::reaction::Frame),
+  // a live vote on one (ws `vote:updated`): the post's heat, absolute
+  PostHeat {
+    id: Box<str>,
+    heat: u32,
+  },
+  // who this socket is signed in as (ws `authenticated`): our own reaction frames are told apart by it
+  HsUser(Box<str>),
   // a bookmark settled (`on` = what was asked), the check of which posts are bookmarked, an edit and a
   // delete of your own post settling
   Bookmarked {

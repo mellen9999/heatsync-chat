@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::color;
 use super::message::{Extra, HsEmote, Kind, Message, Pic, Platform, Seg};
+use super::reaction::{self, Reaction};
 use crate::cosmetics::id::PaintId;
 use crate::heatsync::content::{self, emote_hidden};
 use crate::heatsync::valid_name;
@@ -75,6 +76,8 @@ pub struct Post {
   pub pending: bool,
   // video when the server says so; a withheld post's kind is all we know of it
   pub video: bool,
+  // the chips under it (model::reaction); none for most posts, and a boxed empty slice holds nothing
+  pub reactions: Box<[Reaction]>,
 }
 
 // where the viewer's `show` on a held post stands (model::feed keeps one per post, for the session)
@@ -118,7 +121,7 @@ pub fn unescape(s: &str) -> String {
   out
 }
 
-fn id_ok(s: &str) -> bool {
+pub fn id_ok(s: &str) -> bool {
   (1..=8).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
@@ -243,6 +246,7 @@ pub fn parse(v: &Value) -> Option<Post> {
     media,
     cats: cats_of(v),
     video: name("media_type") == Some("video"),
+    reactions: reaction::parse_list(v.get("reactions")),
     pending: v.get("moderation_pending").and_then(Value::as_bool) == Some(true)
       || name("moderation_status") == Some("pending"),
   })
@@ -337,6 +341,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     edge: if p.heat > 0 { tier(p.heat).0 } else { 0 },
     paint: p.paint.clone(),
     pic: pic(p, false, None).map(Box::new),
+    react: p.reactions.clone(),
     late: false,
     held: None,
     ..Extra::default()

@@ -90,6 +90,7 @@ impl App {
       return;
     }
     if self.vote_press()
+      || self.chip_press()
       || self.held_press()
       || self.img_press()
       || self.reveal_press()

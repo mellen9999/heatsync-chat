@@ -1682,3 +1682,63 @@ fn a_plus_member_has_a_tenure_plus_after_the_name_and_never_beside_an_at_name() 
   let a = dim(&mut res, &other);
   assert_eq!(a, dim(&mut Res::new(1.0), &other), "an @name in the words never sprouts one");
 }
+
+fn reacted(n: usize, name: &str) -> Message {
+  let list: Vec<_> = (1..=n)
+    .map(|i| serde_json::json!({"emote_id": i, "emote_name": format!("{name}{i}"), "count": i, "reacted": i == 1}))
+    .collect();
+  let p = crate::model::post::parse(&serde_json::json!(
+    {"base36_id": "00004a", "username": "bob", "user_id": "9", "content": "hello feed", "reactions": list}
+  ))
+  .unwrap();
+  crate::model::post::message(&p, None, false)
+}
+
+// chips take no height of their own: on the post's line when they fit, one extra line when they do not,
+// and what still does not fit folds into `+N`
+#[test]
+fn reaction_chips_fit_on_the_line_or_take_one_extra() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(50, "c".into());
+  v.resize(420);
+  v.push(reacted(0, "e"));
+  v.push(reacted(2, "e"));
+  v.push(reacted(32, "emote"));
+  let h = |v: &mut ChatView, res: &mut Res, i| v.height_at(i, res);
+  let (none, fits, many) = (h(&mut v, &mut res, 0), h(&mut v, &mut res, 1), h(&mut v, &mut res, 2));
+  assert_eq!(fits, none, "chips that fit add no height");
+  let line = (res.text.line_px * res.look.spacing).round() as i32;
+  assert_eq!(many, none + line, "too many: exactly one extra line");
+  let laid = layout_row(&mut res, "c", &v.rows[2].msg, false, 420, opts!(v));
+  assert!(laid.chips.len() < 32 && !laid.chips.is_empty(), "the rest folded into +N");
+  assert!(laid.layout.len() == 2);
+  // a post with no reactions has no chip to hit
+  let none_laid = layout_row(&mut res, "c", &v.rows[0].msg, false, 420, opts!(v));
+  assert!(none_laid.chips.is_empty());
+}
+
+// an overlay wider than its base (`:3 lift0`) widens the slot to itself, so the slot an animation frame
+// repaints covers the whole stack and its sides don't freeze
+#[test]
+fn a_wide_overlay_widens_its_slot() {
+  use crate::emotes::{Emote, Provider};
+  use parley::PositionedLayoutItem;
+  let mut res = Res::new(1.0);
+  let lift = Emote { url: "https://cdn.7tv.app/emote/lift/1x.webp".into(), w: 84, h: 28, zero_width: true };
+  let base = Emote { url: "https://cdn.7tv.app/emote/b/1x.webp".into(), w: 28, h: 28, zero_width: false };
+  res.emotes.set(Some("c"), Provider::SevenTv, [("lift0".into(), lift), (":3".into(), base)].into());
+  let slot_w = |res: &mut Res, body: &str| {
+    let l = layout_row(res, "c", &plain("a", body), false, 400, NO_OPTS);
+    l.layout
+      .lines()
+      .flat_map(|l| l.items().collect::<Vec<_>>())
+      .find_map(|it| match it {
+        PositionedLayoutItem::InlineBox(b) if b.id == 0 => Some(b.width),
+        _ => None,
+      })
+      .unwrap()
+  };
+  let alone = slot_w(&mut res, ":3");
+  let stacked = slot_w(&mut res, ":3 lift0");
+  assert!(stacked >= 3.0 * alone - 1.0, "{alone} → {stacked}");
+}

@@ -53,6 +53,7 @@ pub mod presets;
 pub mod preview;
 pub mod pronouns;
 pub mod quick;
+pub mod reaction;
 pub mod reasons;
 pub mod rules;
 pub mod schema;

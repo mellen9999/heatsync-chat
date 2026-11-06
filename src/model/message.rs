@@ -100,6 +100,8 @@ pub struct Extra {
   pub paint: Option<crate::cosmetics::id::PaintId>,
   // a feed post's media (model::post::pic)
   pub pic: Option<Box<Pic>>,
+  // a feed post's reaction chips, drawn on a line of their own under it (model::reaction)
+  pub react: Box<[crate::model::reaction::Reaction]>,
   // a stream line whose name color the frame didn't give: it follows what the app learns of them later
   pub late: bool,
   // the same line's streamer id (paint, `+`, badges) still unknown: it is filled in when a lookup lands
