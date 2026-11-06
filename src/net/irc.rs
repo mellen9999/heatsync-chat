@@ -24,6 +24,9 @@ const PING_EVERY: Duration = Duration::from_secs(60);
 const SILENCE_LIMIT: Duration = Duration::from_secs(180);
 const STABLE: Duration = Duration::from_secs(30);
 const MAX_BODY: usize = 2000;
+// a display name (contract.md); a message id is a uuid, so this is generous
+const MAX_NAME: usize = 100;
+const MAX_ID: usize = 128;
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(30);
 // one irc line is ≤ ~8KiB with tags; twitch may batch several lines in a frame
 const MAX_FRAME: usize = 256 << 10;
@@ -173,7 +176,7 @@ fn ts_of(l: &Line) -> i64 {
 
 fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
   let login: Box<str> = l.tag("login").as_deref().or(l.nick).unwrap_or("").to_ascii_lowercase().into();
-  let nick: Box<str> = l.tag("display-name").map_or_else(|| login.clone(), Into::into);
+  let nick: Box<str> = l.tag("display-name").map_or_else(|| login.clone(), |n| clamp(&n, MAX_NAME).into());
   // as sent: the view lifts it (or not) at draw time, so the setting works on lines already shown
   let color = l.tag("color").and_then(|c| color::parse_hex(&c)).unwrap_or_else(|| color::default_for(&login));
   let body = clamp(super::dupe::strip(body), MAX_BODY);
@@ -188,7 +191,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     flags |= flag::HISTORY;
   }
   Message {
-    id: l.tag("id").unwrap_or_default().into(),
+    id: clamp(&l.tag("id").unwrap_or_default(), MAX_ID).into(),
     ts: ts_of(l),
     platform: Platform::Twitch,
     kind,
@@ -201,7 +204,7 @@ fn user_message(l: &Line, body: &str, kind: Kind) -> Message {
     emotes: l.tag("emotes").map(|t| twitch_emotes(&t, body)).unwrap_or_default().into(),
     hs: Box::new([]),
     body: body.into(),
-    reply_to: l.tag("reply-parent-display-name").map(Into::into),
+    reply_to: l.tag("reply-parent-display-name").map(|n| clamp(&n, MAX_NAME).into()),
     reply_text: l.tag("reply-parent-msg-body").map(|t| clamp(super::dupe::strip(&t), REPLY_TEXT).into()),
     system: None,
     x: reply_ids(l.tag("reply-parent-msg-id").as_deref(), l.tag("reply-thread-parent-msg-id").as_deref()),
@@ -639,6 +642,20 @@ mod tests {
     let l = parse(raw).unwrap();
     let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
     assert_eq!(&*m.user_id, "37005319");
+  }
+
+  // every tag is the server's word (and /api/recent-messages goes through the same parser): names and ids are cut
+  #[test]
+  fn hostile_names_and_ids_are_clamped() {
+    let long = "é".repeat(400);
+    let raw = format!(
+      "@display-name={long};id={long};reply-parent-display-name={long};login=xqc :xqc!xqc@xqc.tmi.twitch.tv PRIVMSG #forsen :hi"
+    );
+    let l = parse(&raw).unwrap();
+    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
+    assert!(m.nick.len() <= MAX_NAME && !m.nick.is_empty(), "{}", m.nick.len());
+    assert!(m.id.len() <= MAX_ID && !m.id.is_empty(), "{}", m.id.len());
+    assert!(m.reply_to.as_ref().is_some_and(|n| n.len() <= MAX_NAME));
   }
 
   #[test]
