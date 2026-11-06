@@ -58,6 +58,7 @@ mod peek;
 mod picker;
 mod picker_search;
 mod pin;
+mod pings;
 mod pointer;
 mod pop;
 mod pred;
@@ -105,6 +106,8 @@ mod tests_path;
 mod tests_pickers;
 #[cfg(test)]
 mod tests_pin;
+#[cfg(test)]
+mod tests_pings;
 #[cfg(test)]
 mod tests_pushed;
 #[cfg(test)]
@@ -287,6 +290,8 @@ pub struct App {
   // your twitch follows being picked into tabs (import.rs)
   import: import::Import,
   notes: crate::model::notes::Notes,
+  // per-channel go-live bell and muted pings (model::pings)
+  pings: crate::model::pings::Pings,
   occluded: bool,
   damage: render::Damage,
   // pending heap trim after bursts of parsing (emote sets, history)
@@ -518,6 +523,7 @@ impl App {
       following: Default::default(),
       import: Default::default(),
       notes: crate::model::notes::Notes::load(),
+      pings: crate::model::pings::Pings::load(),
       occluded: false,
       damage: Default::default(),
       trim_at: None,

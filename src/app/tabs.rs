@@ -38,6 +38,9 @@ pub enum TabAct {
   Hide,
   // this tab's lines go, here only (/lclear)
   Lclear,
+  // this channel's go-live bell (default → on → off) and muted pings (model::pings)
+  Bell,
+  Mute,
   // twitch channel tools, for the broadcaster / mods (/announce, /poll, /prediction): the tab opens with the
   // command typed, ready to finish
   Announce,
@@ -653,6 +656,8 @@ impl App {
     let mut items = items;
     if self.tabs[i].kind == Kind::Chat {
       items.push((TabAct::Lclear, "clear lines".into()));
+      items.push((TabAct::Bell, format!("bell: {}", self.tab_bell(i).label())));
+      items.push((TabAct::Mute, if self.tab_muted(i) { "unmute pings" } else { "mute pings" }.into()));
       let chan = self.tabs[i].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
       if let Some(c) = chan.filter(|_| self.me.is_some()) {
         let caster = self.is_caster(&c);
@@ -714,6 +719,8 @@ impl App {
         self.select(m.tab);
         self.lclear();
       }
+      Some(TabAct::Bell) => self.cycle_tab_bell(m.tab),
+      Some(TabAct::Mute) => self.toggle_tab_mute(m.tab),
       Some(TabAct::Announce) => {
         self.type_in_tab(m.tab, "/announce ", "type the announcement, then enter");
       }

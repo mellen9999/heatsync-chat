@@ -31,7 +31,8 @@ impl App {
   // tint a line that pings you; a live one also lands in the mentions tab (and may notify).
   // `room` is the tab key it came from (twitch channel, kick slug, youtube handle)
   pub(super) fn scan_mention(&mut self, p: Platform, room: &str, m: &mut Message) {
-    if let Some(s) = self.line_sound(room, m) {
+    let muted = self.pings.muted(p, room);
+    if let Some(s) = self.line_sound(room, m).filter(|_| !muted) {
       crate::util::sound::play(s, self.set.mention_volume.percent(), now_ms());
     }
     // a blocked person never pings you
@@ -54,7 +55,10 @@ impl App {
       self.mentions_changed();
     }
     let title = format!("{} in #{}", notify::name(&m.nick), notify::name(room));
-    self.mention_alert(&title, &m.nick, &m.body);
+    // a muted room's mention is in the tab, unread, but makes no sound, flash or popup
+    if !muted {
+      self.mention_alert(&title, &m.nick, &m.body);
+    }
   }
 
   // the sound a highlight rule gives a live line (ext playFilterRuleSound): the rule's, at the mention

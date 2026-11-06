@@ -189,7 +189,7 @@ pub static KEYS: [Group; 18] = [
       k("click", "open a tab; the ⚙ is settings, the ? is this screen"),
       k(
         "right-click",
-        "clear a red, cyan or yellow tab; else its menu: edit, remove (a temporary tab: keep; built-ins: hide), clear lines, share layout, use a shared layout, and announce, poll, prediction for a twitch room you run",
+        "clear a red, cyan or yellow tab; else its menu: edit, remove (a temporary tab: keep; built-ins: hide), clear lines, bell (go-live popups for the channel: default, on, off), mute pings (its mentions still reach the mentions tab, silently), share layout, use a shared layout, and announce, poll, prediction for a twitch room you run",
       ),
       k("edit form", "tab to the buttons: watch, status, predictions, summary; j l next, k h back, enter runs"),
       v("gt  gT  space ] [", "next, previous tab"),

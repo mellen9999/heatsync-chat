@@ -190,6 +190,7 @@ impl App {
             cursor,
             live,
             temp: t.temp,
+            muted: t.sources.first().is_some_and(|(p, k)| self.pings.muted(*p, k)),
           }
         })
         .collect();

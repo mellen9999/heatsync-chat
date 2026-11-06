@@ -54,7 +54,10 @@ fn pick(app: &mut App, label: &str) {
 #[test]
 fn the_tab_menu_offers_layouts_and_clearing_to_everyone() {
   let (mut app, _rx) = boot();
-  assert_eq!(tab_menu(&mut app), ["edit", "remove", "clear lines", "share layout", "use a shared layout…"]);
+  assert_eq!(
+    tab_menu(&mut app),
+    ["edit", "remove", "clear lines", "bell: default", "mute pings", "share layout", "use a shared layout…"]
+  );
 }
 
 #[test]

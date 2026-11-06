@@ -8,6 +8,7 @@ use crate::model::chatters::Chatters;
 use crate::model::color;
 use crate::model::ident;
 use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg, flag};
+use crate::model::pings::Bell;
 use crate::model::status::Info;
 use crate::model::stream_events::{Line, Tone};
 use crate::net::Cmd;
@@ -109,8 +110,10 @@ impl App {
   // the desktop notification for a stream line (ext notifyStreamEvent): a channel went live or
   // switched game while the window is away, if desktop notifications are on. no sound, like the ext.
   // the line already passed the ext's dedupe (model::stream_events::Gate) and its show toggle
-  fn stream_alert(&self, l: &Line) -> Option<(String, String)> {
-    if self.focused || !self.set.notify {
+  pub(super) fn stream_alert(&self, l: &Line) -> Option<(String, String)> {
+    // the channel's bell: off silences it, on tells you of its go-live even with notifications off
+    let bell = self.pings.bell(l.platform, &l.channel);
+    if self.focused || bell == Bell::Off || !(self.set.notify || bell == Bell::On && l.tone == Tone::Online) {
       return None;
     }
     let what = match l.tone {
