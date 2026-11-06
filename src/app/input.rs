@@ -234,6 +234,13 @@ impl App {
     let now = super::now_ms();
     let (open, shut): (Vec<_>, Vec<_>) =
       legs.into_iter().partition(|(p, k)| self.me.is_none() || !self.locks.get(*p, k, now).is_some_and(|l| l.blocks()));
+    // a youtube feed that isn't live has no chat to take the line (the ext sends there only while live): in a
+    // merged send it is left out quietly instead of a "not live" line under every message. sent to alone, it
+    // still goes, so the reason shows
+    let mut open = open;
+    if open.len() > 1 && open.iter().any(|(p, k)| *p != Platform::Youtube || self.live.has(*p, k)) {
+      open.retain(|(p, k)| *p != Platform::Youtube || self.live.has(*p, k));
+    }
     if open.is_empty() {
       let (p, k) = &shut[0];
       if let Some(l) = self.locks.get(*p, k, now) {

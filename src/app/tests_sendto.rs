@@ -29,6 +29,8 @@ fn boot() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
   app.res.set_scale(app.scale());
   app.resized(520, 300);
   app.on_net(NetEvent::Me(Some(me())));
+  // the youtube relay is connected: that feed is live and takes lines
+  app.on_net(NetEvent::YtStatus { key: "@abc".into(), status: "connected".into() });
   app.redraw();
   while rx.try_recv().is_ok() {}
   (app, rx)
@@ -250,4 +252,22 @@ fn headless_send_targets_sync() {
   );
   assert_eq!(app.legs().into_iter().map(|l| l.0).collect::<Vec<_>>(), [Platform::Kick]);
   assert_eq!(app.target().map(|t| t.0), Some(Platform::Kick));
+}
+
+#[test]
+fn a_youtube_feed_that_isnt_live_is_left_out_of_a_merged_send_quietly() {
+  let (mut app, mut rx) = boot();
+  app.on_net(NetEvent::YtStatus { key: "@abc".into(), status: "not-live".into() });
+  let before = app.tabs[app.active].view.bodies().len();
+  type_and_send(&mut app, "hi");
+  let got = sent(&mut rx);
+  assert_eq!(got.iter().map(|s| s.0).collect::<Vec<_>>(), [Platform::Twitch, Platform::Kick]);
+  let after = app.tabs[app.active].view.bodies();
+  assert!(!after[before..].iter().any(|b| b.contains("youtube")), "no notice: {after:?}");
+  // sent to youtube alone it still goes, so its refusal can say why
+  app.cycle_send();
+  app.cycle_send();
+  app.cycle_send();
+  type_and_send(&mut app, "yo");
+  assert_eq!(sent(&mut rx).iter().map(|s| s.0).collect::<Vec<_>>(), [Platform::Youtube]);
 }
