@@ -13,7 +13,7 @@ use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::http::ws_config;
-use super::{NetEvent, Out, backoff};
+use super::{NetEvent, Out, backoff, retry, retrying};
 use crate::emotes::live::{self, valid_id};
 use crate::emotes::{Provider, providers};
 
@@ -81,6 +81,13 @@ fn frame(op: u8, kind: &str, id: &str) -> Ws {
   Ws::text(json!({"op": op, "d": {"type": kind, "condition": {"object_id": id}}}).to_string())
 }
 
+const API: &str = "https://7tv.io";
+
+// the events socket can't be reached: a few plain lines for an outage, not one per try
+fn down(out: &Out, attempt: u32, wait: Duration) {
+  retrying(out, "can't reach 7tv", attempt, wait);
+}
+
 enum End {
   Quit,
   // the last channel left: close and sleep until there is one again
@@ -102,11 +109,12 @@ pub async fn run(
     while st.chans.is_empty() {
       match rx.recv().await {
         Some(c) => {
-          handle(&mut st, c, &http, &me_tx);
+          handle(&mut st, c, (&http, &me_tx), &out);
         }
         None => return,
       }
     }
+    let mut failed = false;
     match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
@@ -124,17 +132,27 @@ pub async fn run(
           attempts = 0;
         }
       }
-      Ok(Err(e)) => out.status(format!("7tv events connect failed: {e}")),
-      Err(_) => out.status("7tv events handshake timed out"),
+      Ok(Err(e)) => {
+        eprintln!("7tv events connect: {e}");
+        failed = true;
+      }
+      Err(_) => {
+        eprintln!("7tv events connect: handshake timed out");
+        failed = true;
+      }
     }
     attempts += 1;
-    let t = sleep(backoff(attempts));
+    let wait = backoff(attempts);
+    if failed {
+      down(&out, attempts, wait);
+    }
+    let t = sleep(wait);
     tokio::pin!(t);
     loop {
       tokio::select! {
         _ = &mut t => break,
         c = rx.recv() => match c {
-          Some(c) => { handle(&mut st, c, &http, &me_tx); }
+          Some(c) => { handle(&mut st, c, (&http, &me_tx), &out); }
           None => return,
         },
       }
@@ -171,19 +189,29 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Ws> {
 }
 
 // `Me` also kicks off the lookup of our own 7tv user id
-fn handle(st: &mut State, c: Cmd, http: &reqwest::Client, me_tx: &mpsc::UnboundedSender<Cmd>) -> Vec<Ws> {
+fn handle(
+  st: &mut State,
+  c: Cmd,
+  (http, me_tx): (&reqwest::Client, &mpsc::UnboundedSender<Cmd>),
+  out: &Out,
+) -> Vec<Ws> {
   if let Cmd::Me(Some(id)) = &c
     && st.me != Some(*id)
   {
-    tokio::spawn(own_user(http.clone(), *id, me_tx.clone()));
+    tokio::spawn(own_user(http.clone(), API.into(), *id, me_tx.clone(), out.clone()));
   }
   apply(st, c)
 }
 
 // the one place your own twitch id leaves for 7tv: `GET 7tv.io/v3/users/twitch/<id>`, for the 7tv user id
 // the `user.*` subscription needs. nothing else about you is sent
-async fn own_user(http: reqwest::Client, twitch_id: u64, tx: mpsc::UnboundedSender<Cmd>) {
-  let Ok(v) = providers::fetch(&http, &format!("https://7tv.io/v3/users/twitch/{twitch_id}")).await else { return };
+async fn own_user(http: reqwest::Client, base: String, twitch_id: u64, tx: mpsc::UnboundedSender<Cmd>, out: Out) {
+  // a hiccup is retried a few times; 7tv not knowing you (404) is an answer, not a failure
+  let url = format!("{base}/v3/users/twitch/{twitch_id}");
+  let Some(v) = retry::until_n(&out, "your 7tv user", 4, || !tx.is_closed(), || providers::fetch(&http, &url)).await
+  else {
+    return;
+  };
   if let Some(id) = v.get("user").and_then(|u| u.get("id")).and_then(Value::as_str).filter(|i| valid_id(i)) {
     let _ = tx.send(Cmd::MyUser(id.into(), twitch_id));
   }
@@ -259,7 +287,7 @@ async fn session(
       }
       c = rx.recv() => {
         let Some(c) = c else { return End::Quit };
-        for f in handle(st, c, http, me_tx) {
+        for f in handle(st, c, (http, me_tx), out) {
           // before the hello we send nothing: the hello handler subscribes from `st`
           if sent && tx.send(f).await.is_err() {
             return End::Reconnect;
@@ -403,6 +431,55 @@ mod tests {
     assert!(matches!(dispatch(&user, &st)[..], [NetEvent::CosmeticsStale(PaintId::Twitch(10))]));
     let stranger = json!({"op": 0, "d": {"type": "user.update", "body": {"id": "U2"}}});
     assert!(dispatch(&stranger, &st).is_empty());
+  }
+
+  fn said(rx: &std::sync::mpsc::Receiver<NetEvent>) -> Vec<String> {
+    rx.try_iter().filter_map(|e| if let NetEvent::Status(s) = e { Some(s) } else { None }).collect()
+  }
+
+  // a dead events socket is a few plain lines, not one per try with the error text in them
+  #[test]
+  fn an_unreachable_socket_is_throttled_and_plain() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    for attempt in 1..=10 {
+      down(&out, attempt, Duration::from_secs(8));
+    }
+    let said = said(&rx);
+    assert_eq!(said.len(), 5, "{said:?}");
+    assert_eq!(said[0], "can't reach 7tv, trying again in 8s");
+  }
+
+  // one local server: the first asks get a 503, the next the user
+  async fn flaky(fails: usize) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    tokio::spawn(async move {
+      for n in 0.. {
+        let Ok((mut s, _)) = l.accept().await else { return };
+        let mut buf = [0u8; 1024];
+        let _ = s.read(&mut buf).await;
+        let r = if n < fails {
+          "HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\ncontent-length: 0\r\n\r\n".to_owned()
+        } else {
+          let b = r#"{"user":{"id":"01ABCDEF"}}"#;
+          format!("HTTP/1.1 200 OK\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{b}", b.len())
+        };
+        let _ = s.write_all(r.as_bytes()).await;
+      }
+    });
+    base
+  }
+
+  // the own-user lookup is tried again after a hiccup instead of once
+  #[tokio::test]
+  async fn the_own_user_lookup_is_retried() {
+    let base = flaky(1).await;
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (otx, _orx) = std::sync::mpsc::channel();
+    own_user(reqwest::Client::new(), base, 5, tx, Out::Pipe(otx)).await;
+    assert!(matches!(rx.try_recv(), Ok(Cmd::MyUser(id, 5)) if &*id == "01ABCDEF"));
   }
 
   // network: `cargo test --release -- --ignored live_hello`

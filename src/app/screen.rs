@@ -312,6 +312,9 @@ impl App {
       Fx::Paints => {
         self.res.cosmetics.on = self.set.paints;
         self.res.cosmetics.hs_on = self.set.hs_paints;
+        // the 7tv lookup of your own id follows the switch
+        let id = self.me.as_ref().and_then(|m| m.twitch_id);
+        self.net.send(crate::net::Cmd::SevenTvMe(super::net_events::seventv_id(id, self.set.paints)));
         self.relayout_where(None);
       }
       Fx::PaintMotion => {

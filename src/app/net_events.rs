@@ -14,6 +14,12 @@ use crate::ui::theme;
 use crate::util::time::now_ms;
 use std::time::{Duration, Instant};
 
+// your twitch id goes to 7tv (to find your 7tv user, for your own paint and badge) only while 7tv paints +
+// badges are on: with them off there is nothing to look up, so nothing leaves (docs/PRIVACY.md)
+pub(super) fn seventv_id(twitch_id: Option<u64>, paints: bool) -> Option<u64> {
+  twitch_id.filter(|_| paints)
+}
+
 impl App {
   pub(super) fn pace_next(&mut self) {
     let now = now_ms();
@@ -434,7 +440,7 @@ impl App {
       }
       NetEvent::Me(me) => {
         // our own inventory feeds tab-complete: fetch it now, not on first sight of our own line
-        self.net.send(Cmd::SevenTvMe(me.as_ref().and_then(|m| m.twitch_id)));
+        self.net.send(Cmd::SevenTvMe(seventv_id(me.as_ref().and_then(|m| m.twitch_id), self.set.paints)));
         self.res.senders.set_me(me.as_ref().and_then(|m| m.twitch_id));
         if let Some(id) = me.as_ref().and_then(|m| m.twitch_id) {
           self.res.senders.lookup(id, "", now_ms());
@@ -673,4 +679,48 @@ pub(super) fn removed(p: Platform, what: Removed) -> Message {
   let mut m = Message::system(now_ms(), p, text);
   m.color = ink;
   m
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::net::Net;
+  use crate::net::auth::Me;
+
+  fn me() -> Me {
+    Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: Some(42),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    }
+  }
+
+  fn asked(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<Option<u64>> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| if let Cmd::SevenTvMe(id) = c { Some(id) } else { None })
+      .collect()
+  }
+
+  // privacy: with 7tv paints + badges off, your twitch id is not handed to the 7tv lookup
+  #[test]
+  fn your_id_goes_to_7tv_only_while_its_paints_are_on() {
+    assert_eq!(seventv_id(Some(42), true), Some(42));
+    assert_eq!(seventv_id(Some(42), false), None);
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.set.paints = false;
+    app.on_net(NetEvent::Me(Some(me())));
+    assert_eq!(asked(&mut rx), [None], "paints off: no id leaves");
+    app.set.paints = true;
+    app.applied(crate::model::schema::Fx::Paints);
+    assert_eq!(asked(&mut rx), [Some(42)], "turned on: the lookup goes out");
+    app.set.paints = false;
+    app.applied(crate::model::schema::Fx::Paints);
+    assert_eq!(asked(&mut rx), [None], "turned off: it is dropped");
+  }
 }
