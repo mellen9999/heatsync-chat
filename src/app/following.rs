@@ -6,7 +6,7 @@
 // uptime moves once a minute, only while the screen shows. the poll is also how a kick or youtube go-live
 // is ever seen (heatsync pushes twitch's): someone none of whose channels was live at the last ask gets
 // one went-live line (ext announceWentLive). the first answer after sign-in is only the baseline
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use winit::keyboard::Key;
@@ -30,6 +30,9 @@ const MINUTE: Duration = Duration::from_secs(60);
 const LOST: Duration = Duration::from_secs(20);
 // the first background ask after sign-in: the baseline, soon, so a go-live after it is caught
 const FIRST: Duration = Duration::from_secs(10);
+// youtube sends no sign-off: a youtube channel off the list this long has ended, and its next go-live is
+// news again. shorter gaps are a missed check or a restart, not a new stream
+const SIGNED_OFF: Duration = Duration::from_secs(600);
 
 #[derive(Default)]
 pub(super) struct Following {
@@ -45,6 +48,8 @@ pub(super) struct Following {
   bg: Option<Instant>,
   // every (platform, channel) live at the last answer; None = no answer yet, the next is the baseline
   seen: Option<HashSet<(Platform, Box<str>)>>,
+  // youtube channels gone from the list, since when (see SIGNED_OFF)
+  gone: HashMap<(Platform, Box<str>), Instant>,
 }
 
 // why the screen has no rows to show, in plain words
@@ -175,12 +180,34 @@ impl App {
   // a tab open is left to its room's own frames (ext: the follow path skips config.channels)
   fn went_live(&mut self, rows: &[Live]) -> Vec<Line> {
     let now: HashSet<(Platform, Box<str>)> = rows.iter().flat_map(|l| l.legs.iter().cloned()).collect();
-    let Some(prev) = self.following.seen.replace(now) else { return Vec::new() };
+    let Some(prev) = self.following.seen.replace(now.clone()) else { return Vec::new() };
+    self.youtube_sign_offs(&prev, &now, Instant::now());
     rows
       .iter()
       .filter(|l| !l.legs.iter().any(|g| prev.contains(g) || !self.tabs_with(g.0, &g.1).is_empty()))
       .map(|l| Line::went_live(l.primary().0, &l.primary().1, &l.game))
       .collect()
+  }
+
+  // a youtube channel long enough off the list has signed off: its went-live may be told again
+  fn youtube_sign_offs(
+    &mut self,
+    prev: &HashSet<(Platform, Box<str>)>,
+    now: &HashSet<(Platform, Box<str>)>,
+    t: Instant,
+  ) {
+    let left = prev.iter().filter(|g| g.0 == Platform::Youtube && !now.contains(*g));
+    for g in left {
+      self.following.gone.entry(g.clone()).or_insert(t);
+    }
+    let told = &mut self.told;
+    self.following.gone.retain(|g, at| {
+      let ended = t.duration_since(*at) >= SIGNED_OFF;
+      if ended {
+        told.remove(g);
+      }
+      !now.contains(g) && !ended
+    });
   }
 
   pub(super) fn on_following(&mut self, res: Result<Vec<Live>, Fail>) {
@@ -548,5 +575,28 @@ mod tests {
     app.on_stream(Line::went_live(Platform::Kick, "tim", ""));
     assert_eq!(lines(&app).last(), Some(&(Platform::Kick, "tim".into())));
     assert_eq!(lines(&app).len(), 4);
+  }
+
+  #[test]
+  fn a_youtube_channel_that_signed_off_is_news_when_it_comes_back() {
+    let (mut app, _asked) = app();
+    let yt = || following::parse(Some(&json!([{"platform": "youtube", "username": "lofi", "viewerCount": 9}])));
+    let count = |app: &App| {
+      app.tabs.iter().find(|t| &*t.name == "forsen").unwrap().view.msgs().filter(|m| m.id.is_empty()).count()
+    };
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    app.on_net(NetEvent::Following(Ok(yt())));
+    assert_eq!(count(&app), 1);
+    // one missed check: the same stream, no second line
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    app.on_net(NetEvent::Following(Ok(yt())));
+    assert_eq!(count(&app), 1);
+    // off for good (no youtube sign-off frame ever comes), then live again: news
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    app.following.gone.values_mut().for_each(|t| *t -= SIGNED_OFF);
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    app.on_net(NetEvent::Following(Ok(yt())));
+    assert_eq!(count(&app), 2);
+    assert!(app.following.gone.is_empty(), "nothing kept for channels back or ended");
   }
 }
