@@ -72,6 +72,8 @@ pub enum Ctl {
   Rules,
   // the ban reasons a ban offers, kept with /banreason
   Reasons,
+  // the mod toolbar's picked buttons (a mask over model::modbar::CATALOG), typed as `/cmd x 1m ban`
+  Buttons(fn(&Settings) -> u16, fn(&mut Settings, u16)),
 }
 
 // how a row travels to and from the account's ui-state (model/sync.rs holds the codecs). the ext's key
@@ -131,7 +133,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 71] = [
+pub static DEFS: [Def; 72] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -769,6 +771,18 @@ pub static DEFS: [Def; 71] = [
     wire: Wire::Flag("inlineNotifs", "dm"),
   },
   Def {
+    id: "mod_buttons",
+    cmd: Some("/modbuttons"),
+    cat: Cat::Mod,
+    section: "mod toolbar",
+    label: "mod toolbar buttons",
+    tip: "buttons on the line under the pointer in rooms you moderate: x 1m 10m 1h 24h 7d purge \u{26d4} \u{2713}. /modbuttons x 10m ban, /modbuttons off",
+    alias: "hs_mod_toolbar_buttons hover delete timeout purge ban unban",
+    ctl: Ctl::Buttons(|s| s.mod_buttons, |s, m| s.mod_buttons = m),
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
     id: "confirm_ban",
     cmd: Some("/confirmban"),
     cat: Cat::Mod,
@@ -1013,6 +1027,25 @@ impl Def {
     match self.ctl {
       Ctl::Pill(_, set) => {
         set(s, v);
+        true
+      }
+      _ => false,
+    }
+  }
+
+  // a button row's picks as the settings file keeps them (the ext's ids); None when it isn't one
+  pub fn listed(&self, s: &Settings) -> Option<String> {
+    match self.ctl {
+      Ctl::Buttons(get, _) => Some(crate::model::modbar::ids(get(s))),
+      _ => None,
+    }
+  }
+
+  // set a button row from the file's ids; unknown ones are dropped. false when it isn't one
+  pub fn list_put(&self, s: &mut Settings, text: &str) -> bool {
+    match self.ctl {
+      Ctl::Buttons(_, set) => {
+        set(s, crate::model::modbar::parse(text).0);
         true
       }
       _ => false,

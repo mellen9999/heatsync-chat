@@ -55,6 +55,18 @@ impl App {
     dirty
   }
 
+  // the pointer is on the chip
+  pub(super) fn jump_covers(&self, x: i32, y: i32) -> bool {
+    self.jump.shown.is_some_and(|(r, ..)| r.contains(x, y))
+  }
+
+  // something repainted this rect: a chip under it is gone from the canvas
+  pub(super) fn jump_forget_under(&mut self, r: Rect) {
+    if self.jump.shown.is_some_and(|(c, ..)| !c.intersect(r).is_empty()) {
+      self.jump.shown = None;
+    }
+  }
+
   // the chip is gone from the screen (a screen or picker covers the chat)
   pub(super) fn jump_forget(&mut self) {
     self.jump.shown = None;

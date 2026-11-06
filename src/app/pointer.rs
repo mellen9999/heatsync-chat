@@ -86,6 +86,9 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
+    if self.modbar_click() {
+      return;
+    }
     if self.vote_press()
       || self.held_press()
       || self.img_press()

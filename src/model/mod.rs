@@ -33,6 +33,7 @@ pub mod logs;
 pub mod mention;
 pub mod mention_file;
 pub mod message;
+pub mod modbar;
 pub mod modcmd;
 pub mod modes;
 pub mod modrole;

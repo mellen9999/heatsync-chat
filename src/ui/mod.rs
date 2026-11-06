@@ -9,6 +9,7 @@ pub mod input_bar;
 pub mod jump_bar;
 pub mod logo;
 pub mod menu;
+pub mod mod_bar;
 pub mod mode_label;
 pub mod name_art;
 pub mod peek;

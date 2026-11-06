@@ -222,6 +222,7 @@ impl App {
     }
     if self.form.is_some() || self.screen.is_some() || self.img_view.is_some() || self.picker.is_some() {
       self.jump_forget();
+      self.modbar_forget();
     }
     if self.form.is_some() {
       self.next_anim = None;
@@ -246,7 +247,7 @@ impl App {
     } else {
       let (canvas, res) = (&mut self.canvas, &mut self.res);
       let add = |d: Option<Rect>, r: Rect| Some(d.map_or(r, |d| union(d, r)));
-      let (mut full, mut animated) = (false, None);
+      let (mut full, mut animated, mut ghost) = (false, None, 0);
       if let Some(t) = self.tabs.get_mut(self.active) {
         match t.view.take_paint(res, area.h) {
           Paint::Nothing => {}
@@ -260,6 +261,7 @@ impl App {
             t.view.scrolled(area, shift);
             t.view.draw(canvas, res, area, Rect::new(area.x, area.bottom() - shift, area.w, shift));
             dirty = add(dirty, area);
+            ghost = shift;
           }
         }
         let due = self.next_anim.is_some_and(|t| t <= Instant::now());
@@ -272,6 +274,15 @@ impl App {
         canvas.fill(area, crate::ui::theme::BLACK);
         dirty = add(dirty, area);
         full = true;
+      }
+      if ghost > 0
+        && let Some(r) = self.modbar_shifted(ghost)
+        && let Some(t) = self.tabs.get_mut(self.active)
+      {
+        t.view.draw(&mut self.canvas, &mut self.res, area, r);
+      }
+      if let Some(r) = self.sync_modbar(full, animated) {
+        dirty = add(dirty, r);
       }
       if let Some(r) = self.sync_jump(full, animated) {
         dirty = add(dirty, r);

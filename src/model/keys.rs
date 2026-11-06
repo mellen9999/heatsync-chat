@@ -197,6 +197,7 @@ pub static KEYS: [Group; 13] = [
       k("/ban /timeout /unban", "by name"),
       k("/delete /purge", "this line, a person's lines"),
       k("/confirmban", "ask before a ban"),
+      k("/modbuttons", "hover buttons on a line: /modbuttons x 10m ban, off clears"),
       k("allow  deny", "an automod hold: click, or its line menu"),
       k("/blocked", "blocked terms: j k move, x delete, a add, / filter"),
       k("/warn /shoutout /shield", "warn with a reason, shout out, shield mode"),

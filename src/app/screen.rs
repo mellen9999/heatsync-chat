@@ -280,6 +280,10 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
         let n = crate::model::filter::with(|f| f.rules().len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
       }
+      Ctl::Buttons(get, _) => {
+        let m = get(set);
+        (if m == 0 { "none".to_owned() } else { crate::model::modbar::labels(m) }, None)
+      }
       Ctl::Reasons => {
         let n = crate::model::filter::with(|f| f.reasons().len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
@@ -357,6 +361,29 @@ impl App {
       self.applied(d.fx);
       self.set.save();
     }
+  }
+
+  // /modbuttons <names>: the toolbar's buttons, replaced as typed; nothing typed says what is picked
+  pub(super) fn buttons_to(&mut self, d: &'static Def, arg: &str) {
+    use crate::model::modbar;
+    let Ctl::Buttons(get, set) = d.ctl else { return };
+    let usage = "usage: /modbuttons x 1m 10m 1h 24h 7d purge ban unban (or off)";
+    let cur = get(&self.set);
+    if arg.is_empty() {
+      let now = if cur == 0 { "none".to_owned() } else { modbar::labels(cur) };
+      return self.say(format!("mod toolbar: {now} \u{b7} {usage}"));
+    }
+    let (mask, bad) = if matches!(arg, "off" | "none") { (0, 0) } else { modbar::parse(arg) };
+    if bad > 0 && mask == 0 {
+      return self.say(usage);
+    }
+    if mask != cur {
+      set(&mut self.set, mask);
+      self.set.save();
+      self.wake();
+    }
+    let now = if mask == 0 { "off".to_owned() } else { modbar::labels(mask) };
+    self.say(if bad > 0 { format!("mod toolbar: {now} ({bad} not buttons)") } else { format!("mod toolbar: {now}") });
   }
 
   pub(super) fn set_switch(&mut self, d: &'static Def, on: bool) {
@@ -546,13 +573,13 @@ impl App {
           self.pick_to(d, (at + if adjust.unwrap_or(true) { 1 } else { n - 1 }) % n);
         }
         // a list lives in slash commands: leave the screen with the command ready to finish
-        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons if adjust.is_none() => {
+        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) if adjust.is_none() => {
           self.close_screen();
           if let Some(c) = d.cmd {
             self.type_into_line(&format!("{c} {}", if matches!(d.ctl, Ctl::Rules) { "add " } else { "" }));
           }
         }
-        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons => {}
+        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
       (Some(Target::Custom(i)), None) => self.apply_custom_at(i),

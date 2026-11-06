@@ -266,6 +266,8 @@ pub struct Settings {
   pub automod_caps: bool,
   // ask before a ban goes out (the ext's modConfirmBan, off by default like the ext)
   pub confirm_ban: bool,
+  // the hover toolbar's picked buttons, a mask over model::modbar::CATALOG (ext hs_mod_toolbar_buttons). none by default
+  pub mod_buttons: u16,
   // flagged pictures and emotes shown, by category (ext viewer_show_*): all off by default
   pub show_nsfw: bool,
   pub show_violence: bool,
@@ -338,6 +340,7 @@ impl Default for Settings {
       hide_dupes: false,
       automod_caps: false,
       confirm_ban: false,
+      mod_buttons: 0,
       show_nsfw: false,
       show_violence: false,
       show_weapons: false,
@@ -390,7 +393,7 @@ impl Settings {
       let Some((k, v)) = l.split_once('=') else { continue };
       let on = v.trim() == "true";
       let k = k.trim();
-      if schema::def(k).is_some_and(|d| d.put(&mut out, on) || d.pick(&mut out, v)) {
+      if schema::def(k).is_some_and(|d| d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v)) {
         continue;
       }
       if k == "zoom"
@@ -419,6 +422,8 @@ impl Settings {
         out.push_str(&format!("{}={on}\n", d.id));
       } else if let Some(name) = d.picked(self) {
         out.push_str(&format!("{}={name}\n", d.id));
+      } else if let Some(ids) = d.listed(self) {
+        out.push_str(&format!("{}={ids}\n", d.id));
       }
     }
     out.push_str(&format!(
@@ -467,6 +472,8 @@ pub enum Local {
   Counter(Option<Counter>),
   // `/emotesize 2x`: a row by id and the value's place in its names; None = no such value
   Pick(&'static str, Option<usize>),
+  // `/modbuttons x 1m ban`: a button row by id and what was typed after it
+  Buttons(&'static str, String),
   // `/hide feed`, `/show mentions`; None = no such tab
   Tab(Option<Kind>, bool),
   // the settings screen, the key map
@@ -528,6 +535,11 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     && let Ctl::Pick(c, ..) = d.ctl
   {
     return Some(Local::Pick(d.id, c.names.iter().position(|n| *n == arg.trim())));
+  }
+  if let Some(d) = schema::by_cmd(word)
+    && matches!(d.ctl, Ctl::Buttons(..))
+  {
+    return Some(Local::Buttons(d.id, arg.trim().to_owned()));
   }
   for (word, on) in [("/hide", false), ("/show", true)] {
     if let Some(rest) = low.strip_prefix(word)
@@ -644,6 +656,7 @@ mod tests {
         hide_dupes: false,
         automod_caps: false,
         confirm_ban: false,
+        mod_buttons: 0,
         show_nsfw: false,
         show_violence: false,
         show_weapons: false,

@@ -45,6 +45,7 @@ mod lock;
 mod logs;
 mod media_peek;
 mod mentions;
+mod modbar;
 mod mods;
 mod modsuite;
 mod modtools;
@@ -86,6 +87,8 @@ mod tests_input;
 mod tests_kickmod;
 #[cfg(test)]
 mod tests_mentions;
+#[cfg(test)]
+mod tests_modbar;
 #[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
@@ -342,6 +345,7 @@ pub struct App {
   // the pinned-lines bar and the prediction banner under the tabs
   pin_bar: pin::PinBar,
   jump: jump::Jump,
+  modbar: modbar::ModBar,
   pred_bar: pred::PredBar,
   // why you can't chat in each room, and when the box's countdown next changes a digit
   locks: crate::model::lock::Locks,
@@ -530,6 +534,7 @@ impl App {
       login_wait: false,
       pin_bar: Default::default(),
       jump: Default::default(),
+      modbar: Default::default(),
       pred_bar: Default::default(),
       locks: Default::default(),
       lock_sec: None,
@@ -742,12 +747,16 @@ impl ApplicationHandler<NetEvent> for App {
         self.tip_hover();
         self.input_hover();
         self.jump_hover();
+        self.modbar_hover();
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
       WindowEvent::Ime(ev) => self.on_ime(ev),
       WindowEvent::DroppedFile(p) => self.upload_file(p),
-      WindowEvent::CursorLeft { .. } => self.hide_tip(),
+      WindowEvent::CursorLeft { .. } => {
+        self.hide_tip();
+        self.modbar_leave();
+      }
       WindowEvent::MouseWheel { delta, .. } => {
         self.hide_tip();
         let px = match delta {

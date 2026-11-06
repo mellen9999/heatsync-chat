@@ -55,6 +55,22 @@ impl ChatView {
     false
   }
 
+  // the line under y as drawn last: its top, its bottom and its seq. hidden lines have no height, so none match
+  pub fn line_at(&mut self, area: Rect, y: i32, res: &mut Res) -> Option<(i32, i32, i64)> {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        return None;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        return Some((top, bottom, self.rows[i].seq));
+      }
+      bottom = top;
+    }
+    None
+  }
+
   // the went-live line under y (a click there opens its channel): its platform and channel
   pub fn opens_at(&mut self, area: Rect, y: i32, res: &mut Res) -> Option<(Platform, Box<str>)> {
     let mut bottom = self.edge(area, res);
