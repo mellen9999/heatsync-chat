@@ -320,3 +320,37 @@ fn leaving_or_restarting_writes_the_mentions_and_the_settings_that_were_waiting(
   assert!(exists("settings"));
   assert!(store::read("settings").is_some_and(|s| s.contains("zoom=")));
 }
+
+// a highlight rule's sound: the rule's own preset, for a live line from someone else in its channel
+#[test]
+fn a_highlight_rules_sound_plays_for_a_live_line_in_its_channel() {
+  use crate::util::sound::Preset;
+  let rules = json!([
+    { "id": "a", "enabled": true, "scope": "forsen", "sound": "knock", "color": "#ff0000", "action": "highlight",
+      "match": { "type": "keyword", "value": "gg" } },
+    { "id": "b", "enabled": true, "scope": "all", "sound": "blip", "action": "highlight",
+      "match": { "type": "keyword", "value": "hype" } },
+    { "id": "c", "enabled": true, "scope": "all", "sound": "chime", "action": "hide",
+      "match": { "type": "keyword", "value": "spam" } },
+  ]);
+  let a = app();
+  assert!(crate::model::filter::edit(|f| f.set_rules_text(&rules.to_string())));
+  let say = |login: &str, body: &str| {
+    let mut m = Message::system(now_ms(), Platform::Twitch, "");
+    (m.kind, m.login, m.nick, m.body) = (MsgKind::Chat, login.into(), login.into(), body.into());
+    m
+  };
+  assert_eq!(a.line_sound("forsen", &say("bob", "gg wp")), Some(Preset::Knock));
+  assert_eq!(a.line_sound("xqc", &say("bob", "gg wp")), None, "the rule is for forsen's tab");
+  assert_eq!(a.line_sound("xqc", &say("bob", "so hype")), Some(Preset::Blip));
+  assert_eq!(a.line_sound("forsen", &say("bob", "spam gg")), None, "a hidden line is silent");
+  assert_eq!(a.line_sound("forsen", &say("bob", "nothing")), None);
+  let mut old = say("bob", "gg");
+  old.flags |= flag::HISTORY;
+  assert_eq!(a.line_sound("forsen", &old), None, "backlog is silent");
+  let mut mine = say("bob", "gg");
+  mine.flags |= flag::OWN;
+  assert_eq!(a.line_sound("forsen", &mine), None, "your own line is silent");
+  crate::model::filter::edit(|f| f.block("bob"));
+  assert_eq!(a.line_sound("forsen", &say("bob", "gg")), None, "a blocked person never sounds");
+}

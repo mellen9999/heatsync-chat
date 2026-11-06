@@ -7,8 +7,10 @@ use std::collections::{HashMap, HashSet};
 use crate::model::automod::{self, Automod};
 use crate::model::message::{Message, flag};
 use crate::model::reasons::Reasons;
-use crate::model::rules::{Line, Rules, Verdict};
+use crate::model::rules::{INKS, Judged, Line, Rules, Verdict};
 use crate::store;
+use crate::ui::theme;
+use crate::util::sound::Preset;
 
 // a line's verdict bits
 pub const HIDDEN: u8 = 1;
@@ -16,6 +18,17 @@ pub const HIDDEN: u8 = 1;
 pub const MUTED: u8 = 2;
 // a keyword you highlight is in it
 pub const MARKED: u8 = 4;
+// a highlight rule's colour: 1 + its place in rules::INKS, in these three bits (0 = the plain highlight)
+const INK_SHIFT: u32 = 3;
+const INK_MASK: u8 = 7 << INK_SHIFT;
+
+// the ink a marked line's edge is drawn in
+pub fn mark_ink(look: u8) -> u32 {
+  match (look & INK_MASK) >> INK_SHIFT {
+    0 => theme::CYAN,
+    n => INKS.get(usize::from(n) - 1).copied().unwrap_or(theme::CYAN),
+  }
+}
 
 // the ext's _BOT_NAMES
 const BOTS: [&str; 12] = [
@@ -99,7 +112,8 @@ impl Filters {
 
   // the verdict for one line. `tab_hidden` = people hidden in this tab only (/hide); `last` = the text
   // of the previous line that was shown, for hide duplicates
-  pub fn judge(&self, m: &Message, now: i64, tab_hidden: &HashSet<Box<str>>, last: &mut Box<str>) -> u8 {
+  // `chan` is the channel tab the line is in, for the rules scoped to one
+  pub fn judge(&self, m: &Message, chan: &str, now: i64, tab_hidden: &HashSet<Box<str>>, last: &mut Box<str>) -> u8 {
     // notices and stream lines are never filtered
     if !m.kind.said() {
       return 0;
@@ -124,8 +138,8 @@ impl Filters {
     if !me && ((self.caps && automod::all_caps(&m.body)) || self.automod.hits(&m.body)) {
       return HIDDEN;
     }
-    let ruled = if self.rules.is_empty() { Verdict::Pass } else { self.rules.judge(&Line::new(m)) };
-    if ruled == Verdict::Hide && !me {
+    let ruled = self.ruled(m, chan);
+    if ruled.verdict == Verdict::Hide && !me {
       return HIDDEN;
     }
     if self.dupes && !me && !m.body.is_empty() {
@@ -138,10 +152,28 @@ impl Filters {
     if self.muted(&who, now) {
       look |= MUTED;
     }
-    if ruled == Verdict::Mark || low.as_deref().is_some_and(|l| self.marks.iter().any(|t| has_word(l, t))) {
+    if ruled.verdict == Verdict::Mark {
+      let at = ruled.ink.and_then(|c| INKS.iter().position(|&i| i == c)).map_or(0, |i| i as u8 + 1);
+      look |= MARKED | at << INK_SHIFT;
+    } else if low.as_deref().is_some_and(|l| self.marks.iter().any(|t| has_word(l, t))) {
       look |= MARKED;
     }
     look
+  }
+
+  fn ruled(&self, m: &Message, chan: &str) -> Judged {
+    if self.rules.is_empty() {
+      return Judged { verdict: Verdict::Pass, ink: None, sound: None };
+    }
+    self.rules.judge(&Line::new(m, chan))
+  }
+
+  // the sound a highlight rule gives a new line in `chan`
+  pub fn rule_sound(&self, m: &Message, chan: &str) -> Option<Preset> {
+    if !m.kind.said() {
+      return None;
+    }
+    self.ruled(m, chan).sound
   }
 
   pub fn muted(&self, who: &str, now: i64) -> bool {
@@ -427,6 +459,7 @@ pub fn edit<R>(f: impl FnOnce(&mut Filters) -> R) -> R {
 mod tests {
   use super::*;
   use crate::model::message::Platform;
+  use serde_json::json;
 
   fn line(login: &str, body: &str) -> Message {
     let mut m = Message::system(0, Platform::Twitch, "");
@@ -438,7 +471,7 @@ mod tests {
   }
 
   fn judge(f: &Filters, m: &Message) -> u8 {
-    f.judge(m, 1000, &HashSet::new(), &mut Box::from(""))
+    f.judge(m, "", 1000, &HashSet::new(), &mut Box::from(""))
   }
 
   #[test]
@@ -469,7 +502,7 @@ mod tests {
     assert_eq!(judge(&f, &line("troll", "x")), HIDDEN);
     assert_eq!(judge(&f, &line("quiet", "x")), MUTED);
     // the mute ran out
-    assert_eq!(f.judge(&line("quiet", "x"), 3000, &HashSet::new(), &mut Box::from("")), 0);
+    assert_eq!(f.judge(&line("quiet", "x"), "", 3000, &HashSet::new(), &mut Box::from("")), 0);
     assert_eq!(f.next_expiry(1000), Some(2000));
     assert!(f.prune(3000));
     assert!(f.mutes().is_empty());
@@ -479,8 +512,8 @@ mod tests {
   fn per_tab_hide() {
     let f = Filters::default();
     let hid: HashSet<Box<str>> = ["bob".into()].into();
-    assert_eq!(f.judge(&line("Bob", "x"), 0, &hid, &mut Box::from("")), HIDDEN);
-    assert_eq!(f.judge(&line("al", "x"), 0, &hid, &mut Box::from("")), 0);
+    assert_eq!(f.judge(&line("Bob", "x"), "", 0, &hid, &mut Box::from("")), HIDDEN);
+    assert_eq!(f.judge(&line("al", "x"), "", 0, &hid, &mut Box::from("")), 0);
   }
 
   #[test]
@@ -488,10 +521,10 @@ mod tests {
     let f = Filters { dupes: true, ..Filters::default() };
     let mut last: Box<str> = "".into();
     let none = HashSet::new();
-    assert_eq!(f.judge(&line("a", "LUL"), 0, &none, &mut last), 0);
-    assert_eq!(f.judge(&line("b", "LUL"), 0, &none, &mut last), HIDDEN);
-    assert_eq!(f.judge(&line("c", "hi"), 0, &none, &mut last), 0);
-    assert_eq!(f.judge(&line("d", "LUL"), 0, &none, &mut last), 0);
+    assert_eq!(f.judge(&line("a", "LUL"), "", 0, &none, &mut last), 0);
+    assert_eq!(f.judge(&line("b", "LUL"), "", 0, &none, &mut last), HIDDEN);
+    assert_eq!(f.judge(&line("c", "hi"), "", 0, &none, &mut last), 0);
+    assert_eq!(f.judge(&line("d", "LUL"), "", 0, &none, &mut last), 0);
   }
 
   #[test]
@@ -531,6 +564,34 @@ mod tests {
   }
 
   #[test]
+  fn a_rules_colour_and_channel_reach_the_look() {
+    let mut f = Filters::default();
+    let rule = |color: &str, scope: &str| {
+      json!([{ "id": "r", "enabled": true, "scope": scope, "color": color, "action": "highlight",
+        "match": { "type": "keyword", "value": "gg" } }])
+      .to_string()
+    };
+    assert!(f.set_rules_text(&rule("#ff0000", "forsen")));
+    let at = |f: &Filters, chan: &str| f.judge(&line("a", "gg"), chan, 0, &HashSet::new(), &mut Box::from(""));
+    assert_eq!(mark_ink(at(&f, "forsen")), theme::RED);
+    assert_eq!(at(&f, "forsen") & MARKED, MARKED);
+    assert_eq!(at(&f, "xqc"), 0, "another channel: no mark");
+    // a highlight word has no colour of its own: the plain highlight
+    f.word(true, true, "gg");
+    assert_eq!(at(&f, "xqc"), MARKED);
+    assert_eq!(mark_ink(MARKED), theme::CYAN);
+    // every palette colour comes back as itself
+    for (i, c) in INKS.iter().enumerate() {
+      assert_eq!(mark_ink(MARKED | (i as u8 + 1) << INK_SHIFT), *c);
+    }
+    // the sound is the rule's, for a said line in its channel only
+    assert!(f.set_rules_text(&rule("#ff0000", "all").replace("\"color\"", "\"sound\":\"chime\",\"color\"")));
+    assert_eq!(f.rule_sound(&line("a", "gg"), "xqc"), Some(Preset::Chime));
+    assert_eq!(f.rule_sound(&line("a", "hi"), "xqc"), None);
+    assert_eq!(f.rule_sound(&Message::system(0, Platform::Twitch, "gg"), "xqc"), None);
+  }
+
+  #[test]
   fn automod_and_rules_share_the_one_verdict() {
     let mut f = Filters { caps: true, ..Filters::default() };
     f.pattern(true, r"bit\.ly");
@@ -540,7 +601,7 @@ mod tests {
     assert_eq!(judge(&f, &line("a", shout)), HIDDEN);
     assert_eq!(judge(&f, &line("a", "go to BIT.LY now")), HIDDEN);
     assert_eq!(judge(&f, &line("a", "oh nope")), HIDDEN);
-    assert_eq!(judge(&f, &line("a", "gg")), MARKED);
+    assert_eq!(judge(&f, &line("a", "gg")), MARKED | 3 << 3);
     assert_eq!(judge(&f, &line("a", "fine")), 0);
     // a mod is not spared, only you are
     let mut m = line("a", shout);
@@ -550,7 +611,7 @@ mod tests {
     assert_eq!(judge(&f, &line("me", shout)), 0);
     assert_eq!(judge(&f, &line("me", "bit.ly nope")), 0);
     // a highlight rule still lights your own line, a hide rule that matches it keeps it plain
-    assert_eq!(judge(&f, &line("me", "gg")), MARKED);
+    assert_eq!(judge(&f, &line("me", "gg")), MARKED | 3 << 3);
     assert_eq!(judge(&f, &line("me", "gg nope")), 0);
     // a hide rule beats the highlight rules after it and the keyword highlights
     f.word(true, true, "gg");

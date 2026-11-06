@@ -491,7 +491,7 @@ impl ChatView {
       return 0;
     }
     let (hid, last) = (&self.tab_hidden, &mut self.last_text);
-    filter::with(|f| f.judge(m, now_ms(), hid, last))
+    filter::with(|f| f.judge(m, &self.channel, now_ms(), hid, last))
   }
 
   // the rules changed: judge every line again, oldest first
@@ -504,7 +504,7 @@ impl ChatView {
     let mut changed = false;
     filter::with(|f| {
       for r in &mut self.rows {
-        let look = f.judge(&r.msg, now, &self.tab_hidden, &mut last);
+        let look = f.judge(&r.msg, &self.channel, now, &self.tab_hidden, &mut last);
         if look != r.look {
           r.look = look;
           Self::touch(r);
@@ -551,8 +551,11 @@ impl ChatView {
   // swap a line for a new version of itself (a vote landed, a send settled); the selection stays
   pub fn replace(&mut self, id: &str, m: Message) -> bool {
     let Some(i) = self.rows.iter().position(|r| &*r.msg.id == id) else { return false };
-    let look =
-      if self.filtered { filter::with(|f| f.judge(&m, now_ms(), &self.tab_hidden, &mut "".into())) } else { 0 };
+    let look = if self.filtered {
+      filter::with(|f| f.judge(&m, &self.channel, now_ms(), &self.tab_hidden, &mut "".into()))
+    } else {
+      0
+    };
     let miss = self.missed(&m);
     let r = &mut self.rows[i];
     r.msg = m;

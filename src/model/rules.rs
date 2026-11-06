@@ -1,9 +1,9 @@
 // the ext's per-rule hide / highlight engine (multichat/filter-rules.js, setting chatFilterRules). the setting
 // is a JSON array of rules; it is kept here as the ext wrote it (so fields we don't use survive a round trip
 // and a rule we can't read stays in the list) and each rule is compiled once. a line meets the rules in
-// order: the first hide wins outright, otherwise the first highlight lights the line up. a rule's color and
-// sound are kept but not used (the window has one highlight look); a rule scoped to one ext channel tab is
-// kept and listed but never applies here (those ids mean nothing in this window)
+// order: the first hide wins outright, otherwise the first highlight lights the line up, in its colour and
+// with its sound. a rule scoped to a channel (the ext's tab id: the tab's twitch name, else its kick slug)
+// applies only to lines of the tab with that id; every other rule applies everywhere
 use std::cell::OnceCell;
 
 use regex::Regex;
@@ -11,6 +11,8 @@ use serde_json::{Value, json};
 
 use crate::model::automod::{safe_regex, scan};
 use crate::model::message::{Kind, Message, Platform, flag};
+use crate::ui::theme;
+use crate::util::sound::Preset;
 
 // the ext syncs the setting only up to this size
 pub const MAX_JSON: usize = 32 * 1024;
@@ -26,16 +28,27 @@ pub enum Verdict {
   Mark,
 }
 
-// a line as the rules look at it: the first SCAN characters, lowercased once if anything needs it
+// what the rules say of a line: the verdict, and for a highlight the ink and sound of the first highlight
+// rule that matched (the ext's rule: one rule gives both). ink None = the plain highlight look
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Judged {
+  pub verdict: Verdict,
+  pub ink: Option<u32>,
+  pub sound: Option<Preset>,
+}
+
+// a line as the rules look at it: the first SCAN characters, lowercased once if anything needs it, and the
+// channel tab it is in ("" = none: only rules for every channel apply)
 pub struct Line<'a> {
   m: &'a Message,
+  chan: &'a str,
   text: &'a str,
   low: OnceCell<String>,
 }
 
 impl<'a> Line<'a> {
-  pub fn new(m: &'a Message) -> Self {
-    Line { m, text: scan(&m.body), low: OnceCell::new() }
+  pub fn new(m: &'a Message, chan: &'a str) -> Self {
+    Line { m, chan, text: scan(&m.body), low: OnceCell::new() }
   }
 
   fn low(&self) -> &str {
@@ -327,12 +340,48 @@ enum Test {
   Type(Option<Ty>),
 }
 
+// where a rule applies
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Scope {
+  All,
+  // a channel tab's id, lowercased
+  Chan(Box<str>),
+  // a scope that is not text: names no channel, so it applies nowhere
+  Nowhere,
+}
+
 #[derive(Clone, Debug)]
 struct Compiled {
   hide: bool,
-  // false = scoped to one of the ext's channel tabs: never applies here
-  here: bool,
+  scope: Scope,
+  // a highlight's colour, clamped onto the palette (None: none given, or not a usable colour)
+  ink: Option<u32>,
+  sound: Option<Preset>,
   test: Test,
+}
+
+// the colours a rule can light a line in
+pub const INKS: [u32; 7] =
+  [theme::RED, theme::GREEN, theme::YELLOW, theme::BLUE, theme::MAGENTA, theme::CYAN, theme::WHITE];
+
+// the ext's picker gives any #rrggbb. this window paints ansi 0-7 only, so a rule's colour is the nearest of
+// the seven that show on black (squared distance in rgb); one nearer black than any of them is too dark to
+// see and is no colour. the alpha of a #rgba / #rrggbbaa is dropped. the ext's own test is /^#[0-9a-f]{3,8}$/
+fn ink_of(v: Option<&Value>) -> Option<u32> {
+  let hex = v?.as_str()?.strip_prefix('#')?;
+  let d: Vec<u32> = hex.chars().map(|c| c.to_digit(16)).collect::<Option<_>>()?;
+  let [r, g, b] = match d.len() {
+    3 | 4 => [d[0] * 17, d[1] * 17, d[2] * 17],
+    6 | 8 => [d[0] * 16 + d[1], d[2] * 16 + d[3], d[4] * 16 + d[5]],
+    _ => return None,
+  };
+  let dist = |c: u32| {
+    let (cr, cg, cb) = ((c >> 16) & 255, (c >> 8) & 255, c & 255);
+    let sq = |a: u32, b: u32| a.abs_diff(b).pow(2);
+    sq(r, cr) + sq(g, cg) + sq(b, cb)
+  };
+  let best = INKS.iter().copied().min_by_key(|&c| dist(c))?;
+  (dist(best) < dist(theme::BLACK)).then_some(best)
 }
 
 #[derive(Clone, Debug)]
@@ -376,7 +425,12 @@ fn compile(raw: &Value) -> Option<Compiled> {
     "highlight" => false,
     _ => return None,
   };
-  let here = !truthy(o.get("scope")) || o.get("scope").and_then(Value::as_str) == Some("all");
+  let scope = match o.get("scope") {
+    v if !truthy(v) => Scope::All,
+    Some(Value::String(s)) if s == "all" => Scope::All,
+    Some(Value::String(s)) => Scope::Chan(s.to_lowercase().into()),
+    _ => Scope::Nowhere,
+  };
   let cs = truthy(m.get("caseSensitive"));
   let lower = |s: &str| if cs { s.to_owned() } else { s.to_lowercase() };
   let test = match ty {
@@ -388,10 +442,21 @@ fn compile(raw: &Value) -> Option<Compiled> {
     "msgtype" => Test::Type(Ty::parse(&val.to_lowercase(), false)),
     _ => return None,
   };
-  Some(Compiled { hide, here, test })
+  // a hide rule has neither (the ext reads them off highlights only)
+  let ink = if hide { None } else { ink_of(o.get("color")) };
+  let sound = if hide { None } else { o.get("sound").and_then(Value::as_str).and_then(Preset::parse) };
+  Some(Compiled { hide, scope, ink, sound, test })
 }
 
 impl Compiled {
+  fn applies(&self, chan: &str) -> bool {
+    match &self.scope {
+      Scope::All => true,
+      Scope::Chan(c) => !chan.is_empty() && chan.eq_ignore_ascii_case(c),
+      Scope::Nowhere => false,
+    }
+  }
+
   fn hits(&self, l: &Line) -> bool {
     match &self.test {
       Test::Keyword { val, cs } => word_at(if *cs { l.text } else { l.low() }, val),
@@ -444,19 +509,22 @@ impl Rules {
     Value::Array(self.list.iter().map(|r| r.raw.clone()).collect()).to_string()
   }
 
-  // the verdict on one line: the first hide wins, else the first highlight
-  pub fn judge(&self, l: &Line) -> Verdict {
-    let mut mark = false;
-    for c in self.list.iter().filter_map(|r| r.c.as_ref()).filter(|c| c.here) {
-      if !c.hits(l) {
-        continue;
-      }
+  // the verdict on one line: the first hide wins, else the first highlight (whose colour and sound it keeps).
+  // rules for every channel go before a channel's own, as in the ext
+  pub fn judge(&self, l: &Line) -> Judged {
+    let mut first: Option<&Compiled> = None;
+    let all = self.list.iter().filter_map(|r| r.c.as_ref()).filter(|c| c.scope == Scope::All);
+    let own = self.list.iter().filter_map(|r| r.c.as_ref()).filter(|c| c.scope != Scope::All);
+    for c in all.chain(own).filter(|c| c.applies(l.chan) && c.hits(l)) {
       if c.hide {
-        return Verdict::Hide;
+        return Judged { verdict: Verdict::Hide, ink: None, sound: None };
       }
-      mark = true;
+      first.get_or_insert(c);
     }
-    if mark { Verdict::Mark } else { Verdict::Pass }
+    match first {
+      Some(c) => Judged { verdict: Verdict::Mark, ink: c.ink, sound: c.sound },
+      None => Judged { verdict: Verdict::Pass, ink: None, sound: None },
+    }
   }
 
   // one line per rule for /rule list: "1 on hide keyword spoiler"
@@ -470,7 +538,8 @@ impl Rules {
         let m = r.raw.get("match");
         let ms = |k: &str| m.and_then(|m| m.get(k)).and_then(Value::as_str).unwrap_or("?").to_owned();
         let state = match (&r.c, truthy(r.raw.get("enabled"))) {
-          (Some(c), _) if !c.here => "other channel".to_owned(),
+          (Some(Compiled { scope: Scope::Chan(c), .. }), _) => format!("in {}", c.chars().take(40).collect::<String>()),
+          (Some(Compiled { scope: Scope::Nowhere, .. }), _) => "no channel".to_owned(),
           (Some(_), _) => "on".to_owned(),
           (None, false) => "off".to_owned(),
           (None, true) => "invalid".to_owned(),
@@ -547,6 +616,7 @@ impl Rules {
 mod tests {
   use super::*;
   use crate::model::automod::SCAN;
+  use crate::ui::theme;
 
   fn line(login: &str, body: &str) -> Message {
     let mut m = Message::system(0, Platform::Twitch, "");
@@ -566,7 +636,115 @@ mod tests {
   }
 
   fn judge(r: &Rules, m: &Message) -> Verdict {
-    r.judge(&Line::new(m))
+    r.judge(&Line::new(m, "")).verdict
+  }
+
+  fn in_chan(r: &Rules, m: &Message, chan: &str) -> Judged {
+    r.judge(&Line::new(m, chan))
+  }
+
+  fn lit(color: Option<&str>, sound: Option<&str>) -> Value {
+    let mut r = rule("highlight", "keyword", "gg");
+    if let Some(c) = color {
+      r["color"] = json!(c);
+    }
+    if let Some(s) = sound {
+      r["sound"] = json!(s);
+    }
+    r
+  }
+
+  #[test]
+  fn a_rules_colour_lands_on_the_nearest_palette_colour() {
+    let ink = |c: &str| in_chan(&rules(&[lit(Some(c), None)]), &line("a", "gg"), "").ink;
+    // the palette itself, and the ext's own default
+    assert_eq!(ink("#ffff00"), Some(theme::YELLOW));
+    assert_eq!(ink("#FF0000"), Some(theme::RED));
+    assert_eq!(ink("#00ff00"), Some(theme::GREEN));
+    assert_eq!(ink("#0ff"), Some(theme::CYAN), "short form");
+    assert_eq!(ink("#ff00ff80"), Some(theme::MAGENTA), "alpha is dropped");
+    // anything else is clamped, never passed through
+    assert_eq!(ink("#ff8800"), Some(theme::YELLOW));
+    assert_eq!(ink("#0000ff"), Some(theme::BLUE));
+    assert_eq!(ink("#f8f8f8"), Some(theme::WHITE));
+    assert_eq!(ink("#aa0000"), Some(theme::RED));
+    // too dark to see on black, not a colour, hostile: the default look, no colour of its own
+    for bad in
+      ["#000000", "#050505", "red", "", "#12", "#12345", "#gggggg", "ff0000", "#ff0000ff00", "#\u{0}\u{0}\u{0}"]
+    {
+      assert_eq!(ink(bad), None, "{bad}");
+    }
+    let r = rules(&[lit(Some("#ff0000"), None)]);
+    assert_eq!(in_chan(&r, &line("a", "gg"), "").verdict, Verdict::Mark);
+    // a colourless or non-string colour still highlights
+    let mut num = lit(None, None);
+    num["color"] = json!(7);
+    let j = in_chan(&rules(&[num]), &line("a", "gg"), "");
+    assert_eq!((j.verdict, j.ink), (Verdict::Mark, None));
+    // the first highlight that matches gives the colour, as in the ext
+    let r = rules(&[lit(Some("#ff0000"), None), lit(Some("#00ff00"), None)]);
+    assert_eq!(in_chan(&r, &line("a", "gg"), "").ink, Some(theme::RED));
+    // a hide rule has no colour
+    let mut h = rule("hide", "keyword", "gg");
+    h["color"] = json!("#ff0000");
+    assert_eq!(in_chan(&rules(&[h]), &line("a", "gg"), "").ink, None);
+  }
+
+  #[test]
+  fn a_rule_in_a_channel_applies_only_there() {
+    let mut sc = rule("hide", "keyword", "x");
+    sc["scope"] = json!("Forsen");
+    let r = rules(&[sc]);
+    let m = line("a", "x");
+    assert_eq!(in_chan(&r, &m, "forsen").verdict, Verdict::Hide, "any case");
+    assert_eq!(in_chan(&r, &m, "FORSEN").verdict, Verdict::Hide);
+    assert_eq!(in_chan(&r, &m, "xqc").verdict, Verdict::Pass);
+    assert_eq!(in_chan(&r, &m, "").verdict, Verdict::Pass, "no channel: only all-channel rules");
+    // missing, empty, "all": every channel
+    for all in [json!(null), json!(""), json!("all")] {
+      let mut a = rule("hide", "keyword", "x");
+      a["scope"] = all;
+      assert_eq!(in_chan(&rules(&[a]), &m, "xqc").verdict, Verdict::Hide);
+    }
+    // a scope of the wrong type names no channel
+    for odd in [json!(5), json!(["forsen"]), json!({"a": 1}), json!(true)] {
+      let mut a = rule("hide", "keyword", "x");
+      a["scope"] = odd;
+      assert_eq!(in_chan(&rules(&[a]), &m, "forsen").verdict, Verdict::Pass);
+    }
+    // a scoped highlight beside an all-channel one: global rules first, as in the ext
+    let mut here = lit(Some("#ff0000"), None);
+    here["scope"] = json!("forsen");
+    let r = rules(&[lit(Some("#00ff00"), None), here.clone()]);
+    assert_eq!(in_chan(&r, &line("a", "gg"), "forsen").ink, Some(theme::GREEN));
+    let r = rules(&[here]);
+    assert_eq!(in_chan(&r, &line("a", "gg"), "forsen").ink, Some(theme::RED));
+    assert_eq!(in_chan(&r, &line("a", "gg"), "xqc").verdict, Verdict::Pass);
+  }
+
+  #[test]
+  fn a_rules_sound_is_one_of_the_four_presets() {
+    let sound = |s: &str| in_chan(&rules(&[lit(None, Some(s))]), &line("a", "gg"), "").sound;
+    assert_eq!(sound("ping"), Some(Preset::Ping));
+    assert_eq!(sound("blip"), Some(Preset::Blip));
+    assert_eq!(sound("knock"), Some(Preset::Knock));
+    assert_eq!(sound("chime"), Some(Preset::Chime));
+    for bad in ["none", "", "PING", "../../x", "bell"] {
+      assert_eq!(sound(bad), None, "{bad}");
+    }
+    let mut num = lit(None, None);
+    num["sound"] = json!(3);
+    assert_eq!(in_chan(&rules(&[num]), &line("a", "gg"), "").sound, None);
+    // the sound belongs to the highlight that colours the line; none once a hide wins
+    let r = rules(&[lit(None, Some("blip")), lit(None, Some("chime"))]);
+    assert_eq!(in_chan(&r, &line("a", "gg"), "").sound, Some(Preset::Blip));
+    let r = rules(&[lit(None, Some("blip")), rule("hide", "keyword", "gg")]);
+    let j = in_chan(&r, &line("a", "gg"), "");
+    assert_eq!((j.verdict, j.sound), (Verdict::Hide, None));
+    // a hide rule's own sound is never played
+    let mut h = rule("hide", "keyword", "gg");
+    h["sound"] = json!("ping");
+    assert_eq!(in_chan(&rules(&[h]), &line("a", "gg"), "").sound, None);
   }
 
   #[test]
@@ -712,7 +890,7 @@ mod tests {
     let only = rules(&[extra]);
     assert!(only.json().contains("future"));
     let d = r.describe();
-    assert!(d[0].contains("off") && d[2].contains("other channel") && d[5].contains("invalid"));
+    assert!(d[0].contains("off") && d[2].contains("in tab-9") && d[5].contains("invalid"));
     // round trip loses nothing
     let again = Rules::parse(&r.json()).unwrap();
     assert_eq!(again.json(), r.json());

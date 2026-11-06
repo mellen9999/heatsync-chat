@@ -5,6 +5,7 @@
 use std::time::{Duration, Instant};
 
 use super::App;
+use crate::model::filter;
 use crate::model::inbox::{self, Item};
 use crate::model::mention_file::{self as file, Read};
 use crate::model::message::{Extra, Message, Platform, flag};
@@ -13,6 +14,7 @@ use crate::model::unseen::Surface;
 use crate::net::{Cmd, social};
 use crate::store;
 use crate::util::notify;
+use crate::util::sound::Preset;
 use crate::util::time::now_ms;
 
 pub(super) const TITLE: &str = "heatsync";
@@ -29,6 +31,9 @@ impl App {
   // tint a line that pings you; a live one also lands in the mentions tab (and may notify).
   // `room` is the tab key it came from (twitch channel, kick slug, youtube handle)
   pub(super) fn scan_mention(&mut self, p: Platform, room: &str, m: &mut Message) {
+    if let Some(s) = self.line_sound(room, m) {
+      crate::util::sound::play(s, self.set.mention_volume.percent(), now_ms());
+    }
     // a blocked person never pings you
     if !self.mentions.hit(m) || crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&m.login))) {
       return;
@@ -49,6 +54,15 @@ impl App {
     }
     let title = format!("{} in #{}", notify::name(&m.nick), notify::name(room));
     self.mention_alert(&title, &m.nick, &m.body);
+  }
+
+  // the sound a highlight rule gives a live line (ext playFilterRuleSound): the rule's, at the mention
+  // volume. none for backlog, your own lines, a blocked person, or a line a hide rule takes
+  pub(super) fn line_sound(&self, room: &str, m: &Message) -> Option<Preset> {
+    if m.has(flag::HISTORY) || m.has(flag::OWN) || filter::with(|f| f.blocked(&filter::key(&m.login))) {
+      return None;
+    }
+    filter::with(|f| f.rule_sound(m, room))
   }
 
   // a mention while the window is away: the desktop notification (if on), the ping and the title flash

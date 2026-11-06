@@ -161,7 +161,10 @@ impl ChatView {
           Some(theme::HEATSYNC)
         } else if r.msg.has(flag::FIRST) {
           Some(theme::MAGENTA)
-        } else if r.msg.has(flag::HIGHLIGHTED) || r.look & filter::MARKED != 0 {
+        } else if r.look & filter::MARKED != 0 {
+          // a highlight rule's own colour (clamped to the palette), else the plain highlight
+          Some(filter::mark_ink(r.look))
+        } else if r.msg.has(flag::HIGHLIGHTED) {
           Some(theme::CYAN)
         } else if let Some(ink) = notice_ink(r.msg.notice()) {
           // an event's ring outranks the session-first glow (ext: declared after it)
