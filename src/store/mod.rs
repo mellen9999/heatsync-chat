@@ -14,13 +14,34 @@ use std::io::{Error, ErrorKind, Result, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+// an xdg base folder: the variable when it is an absolute path, else the home fallback
 #[cfg(not(test))]
-fn dir() -> Option<PathBuf> {
-  let base = std::env::var_os("XDG_CONFIG_HOME")
+fn xdg(var: &str, home_rel: &str) -> Option<PathBuf> {
+  std::env::var_os(var)
     .map(PathBuf::from)
     .filter(|p| p.is_absolute())
-    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-  Some(base.join("heatsync-chat"))
+    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_rel)))
+}
+
+#[cfg(not(test))]
+fn dir() -> Option<PathBuf> {
+  Some(xdg("XDG_CONFIG_HOME", ".config")?.join("heatsync-chat"))
+}
+
+// where chat logs go: $XDG_DATA_HOME/heatsync-chat/logs (data, not config: it grows and is yours to keep)
+#[cfg(not(test))]
+pub fn logs_dir() -> Option<PathBuf> {
+  Some(xdg("XDG_DATA_HOME", ".local/share")?.join("heatsync-chat").join("logs"))
+}
+
+#[cfg(test)]
+pub fn logs_dir() -> Option<PathBuf> {
+  Some(scratch().join("data").join("heatsync-chat").join("logs"))
+}
+
+// a plain sentence for the ui to say once, from any thread (the chat log writer's)
+pub fn tell(s: String) {
+  note(s);
 }
 
 // tests never touch the real config: each test thread gets its own scratch folder

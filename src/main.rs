@@ -2,6 +2,7 @@ mod app;
 mod avatars;
 mod badges;
 mod bench;
+mod chatlog;
 mod cosmetics;
 mod emotes;
 mod fake;

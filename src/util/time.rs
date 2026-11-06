@@ -17,6 +17,48 @@ pub fn clock(ms: i64, twelve: bool) -> String {
   hm(tm.tm_hour, tm.tm_min, twelve)
 }
 
+// a moment broken into local calendar parts
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Local {
+  pub y: i32,
+  pub mo: u32,
+  pub d: u32,
+  pub h: u32,
+  pub mi: u32,
+  pub s: u32,
+}
+
+impl Local {
+  // None when the system can't say (a time out of range)
+  pub fn of(ms: i64) -> Option<Local> {
+    let t: libc::time_t = ms.div_euclid(1000) as libc::time_t;
+    // SAFETY: localtime_r writes only into the tm we hand it
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+      return None;
+    }
+    let u = |v: i32| v.max(0) as u32;
+    Some(Local {
+      y: tm.tm_year + 1900,
+      mo: u(tm.tm_mon + 1),
+      d: u(tm.tm_mday),
+      h: u(tm.tm_hour),
+      mi: u(tm.tm_min),
+      s: u(tm.tm_sec),
+    })
+  }
+
+  // "2026-11-06"
+  pub fn day(self) -> String {
+    format!("{:04}-{:02}-{:02}", self.y, self.mo, self.d)
+  }
+
+  // "09:05:03"
+  pub fn hms(self) -> String {
+    format!("{:02}:{:02}:{:02}", self.h, self.mi, self.s)
+  }
+}
+
 fn hm(h: i32, m: i32, twelve: bool) -> String {
   if !twelve {
     return format!("{h:02}:{m:02}");
