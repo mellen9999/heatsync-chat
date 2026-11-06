@@ -111,7 +111,7 @@ impl App {
         self.say(format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }))
       }
       Local::Zoom(Some(pct)) => self.zoom_to(pct),
-      Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.5 to 3)"),
+      Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.9 to 3)"),
       Local::Side(Some(side)) => self.side_to(side),
       Local::Side(None) => self.say("usage: /tabs top, bottom, left or right"),
       Local::Pick(id, Some(i)) => {

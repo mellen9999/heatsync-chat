@@ -428,7 +428,7 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Display,
     section: "font",
     label: "zoom",
-    tip: "everything's size, 50 to 300 percent. ctrl-= / ctrl-- / ctrl-0 or ctrl-wheel anywhere. /zoom 1.5",
+    tip: "everything's size, 90 to 300 percent. ctrl-= / ctrl-- / ctrl-0 or ctrl-wheel anywhere. /zoom 1.5",
     alias: "size scale font",
     ctl: Ctl::Zoom,
     fx: Fx::None,

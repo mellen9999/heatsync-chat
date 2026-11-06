@@ -4,7 +4,7 @@ use crate::model::schema::{self, Ctl};
 use crate::model::tabs::Kind;
 use crate::store;
 
-pub const ZOOM_MIN: u16 = 50;
+pub const ZOOM_MIN: u16 = 90;
 pub const ZOOM_MAX: u16 = 300;
 pub const ZOOM_STEP: u16 = 10;
 
@@ -673,7 +673,7 @@ mod tests {
     for (vi, auto_hide, first_glow, paints, zoom) in [
       (false, false, true, true, 100),
       (true, false, false, false, 130),
-      (false, true, true, false, 50),
+      (false, true, true, false, 90),
       (true, true, false, true, 300),
     ] {
       let s = Settings { zoom, vi, auto_hide, first_glow, paints, ev_offline: vi, ev_game: !vi, ..Settings::default() };
@@ -790,11 +790,12 @@ mod tests {
 
   #[test]
   fn zoom_clamps_steps_and_parses() {
-    assert_eq!(clamp_zoom(0), 50);
+    assert_eq!(clamp_zoom(0), 90);
     assert_eq!(clamp_zoom(1000), 300);
     assert_eq!(clamp_zoom(130), 130);
     assert_eq!(Settings::parse("zoom=9").zoom, 300);
-    assert_eq!(Settings::parse("zoom=0.1").zoom, 50);
+    assert_eq!(Settings::parse("zoom=0.1").zoom, 90);
+    assert_eq!(Settings::parse("zoom=0.5").zoom, 90);
     assert_eq!(Settings::parse("zoom=nan").zoom, 100);
     assert_eq!(Settings::parse("zoom=junk").zoom, 100);
     assert_eq!(Settings::parse("zoom=1.3").zoom, 130);
