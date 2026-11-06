@@ -4,8 +4,8 @@
 // the list is kept by the socket (catch-up on sign-in, then every go-live, game switch and sign-off) and
 // asked in full every two minutes while signed in, like the ext's poll, and when the screen opens; the
 // uptime moves once a minute, only while the screen shows. the poll is also how a kick or youtube go-live
-// is ever seen (heatsync pushes twitch's): a channel that wasn't live at the last ask and is now gets its
-// went-live line (ext announceWentLive). the first answer after sign-in is only the baseline
+// is ever seen (heatsync pushes twitch's): someone none of whose channels was live at the last ask gets
+// one went-live line (ext announceWentLive). the first answer after sign-in is only the baseline
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -76,6 +76,11 @@ fn rows(f: &Following, me: bool, q: &str, now: i64) -> (Vec<L>, Vec<Target>) {
 }
 
 impl Following {
+  // every channel of the person live on this one, per the list (none if the list doesn't have them)
+  pub(super) fn legs_of(&self, p: Platform, key: &str) -> &[(Platform, Box<str>)] {
+    self.list.person(p, key).map_or(&[], |l| &l.legs)
+  }
+
   // the screen's heading: how many are live, and how many of them the filter keeps
   pub(super) fn title(&self, me: bool, filtering: bool, shown: usize) -> String {
     let n = self.list.rows().len();
@@ -164,17 +169,17 @@ impl App {
     }
   }
 
-  // the channels live now that weren't at the last answer, as went-live lines. a channel you have a tab
-  // for is left to its room's own frames (ext: the follow path skips config.channels)
+  // the people live now with none of their channels live at the last answer: one went-live line each, on
+  // the channel the list names them by (ext pollFollowedLive keys on the card). a channel joining a stream
+  // already live (a youtube simulcast folded into a twitch card) is the same stream, not news. someone with
+  // a tab open is left to its room's own frames (ext: the follow path skips config.channels)
   fn went_live(&mut self, rows: &[Live]) -> Vec<Line> {
     let now: HashSet<(Platform, Box<str>)> = rows.iter().flat_map(|l| l.legs.iter().cloned()).collect();
     let Some(prev) = self.following.seen.replace(now) else { return Vec::new() };
     rows
       .iter()
-      .flat_map(|l| l.legs.iter().map(move |leg| (l, leg)))
-      .filter(|(_, leg)| !prev.contains(*leg))
-      .filter(|(_, (p, k))| self.tabs_with(*p, k).is_empty())
-      .map(|(l, (p, k))| Line::went_live(*p, k, &l.game))
+      .filter(|l| !l.legs.iter().any(|g| prev.contains(g) || !self.tabs_with(g.0, &g.1).is_empty()))
+      .map(|l| Line::went_live(l.primary().0, &l.primary().1, &l.game))
       .collect()
   }
 
@@ -182,10 +187,12 @@ impl App {
     self.following.asked = None;
     match res {
       Ok(rows) => {
-        for l in self.went_live(&rows) {
+        // the list first: a line's simulcast check reads the cards it is about
+        let lines = self.went_live(&rows);
+        self.following.list.replace(rows);
+        for l in lines {
           self.on_stream(l);
         }
-        self.following.list.replace(rows);
         (self.following.loaded, self.following.failed) = (true, None);
         self.following.fetched = Some(Instant::now());
       }
@@ -499,5 +506,47 @@ mod tests {
     app.on_stream(off);
     app.on_stream(Line::went_live(Platform::Kick, "newk", ""));
     assert_eq!(told(&app).len(), 2);
+  }
+
+  #[test]
+  fn a_simulcast_leg_joining_a_live_stream_is_not_a_second_go_live() {
+    let (mut app, _asked) = app();
+    let card = |first: &str, user: &str, legs: serde_json::Value| {
+      following::parse(Some(
+        &json!([{"platform": first, "username": user, "viewerCount": 9, "platformUsernames": legs}]),
+      ))
+    };
+    let both = || card("twitch", "esfandtv", json!({"youtube": "EsfandTV"}));
+    let lines = |app: &App| -> Vec<(Platform, String)> {
+      let t = app.tabs.iter().find(|t| &*t.name == "forsen").unwrap();
+      t.view.msgs().filter(|m| m.id.is_empty()).map(|m| (m.platform, m.login.to_string())).collect()
+    };
+    // live on twitch at the baseline; heatsync then folds his youtube simulcast into the same card
+    app.on_net(NetEvent::Following(Ok(card("twitch", "esfandtv", json!({})))));
+    app.on_net(NetEvent::Following(Ok(both())));
+    assert!(lines(&app).is_empty(), "the youtube leg is the same stream: {:?}", lines(&app));
+    // gone, then back on both at once: one line, on the channel the list names him by
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    app.on_net(NetEvent::Following(Ok(both())));
+    assert_eq!(lines(&app), [(Platform::Twitch, "esfandtv".into())]);
+    // the socket told a twitch go-live; the poll's card names youtube first (more viewers): no second line
+    app.on_stream(Line::went_live(Platform::Twitch, "bigtw", ""));
+    let mut rows = both();
+    rows.extend(card("youtube", "bigyt", json!({"twitch": "bigtw"})));
+    app.on_net(NetEvent::Following(Ok(rows)));
+    assert_eq!(lines(&app).len(), 2, "{:?}", lines(&app));
+    // the socket: tim on twitch, then his kick and youtube channels of the same name: one line
+    app.on_stream(Line::went_live(Platform::Twitch, "tim", ""));
+    app.on_stream(Line::went_live(Platform::Kick, "tim", ""));
+    app.on_stream(Line::went_live(Platform::Youtube, "@tim", ""));
+    assert_eq!(lines(&app).len(), 3, "{:?}", lines(&app));
+    // a kick stream of his own long after the twitch one began is news
+    let mut off = Line::went_live(Platform::Kick, "tim", "");
+    off.tone = crate::model::stream_events::Tone::Offline;
+    app.on_stream(off);
+    app.told.values_mut().for_each(|t| *t -= 31 * 60_000);
+    app.on_stream(Line::went_live(Platform::Kick, "tim", ""));
+    assert_eq!(lines(&app).last(), Some(&(Platform::Kick, "tim".into())));
+    assert_eq!(lines(&app).len(), 4);
   }
 }

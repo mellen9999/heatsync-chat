@@ -15,6 +15,9 @@ use crate::ui::theme;
 use crate::util::notify;
 use crate::util::time::now_ms;
 
+// how far apart a simulcast's channels may come up and still be one go-live
+const SIMULCAST_MS: i64 = 30 * 60_000;
+
 fn color(t: Tone) -> u32 {
   match t {
     Tone::Online => theme::RED,
@@ -179,7 +182,7 @@ impl App {
       self.stats_stream(l.platform, &l.channel, l.tone == Tone::Online);
       self.live_mark(l.platform, &l.channel, l.tone == Tone::Online);
       // one went-live per channel until it signs off, whichever of the socket and the poll says it first
-      // (ext sessionWentLiveSeen)
+      // (ext sessionWentLiveSeen), and one per stream: a simulcast's other channel coming up is no news
       let k = (l.platform, l.channel.clone());
       if l.tone == Tone::Offline {
         self.told.remove(&k);
@@ -187,7 +190,13 @@ impl App {
         if self.told.len() >= 2000 {
           self.told.clear();
         }
-        if !self.told.insert(k) {
+        if self.told.contains_key(&k) {
+          return;
+        }
+        let now = now_ms();
+        let twin = self.simulcast_told(l.platform, &l.channel, now);
+        self.told.insert(k, now);
+        if twin {
           return;
         }
       }
@@ -221,6 +230,18 @@ impl App {
         self.put_line(i, m.clone());
       }
     }
+  }
+
+  // another channel of the same streamer told its go-live in the last half hour: the same name on another
+  // platform (heatsync folds those into one stream, the ext keys its seen set on the name) or another leg
+  // of their card in the followed list (divergent handles: twitch zackrawrr, kick asmongold)
+  fn simulcast_told(&self, p: Platform, chan: &str, now: i64) -> bool {
+    let name = chan.trim_start_matches('@');
+    let named = [Platform::Twitch, Platform::Kick, Platform::Youtube]
+      .into_iter()
+      .map(|q| (q, if q == Platform::Youtube { format!("@{name}") } else { name.to_string() }.into_boxed_str()));
+    let card = self.following.legs_of(p, chan).iter().cloned();
+    named.chain(card).filter(|k| k.0 != p).any(|k| self.told.get(&k).is_some_and(|t| now - t < SIMULCAST_MS))
   }
 
   // a channel already live when its history loaded: twitch says since when (the /status query), and its

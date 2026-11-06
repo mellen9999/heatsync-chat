@@ -144,6 +144,11 @@ impl Follows {
     &self.rows
   }
 
+  // the row with this channel among its legs: whose channel it is
+  pub fn person(&self, p: Platform, key: &str) -> Option<&Live> {
+    self.rows.iter().find(|r| r.has(p, key))
+  }
+
   // biggest audience first, then by name: the ext's order (its snapshot sorts on viewers)
   fn sort(&mut self) {
     self.rows.sort_by(|a, b| b.viewers.cmp(&a.viewers).then_with(|| a.legs[0].1.cmp(&b.legs[0].1)));

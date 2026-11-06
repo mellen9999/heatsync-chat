@@ -228,8 +228,8 @@ pub struct App {
   modes_busy: bool,
   // twitch channels whose history just loaded, asked whether they are live and since when (stream.rs)
   live_asked: std::collections::HashSet<Box<str>>,
-  // channels whose went-live line has shown, until they sign off (the socket and the poll both say it)
-  told: std::collections::HashSet<(crate::model::message::Platform, Box<str>)>,
+  // channels whose went-live line has shown and when, until they sign off (the socket and the poll both say it)
+  told: std::collections::HashMap<(crate::model::message::Platform, Box<str>), i64>,
   // which open channels are live (the tab's red dot), and when to ask again
   live: crate::model::live_dots::Live,
   live_due: Option<Instant>,
