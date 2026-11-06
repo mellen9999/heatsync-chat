@@ -25,7 +25,10 @@ const MAX_TEXT: usize = 64;
 // copy of them is not read
 pub const RULES: &str = "chatFilterRules";
 pub const REASONS: &str = "modBanReasons";
-const TEXTS: [(&str, usize); 2] = [(RULES, 32 * 1024), (REASONS, crate::model::reasons::MAX_TEXT)];
+// the people whose heatsync paint you hid: an array of paint ids on the wire, kept as its json text here. the
+// ext's maxLen is 3000 characters of json; a longer list stays on this device
+pub const PAINTS: &str = "hiddenPaintUsers";
+const TEXTS: [(&str, usize); 3] = [(RULES, 32 * 1024), (REASONS, crate::model::reasons::MAX_TEXT), (PAINTS, 3000)];
 // the ext's default for hiddenTabs: what a list that was never written means
 const HIDDEN_DEFAULT: [&str; 3] = ["pinned", "modlog", "discover"];
 
@@ -77,6 +80,18 @@ fn text_cap(k: &str) -> Option<usize> {
   TEXTS.iter().find(|(t, _)| *t == k).map(|(_, cap)| *cap)
 }
 
+// does a free-text row's value fit: a string of at most `cap`, or for the paint list an array of short ids
+fn text_fits(k: &str, v: &Value, cap: usize) -> bool {
+  if k != PAINTS {
+    return v.as_str().is_some_and(|t| t.len() <= cap);
+  }
+  v.as_array().is_some_and(|a| {
+    a.len() <= crate::cosmetics::hidden::MAX
+      && a.iter().all(|x| x.as_str().is_some_and(|s| !s.is_empty() && s.len() <= MAX_TEXT))
+      && v.to_string().len() <= cap
+  })
+}
+
 // each ext key once
 fn keys() -> Vec<&'static str> {
   let mut out: Vec<&'static str> = TEXTS.iter().map(|(k, _)| *k).collect();
@@ -117,9 +132,7 @@ pub fn pluck(state: &Value) -> (Inbound, u32) {
   let (mut out, mut bad) = (Vec::new(), 0);
   for k in keys() {
     match o.get(k) {
-      Some(v) if text_cap(k).map_or_else(|| small(v), |cap| v.as_str().is_some_and(|t| t.len() <= cap)) => {
-        out.push((k, v.clone()))
-      }
+      Some(v) if text_cap(k).map_or_else(|| small(v), |cap| text_fits(k, v, cap)) => out.push((k, v.clone())),
       Some(_) => bad += 1,
       None => {}
     }
@@ -134,11 +147,20 @@ fn decode(d: &Def, v: &Value) -> Option<Cell> {
     Wire::None => None,
     Wire::Bool(_) => v.as_bool().map(Cell::On),
     Wire::Name(_) => {
-      let s = v.as_str()?;
+      // the ext's emote animation also has `hover` (animate while the pointer is over it). this window has no
+      // per-emote hover state to animate by, and emotes that hold still until pointed at would read as broken
+      // here, so it counts as always: the account keeps `hover` until you change the switch yourself
+      let s = match (d.id, v.as_str()?) {
+        ("animate_emotes", "hover") => "always",
+        (_, s) => s,
+      };
       names(d).into_iter().find(|n| *n == s).map(Cell::Is)
     }
+    // the ext also has `hover` (animate while the pointer is over it). this window has no per-emote hover
+    // state to animate by, and a name or emote that holds still until pointed at would read as broken
+    // here, so it counts as on: the account keeps `hover` until you change the switch yourself
     Wire::Anim(_) => match v.as_str()? {
-      "always" => Some(Cell::On(true)),
+      "always" | "hover" => Some(Cell::On(true)),
       "never" => Some(Cell::On(false)),
       _ => None,
     },
@@ -300,7 +322,13 @@ impl Acct {
   pub fn text_inbound(&mut self, st: &Inbound, now: i64) -> Vec<(&'static str, String, bool)> {
     let mut out = Vec::new();
     for (k, v) in st {
-      let (Some(cap), Some(v)) = (text_cap(k), v.as_str()) else { continue };
+      let Some(cap) = text_cap(k) else { continue };
+      let text = match v {
+        Value::String(s) => s.clone(),
+        Value::Array(_) if *k == PAINTS => v.to_string(),
+        _ => continue,
+      };
+      let v = text.as_str();
       if v.len() > cap {
         self.ignored += 1;
         continue;
@@ -390,7 +418,11 @@ impl Acct {
     }
     for (k, t) in &mut self.texts {
       if let Some(v) = t.queued.take() {
-        patch.insert((*k).to_owned(), Value::String(v.clone()));
+        let wire =
+          if *k == PAINTS { serde_json::from_str(&v).unwrap_or(Value::Null) } else { Value::String(v.clone()) };
+        if !wire.is_null() {
+          patch.insert((*k).to_owned(), wire);
+        }
         t.synced = Some(v.clone());
         t.flight = Some((v, now + ECHO_MS));
       }
@@ -459,6 +491,8 @@ mod tests {
     rules.add("a2".into(), "highlight", "expr", "user:bob && !first").unwrap();
     out.push((RULES, json!(rules.json())));
     out.push((RULES, json!("[]")));
+    out.push((PAINTS, json!(["7", "kick_9", "yt_UCabcdefghijklmnopqrstuv"])));
+    out.push((PAINTS, json!([])));
     out.push((REASONS, json!("spam\nhate speech")));
     out.push((REASONS, json!("")));
     out
@@ -531,6 +565,7 @@ mod tests {
               .all(|sub| e["options"].as_array().unwrap().contains(&json!(sub)))
         }
         "multiselect" => v.as_array().unwrap().iter().all(Value::is_string),
+        "json" => v.as_array().is_some_and(|a| a.iter().all(Value::is_string)) && v.to_string().len() <= 3000,
         t => panic!("{t}"),
       };
       assert!(ok, "{key} = {v}");
@@ -541,12 +576,16 @@ mod tests {
   fn the_text_rows_fit_the_ext() {
     let fx = fixture();
     let none = crate::model::rules::Rules::default();
-    for (key, cap) in TEXTS {
+    for (key, cap) in TEXTS.into_iter().filter(|(k, _)| *k != PAINTS) {
       assert_eq!(fx[key]["type"], "text", "{key}");
       // a text setting with no maxLen of its own takes the ext's default, 4096
       assert!(cap as u64 <= fx[key]["maxLen"].as_u64().unwrap_or(4096), "{key}");
     }
     assert_eq!(json!(none.json()), fx[RULES]["default"]);
+    // the paint list is a json array in the ext, no longer than 3000 characters
+    assert_eq!((fx[PAINTS]["type"].as_str(), fx[PAINTS]["maxLen"].as_u64()), (Some("json"), Some(3000)));
+    assert_eq!(json!([]), fx[PAINTS]["default"]);
+    assert_eq!(text_cap(PAINTS), Some(3000));
     assert_eq!(json!(crate::model::reasons::Reasons::default().text()), fx[REASONS]["default"]);
   }
 
@@ -583,6 +622,35 @@ mod tests {
   }
 
   #[test]
+  fn the_hidden_paint_list_comes_in_as_an_array_and_goes_up_as_one() {
+    let s = Settings::default();
+    let mut a = Acct::new(&s);
+    let (inb, bad) = pluck(&json!({ "hiddenPaintUsers": ["7", "kick_9"] }));
+    assert_eq!((inb.len(), bad), (1, 0));
+    assert_eq!(a.text_inbound(&inb, NOW), vec![(PAINTS, r#"["7","kick_9"]"#.to_owned(), true)]);
+    assert!(a.text_inbound(&inb, NOW + 1).is_empty(), "nothing new");
+    // our change goes up as an array, not as a string
+    a.text_queue(PAINTS, r#"["7"]"#.into(), NOW + 10);
+    let patch = a.outbound(&s, NOW + 10 + DEBOUNCE_MS, true).unwrap();
+    assert_eq!(patch[PAINTS], json!(["7"]));
+    // hostile shapes are dropped and counted: a string, a nested list, a long id, too many, too long a text
+    for bad in [
+      json!("7"),
+      json!([["7"]]),
+      json!([7]),
+      json!([""]),
+      json!(["x".repeat(65)]),
+      json!(vec!["1"; 2001]),
+      json!(vec!["123456789"; 400]),
+    ] {
+      assert_eq!(pluck(&json!({ "hiddenPaintUsers": bad.clone() })), (Vec::new(), 1), "{bad:.40}");
+    }
+    // a list too long to fit the ext's 3000 characters stays on this device
+    a.text_queue(PAINTS, format!("[{}]", vec!["\"123456789\""; 400].join(",")), NOW + 5000);
+    assert!(a.outbound(&s, NOW + 6000, true).is_none());
+  }
+
+  #[test]
   fn text_rows_are_plucked_with_their_own_bounds() {
     let st = json!({ "modBanReasons": "x", "chatFilterRules": "[]", "other": "y".repeat(100) });
     let (got, bad) = pluck(&st);
@@ -597,15 +665,12 @@ mod tests {
   }
 
   #[test]
-  fn every_choice_the_ext_offers_is_ours_or_a_named_gap() {
+  fn every_choice_the_ext_offers_is_ours() {
     let fx = fixture();
-    // ext values this window has no equivalent for, kept on the server as they are
-    let gaps = [("animateEmotes", "hover")];
     for d in mapped().filter(|d| matches!(d.wire, Wire::Name(_))) {
       let key = d.wire.key().unwrap();
       for o in fx[key]["options"].as_array().unwrap() {
-        let known = names(d).iter().any(|n| json!(n) == *o);
-        assert!(known || gaps.iter().any(|(k, v)| *k == key && json!(v) == *o), "{key} {o}");
+        assert!(decode(d, o).is_some(), "{key} {o}");
       }
     }
   }
@@ -670,7 +735,8 @@ mod tests {
     let d = def("paint_motion").unwrap();
     assert_eq!(decode(d, &json!("never")), Some(Cell::On(false)));
     assert_eq!(decode(d, &json!("always")), Some(Cell::On(true)));
-    assert_eq!(decode(d, &json!("hover")), None);
+    assert_eq!(decode(d, &json!("hover")), Some(Cell::On(true)), "hover is on: no hover state here");
+    assert_eq!(decode(d, &json!("sideways")), None);
     assert_eq!(decode(d, &json!(false)), None);
   }
 
@@ -917,12 +983,18 @@ mod tests {
     assert!(none.is_empty() && s.tab_side == Side::Bottom);
   }
 
+  // the ext's `hover` is on here (no per-emote hover state): it turns animation on, and an animation that is
+  // already on is not touched or written back, so the account keeps its `hover`
   #[test]
-  fn animate_emotes_hover_is_left_alone() {
+  fn animate_emotes_hover_counts_as_on() {
     let mut s = Settings::default();
     let mut a = Acct::new(&s);
     assert!(a.inbound(&one("animateEmotes", json!("hover")), &mut s, NOW).is_empty());
-    assert!(a.inbound(&one("animateEmotes", json!("never")), &mut s, NOW).len() == 1);
+    assert!(a.outbound(&s, NOW + 1000, true).is_none(), "nothing to write back");
+    assert!(a.inbound(&one("animateEmotes", json!("never")), &mut s, NOW + 1).len() == 1);
+    assert_eq!(s.animate_emotes, crate::model::settings::Animate::Never);
+    assert!(a.inbound(&one("animateEmotes", json!("hover")), &mut s, NOW + 2).len() == 1);
+    assert_eq!(s.animate_emotes, crate::model::settings::Animate::Always);
   }
 
   #[test]

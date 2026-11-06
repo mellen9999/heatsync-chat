@@ -121,6 +121,12 @@
    "ytGiftMemberships"
   ]
  },
+ "hiddenPaintUsers": {
+  "type": "json",
+  "scope": "sync",
+  "default": [],
+  "maxLen": 3000
+ },
  "hiddenTabs": {
   "type": "multiselect",
   "scope": "sync",

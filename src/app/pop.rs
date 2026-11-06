@@ -392,6 +392,7 @@ impl App {
       return self.say("too many hidden paints");
     }
     cos.hidden.save();
+    self.paints_edited();
     self.relayout_where(None);
     self.say(if was {
       format!("{}\u{2019}s paint is back", who.nick)

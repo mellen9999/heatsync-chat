@@ -628,8 +628,17 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     "mention:rule-match" => crate::model::mrules::hit(v).and_then(|h| send(NetEvent::RuleHit(h))),
     "notifications:read" => pushed::unread(v).and_then(|n| send(NetEvent::Unread(n))),
     "bookmarks:changed" => pushed::bookmark(v).and_then(|(id, on)| send(NetEvent::Bookmark(id, on))),
-    // your account settings changed: only plus is read (the rest of the keys are the site's own)
-    "user_settings:update" => pushed::plus_moved(v).then(|| send(NetEvent::PlusMoved)).flatten(),
+    // your account settings changed: plus, and the five flagged-content switches. the rest of the keys are the
+    // site's own
+    "user_settings:update" => {
+      let prefs = pushed::content_prefs(v);
+      if !prefs.is_empty()
+        && let Some(end) = send(NetEvent::ContentPrefs(prefs))
+      {
+        return Some(end);
+      }
+      pushed::plus_moved(v).then(|| send(NetEvent::PlusMoved)).flatten()
+    }
     "mute:added" | "mute:removed" | "mute:expired" | "mute:cleared" => {
       super::mutes::frame(v, ty).and_then(|m| send(NetEvent::MuteSync(m)))
     }
@@ -778,7 +787,12 @@ mod tests {
       got(json!({"type": "user_settings:update", "plus": false, "ts": 1})).as_slice(),
       [NetEvent::PlusMoved]
     ));
+    // the older single nsfw switch is the site's own; a category switch is ours, and rides with plus
     assert!(got(json!({"type": "user_settings:update", "show_nsfw_emotes": true, "ts": 1})).is_empty());
+    assert!(matches!(
+      got(json!({"type": "user_settings:update", "show_gore_emotes": true, "plus": true, "ts": 1})).as_slice(),
+      [NetEvent::ContentPrefs(p), NetEvent::PlusMoved] if p.as_slice() == [(crate::heatsync::content::Cat::Violence, true)]
+    ));
     // the frame cap (MAX_FRAME) keeps oversized text out before this point; a long name or edit is cut here
     let long = "x".repeat(100_000);
     assert!(got(json!({"type": "profile:color", "userId": "1", "usernames": [long], "color": "#00ff00"})).is_empty());

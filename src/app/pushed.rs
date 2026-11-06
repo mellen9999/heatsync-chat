@@ -32,6 +32,7 @@ impl App {
         }
       }
       NetEvent::PlusMoved => self.on_plus_moved(),
+      NetEvent::ContentPrefs(p) => self.on_content_prefs(&p),
       NetEvent::Refetch(ask) => self.on_refetch(ask),
       _ => {}
     }
@@ -77,6 +78,20 @@ impl App {
   fn post_changed(&mut self, id: &str) {
     self.refresh_inline(id);
     self.feed_show();
+  }
+
+  // the site's flagged-content switches, as they are on the account: applied the way flipping them here would
+  // be. your own flips here stay on this device (the site is where the age check lives), so the next word
+  // from the site wins
+  fn on_content_prefs(&mut self, prefs: &[(crate::heatsync::content::Cat, bool)]) {
+    if self.me.is_none() {
+      return;
+    }
+    let moved = prefs.iter().fold(false, |m, (c, on)| self.set.set_content(*c, *on) | m);
+    if moved {
+      self.applied(crate::model::schema::Fx::Content);
+      self.set.save();
+    }
   }
 
   // you gained or lost plus: how you look (the `+` after your name) is asked for again

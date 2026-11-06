@@ -256,3 +256,35 @@ fn a_block_lifted_elsewhere_leaves_but_your_own_stay() {
     assert!(!f.blocked("gone") && f.blocked("kept") && f.blocked("mine"));
   });
 }
+
+// the site's five flagged-content switches follow the account, live; its older single switch, its chat-media
+// gates, junk values and a signed-out window change nothing
+#[test]
+fn the_sites_content_switches_apply_here_and_nothing_else_does() {
+  let (mut app, _asked, _) = boot();
+  assert!(!app.set.show_nsfw && !app.set.show_violence && !app.set.show_hate);
+  frame(
+    &mut app,
+    json!({"type": "user_settings:update", "show_sexual_emotes": true, "show_gore_emotes": true, "ts": 1}),
+  );
+  assert!(app.set.show_nsfw && app.set.show_violence && !app.set.show_weapons);
+  assert!(Settings::load().show_nsfw, "saved");
+  assert!(crate::heatsync::content::shown(crate::heatsync::content::Cat::Sexual), "the picture rule follows");
+  frame(&mut app, json!({"type": "user_settings:update", "show_sexual_emotes": false, "show_hate_emotes": true}));
+  assert!(!app.set.show_nsfw && app.set.show_violence && app.set.show_hate);
+  // not ours: the older switch, the chat-media gates, wrong types
+  let before = app.set;
+  for junk in [
+    json!({"show_nsfw_emotes": false, "allow_nsfw_images": true, "allow_weapons": true}),
+    json!({"show_weapon_emotes": "yes", "show_drug_emotes": 1, "show_violence": false}),
+  ] {
+    let mut f = junk;
+    f["type"] = json!("user_settings:update");
+    frame(&mut app, f);
+  }
+  assert!(app.set == before);
+  // signed out: a stray frame changes nothing
+  app.me = None;
+  frame(&mut app, json!({"type": "user_settings:update", "show_drug_emotes": true}));
+  assert!(!app.set.show_drugs);
+}

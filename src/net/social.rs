@@ -63,6 +63,8 @@ pub enum Cmd {
   NotifsRead,
   // your settings as the account holds them
   UiStateGet,
+  // the site's flagged-content switches as the account holds them
+  ContentGet,
   // you looked at one just now (`at`); the server tells your other clients
   SeenBump { surface: Surface, at: i64 },
   // one page of a person's archived lines (the chat-log viewer)
@@ -93,6 +95,11 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::UiStateGet => {
       if let Some(t) = token {
         ui_state_get(&http, &t, &out).await;
+      }
+    }
+    Cmd::ContentGet => {
+      if let Some(t) = token {
+        content_get(&http, &t, &out).await;
       }
     }
     Cmd::NotifsRead => {
@@ -385,6 +392,14 @@ async fn ui_state_get(http: &reqwest::Client, token: &str, out: &Out) {
   let (state, _) = crate::model::sync::pluck(v.get("state").unwrap_or(&Value::Null));
   if !state.is_empty() {
     void(out.send(NetEvent::UiState(state)));
+  }
+}
+
+async fn content_get(http: &reqwest::Client, token: &str, out: &Out) {
+  let (status, v) = call(get(http, token, "/api/user/settings")).await;
+  let prefs = crate::net::pushed::content_prefs(&v);
+  if status == 200 && !prefs.is_empty() {
+    void(out.send(NetEvent::ContentPrefs(prefs)));
   }
 }
 

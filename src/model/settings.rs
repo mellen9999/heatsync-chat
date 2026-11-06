@@ -346,6 +346,18 @@ impl Settings {
     ]
   }
 
+  // the site says a category is shown or hidden. true = this moved it
+  pub fn set_content(&mut self, c: Cat, on: bool) -> bool {
+    let f = match c {
+      Cat::Sexual => &mut self.show_nsfw,
+      Cat::Violence => &mut self.show_violence,
+      Cat::Weapons => &mut self.show_weapons,
+      Cat::Drugs => &mut self.show_drugs,
+      Cat::Hate => &mut self.show_hate,
+    };
+    std::mem::replace(f, on) != on
+  }
+
   pub fn shown(&self, k: Kind) -> bool {
     match k {
       Kind::Chat => true,

@@ -23,6 +23,7 @@ impl App {
     }
     self.ui_get_at = Some(now);
     self.net.send(Cmd::Social(social::Cmd::UiStateGet));
+    self.net.send(Cmd::Social(social::Cmd::ContentGet));
   }
 
   // the account's values: the same apply a flip in the settings screen does, saved, never sent back
@@ -55,19 +56,28 @@ impl App {
     self.wake();
   }
 
-  // the account's free-text settings (filter rules, ban reasons). the first word from the account about
+  // the account's free-text settings (filter rules, ban reasons, the people whose paint you hid). the first word from the account about
   // one that says nothing, while we hold some, is not a delete: ours goes up instead
   fn on_texts(&mut self, st: &Inbound) {
     let now = now_ms();
     let mut changed = false;
     for (key, value, first) in self.acct.text_inbound(st, now) {
       let blank = |t: &str| matches!(t.trim(), "" | "[]");
-      let mine = filter::with(|f| match key {
-        sync::REASONS => f.reasons_text(),
-        _ => f.rules().json(),
-      });
+      let mine = match key {
+        sync::PAINTS => self.res.cosmetics.hidden.to_json(),
+        _ => filter::with(|f| match key {
+          sync::REASONS => f.reasons_text(),
+          _ => f.rules().json(),
+        }),
+      };
       if first && blank(&value) && !blank(&mine) {
         self.acct.text_queue(key, mine, now);
+        continue;
+      }
+      if key == sync::PAINTS {
+        if !self.paints_in(&value) {
+          self.acct.ignored += 1;
+        }
         continue;
       }
       let ok = filter::edit(|f| match key {
@@ -86,6 +96,24 @@ impl App {
     }
     if changed {
       self.saved();
+    }
+  }
+
+  // the account's list of hidden paints replaced ours: saved, and the names drawn again. false = not a list
+  fn paints_in(&mut self, text: &str) -> bool {
+    let Some(h) = crate::cosmetics::hidden::Hidden::from_json(text) else { return false };
+    if h != self.res.cosmetics.hidden {
+      self.res.cosmetics.hidden = h;
+      self.res.cosmetics.hidden.save();
+      self.relayout_where(None);
+    }
+    true
+  }
+
+  // you hid or showed someone's paint: the list goes to the account with the next patch
+  pub(super) fn paints_edited(&mut self) {
+    if self.me.is_some() {
+      self.acct.text_queue(sync::PAINTS, self.res.cosmetics.hidden.to_json(), now_ms());
     }
   }
 

@@ -4,9 +4,9 @@ use std::collections::BTreeSet;
 
 use super::id::PaintId;
 
-const MAX: usize = 2000;
+pub const MAX: usize = 2000;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct Hidden {
   // wire form: sorted, so the file is stable
   set: BTreeSet<String>,
@@ -43,6 +43,26 @@ impl Hidden {
       .take(MAX)
       .collect();
     Hidden { set }
+  }
+
+  // the account's hiddenPaintUsers: a json array of paint ids, as the ext keeps it
+  pub fn to_json(&self) -> String {
+    serde_json::to_string(&self.set).unwrap_or_else(|_| "[]".into())
+  }
+
+  // the account's list in. None = not a list of at most MAX; an entry that is not a paint id is dropped
+  pub fn from_json(text: &str) -> Option<Self> {
+    let serde_json::Value::Array(a) = serde_json::from_str(text).ok()? else { return None };
+    if a.len() > MAX {
+      return None;
+    }
+    let set = a
+      .iter()
+      .filter_map(serde_json::Value::as_str)
+      .filter_map(|l| PaintId::from_wire(l).or_else(|| PaintId::of("heatsync", l)))
+      .map(|id| id.wire())
+      .collect();
+    Some(Hidden { set })
   }
 
   pub fn load() -> Self {
@@ -82,6 +102,24 @@ mod tests {
     let g = Hidden::parse("\n  \nnot an id!\n12\n\u{0}\nkick_x\n");
     assert!(g.has(&PaintId::Twitch(12)));
     assert_eq!(g.set.len(), 1);
+  }
+
+  #[test]
+  fn the_account_list_round_trips_and_is_bounded() {
+    let mut h = Hidden::default();
+    for id in [PaintId::Twitch(7), PaintId::Kick(9), PaintId::Native("abc_1".into())] {
+      h.toggle(&id);
+    }
+    assert_eq!(Hidden::from_json(&h.to_json()), Some(Hidden::parse(&h.render())));
+    assert_eq!(Hidden::default().to_json(), "[]");
+    // junk entries drop, the rest stay; not a list, or too long a list, is refused whole
+    let g = Hidden::from_json(r#"["12", 5, null, "not an id!", "kick_3", ["x"]]"#).unwrap();
+    assert!(g.has(&PaintId::Twitch(12)) && g.has(&PaintId::Kick(3)) && g.set.len() == 2);
+    for bad in ["{}", "\"12\"", "[", "", "null"] {
+      assert!(Hidden::from_json(bad).is_none(), "{bad}");
+    }
+    let long = format!("[{}]", vec!["\"1\""; MAX + 1].join(","));
+    assert!(Hidden::from_json(&long).is_none());
   }
 
   #[test]

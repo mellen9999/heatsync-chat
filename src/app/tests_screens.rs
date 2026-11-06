@@ -797,3 +797,69 @@ fn headless_feed_engage() {
   app.act(Act::OpToFeed, None, None);
   assert_eq!(app.line.text, "/op @Carol: this is news");
 }
+
+// the people whose paint you hid follow the account: its list replaces yours (saved, names drawn again) and
+// goes back out, as an array, only when you change it
+#[test]
+fn headless_hidden_paints_follow_the_account() {
+  use crate::cosmetics::id::PaintId;
+  use serde_json::json;
+  let me = || crate::net::auth::Me {
+    username: "mellen".into(),
+    platform: "twitch".into(),
+    twitch: None,
+    twitch_id: None,
+    names: vec!["mellen".into()],
+    kick: None,
+    youtube: None,
+    packs: vec![],
+  };
+  let sent = |asked: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| {
+    let mut out = Vec::new();
+    while let Ok(c) = asked.try_recv() {
+      if let Cmd::Hs(crate::net::hs_ws::Cmd::UiSync(p)) = c {
+        out.push(p);
+      }
+    }
+    out
+  };
+  let tick = |app: &mut App| {
+    app.ui_state_tick();
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    app.ui_state_tick();
+  };
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, Vec::new(), false);
+  app.canvas.resize(640, 240);
+  app.me = Some(me());
+  app.hs_authed = true;
+  let (inb, bad) = crate::model::sync::pluck(&json!({"hiddenPaintUsers": ["7", "kick_9", "not an id!"]}));
+  assert_eq!(bad, 0);
+  app.on_net(NetEvent::UiState(inb));
+  let h = &app.res.cosmetics.hidden;
+  assert!(h.has(&PaintId::Twitch(7)) && h.has(&PaintId::Kick(9)), "applied");
+  assert!(crate::cosmetics::hidden::Hidden::load().has(&PaintId::Twitch(7)), "saved");
+  tick(&mut app);
+  assert!(sent(&mut asked).is_empty(), "taking the account's list sends nothing back");
+  // you hide one more: the whole list goes up once, as an array
+  app.res.cosmetics.hidden.toggle(&PaintId::Twitch(12));
+  app.paints_edited();
+  tick(&mut app);
+  let patches = sent(&mut asked);
+  assert_eq!(patches.len(), 1);
+  assert_eq!(patches[0]["hiddenPaintUsers"], json!(["12", "7", "kick_9"]));
+  // a hostile list (not an array) is dropped and counted
+  let (none, bad) = crate::model::sync::pluck(&json!({"hiddenPaintUsers": "7"}));
+  assert!(none.is_empty() && bad == 1);
+  // the first word from the account that says nothing, while we hold some, is not a delete: ours goes up
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, Vec::new(), false);
+  app.me = Some(me());
+  app.hs_authed = true;
+  app.res.cosmetics.hidden = crate::cosmetics::hidden::Hidden::from_json(r#"["5"]"#).unwrap();
+  let (empty, _) = crate::model::sync::pluck(&json!({"hiddenPaintUsers": []}));
+  app.on_net(NetEvent::UiState(empty));
+  assert!(app.res.cosmetics.hidden.has(&PaintId::Twitch(5)), "kept");
+  tick(&mut app);
+  assert_eq!(sent(&mut asked)[0]["hiddenPaintUsers"], json!(["5"]));
+}

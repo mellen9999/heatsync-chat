@@ -311,6 +311,8 @@ pub enum NetEvent {
   Unread(u32),
   // your plus moved: ask again how you look
   PlusMoved,
+  // the site's flagged-content switches (ws `user_settings:update`, or the read at login), checked
+  ContentPrefs(Vec<(crate::heatsync::content::Cat, bool)>),
   // the follows / blocked emotes / blocks changed on another device: read them again
   Refetch(crate::model::livegate::Ask),
   // your mention rules answered: the list, or a change made / why not

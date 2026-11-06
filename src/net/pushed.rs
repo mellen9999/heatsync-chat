@@ -3,6 +3,8 @@
 // the typed protocol wraps some in `data`, so both are read. every id is checked, every list bounded
 use serde_json::Value;
 
+use crate::heatsync::content::Cat;
+
 use crate::model::{color, ident, post};
 
 // usernames a colour frame may name (the server sends the base name and each linked alias)
@@ -136,7 +138,25 @@ pub fn unread(v: &Value) -> Option<u32> {
   Some(n.clamp(0.0, MAX_UNREAD as f64) as u32)
 }
 
-// `user_settings:update` is ignored except for plus: true when the frame says plus moved
+// the site's per-category switches for flagged emotes and pictures, from `user_settings:update` and
+// `GET /api/user/settings`: a real bool counts, anything else is nothing. the site names the categories
+// sexual, gore, weapon, drug and hate; this window's switches are nsfw, violence, weapons, drugs and hate.
+// `show_nsfw_emotes` is the site's older single switch, and the `allow_*` keys its chat-media gates: neither
+// has a switch here
+pub fn content_prefs(v: &Value) -> Vec<(Cat, bool)> {
+  [
+    ("show_sexual_emotes", Cat::Sexual),
+    ("show_gore_emotes", Cat::Violence),
+    ("show_weapon_emotes", Cat::Weapons),
+    ("show_drug_emotes", Cat::Drugs),
+    ("show_hate_emotes", Cat::Hate),
+  ]
+  .into_iter()
+  .filter_map(|(k, c)| v.get(k).and_then(Value::as_bool).map(|on| (c, on)))
+  .collect()
+}
+
+// `user_settings:update` also says if plus moved: true when the frame says plus moved
 pub fn plus_moved(v: &Value) -> bool {
   v.get("plus").is_some_and(Value::is_boolean) || v.get("plus_expires_at").is_some_and(|p| p.is_null() || p.is_string())
 }
@@ -145,6 +165,27 @@ pub fn plus_moved(v: &Value) -> bool {
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[test]
+  fn content_switches_read_real_bools_for_the_five_categories_only() {
+    let all = json!({"show_sexual_emotes": true, "show_gore_emotes": false, "show_weapon_emotes": true,
+      "show_drug_emotes": false, "show_hate_emotes": true, "ts": 1});
+    assert_eq!(
+      content_prefs(&all),
+      vec![(Cat::Sexual, true), (Cat::Violence, false), (Cat::Weapons, true), (Cat::Drugs, false), (Cat::Hate, true)]
+    );
+    // one key alone; the older switch, the chat-media gates, wrong types and junk are nothing
+    assert_eq!(content_prefs(&json!({"show_gore_emotes": true})), vec![(Cat::Violence, true)]);
+    for bad in [
+      json!({"show_nsfw_emotes": true, "allow_nsfw_images": true, "allow_weapons": true}),
+      json!({"show_sexual_emotes": "true", "show_gore_emotes": 1, "show_hate_emotes": null}),
+      json!({"show_drug_emotes": [true], "show_weapon_emotes": {"a": true}}),
+      json!("show_sexual_emotes"),
+      json!(null),
+    ] {
+      assert!(content_prefs(&bad).is_empty(), "{bad}");
+    }
+  }
 
   #[test]
   fn a_colour_frame_is_checked_and_bounded() {

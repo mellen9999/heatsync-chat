@@ -333,6 +333,7 @@ impl App {
       | NetEvent::Bookmark(..)
       | NetEvent::Unread(_)
       | NetEvent::PlusMoved
+      | NetEvent::ContentPrefs(_)
       | NetEvent::Refetch(_) => self.on_pushed(ev),
       NetEvent::Whispers { items, live, epoch } => {
         if whisper::current(epoch, self.whisper.epoch) {
