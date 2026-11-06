@@ -13,7 +13,7 @@ use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::http::ws_config;
-use super::{NetEvent, Out, backoff, retrying};
+use super::{NetEvent, Out, backoff, retrying, session};
 use super::{pin, pushed, relay, senders};
 use crate::cosmetics::id::PaintId;
 use crate::heatsync::valid_name;
@@ -80,9 +80,24 @@ enum End {
   Reconnect,
   // server restarting: come back after a random slice of this many ms
   Shutdown(u64),
+  // the server closed us with 4001: the token we signed in with is no good
+  BadToken,
 }
 
-pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSender<pin::Ask>, out: Out) {
+// the close code heatsync gives a socket whose token it turned down (docs/contract.md)
+const CLOSE_BAD_TOKEN: u16 = 4001;
+
+// what a close frame means for the socket: 4001 = the token is bad, anything else just reconnects
+fn closed(code: Option<u16>) -> End {
+  if code == Some(CLOSE_BAD_TOKEN) { End::BadToken } else { End::Reconnect }
+}
+
+pub async fn run(
+  mut rx: mpsc::UnboundedReceiver<Cmd>,
+  pins: mpsc::UnboundedSender<pin::Ask>,
+  sess: mpsc::UnboundedSender<session::Cmd>,
+  out: Out,
+) {
   let mut st = State::default();
   st.gate.start(crate::util::time::now_ms());
   let mut attempts = 0u32;
@@ -107,6 +122,14 @@ pub async fn run(mut rx: mpsc::UnboundedReceiver<Cmd>, pins: mpsc::UnboundedSend
             wait = Some(Duration::from_millis(ms));
           }
           End::Reconnect => {}
+          // the token is no good: read anonymously until the login check has ruled on it (it signs
+          // us in again only if the token stands), and wait out a backoff so a stubborn one can't loop hot
+          End::BadToken => {
+            st.token = None;
+            let _ = sess.send(session::Cmd::HsRejected);
+            attempts += 1;
+            wait = Some(backoff(attempts));
+          }
         }
         if started.elapsed() >= STABLE {
           attempts = 0;
@@ -262,7 +285,8 @@ async fn session(
       frame = read.next() => {
         let text = match frame {
           Some(Ok(Ws::Text(t))) => t,
-          Some(Ok(Ws::Close(_))) | None | Some(Err(_)) => return End::Reconnect,
+          Some(Ok(Ws::Close(f))) => return closed(f.map(|f| u16::from(f.code))),
+          None | Some(Err(_)) => return End::Reconnect,
           Some(Ok(_)) => { last_rx = Instant::now(); continue }
         };
         last_rx = Instant::now();
@@ -674,6 +698,15 @@ pub(crate) fn feed_frame(v: &Value, out: &Out) {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // close 4001 = bad token (contract.md); every other close, and none, is a plain reconnect
+  #[test]
+  fn only_4001_is_a_bad_token() {
+    assert!(matches!(closed(Some(4001)), End::BadToken));
+    assert!(matches!(closed(Some(1000)), End::Reconnect));
+    assert!(matches!(closed(Some(4000)), End::Reconnect));
+    assert!(matches!(closed(None), End::Reconnect));
+  }
 
   // every push frame is read into one event, and a hostile or short one into none
   #[test]

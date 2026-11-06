@@ -949,7 +949,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let (hs_tx, hs_rx) = mpsc::unbounded_channel();
   let (pin_tx, pin_rx) = mpsc::unbounded_channel();
   watch("pins", pin::run(http.clone(), pin_rx, out.clone()), out.clone());
-  watch("heatsync", hs_ws::run(hs_rx, pin_tx, out.clone()), out.clone());
+  watch("heatsync", hs_ws::run(hs_rx, pin_tx, sess_tx.clone(), out.clone()), out.clone());
   let hs_auth = hs_tx.clone();
   let (snd_tx, snd_rx) = mpsc::unbounded_channel();
   watch("sending", senders::run(http.clone(), snd_rx, out.clone()), out.clone());

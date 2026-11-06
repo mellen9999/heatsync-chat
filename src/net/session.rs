@@ -48,6 +48,9 @@ pub enum Cmd {
   Logout,
   // heatsync says the account changed (a link or unlink): check it now, not at the next renewal
   Recheck,
+  // the heatsync socket was closed for a bad token: check the login now, and sign the socket in
+  // again if the token stands
+  HsRejected,
   Emote(EmoteCmd),
   Inventory(super::inventory::Op),
   // answered once every emote op asked before it is done (they run in order): a chat line waits on it
@@ -178,6 +181,10 @@ pub async fn run(
         }
         Some(Cmd::Recheck) => {
           st.recheck = true;
+          next = Instant::now();
+        }
+        Some(Cmd::HsRejected) => {
+          st.hs_rejected();
           next = Instant::now();
         }
         Some(Cmd::Barrier(done)) => {
@@ -375,6 +382,13 @@ impl State {
         false
       }
     }
+  }
+
+  // the socket threw our token out: it is signed out there, so the next check sends it again if it
+  // still passes (a dead token ends the login there instead)
+  fn hs_rejected(&mut self) {
+    self.hs_as = None;
+    self.recheck = true;
   }
 
   // a new session: nothing carried over from an earlier one's troubles
@@ -624,6 +638,17 @@ mod tests {
   }
 
   // account:changed: the next step reads the whole account again, even mid chat-login retries
+  // the socket closed on our token: the next step is a whole check, and it signs the socket in again
+  #[test]
+  fn a_socket_that_threw_the_token_out_gets_it_checked_and_resent() {
+    let (mut st, _out, _irc) = rig();
+    st.hs_as = st.token.clone();
+    st.chat_due = true;
+    st.hs_rejected();
+    assert!(st.hs_as.is_none(), "the next check sends the token to the socket again");
+    assert!(!st.chat_only(), "the whole account is checked, not just the chat login");
+  }
+
   #[test]
   fn a_changed_account_is_checked_whole() {
     let (mut st, _out, _irc) = rig();
