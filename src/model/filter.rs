@@ -4,7 +4,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::model::automod;
 use crate::model::message::{Message, flag};
 use crate::model::reasons::Reasons;
 use crate::model::rules::{INKS, Judged, Line, Old, Rules, Verdict};
@@ -57,8 +56,6 @@ pub struct Filters {
   pub bots: bool,
   pub cmds: bool,
   pub dupes: bool,
-  // automod: hide lines that are mostly capitals (ext automodAllCaps)
-  pub caps: bool,
   // the ext's ban reasons (modBanReasons): the choices a ban offers
   reasons: Reasons,
   // the ext's per-rule hide / highlight list (chatFilterRules): hidden words, highlights and patterns live here
@@ -110,11 +107,8 @@ impl Filters {
     if !me && self.cmds && m.body.starts_with('!') {
       return HIDDEN;
     }
-    // automod, then the rules: the ext's order. your own lines are never hidden; a hide rule that
-    // matches one also keeps a highlight rule from lighting it
-    if !me && self.caps && automod::all_caps(&m.body) {
-      return HIDDEN;
-    }
+    // the rules. your own lines are never hidden; a hide rule that matches one also keeps a highlight
+    // rule from lighting it
     let ruled = self.ruled(m, chan);
     if ruled.verdict == Verdict::Hide && !me {
       return HIDDEN;
@@ -320,7 +314,7 @@ impl Filters {
     for l in s.lines() {
       let (kind, rest) = l.split_once(' ').unwrap_or((l, ""));
       match kind {
-        "hide" | "mark" | "automod" => {
+        "hide" | "mark" | "automod" | "caps" => {
           if old.len() < MAX_OLD {
             old.extend(Old::from_line(kind, rest));
           }
@@ -478,10 +472,12 @@ mod tests {
   #[test]
   fn highlights_are_whole_words() {
     let f = Filters::parse("mark gg\nmark !drops\n");
+    // a word that starts or ends in punctuation has no \b edge there, in the ext either: the shape is the ext's
     assert_eq!(judge(&f, &line("a", "GG wp")) & MARKED, MARKED);
     assert_eq!(judge(&f, &line("a", "oggy")), 0);
     assert_eq!(judge(&f, &line("a", "gg.")) & MARKED, MARKED);
-    assert_eq!(judge(&f, &line("a", "got !drops")) & MARKED, MARKED);
+    assert_eq!(judge(&f, &line("a", "got !drops")), 0);
+    assert_eq!(judge(&f, &line("a", "got!drops")) & MARKED, MARKED);
   }
 
   #[test]
@@ -532,8 +528,8 @@ mod tests {
   }
 
   #[test]
-  fn caps_and_rules_share_the_one_verdict() {
-    let mut f = Filters { caps: true, ..Filters::default() };
+  fn the_rules_share_the_one_verdict() {
+    let mut f = Filters::parse("caps\n");
     f.rules_mut().add("p".into(), "hide", "regex", r"bit\.ly").unwrap();
     f.rules_mut().add("a".into(), "hide", "keyword", "nope").unwrap();
     f.rules_mut().add("b".into(), "highlight", "keyword", "gg").unwrap();
@@ -556,14 +552,13 @@ mod tests {
     // a hide rule beats the highlight rules
     assert_eq!(judge(&f, &line("a", "gg nope")), HIDDEN);
     // turned off, the lines come back
-    f.caps = false;
+    assert!(f.rules_mut().remove("1"));
     assert_eq!(judge(&f, &line("a", shout)), 0);
     assert!(f.rules_mut().remove("p"));
     assert_eq!(judge(&f, &line("a", "bit.ly")), 0);
     assert!(f.rules_mut().remove("1"));
     assert_eq!(judge(&f, &line("a", "oh nope")), 0);
     // system lines are never judged
-    f.caps = true;
     assert_eq!(judge(&f, &Message::system(0, Platform::Twitch, shout)), 0);
   }
 

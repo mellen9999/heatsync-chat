@@ -141,7 +141,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 72] = [
+pub static DEFS: [Def; 71] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -825,18 +825,6 @@ pub static DEFS: [Def; 72] = [
     ctl: Ctl::Reasons,
     fx: Fx::None,
     wire: Wire::None,
-  },
-  Def {
-    id: "automod_caps",
-    cmd: Some("/automodcaps"),
-    cat: Cat::Mod,
-    section: "automod",
-    label: "hide all-caps spam",
-    tip: "hide messages over 10 chars that are mostly uppercase",
-    alias: "automodAllCaps caps shouting",
-    ctl: pill!(automod_caps),
-    fx: Fx::Filters,
-    wire: Wire::Bool("automodAllCaps"),
   },
   Def {
     id: "hide_bots",

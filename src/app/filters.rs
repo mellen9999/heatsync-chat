@@ -14,7 +14,7 @@ use crate::util::time::now_ms;
 impl App {
   pub(super) fn push_flags(&self) {
     let s = &self.set;
-    filter::edit(|f| (f.bots, f.cmds, f.dupes, f.caps) = (s.hide_bots, s.hide_cmds, s.hide_dupes, s.automod_caps));
+    filter::edit(|f| (f.bots, f.cmds, f.dupes) = (s.hide_bots, s.hide_cmds, s.hide_dupes));
   }
 
   // who counts as you: never hidden by these filters

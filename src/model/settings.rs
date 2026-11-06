@@ -251,8 +251,6 @@ pub struct Settings {
   pub hide_bots: bool,
   pub hide_cmds: bool,
   pub hide_dupes: bool,
-  // automod hides lines that are mostly capitals (ext automodAllCaps), off by default
-  pub automod_caps: bool,
   // ask before a ban goes out (the ext's modConfirmBan, off by default like the ext)
   pub confirm_ban: bool,
   // the hover toolbar's picked buttons, a mask over model::modbar::CATALOG (ext hs_mod_toolbar_buttons). none by default
@@ -327,7 +325,6 @@ impl Default for Settings {
       hide_bots: false,
       hide_cmds: false,
       hide_dupes: false,
-      automod_caps: false,
       confirm_ban: false,
       mod_buttons: 0,
       show_nsfw: false,
@@ -467,7 +464,32 @@ impl Settings {
       store::set_aside("settings", None);
       return Self::default();
     }
+    Self::fold_caps(&s);
     Self::parse(&s)
+  }
+
+  // the all-caps switch is a filter rule now. a file that still holds it is moved over once: if it was on, the
+  // filters file gets a `caps` line (folded into the rule on its load), then the settings file is written
+  // again without the line. the filters file goes first, so a crash between repeats the move and adds nothing
+  fn fold_caps(s: &str) {
+    let key = |l: &str| l.split_once('=').map(|(k, v)| (k.trim().to_owned(), v.trim() == "true"));
+    let lines: Vec<_> = s.lines().filter_map(key).filter(|(k, _)| k == "automod_caps").collect();
+    if lines.is_empty() {
+      return;
+    }
+    if lines.iter().any(|(_, on)| *on) {
+      let mut f = store::read("filters").unwrap_or_default();
+      if !f.lines().any(|l| l == "caps") {
+        f.push_str("caps\n");
+        if let Err(e) = store::write("filters", &f) {
+          eprintln!("save filters: {e}");
+          return;
+        }
+      }
+    }
+    if let Err(e) = store::write("settings", &Self::parse(s).render()) {
+      eprintln!("save settings: {e}");
+    }
   }
 
   // empty (a fresh start), or at least one line that is a setting we know
@@ -681,7 +703,6 @@ mod tests {
         hide_bots: false,
         hide_cmds: false,
         hide_dupes: false,
-        automod_caps: false,
         confirm_ban: false,
         mod_buttons: 0,
         show_nsfw: false,
@@ -760,6 +781,23 @@ mod tests {
     }
     // unknown keys and spacing are tolerated
     assert_eq!(Settings::parse("future=1\n vi = true \n"), Settings { vi: true, ..Settings::default() });
+  }
+
+  // the all-caps switch is a filter rule now: on, it becomes one hide rule, once; off, it is just dropped
+  #[test]
+  fn the_old_caps_switch_moves_into_the_rules_once() {
+    store::write("settings", "vi=true\nautomod_caps=true\n").unwrap();
+    assert!(Settings::load().vi);
+    assert!(!store::read("settings").unwrap().contains("automod_caps"));
+    let rules = crate::model::filter::Filters::load();
+    assert_eq!(rules.rules().len(), 1);
+    // loaded again, nothing is left to move
+    Settings::load();
+    assert_eq!(crate::model::filter::Filters::load().rules().len(), 1);
+    store::write("settings", "vi=true\nautomod_caps=false\n").unwrap();
+    store::write("filters", "").unwrap();
+    Settings::load();
+    assert_eq!(crate::model::filter::Filters::load().rules().len(), 0);
   }
 
   // the store's scratch folder is per test thread, so this never sees the real settings

@@ -1,5 +1,5 @@
-// client automod (ext multichat/automod.js): a line that is mostly shouting is hidden, and the regex helpers
-// the filter rules use. a pattern now is a hide rule (model/rules.rs). your own lines are never touched; mods and the broadcaster are not exempt (the ext
+// the regex helpers the filter rules use (the ext's multichat/automod.js, minus its all-caps check, which is a
+// rule now). a pattern now is a hide rule (model/rules.rs). your own lines are never touched; mods and the broadcaster are not exempt (the ext
 // only spares your own). the ext guards its regexes against catastrophic backtracking with a heuristic and
 // falls back to a literal match; rust's regex is linear-time, so the only guard left is size: a pattern that
 // is too long or too big to compile is matched as plain text instead, never dropped
@@ -22,53 +22,82 @@ pub fn build(src: &str, ci: bool) -> Option<Regex> {
   RegexBuilder::new(src).case_insensitive(ci).size_limit(1 << 20).dfa_size_limit(1 << 20).nest_limit(40).build().ok()
 }
 
-// a user pattern as a regex, or as plain text when it is too long or not valid. None only if even the
-// plain text won't compile (cannot happen inside the size limits)
-pub fn safe_regex(p: &str, ci: bool) -> Option<Regex> {
-  Some(p).filter(|p| p.chars().count() <= MAX_REGEX).and_then(|p| build(p, ci)).or_else(|| build(&regex::escape(p), ci))
+// a pattern the rules run: one regex, or two that must both match. rust's regex has no lookahead, so the one
+// shape the ext's own rules use, `^(?=A)B` (a single lookahead at the very start), runs as `^(?:A)` and
+// `^(?:B)` both matching at the start of the line, which is the same thing. any other lookaround is not a
+// regex here, as before
+#[derive(Clone, Debug)]
+pub struct Pat {
+  re: Regex,
+  and: Option<Regex>,
 }
 
-// the ext's all-caps rule: longer than 10, at least 8 letters (a-z), over 70% of them capitals
-pub fn all_caps(text: &str) -> bool {
-  if text.len() <= 10 || text.encode_utf16().count() <= 10 {
-    return false;
+impl Pat {
+  pub fn is_match(&self, text: &str) -> bool {
+    self.re.is_match(text) && self.and.as_ref().is_none_or(|r| r.is_match(text))
   }
-  let (mut letters, mut upper) = (0u32, 0u32);
-  for b in text.bytes().filter(u8::is_ascii_alphabetic) {
-    letters += 1;
-    upper += u32::from(b.is_ascii_uppercase());
+}
+
+// where the lookahead at the start of `^(?=A)B` closes: A and B. None = not that shape (or a lookaround is nested
+// in A). escapes and character classes are stepped over so a paren inside them does not count
+fn split_lookahead(p: &str) -> Option<(&str, &str)> {
+  let body = p.strip_prefix("^(?=")?;
+  let b = body.as_bytes();
+  let (mut i, mut depth, mut class) = (0, 0u32, false);
+  while i < b.len() {
+    match b[i] {
+      b'\\' => i += 1,
+      b']' if class => class = false,
+      _ if class => {}
+      b'[' => {
+        class = true;
+        // a leading ^ and a leading ] belong to the class
+        if b.get(i + 1) == Some(&b'^') {
+          i += 1;
+        }
+        if b.get(i + 1) == Some(&b']') {
+          i += 1;
+        }
+      }
+      b'(' => {
+        depth += 1;
+        let rest = &body[i + 1..];
+        if rest.starts_with("?=") || rest.starts_with("?!") || rest.starts_with("?<=") || rest.starts_with("?<!") {
+          return None;
+        }
+      }
+      b')' if depth == 0 => return Some((&body[..i], &body[i + 1..])),
+      b')' => depth -= 1,
+      _ => {}
+    }
+    i += 1;
   }
-  letters >= 8 && upper * 10 > letters * 7
+  None
+}
+
+fn lookahead(p: &str, ci: bool) -> Option<Pat> {
+  let (a, rest) = split_lookahead(p)?;
+  Some(Pat { re: build(&format!("^(?:{a})"), ci)?, and: Some(build(&format!("^(?:{rest})"), ci)?) })
+}
+
+// a user pattern as a regex, or as plain text when it is too long or not valid. None only if even the
+// plain text won't compile (cannot happen inside the size limits)
+pub fn safe_regex(p: &str, ci: bool) -> Option<Pat> {
+  let plain = |re| Pat { re, and: None };
+  if p.chars().count() <= MAX_REGEX {
+    if let Some(re) = build(p, ci) {
+      return Some(plain(re));
+    }
+    if let Some(pat) = lookahead(p, ci) {
+      return Some(pat);
+    }
+  }
+  build(&regex::escape(p), ci).map(plain)
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn caps_thresholds_are_the_exts() {
-    // 10 characters or fewer never counts
-    assert!(!all_caps("HELLO THER"));
-    assert!(all_caps("HELLO THERE FRIEND"));
-    // fewer than 8 letters, however loud
-    assert!(!all_caps("HEY YOU!!!!!!!!!!!!!"));
-    // mostly lowercase
-    assert!(!all_caps("ABCDEFG hijklm n o"));
-  }
-
-  #[test]
-  fn caps_ratio_edges() {
-    // 10 letters, 7 capitals = exactly 0.7: no
-    assert!(!all_caps("ABCDEFGhij!!"));
-    // 8 of 11 capitals: yes
-    assert!(all_caps("ABCDEFGHijk!!"));
-    // digits and punctuation are not letters
-    assert!(all_caps("ABCDEFGH 1234567890 !!!!"));
-    // non-ascii letters don't count either way
-    assert!(!all_caps("ÀÉÎÕÜ ÀÉÎÕÜ ÀÉÎÕÜ"));
-    // 11 utf-16 units counted, not bytes: 5 astral = 10 units
-    assert!(!all_caps("😀😀😀😀😀"));
-  }
 
   fn hits(src: &str, text: &str) -> bool {
     safe_regex(src, true).is_some_and(|re| re.is_match(scan(text)))

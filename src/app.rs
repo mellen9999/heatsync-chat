@@ -457,7 +457,7 @@ impl App {
     crate::heatsync::content::set_shown(set.content());
     crate::model::filter::edit(|f| {
       *f = crate::model::filter::Filters::load();
-      (f.bots, f.cmds, f.dupes, f.caps) = (set.hide_bots, set.hide_cmds, set.hide_dupes, set.automod_caps);
+      (f.bots, f.cmds, f.dupes) = (set.hide_bots, set.hide_cmds, set.hide_dupes);
     });
     let mute_due = crate::model::filter::with(|f| f.next_expiry(now_ms()))
       .map(|at| Instant::now() + Duration::from_millis((at - now_ms()).max(0) as u64 + 50));

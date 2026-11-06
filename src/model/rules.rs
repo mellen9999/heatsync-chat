@@ -5,11 +5,11 @@
 // with its sound. a rule scoped to a channel (the ext's tab id: the tab's twitch name, else its kick slug)
 // applies only to lines of the tab with that id; every other rule applies everywhere
 use std::cell::OnceCell;
+use std::collections::HashSet;
 
-use regex::Regex;
 use serde_json::{Value, json};
 
-use crate::model::automod::{safe_regex, scan};
+use crate::model::automod::{Pat, safe_regex, scan};
 use crate::model::message::{Kind, Message, Platform, flag};
 use crate::ui::theme;
 use crate::util::sound::Preset;
@@ -106,7 +106,7 @@ enum Node {
   Badge(String),
   Type(Option<Ty>),
   Contains(String),
-  Re(Regex),
+  Re(Pat),
   Bits(Cmp, f64),
 }
 
@@ -333,7 +333,7 @@ fn parse_expr(src: &str) -> Option<Node> {
 enum Test {
   // a whole word or phrase, between spaces / punctuation / the line's ends
   Keyword { val: String, cs: bool },
-  Re(Regex),
+  Re(Pat),
   Expr(Node),
   User { val: String, cs: bool },
   Badge(String),
@@ -473,20 +473,26 @@ impl Compiled {
   }
 }
 
-// what the window kept before there was one rules list: words to hide, words to highlight, automod patterns.
-// they fold into rules once, on load (`Rules::fold`)
+// what the window kept before there was one rules list: words to hide, words to highlight, automod patterns, the
+// all-caps switch. they fold into rules once, on load (`Rules::fold`), in the exact shape the ext and the site
+// fold them to, so the three folds meet in one set of rules (the merge key is `sig`)
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Old {
   // hidden anywhere inside a line, any case: a regex rule on the escaped text, so "spoil" still hides "spoiler"
   Hidden(String),
-  // lit up as a whole word, any case: a keyword rule
+  // lit up as a whole word, any case: a regex rule on \bword\b. a comma splits it into several, as the site did
   Marked(String),
   // hidden when it matches: a regex rule
   Pattern(String),
+  // the all-caps switch: one hide rule, a pattern that says what the old switch meant
+  Caps,
 }
 
 // the longest term or pattern taken from an old file
 const MAX_OLD: usize = 4096;
+// no lower case, 8+ capitals, 11+ chars; the ext's string, character for character
+const CAPS: &str = "^(?=.{9}..)[^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-zA-Z]*[A-Z][^a-z]*$";
+const MARK_INK: &str = "#ffff00";
 
 // the ext's own regex escape, so the rule reads the same in both
 fn js_escape(t: &str) -> String {
@@ -500,8 +506,24 @@ fn js_escape(t: &str) -> String {
   out
 }
 
-fn fnv(s: &str) -> u64 {
-  s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+// what makes two rules the same rule, whoever folded them: action, type, case flag, value
+fn sig(raw: &Value) -> String {
+  let m = raw.get("match");
+  let at = |k: &str| m.and_then(|m| m.get(k));
+  let text = |v: Option<&Value>| v.and_then(Value::as_str).unwrap_or_default().to_owned();
+  format!("{}|{}|{}|{}", text(raw.get("action")), text(at("type")), truthy(at("caseSensitive")), text(at("value")))
+}
+
+// the ext's id stamp: the time in ms, base 36
+fn stamp() -> String {
+  let mut n = crate::util::time::now_ms().max(0) as u64;
+  let mut out = Vec::new();
+  while n > 0 {
+    out.push(b"0123456789abcdefghijklmnopqrstuvwxyz"[(n % 36) as usize]);
+    n /= 36;
+  }
+  out.reverse();
+  String::from_utf8(out).unwrap_or_default()
 }
 
 impl Old {
@@ -511,10 +533,14 @@ impl Old {
       Old::Hidden(t) => format!("hide {t}"),
       Old::Marked(t) => format!("mark {t}"),
       Old::Pattern(t) => format!("automod {t}"),
+      Old::Caps => "caps".to_owned(),
     }
   }
 
   pub fn from_line(kind: &str, rest: &str) -> Option<Old> {
+    if kind == "caps" {
+      return Some(Old::Caps);
+    }
     let t = rest.trim();
     if t.is_empty() || t.chars().count() > MAX_OLD || t.chars().any(char::is_control) {
       return None;
@@ -527,25 +553,45 @@ impl Old {
     }
   }
 
-  // the same id for the same entry every time, so folding twice adds nothing
-  fn rule(&self) -> Value {
-    let (tag, action, ty, val) = match self {
-      Old::Hidden(t) => ("h", "hide", "regex", js_escape(t)),
-      Old::Marked(t) => ("m", "highlight", "keyword", t.clone()),
-      Old::Pattern(t) => ("p", "hide", "regex", t.clone()),
-    };
-    let mut raw = json!({
-      "id": format!("old-{tag}-{:016x}", fnv(&val)),
-      "enabled": true,
-      "scope": "all",
-      "match": { "type": ty, "value": val, "caseSensitive": false },
-      "action": action,
-    });
-    if action == "highlight" {
-      raw["color"] = json!("#ffff00");
+  // the order the ext folds in: patterns, the caps rule, hidden words, highlights
+  fn rank(&self) -> u8 {
+    match self {
+      Old::Pattern(_) => 0,
+      Old::Caps => 1,
+      Old::Hidden(_) => 2,
+      Old::Marked(_) => 3,
     }
-    raw
   }
+
+  // the rules this makes: (action, value, caseSensitive)
+  fn terms(&self) -> Vec<(&'static str, String, bool)> {
+    match self {
+      Old::Hidden(t) => vec![("hide", js_escape(t), false)],
+      Old::Pattern(t) => vec![("hide", t.clone(), false)],
+      Old::Caps => vec![("hide", CAPS.to_owned(), true)],
+      Old::Marked(t) => t
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .map(|w| ("highlight", format!("\\b{}\\b", js_escape(w)), false))
+        .collect(),
+    }
+  }
+}
+
+// a rule as the ext's fold writes it; the id is `lg` + a stamp + a counter
+fn folded(id: String, action: &str, value: String, cs: bool) -> Value {
+  let mut raw = json!({
+    "id": id,
+    "enabled": true,
+    "action": action,
+    "scope": "all",
+    "match": { "type": "regex", "value": value, "caseSensitive": cs },
+  });
+  if action == "highlight" {
+    raw["color"] = json!(MARK_INK);
+  }
+  raw
 }
 
 #[derive(Default, Clone, Debug)]
@@ -606,20 +652,42 @@ impl Rules {
     self.list.iter().any(|r| r.raw.get("id").and_then(Value::as_str) == Some(id))
   }
 
-  // old words and patterns become rules, after the ones already there (earlier wins). one already folded by an
-  // earlier load is skipped, so this is safe to run on every load. what does not fit (the rules are full) is
-  // handed back to be kept, never dropped
+  // old words and patterns become rules, after the ones already there (earlier wins). one the list already holds
+  // (same `sig`: folded by an earlier load, or by the ext or the site and synced here) is skipped, so this is safe
+  // to run on every load. what does not fit (the rules are full) is handed back to be kept, never dropped
   pub fn fold(&mut self, old: Vec<Old>) -> Vec<Old> {
-    let mut left = Vec::new();
+    self.fold_at(old, &stamp())
+  }
+
+  fn fold_at(&mut self, mut old: Vec<Old>, stamp: &str) -> Vec<Old> {
+    old.sort_by_key(Old::rank);
+    let mut have: HashSet<String> = self.list.iter().map(|r| sig(&r.raw)).collect();
+    let (mut left, mut n) = (Vec::new(), 0);
     for o in old {
-      let raw = o.rule();
-      if raw["id"].as_str().is_some_and(|id| self.has_id(id)) {
-        continue;
+      let mut full = false;
+      for (action, value, cs) in o.terms() {
+        let mut raw = folded(String::new(), action, value, cs);
+        if !have.insert(sig(&raw)) {
+          continue;
+        }
+        let id = loop {
+          let id = format!("lg{stamp}{n}");
+          n += 1;
+          if !self.has_id(&id) {
+            break id;
+          }
+        };
+        raw["id"] = json!(id);
+        let Some(c) = compile(&raw) else { continue };
+        self.list.push(Rule { raw, c: Some(c) });
+        if self.list.len() > MAX_RULES || self.json().len() > MAX_JSON {
+          if let Some(r) = self.list.pop() {
+            have.remove(&sig(&r.raw));
+          }
+          full = true;
+        }
       }
-      let Some(c) = compile(&raw) else { continue };
-      self.list.push(Rule { raw, c: Some(c) });
-      if self.list.len() > MAX_RULES || self.json().len() > MAX_JSON {
-        self.list.pop();
+      if full {
         left.push(o);
       }
     }
@@ -629,10 +697,14 @@ impl Rules {
   // the account's rules replaced ours; the rules folded here from old words that it lacks go back after
   // them. true = some did
   pub fn keep_old_of(&mut self, mine: &Rules) -> bool {
+    let mut have: HashSet<String> = self.list.iter().map(|r| sig(&r.raw)).collect();
     let mut put = false;
     for r in &mine.list {
       let id = r.raw.get("id").and_then(Value::as_str).unwrap_or_default();
-      if !id.starts_with("old-") || self.has_id(id) || self.list.len() >= MAX_RULES {
+      if !(id.starts_with("lg") || id.starts_with("old-")) || self.has_id(id) || self.list.len() >= MAX_RULES {
+        continue;
+      }
+      if !have.insert(sig(&r.raw)) {
         continue;
       }
       self.list.push(r.clone());
@@ -1111,5 +1183,123 @@ mod tests {
     let us = t.elapsed().as_secs_f64() * 1e6 / lines.len() as f64;
     eprintln!("rules: 50 rules x 10k lines = {us:.2} us/line ({hits} hits)");
     assert!(us < 100.0, "{us}");
+  }
+
+  // the ext's fold (filter-rules-legacy.js), written out: the rules it makes for the same old filters
+  fn ext_rule(id: &str, action: &str, value: &str, cs: bool) -> Value {
+    let mut r = json!({ "id": id, "enabled": true, "action": action, "scope": "all",
+      "match": { "type": "regex", "value": value, "caseSensitive": cs } });
+    if action == "highlight" {
+      r["color"] = json!("#ffff00");
+    }
+    r
+  }
+
+  fn all(r: &Rules) -> Vec<Value> {
+    r.list.iter().map(|x| x.raw.clone()).collect()
+  }
+
+  fn sample() -> Vec<Old> {
+    vec![
+      Old::Marked("gg, hype.train".into()),
+      Old::Hidden("a.b(c)".into()),
+      Old::Caps,
+      Old::Pattern(r"buy \d+ followers".into()),
+    ]
+  }
+
+  #[test]
+  fn the_fold_is_the_exts_fold_rule_for_rule() {
+    let mut r = Rules::default();
+    assert!(r.fold_at(sample(), "k").is_empty());
+    let caps = "^(?=.{9}..)[^a-zA-Z]*[A-Z]".to_owned() + &"[^a-zA-Z]*[A-Z]".repeat(7) + "[^a-z]*$";
+    assert_eq!(
+      all(&r),
+      [
+        ext_rule("lgk0", "hide", r"buy \d+ followers", false),
+        ext_rule("lgk1", "hide", &caps, true),
+        ext_rule("lgk2", "hide", r"a\.b\(c\)", false),
+        ext_rule("lgk3", "highlight", r"\bgg\b", false),
+        ext_rule("lgk4", "highlight", r"\bhype\.train\b", false),
+      ]
+    );
+    assert!(r.list.iter().all(|x| x.c.is_some()), "every folded rule runs, the caps one too");
+  }
+
+  #[test]
+  fn folding_again_or_after_the_ext_adds_nothing() {
+    let mut r = Rules::default();
+    r.fold_at(sample(), "k");
+    let once = r.json();
+    r.fold_at(sample(), "z");
+    assert_eq!(r.json(), once);
+    // the ext folded the same filters first and uploaded them under its own ids: nothing is added
+    let mut theirs = Rules::default();
+    theirs.fold_at(sample(), "ext");
+    let mut mine = Rules::parse(&theirs.json()).unwrap();
+    mine.fold_at(sample(), "k");
+    assert_eq!(mine.json(), theirs.json());
+    // a rule the ext does not have still goes in after theirs
+    mine.fold_at(vec![Old::Hidden("extra".into())], "k");
+    assert_eq!(mine.len(), 6);
+    // the account's rules replace ours: the folded ones it lacks come back, the ones it holds do not double
+    let mut acct = Rules::parse(&theirs.json()).unwrap();
+    assert!(acct.keep_old_of(&mine));
+    assert_eq!(acct.len(), 6);
+    assert!(!acct.keep_old_of(&mine));
+  }
+
+  #[test]
+  fn the_caps_rule_is_the_exts_meaning() {
+    let mut r = Rules::default();
+    r.fold_at(vec![Old::Caps], "k");
+    let hides = |t: &str| judge(&r, &line("a", t)) == Verdict::Hide;
+    assert!(hides("HELLO THERE FRIENDS"));
+    assert!(hides("!!! 12 HELLO THERE FRIENDS ???"));
+    assert!(hides("A B C D E F G H I"), "8 capitals, 17 chars");
+    assert!(!hides("Hello THERE FRIENDS"), "one lower case letter");
+    assert!(!hides("HI THERE"), "too short");
+    assert!(!hides("HEY YOU!!!!!!!!!!!!!"), "7 capitals");
+    assert!(!hides("1234567890123456 ABCDEFG"), "7 capitals");
+    assert!(!hides("hello there friends"));
+  }
+
+  #[test]
+  fn a_leading_lookahead_is_two_patterns_and_nothing_else_is() {
+    let m = |p: &str, ci: bool, t: &str| crate::model::automod::safe_regex(p, ci).unwrap().is_match(t);
+    // both must hold at the start of the line
+    assert!(m("^(?=.{5})[a-z]+$", false, "abcdef"));
+    assert!(!m("^(?=.{5})[a-z]+$", false, "abc"));
+    assert!(!m("^(?=.{5})[a-z]+$", false, "abcdef1"));
+    // the lookahead sees past what the rest consumes
+    assert!(m("^(?=.*\\d)\\w", false, "a1"));
+    assert!(!m("^(?=.*\\d)\\w", false, "ab"));
+    // parens in a class or escaped are not groups; a group inside the lookahead is fine
+    assert!(m("^(?=[)(]x(?:y|z))[()]", false, "(xz"));
+    assert!(m(r"^(?=\)a)\)", false, ")a"));
+    // case follows the rule
+    assert!(m("^(?=[A-Z])[a-z]", true, "a"));
+    assert!(!m("^(?=[A-Z])[a-z]", false, "a"));
+    // a nested or later lookaround, a lookbehind, a negative one: still not a regex, so text as before
+    assert!(m("^(?=a(?=b))a", false, "^(?=a(?=b))a"));
+    assert!(!m("^(?=a(?=b))a", false, "ab"));
+    assert!(m("^(?!a)b", false, "^(?!a)b"));
+    assert!(!m("^(?!a)b", false, "b"));
+    assert!(m("x(?=y)", false, "x(?=y)"));
+    assert!(!m("x(?=y)", false, "xy"));
+    assert!(m("(?=a)a", false, "(?=a)a"));
+  }
+
+  #[test]
+  fn the_caps_rule_is_cheap() {
+    let mut r = Rules::default();
+    r.fold_at(vec![Old::Caps], "k");
+    let lines: Vec<Message> =
+      (0..10_000).map(|i| line("a", &format!("some perfectly Normal chat line number {i} with Words in it"))).collect();
+    let t = std::time::Instant::now();
+    let hits = lines.iter().filter(|m| judge(&r, m) == Verdict::Hide).count();
+    let us = t.elapsed().as_secs_f64() * 1e6 / lines.len() as f64;
+    eprintln!("caps rule: {us:.2} us/line ({hits} hits)");
+    assert!(hits == 0 && us < 20.0, "{us}");
   }
 }
