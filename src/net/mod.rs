@@ -24,6 +24,7 @@ pub mod modact;
 pub mod modes;
 pub mod modsuite;
 pub mod modtools;
+pub mod mrules;
 pub mod mutes;
 pub mod pin;
 pub mod pinact;
@@ -312,6 +313,10 @@ pub enum NetEvent {
   PlusMoved,
   // the follows / blocked emotes / blocks changed on another device: read them again
   Refetch(crate::model::livegate::Ask),
+  // your mention rules answered: the list, or a change made / why not
+  MentionRules(Result<mrules::Got, mrules::Fail>),
+  // the server saw a line match one of your mention rules
+  RuleHit(crate::model::mrules::Hit),
   // a user card's facts (or why not: http status, 0 = no answer)
   Card {
     platform: Platform,

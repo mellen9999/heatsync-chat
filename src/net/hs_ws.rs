@@ -623,6 +623,9 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     "follows:changed" => send(NetEvent::Refetch(Ask::Follows)),
     "emote:blocked" | "emote:unblocked" => send(NetEvent::Refetch(Ask::EmoteBlocks)),
     "user:blocked" | "user:unblocked" => send(NetEvent::Refetch(Ask::Blocks)),
+    // your mention rules were edited on another client; the server matched a line to one of them
+    "mention-rules:changed" => send(NetEvent::Refetch(Ask::MentionRules)),
+    "mention:rule-match" => crate::model::mrules::hit(v).and_then(|h| send(NetEvent::RuleHit(h))),
     "notifications:read" => pushed::unread(v).and_then(|n| send(NetEvent::Unread(n))),
     "bookmarks:changed" => pushed::bookmark(v).and_then(|(id, on)| send(NetEvent::Bookmark(id, on))),
     // your account settings changed: only plus is read (the rest of the keys are the site's own)
@@ -746,8 +749,23 @@ mod tests {
       ("emote:unblocked", Ask::EmoteBlocks),
       ("user:blocked", Ask::Blocks),
       ("user:unblocked", Ask::Blocks),
+      ("mention-rules:changed", Ask::MentionRules),
     ] {
       assert!(matches!(got(json!({"type": ty})).as_slice(), [NetEvent::Refetch(a)] if *a == ask), "{ty}");
+    }
+    // a rule match: checked, bounded, and nothing at all when it lacks what a row needs
+    let hit = json!({"type": "mention:rule-match", "data": {"ruleId": 3, "pattern": "gg", "channel": "Forsen",
+      "platform": "twitch", "username": "bob", "snippet": "gg wp"}});
+    assert!(
+      matches!(got(hit.clone()).as_slice(), [NetEvent::RuleHit(h)] if &*h.channel == "forsen" && &*h.user == "bob")
+    );
+    for bad in [
+      json!({"type": "mention:rule-match"}),
+      json!({"type": "mention:rule-match", "data": "x"}),
+      json!({"type": "mention:rule-match", "data": {"channel": "a b", "platform": "twitch", "username": "u", "snippet": "s"}}),
+      json!({"type": "mention:rule-match", "data": {"channel": "c", "platform": "nope", "username": "u", "snippet": "s"}}),
+    ] {
+      assert!(got(bad).is_empty());
     }
     assert!(matches!(got(json!({"type": "notifications:read", "unread": -1})).as_slice(), [NetEvent::Unread(0)]));
     assert!(got(json!({"type": "notifications:read"})).is_empty());

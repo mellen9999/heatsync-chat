@@ -74,6 +74,8 @@ pub enum Ctl {
   Reasons,
   // the people you muted and blocked: opens their list screen
   People,
+  // the server's mention rules: opens their list screen
+  Alerts,
   // the mod toolbar's picked buttons (a mask over model::modbar::CATALOG), typed as `/cmd x 1m ban`
   Buttons(fn(&Settings) -> u16, fn(&mut Settings, u16)),
 }
@@ -135,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 73] = [
+pub static DEFS: [Def; 74] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -603,6 +605,18 @@ pub static DEFS: [Def; 73] = [
     ctl: pill!(title_flash),
     fx: Fx::None,
     wire: Wire::Bool("mentionTitleFlash"),
+  },
+  Def {
+    id: "mention_rules",
+    cmd: None,
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "mention rules",
+    tip: "words the server watches for in every channel and pings you with here, like an @. enter opens the list: a adds, enter turns one on or off, x removes. needs a heatsync login",
+    alias: "alerts mention-rules keyword watch ping server",
+    ctl: Ctl::Alerts,
+    fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "whisper_toast",

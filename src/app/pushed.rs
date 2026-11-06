@@ -93,7 +93,7 @@ impl App {
   }
 
   // the account says a list changed: ask now, or (inside the gap of the last ask) once when the gap ends
-  fn on_refetch(&mut self, ask: Ask) {
+  pub(super) fn on_refetch(&mut self, ask: Ask) {
     if self.me.is_some() && self.pushed.hit(ask, Instant::now()) {
       self.refetch(ask);
     }
@@ -104,6 +104,7 @@ impl App {
       Ask::Follows => self.following_ask_now(),
       Ask::EmoteBlocks => self.net.send(Cmd::Emote(EmoteCmd::Blocked)),
       Ask::Blocks => self.net.send(Cmd::Lists),
+      Ask::MentionRules => self.mrules_ask(),
     }
   }
 

@@ -40,6 +40,7 @@ pub mod modes;
 pub mod modrole;
 pub mod modsuite;
 pub mod modtools;
+pub mod mrules;
 pub mod notes;
 pub mod notice;
 pub mod origin;

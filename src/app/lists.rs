@@ -1,7 +1,9 @@
 // the lists you keep, as screens over the chat: who you muted, blocked or hid, and your highlight words,
 // hidden words, automod patterns, filter rules and ban reasons. j/k move, x removes the picked one, a (or
 // enter on the add row) types a new one, enter on a person opens their card, esc closes. every change is
-// the slash command's own path (`filter_cmd`), so /mute, /unhighlight and this screen can never disagree
+// the slash command's own path (`filter_cmd`), so /mute, /unhighlight and this screen can never disagree.
+// the mention rules are the exception: they live on the server, so a change is asked of it (app/mrules.rs)
+// and enter switches a rule on or off
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -10,6 +12,7 @@ use super::screen::{Page, Target};
 use crate::model::filter;
 use crate::model::filtercmd::{self, Cmd, RuleCmd};
 use crate::model::line::Line;
+use crate::model::mrules::{self, Rule};
 use crate::ui::sheet::L;
 use crate::util::time::now_ms;
 
@@ -21,6 +24,8 @@ pub(super) enum Kind {
   Patterns,
   Rules,
   Reasons,
+  // the server's mention rules
+  Alerts,
 }
 
 impl Kind {
@@ -32,6 +37,7 @@ impl Kind {
       Kind::Patterns => "automod patterns",
       Kind::Rules => "filter rules",
       Kind::Reasons => "ban reasons",
+      Kind::Alerts => "mention rules",
     }
   }
 
@@ -47,6 +53,9 @@ impl Kind {
       Kind::Patterns => "messages matching a pattern are hidden (a regex, or plain text if it isn't one)",
       Kind::Rules => "type: hide or highlight, then keyword regex user badge msgtype or expr, then the value",
       Kind::Reasons => "quick reasons offered when you ban",
+      Kind::Alerts => {
+        "the server watches every channel for these and pings you here. a word, or: phrase big news · regex ^hi · end with #channel to limit it"
+      }
     }
   }
 
@@ -55,6 +64,7 @@ impl Kind {
       Kind::Rules => "hide keyword spoilers",
       Kind::Patterns => "a pattern",
       Kind::Reasons => "a reason",
+      Kind::Alerts => "a word, phrase or regex",
       _ => "a word or phrase",
     }
   }
@@ -78,6 +88,8 @@ enum Del {
   Reason(String),
   // its number in /rule list
   Rule(usize),
+  // a mention rule, by the server's id
+  Alert(u64),
 }
 
 struct Item {
@@ -94,6 +106,9 @@ pub(super) struct Ls {
   pub add: Line,
   // what the last change said, under the list
   pub msg: String,
+  // the mention rules as the app holds them, and what an empty list says (signed out, still reading, none)
+  mr: Vec<Rule>,
+  mr_note: &'static str,
 }
 
 impl Ls {
@@ -118,6 +133,14 @@ impl Ls {
       Kind::Words(m) => f.words(m).iter().map(|w| item(w, "", Del::Word(m, w.to_string()))).collect(),
       Kind::Patterns => f.patterns().iter().map(|p| item(p, "", Del::Pattern(p.to_string()))).collect(),
       Kind::Reasons => f.reasons().iter().map(|r| item(r, "", Del::Reason(r.to_string()))).collect(),
+      Kind::Alerts => self
+        .mr
+        .iter()
+        .map(|r| {
+          let (pattern, detail) = mrules::describe(r);
+          item(&pattern, &detail, Del::Alert(r.id))
+        })
+        .collect(),
       Kind::Rules => f
         .rules()
         .describe()
@@ -134,7 +157,8 @@ impl Ls {
     let mut lines: Vec<L> = items.iter().map(|i| row(i.text.clone(), i.detail.clone())).collect();
     let mut marks: Vec<Target> = (0..items.len()).map(Target::Item).collect();
     if items.is_empty() {
-      lines.push(row(self.kind.none().into(), String::new()));
+      let none = if self.kind == Kind::Alerts { self.mr_note } else { self.kind.none() };
+      lines.push(row(none.into(), String::new()));
       marks.push(Target::None);
     }
     if self.kind.addable() {
@@ -156,6 +180,7 @@ impl Ls {
   pub(super) fn keys(&self) -> &'static str {
     match (self.adding, self.kind.addable()) {
       (true, _) => "enter adds · esc stops",
+      (_, true) if self.kind == Kind::Alerts => "j k move · a add · enter on or off · x delete · esc closes",
       (_, true) => "j k move · a add · x delete · esc closes",
       _ => "j k move · enter opens their card · x lets them back · esc closes",
     }
@@ -169,9 +194,30 @@ impl Ls {
 impl App {
   pub(super) fn list_open(&mut self, kind: Kind) {
     let hidden = self.tabs.get(self.active).map(|t| t.view.hidden_users()).unwrap_or_default();
+    let (mr, mr_note) = (self.mrules.clone(), self.mrules_note());
     self.open_screen(Page::List);
     if let Some(s) = &mut self.screen {
-      s.ls = Some(Box::new(Ls { kind, hidden, adding: false, add: Line::default(), msg: String::new() }));
+      s.ls = Some(Box::new(Ls { kind, hidden, adding: false, add: Line::default(), msg: String::new(), mr, mr_note }));
+    }
+    if kind == Kind::Alerts {
+      // another device may have changed them since the last read
+      self.mrules_look();
+    }
+  }
+
+  // the mention rules changed (or were read): the open list shows the new ones
+  pub(super) fn list_sync(&mut self) {
+    let (mr, mr_note) = (self.mrules.clone(), self.mrules_note());
+    if let Some(l) = self.ls() {
+      (l.mr, l.mr_note) = (mr, mr_note);
+    }
+  }
+
+  // a word under the open list, or in the status line when no list is open
+  pub(super) fn list_note(&mut self, text: String) {
+    match self.ls() {
+      Some(l) => l.msg = text,
+      None => self.say(text),
     }
   }
 
@@ -208,6 +254,7 @@ impl App {
       Del::Pattern(pat) => self.list_run(Cmd::Pattern { add: false, pat: Some(pat) }),
       Del::Reason(text) => self.list_run(Cmd::Reason { add: false, text: Some(text) }),
       Del::Rule(n) => self.list_run(Cmd::Rule(RuleCmd::Del(n.to_string()))),
+      Del::Alert(id) => self.mrules_remove(id),
     }
   }
 
@@ -218,6 +265,17 @@ impl App {
     if typed.is_empty() {
       return;
     }
+    if kind == Kind::Alerts {
+      // kept in the box when refused, so it can be fixed
+      let said = self.mrules_add(&typed);
+      let sent = said.is_none();
+      self.list_note(said.unwrap_or_else(|| "adding…".to_owned()));
+      if let Some(l) = self.ls().filter(|_| sent) {
+        l.add.set_text(String::new());
+        l.add.home();
+      }
+      return;
+    }
     let cmd = match kind {
       Kind::Words(marks) => Cmd::Word { marks, add: true, term: Some(typed) },
       Kind::Patterns => Cmd::Pattern { add: true, pat: Some(typed) },
@@ -226,7 +284,7 @@ impl App {
         Some(c) => c,
         None => return,
       },
-      Kind::People => return,
+      Kind::People | Kind::Alerts => return,
     };
     self.list_run(cmd);
     if let Some(l) = self.ls() {
@@ -250,6 +308,11 @@ impl App {
     match t {
       Target::AddItem => self.list_start_add(),
       Target::Item(i) => {
+        if let Some(Del::Alert(id)) =
+          self.ls().filter(|l| l.kind == Kind::Alerts).and_then(|l| l.items().into_iter().nth(i)).map(|x| x.del)
+        {
+          return self.mrules_toggle(id);
+        }
         let Some(l) = self.ls().filter(|l| l.kind == Kind::People) else { return };
         let Some(name) = l.items().into_iter().nth(i).map(|x| x.text) else { return };
         self.close_screen();

@@ -69,6 +69,8 @@ pub enum Cmd {
   Logs(logs::Req),
   // the gifs tab's search (empty = the top list); `epoch` names the ask
   Gifs { q: Box<str>, epoch: u32 },
+  // your mention rules: read, add, switch, remove (net/mrules.rs)
+  MentionRules(super::mrules::Op),
 }
 
 pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Out) {
@@ -114,6 +116,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         call(authed(&http, &t, "/api/user/seen-state", body)).await;
       }
     }
+    Cmd::MentionRules(op) => super::mrules::run(http, token, op, out).await,
     Cmd::Logs(req) => archive(&http, req, &out).await,
     Cmd::Gifs { q, epoch } => gifs(&http, q, epoch, &out).await,
     Cmd::Card { platform, login, channel } => card(&http, token.as_deref(), platform, login, channel, &out).await,

@@ -1,4 +1,4 @@
-// pushes that mean "ask the server again" (follows, blocked emotes, blocks): a frame flood must not become
+// pushes that mean "ask the server again" (follows, blocked emotes, blocks, mention rules): a frame flood must not become
 // a request flood. the first push goes at once; ones inside `GAP` of the last ask fold into one trailing ask
 // when the gap ends. pure: the app feeds it the clock
 use std::time::{Duration, Instant};
@@ -10,9 +10,10 @@ pub enum Ask {
   Follows,
   EmoteBlocks,
   Blocks,
+  MentionRules,
 }
 
-const ALL: [Ask; 3] = [Ask::Follows, Ask::EmoteBlocks, Ask::Blocks];
+const ALL: [Ask; 4] = [Ask::Follows, Ask::EmoteBlocks, Ask::Blocks, Ask::MentionRules];
 
 fn slot(a: Ask) -> usize {
   a as usize
@@ -20,8 +21,8 @@ fn slot(a: Ask) -> usize {
 
 #[derive(Default)]
 pub struct Gates {
-  last: [Option<Instant>; 3],
-  due: [Option<Instant>; 3],
+  last: [Option<Instant>; 4],
+  due: [Option<Instant>; 4],
 }
 
 impl Gates {

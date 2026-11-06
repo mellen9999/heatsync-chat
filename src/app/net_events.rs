@@ -313,6 +313,8 @@ impl App {
       // an answer that outlived its login (logout raced the fetch) must not seed the next state
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
       NetEvent::Lists(l) => self.on_lists(l),
+      NetEvent::MentionRules(res) => self.on_mrules(res),
+      NetEvent::RuleHit(h) => self.on_rule_hit(h),
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
       NetEvent::ProfileColor(_)
       | NetEvent::PostHidden(_)
@@ -456,6 +458,7 @@ impl App {
           self.mentions_forget();
         }
         if switched {
+          self.mrules_forget();
           self.whispers_reset();
           self.locks.clear_all();
           // the new account's own seen times arrive with SeenGet below
@@ -476,11 +479,13 @@ impl App {
           self.relayout_where(None);
         }
         self.me = me;
+        self.list_sync();
         // a relink may have brought the automod permission
         self.held.reset();
         self.held_sweep();
         if self.me.is_some() {
           self.following_arm();
+          self.mrules_ask();
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
           self.net.send(Cmd::Emote(crate::net::emote_ops::EmoteCmd::Subs));
           self.ui_state_fetch();

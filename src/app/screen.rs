@@ -290,6 +290,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
         let n = crate::model::filter::with(|f| f.rules().len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
       }
+      Ctl::Alerts => ("enter opens".to_owned(), None),
       Ctl::People => {
         let (m, b) = crate::model::filter::with(|f| (f.mutes().len(), f.blocks_sorted().len()));
         (if m + b == 0 { "nobody".to_owned() } else { format!("{m} muted · {b} blocked") }, None)
@@ -596,6 +597,7 @@ impl App {
         Ctl::Rules if adjust.is_none() => self.list_open(Kind::Rules),
         Ctl::Reasons if adjust.is_none() => self.list_open(Kind::Reasons),
         Ctl::People if adjust.is_none() => self.list_open(Kind::People),
+        Ctl::Alerts if adjust.is_none() => self.list_open(Kind::Alerts),
         // the toolbar's buttons live in a slash command: leave with it ready to finish
         Ctl::Buttons(..) if adjust.is_none() => {
           self.close_screen();
@@ -603,7 +605,7 @@ impl App {
             self.type_into_line(&format!("{c} "));
           }
         }
-        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Buttons(..) => {}
+        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Buttons(..) => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
       (Some(Target::Custom(i)), None) => self.apply_custom_at(i),

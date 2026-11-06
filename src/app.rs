@@ -50,6 +50,7 @@ mod modbar;
 mod mods;
 mod modsuite;
 mod modtools;
+mod mrules;
 mod net_events;
 mod notes;
 mod overlay;
@@ -95,6 +96,8 @@ mod tests_lists;
 mod tests_mentions;
 #[cfg(test)]
 mod tests_modbar;
+#[cfg(test)]
+mod tests_mrules;
 #[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
@@ -251,6 +254,10 @@ pub struct App {
   heat_due: Option<Instant>,
   // pushes that mean "ask again" (follows, blocked emotes, blocks), one request per burst (pushed.rs)
   pushed: crate::model::livegate::Gates,
+  // your mention rules as the server holds them (app/mrules.rs); empty until read
+  mrules: Vec<crate::model::mrules::Rule>,
+  // the first answer for this login has come
+  mrules_read: bool,
   // youtube lines waiting their turn, and when the next one is due
   pacer: crate::model::pace::Pacer,
   pace_due: Option<Instant>,
@@ -491,6 +498,8 @@ impl App {
       tip_next: None,
       heat_due: None,
       pushed: Default::default(),
+      mrules: Vec::new(),
+      mrules_read: false,
       pacer: Default::default(),
       pace_due: None,
       late_refs: Default::default(),

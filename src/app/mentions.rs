@@ -39,7 +39,8 @@ impl App {
       return;
     }
     m.flags |= flag::ALERT;
-    if m.has(flag::HISTORY) {
+    // backlog is not a new ping, and a line a mention rule already put in the tab is one row
+    if m.has(flag::HISTORY) || self.mention_dup(p, room, &m.login, &m.body) {
       return;
     }
     let mut copy = m.clone();
@@ -66,7 +67,7 @@ impl App {
   }
 
   // a mention while the window is away: the desktop notification (if on), the ping and the title flash
-  fn mention_alert(&mut self, title: &str, nick: &str, body: &str) {
+  pub(super) fn mention_alert(&mut self, title: &str, nick: &str, body: &str) {
     if self.focused {
       return;
     }
@@ -108,7 +109,7 @@ impl App {
   }
 
   // a mention landed: the file is written soon
-  fn mentions_changed(&mut self) {
+  pub(super) fn mentions_changed(&mut self) {
     self.mentions_save.get_or_insert_with(|| Instant::now() + SAVE_AFTER);
   }
 
