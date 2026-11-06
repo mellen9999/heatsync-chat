@@ -324,6 +324,11 @@ impl App {
           v.invalidate();
         }
       }
+      Fx::ReadLine => {
+        for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
+          v.clear_read();
+        }
+      }
       Fx::Paints => {
         self.res.cosmetics.on = self.set.paints;
         self.res.cosmetics.hs_on = self.set.hs_paints;

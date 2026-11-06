@@ -129,12 +129,19 @@ impl ChatView {
     let o = opts!(self);
     let mut drawn_lo = self.rows.len();
     let hot = self.hot;
+    // the last-read line goes on the seam above the oldest line read; none set = this stays a no-op
+    let mut seam = self.last_read;
+    let mut newer = false;
     for (i, r) in self.rows.iter_mut().enumerate().rev() {
       if bottom <= area.y {
         break;
       }
       if r.hidden() {
         continue;
+      }
+      if newer && seam.is_some_and(|s| r.seq <= s) {
+        seam = None;
+        c.fill(Rect::new(area.x, bottom, area.w, 1).intersect(clip), theme::RED);
       }
       if r.height == 0 || (r.laid.is_none() && bottom - r.height < clip.bottom()) {
         let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, o);
@@ -315,6 +322,7 @@ impl ChatView {
         }
       }
       drawn_lo = i;
+      newer |= seam.is_some_and(|s| r.seq > s);
       bottom = top;
     }
     // layouts that scrolled out of view are dropped; heights stay

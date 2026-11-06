@@ -377,6 +377,17 @@ impl App {
           v.scroll_to_bottom();
         }
       }
+      "r" => {
+        let res = &mut self.res;
+        if let Some(t) = self.tabs.get_mut(self.active) {
+          t.view.jump_read(res);
+        }
+      }
+      "R" => {
+        if let Some(v) = self.view() {
+          v.clear_read();
+        }
+      }
       d if d.len() == 1 && (b'1'..=b'9').contains(&d.as_bytes()[0]) => {
         if let Some(i) = self.nth_visible((d.as_bytes()[0] - b'1') as usize) {
           self.select(i);

@@ -1769,3 +1769,97 @@ fn a_wide_overlay_widens_its_slot() {
   let stacked = slot_w(&mut res, ":3 lift0");
   assert!(stacked >= 3.0 * alone - 1.0, "{alone} → {stacked}");
 }
+
+// the rows that are one color across the whole width, top to bottom
+fn lines_of(c: &Canvas, ink: u32) -> Vec<i32> {
+  (0..c.h).filter(|&y| (0..c.w).all(|x| c.px[(y * c.w + x) as usize] == ink)).collect()
+}
+
+fn read_view(n: usize) -> (ChatView, Res, Canvas, Rect) {
+  let res = Res::new(1.0);
+  let mut v = ChatView::new(50, "c".into());
+  v.resize(400);
+  for i in 0..n {
+    v.push(said("bob", &format!("line {i}")));
+  }
+  (v, res, Canvas::new(400, 200), Rect::new(0, 0, 400, 200))
+}
+
+// leaving at the bottom puts a 1px red line on the seam above the first line that came after
+#[test]
+fn the_last_read_line_is_drawn_above_what_came_after() {
+  let (mut v, mut res, mut c, area) = read_view(3);
+  v.take_paint(&mut res, 200);
+  v.draw(&mut c, &mut res, area, area);
+  assert!(lines_of(&c, theme::RED).is_empty(), "nothing set: nothing drawn");
+  v.mark_read();
+  v.take_paint(&mut res, 200);
+  v.draw(&mut c, &mut res, area, area);
+  assert!(lines_of(&c, theme::RED).is_empty(), "nothing came after yet");
+  v.push(said("eve", "new one"));
+  v.push(said("eve", "new two"));
+  let h = v.height_at(3, &mut res) + v.height_at(4, &mut res);
+  // as the app does it: the append fast path must agree with a full repaint
+  let Paint::Append { shift } = v.take_paint(&mut res, 200) else { panic!("appends while pinned") };
+  c.scroll_up(area, shift);
+  v.draw(&mut c, &mut res, area, Rect::new(0, 200 - shift, 400, shift));
+  assert_eq!(lines_of(&c, theme::RED), [200 - h], "on the seam, 1px");
+  c.fill(area, theme::BLACK);
+  v.draw(&mut c, &mut res, area, area);
+  assert_eq!(lines_of(&c, theme::RED), [200 - h]);
+  v.clear_read();
+  c.fill(area, theme::BLACK);
+  v.draw(&mut c, &mut res, area, area);
+  assert!(lines_of(&c, theme::RED).is_empty(), "cleared");
+}
+
+// it moves only when the tab is left again, and only from the bottom
+#[test]
+fn the_last_read_line_stays_put_while_reading_and_scrolled_up() {
+  let (mut v, mut res, _c, _area) = read_view(3);
+  v.mark_read();
+  let first = v.last_read;
+  v.push(said("eve", "x"));
+  assert_eq!(v.last_read, first, "new lines don't move it");
+  assert!(v.has_read_line());
+  v.scroll_by(30, &mut res);
+  v.mark_read();
+  assert_eq!(v.last_read, first, "left while scrolled up: it stays");
+  v.scroll_to_bottom();
+  v.mark_read();
+  assert_ne!(v.last_read, first, "left at the bottom: read up to the newest");
+  assert!(!v.has_read_line());
+}
+
+// its line trimmed off the scrollback: the line hides
+#[test]
+fn the_last_read_line_hides_when_its_line_is_trimmed() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(4, "c".into());
+  v.resize(400);
+  v.push(said("bob", "a"));
+  v.mark_read();
+  for i in 0..4 {
+    v.push(said("bob", &format!("n{i}")));
+  }
+  assert!(!v.has_read_line());
+  let (mut c, area) = (Canvas::new(400, 200), Rect::new(0, 0, 400, 200));
+  v.draw(&mut c, &mut res, area, area);
+  assert!(lines_of(&c, theme::RED).is_empty());
+}
+
+// the jump key brings the line into view from far up the scrollback
+#[test]
+fn jumping_to_the_last_read_line_shows_it() {
+  let (mut v, mut res, mut c, area) = read_view(2);
+  v.mark_read();
+  for i in 0..30 {
+    v.push(said("eve", &format!("m{i}")));
+  }
+  v.take_paint(&mut res, 200);
+  assert!(v.jump_read(&mut res));
+  v.draw(&mut c, &mut res, area, area);
+  assert_eq!(lines_of(&c, theme::RED).len(), 1, "on screen");
+  v.clear_read();
+  assert!(!v.jump_read(&mut res));
+}

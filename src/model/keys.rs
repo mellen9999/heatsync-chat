@@ -68,6 +68,7 @@ pub static KEYS: [Group; 18] = [
       k("ctrl-g", "next match (shift: previous)"),
       v("ctrl-d ctrl-u", "scroll half a page"),
       v("space g  space G", "oldest, newest"),
+      v("space r  space R", "jump to the last-read line, clear it"),
       v("v", "pick a line"),
       v("/  space /", "filter this tab (the bar at the top)"),
       v("n  N  space n  space N", "next, previous match"),

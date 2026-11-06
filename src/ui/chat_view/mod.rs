@@ -221,6 +221,9 @@ pub struct ChatView {
   // yellow edge (magenta = twitch first message ever) on a person's first line this session (setting first_glow)
   pub glow: bool,
   seen: Seen,
+  // the last line read (by seq) when the tab was left at the bottom: a red line is drawn under it.
+  // it only moves when the tab is left again; once its line is trimmed off, nothing matches and it hides
+  last_read: Option<i64>,
   // a list read from the top (the feed, newest first): `scroll` counts px down from the first row
   // instead of up from the last, and it never auto-follows
   pub top: bool,
@@ -301,6 +304,7 @@ impl ChatView {
       hot: None,
       glow: true,
       seen: Seen::default(),
+      last_read: None,
       top: false,
       view_h: 0,
       empty: "".into(),
@@ -610,6 +614,7 @@ impl ChatView {
     self.scroll = 0;
     self.pending = 0;
     self.unread = 0;
+    self.last_read = None;
     self.seq_back = 0;
     self.stale = true;
   }
@@ -798,6 +803,44 @@ impl ChatView {
 
   pub fn invalidate(&mut self) {
     self.stale = true;
+  }
+
+  // the tab was left (switched away, or the window lost focus): when it sat at the bottom, the line goes
+  // under its newest line. scrolled up, the old line stays; a list read from the top has none
+  pub fn mark_read(&mut self) {
+    if self.top || self.scroll > 0 {
+      return;
+    }
+    let seq = self.rows.back().map(|r| r.seq);
+    if seq != self.last_read {
+      self.last_read = seq;
+      self.stale = true;
+    }
+  }
+
+  pub fn clear_read(&mut self) {
+    if self.last_read.take().is_some() {
+      self.stale = true;
+    }
+  }
+
+  // the line is set and still has its line (not trimmed off) with something newer below it
+  pub fn has_read_line(&self) -> bool {
+    self.last_read.is_some_and(|s| self.index_of(s).is_some_and(|i| i + 1 < self.rows.len()))
+  }
+
+  // scroll so the line sits a quarter down the view; false when there is none to go to
+  pub fn jump_read(&mut self, res: &mut Res) -> bool {
+    let Some(seq) = self.last_read.filter(|_| self.has_read_line()) else { return false };
+    let from = self.index_of(seq).map_or(0, |i| i + 1);
+    let mut below = 0;
+    for i in from..self.rows.len() {
+      below += self.height_at(i, res);
+    }
+    let max = self.content_height(res);
+    self.scroll = (below - self.view_h * 3 / 4).clamp(0, max);
+    self.stale = true;
+    true
   }
 
   pub fn pinned(&self) -> bool {

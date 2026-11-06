@@ -624,6 +624,7 @@ impl App {
       self.rover = None;
       // an edit belongs to the tab it was started in
       self.edit_end();
+      self.mark_read();
       self.active = i;
       // a card or menu belongs to the tab it was opened in
       self.close_card();
@@ -775,6 +776,7 @@ impl ApplicationHandler<NetEvent> for App {
           self.flash_stop();
         } else {
           self.hide_tip();
+          self.mark_read();
         }
       }
       WindowEvent::Occluded(o) => {

@@ -807,3 +807,36 @@ fn headless_tab_hover_reverses_the_tab() {
   app.redraw();
   assert_eq!(white(&app), before, "the pointer left");
 }
+
+// leaving a tab (or the window) at the bottom marks where you stopped; the switch turns it off:
+//   cargo test -j2 --release headless_last_read_line
+#[test]
+fn headless_last_read_line() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+  let tab = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
+  let (forsen, xqc) = (tab(&app, "forsen"), tab(&app, "xqc"));
+  app.select(forsen);
+  let say = |app: &mut App, i: usize| {
+    let mut m = Message::system(1, Platform::Twitch, "x");
+    (m.kind, m.login, m.nick, m.body) = (crate::model::message::Kind::Chat, "bob".into(), "bob".into(), "hi".into());
+    app.tabs[i].view.push(m);
+  };
+  say(&mut app, forsen);
+  app.select(xqc);
+  say(&mut app, forsen);
+  assert!(app.tabs[forsen].view.has_read_line(), "left at the bottom: a line under what was read");
+  app.select(forsen);
+  // the window going away marks the tab on screen
+  app.tabs[forsen].view.clear_read();
+  app.mark_read();
+  say(&mut app, forsen);
+  assert!(app.tabs[forsen].view.has_read_line());
+  // off: no new marks, and a mark already there is dropped
+  app.set.read_line = false;
+  app.applied(crate::model::schema::Fx::ReadLine);
+  assert!(!app.tabs[forsen].view.has_read_line());
+  app.mark_read();
+  say(&mut app, forsen);
+  assert!(!app.tabs[forsen].view.has_read_line());
+}

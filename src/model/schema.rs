@@ -35,6 +35,8 @@ pub enum Fx {
   // the box changes kind: back to typing
   Vi,
   Glow,
+  // the last-read line switch flipped: marks drop when it goes off
+  ReadLine,
   Paints,
   // paint motion flipped: every animated name is built again
   PaintMotion,
@@ -149,6 +151,18 @@ pub static DEFS: [Def; 74] = [
     ctl: pill!(first_glow),
     fx: Fx::Glow,
     wire: Wire::Bool("firstChatterGlow"),
+  },
+  Def {
+    id: "read_line",
+    cmd: Some("/readline"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "last-read line",
+    tip: "a red line where you stopped reading when you left the tab or the window",
+    alias: "unread marker divider new messages",
+    ctl: pill!(read_line),
+    fx: Fx::ReadLine,
+    wire: Wire::None,
   },
   Def {
     id: "auto_hide",

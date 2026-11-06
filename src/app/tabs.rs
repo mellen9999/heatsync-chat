@@ -191,6 +191,16 @@ impl App {
     super::persist(&lines);
   }
 
+  // the tab on screen is being left: its last-read line goes under what was read (setting read_line)
+  pub(super) fn mark_read(&mut self) {
+    if self.set.read_line
+      && let Some(t) = self.tabs.get_mut(self.active)
+    {
+      t.view.mark_read();
+      self.wake();
+    }
+  }
+
   pub(super) fn activate(&mut self, i: usize) {
     self.find_clear();
     self.active = i;

@@ -189,6 +189,8 @@ pub struct Settings {
   pub dim_timeouts: bool,
   // orange edge on someone's first line of the session. default on, like the ext
   pub first_glow: bool,
+  // a line where you stopped reading when you left the tab or the window. default on
+  pub read_line: bool,
   // 7tv paints on names and 7tv badges. default on, like the ext (sevenTvPaints)
   pub paints: bool,
   // heatsync's own animated name paints, apart from 7tv's. default on, like the ext (showNamePaints)
@@ -296,6 +298,7 @@ impl Default for Settings {
       animate_emotes: Animate::Always,
       dim_timeouts: true,
       first_glow: true,
+      read_line: true,
       paints: true,
       hs_paints: true,
       bttv_badges: true,
@@ -612,6 +615,7 @@ mod tests {
         animate_emotes: Animate::Always,
         dim_timeouts: true,
         first_glow: true,
+        read_line: true,
         paints: true,
         hs_paints: true,
         bttv_badges: true,
