@@ -205,7 +205,9 @@ impl Cosmetics {
     if let Some(e) = self.map.get_mut(uid) {
       e.fetched = None;
       e.asked = Some(Instant::now());
-      self.wanted.push(uid.clone());
+      if !self.wanted.contains(uid) {
+        self.wanted.push(uid.clone());
+      }
     }
   }
 

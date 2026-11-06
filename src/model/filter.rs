@@ -216,6 +216,17 @@ impl Filters {
     self.mutes.len() + self.blocks.len() != n
   }
 
+  // the account's block list is the whole truth for the blocks it gave us: one it no longer holds goes (yours,
+  // made here, stay). true = changed
+  pub fn blocks_follow(&mut self, server: &[Box<str>]) -> bool {
+    let gone: Vec<Box<str>> = self.synced_blocks.iter().filter(|b| !server.iter().any(|s| s == *b)).cloned().collect();
+    for b in &gone {
+      self.synced_blocks.remove(b);
+      self.blocks.remove(b);
+    }
+    !gone.is_empty()
+  }
+
   pub fn unmute(&mut self, who: &str) -> bool {
     let k = key(who);
     self.synced_mutes.remove(&k);

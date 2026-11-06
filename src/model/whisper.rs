@@ -248,6 +248,27 @@ impl Timeline {
     self.list.get(at)
   }
 
+  // a name's heatsync colour changed (`profile:color`): their rows wear it. the keys of the rows that changed
+  pub fn recolor(&mut self, logins: &[Box<str>], rgb: u32) -> Vec<u64> {
+    let mut keys = Vec::new();
+    let one = |who: &mut Who| {
+      let hit = who.color != rgb && logins.iter().any(|l| l.eq_ignore_ascii_case(&who.login));
+      if hit {
+        who.color = rgb;
+      }
+      hit
+    };
+    for w in &mut self.list {
+      if one(&mut w.who) {
+        keys.push(w.key);
+      }
+    }
+    if let Some(l) = &mut self.last {
+      one(l);
+    }
+    keys
+  }
+
   // a send of ours, shown at once as pending
   pub fn push_out(&mut self, who: Who, text: &str) -> &Whisper {
     self.next += 1;

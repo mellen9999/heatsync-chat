@@ -3,9 +3,10 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::engage::Marks;
-use super::message::{Message, Platform};
+use super::message::{HsEmote, Message, Platform};
 use super::post::{self, Post, Reveal};
 use super::reaction::{self, Change, Frame, Reaction};
+use crate::net::pushed::Mod;
 use crate::net::social::Page;
 
 // the ext keeps 150 posts
@@ -246,6 +247,71 @@ impl Feed {
       x.text = text.into();
       x.edited = true;
     });
+  }
+
+  // someone else's edit, pushed: the new words (and refs, when sent) on every copy. true = a copy changed
+  pub fn edited_live(&mut self, id: &str, text: &str, refs: Option<&[HsEmote]>) -> bool {
+    let mut hit = false;
+    self.each_copy(id, |x| {
+      hit |= &*x.text != text || !x.edited;
+      x.text = text.into();
+      x.edited = true;
+      if let Some(r) = refs {
+        x.refs = r.into();
+      }
+    });
+    hit
+  }
+
+  // a thread root's numbers moved (`message-updated`): the reply count and heat, on every copy. true = changed
+  pub fn meta(&mut self, id: &str, replies: Option<u32>, heat: Option<u32>) -> bool {
+    let mut hit = false;
+    self.each_copy(id, |x| {
+      if let Some(r) = replies.filter(|r| *r != x.replies) {
+        x.replies = r;
+        hit = true;
+      }
+      if let Some(h) = heat.filter(|h| *h != x.heat) {
+        x.heat = h;
+        hit = true;
+      }
+    });
+    hit
+  }
+
+  // moderation settled (`message:approved`) or flagged the post's media (`message:flagged`). true = changed
+  pub fn moderated(&mut self, id: &str, m: &Mod) -> bool {
+    let mut hit = false;
+    self.each_copy(id, |x| match m {
+      Mod::Approved => {
+        hit |= x.pending;
+        x.pending = false;
+      }
+      Mod::Flagged(cats) => {
+        hit |= *x.cats != **cats;
+        x.cats = cats.as_slice().into();
+      }
+    });
+    hit
+  }
+
+  // a name's colour changed on heatsync (`profile:color`): their posts wear it, every copy. the ids of the
+  // posts that changed
+  pub fn recolor(&mut self, names: &[Box<str>], rgb: u32) -> Vec<Box<str>> {
+    let mut ids: Vec<Box<str>> = Vec::new();
+    let mut one = |x: &mut Post| {
+      if !x.anon && x.color != rgb && names.iter().any(|n| n.eq_ignore_ascii_case(&x.user)) {
+        x.color = rgb;
+        if !ids.contains(&x.id) {
+          ids.push(x.id.clone());
+        }
+      }
+    };
+    self.posts.iter_mut().chain(self.inline.iter_mut()).for_each(&mut one);
+    if let Some(t) = &mut self.thread {
+      t.op.iter_mut().chain(t.replies.iter_mut()).for_each(&mut one);
+    }
+    ids
   }
 
   // the thread an `/re` answers: the newest [OP] shown in chat, as its root post (an OP's own reply

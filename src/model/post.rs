@@ -126,7 +126,7 @@ pub fn id_ok(s: &str) -> bool {
 }
 
 // { name: url } or { name: { url, cw, nsfw, cw_cats } }; a gated or non-https ref draws as its name
-fn refs_of(v: Option<&Value>) -> Box<[HsEmote]> {
+pub fn refs_of(v: Option<&Value>) -> Box<[HsEmote]> {
   let Some(map) = v.and_then(Value::as_object) else { return Box::new([]) };
   map
     .iter()
@@ -191,10 +191,15 @@ fn cats_of(v: &Value) -> Box<[Box<str>]> {
     .collect()
 }
 
+// a post's words as the server stored them (escaped, any bytes), as a row shows them
+pub fn words(raw: &str) -> Box<str> {
+  clamp(&unescape(raw), MAX_TEXT).trim().into()
+}
+
 // one post from /api/messages, /api/thread or a `new-message` frame
 pub fn parse(v: &Value) -> Option<Post> {
   let id = v.get("base36_id").and_then(Value::as_str).filter(|s| id_ok(s))?;
-  let text = unescape(v.get("content").and_then(Value::as_str)?);
+  let text = v.get("content").and_then(Value::as_str)?;
   let name = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
   let user = name("username").or_else(|| name("display_name")).unwrap_or("anon");
   let anon = user == "Anonymous" || v.get("user_id").is_none_or(Value::is_null);
@@ -231,7 +236,7 @@ pub fn parse(v: &Value) -> Option<Post> {
     anon,
     platform,
     paint,
-    text: clamp(&text, MAX_TEXT).trim().into(),
+    text: words(text),
     ts: name("created_at").and_then(parse_iso).unwrap_or_else(now_ms),
     heat: num("heat"),
     replies: num("reply_count"),

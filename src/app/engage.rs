@@ -235,14 +235,7 @@ impl App {
     match res {
       Ok(()) => {
         // an inline line in a chat tab reads as a deleted line, like a mod delete
-        for t in self.tabs.iter_mut().filter(|t| t.kind == Kind::Chat) {
-          t.chat().clear_msg(&id);
-        }
-        self.feed.remove(&id);
-        if self.edit.as_ref().is_some_and(|e| e.id == id) {
-          self.edit_end();
-        }
-        self.feed_show();
+        self.post_gone(&id);
         self.say("post deleted");
       }
       Err(401) => self.say(LOGIN_FIRST),

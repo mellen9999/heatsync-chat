@@ -81,7 +81,7 @@ impl App {
     self.wake();
   }
 
-  fn put_row(&mut self, w: &Whisper) {
+  pub(super) fn put_row(&mut self, w: &Whisper) {
     let Some(i) = self.tab_of(Kind::Whispers) else { return };
     let m = whisper::message(w);
     let v = self.tabs[i].chat();

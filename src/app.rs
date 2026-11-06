@@ -61,6 +61,7 @@ mod pop;
 mod pred;
 mod presets;
 mod pronouns;
+mod pushed;
 mod quick;
 mod react;
 mod render;
@@ -96,6 +97,8 @@ mod tests_nuke;
 mod tests_pickers;
 #[cfg(test)]
 mod tests_pin;
+#[cfg(test)]
+mod tests_pushed;
 #[cfg(test)]
 mod tests_react;
 #[cfg(test)]
@@ -238,6 +241,8 @@ pub struct App {
   tip_next: Option<Instant>,
   // heat counts fall with the clock: the tab bar repaints each second while one shows
   heat_due: Option<Instant>,
+  // pushes that mean "ask again" (follows, blocked emotes, blocks), one request per burst (pushed.rs)
+  pushed: crate::model::livegate::Gates,
   // youtube lines waiting their turn, and when the next one is due
   pacer: crate::model::pace::Pacer,
   pace_due: Option<Instant>,
@@ -471,6 +476,7 @@ impl App {
       tip: None,
       tip_next: None,
       heat_due: None,
+      pushed: Default::default(),
       pacer: Default::default(),
       pace_due: None,
       late_refs: Default::default(),
@@ -858,6 +864,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.live_due().is_some_and(|t| t <= now) {
       self.live_tick(now);
     }
+    if self.pushed_due().is_some_and(|t| t <= now) {
+      self.pushed_tick(now);
+    }
     self.ui_state_tick();
     if self.heat_due.is_some_and(|t| t <= now) {
       self.heat_due = None;
@@ -882,6 +891,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.ui_state_due(),
       self.following_due(),
       self.live_due(),
+      self.pushed_due(),
       self.pred_due(now),
       self.pred_bar.sec.filter(|_| !self.occluded),
       self.lock_sec.filter(|_| !self.occluded),

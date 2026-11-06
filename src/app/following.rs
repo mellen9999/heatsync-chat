@@ -120,6 +120,14 @@ impl App {
     self.net.send(Cmd::Following);
   }
 
+  // a push says your follows changed on another device: ask at once (the caller holds the rate)
+  pub(super) fn following_ask_now(&mut self) {
+    if self.me.is_some() {
+      self.following.asked = Some(Instant::now());
+      self.net.send(Cmd::Following);
+    }
+  }
+
   // when the open screen next wants a look (None = it isn't showing)
   pub(super) fn following_due(&self) -> Option<Instant> {
     let screen = self.following.tick.filter(|_| self.screen_is(Page::Following) && !self.occluded);

@@ -64,6 +64,17 @@ impl Marks {
     }
   }
 
+  // another device bookmarked or un-bookmarked a post (`bookmarks:changed`). a press of ours still out for
+  // the post wins: its answer settles it. true = the state changed
+  pub fn pushed(&mut self, id: &str, on: bool) -> bool {
+    if self.busy.contains(id) {
+      return false;
+    }
+    let was = self.get(id);
+    self.set(id, on);
+    was != on
+  }
+
   // press: flip it now. Some(wanted) = send that; None = one is already out for this post
   pub fn begin(&mut self, id: &str) -> Option<bool> {
     if !self.busy.insert(id.into()) {

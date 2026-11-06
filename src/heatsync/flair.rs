@@ -64,6 +64,24 @@ impl Flairs {
     }
   }
 
+  // `cosmetic:changed` (a flair or avatar was set or cleared for these chatters): ask again about those held,
+  // once each. what they wear keeps showing until the answer lands
+  pub fn stale_ids(&mut self, ids: &[u64]) {
+    if self.off {
+      return;
+    }
+    let now = Instant::now();
+    for id in ids {
+      if let Some(e) = self.map.get_mut(id) {
+        e.fetched = None;
+        e.asked = Some(now);
+        if !self.wanted.contains(id) {
+          self.wanted.push(*id);
+        }
+      }
+    }
+  }
+
   // never ask (the synthetic flood)
   pub fn mute(&mut self) {
     self.off = true;

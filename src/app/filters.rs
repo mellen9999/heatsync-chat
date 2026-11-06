@@ -259,6 +259,10 @@ impl App {
       for b in &l.blocks {
         n += usize::from(f.block_synced(b));
       }
+      // a block lifted on another device (`user:unblocked`) leaves too
+      if l.blocks_known {
+        n += usize::from(f.blocks_follow(&l.blocks));
+      }
       n
     });
     if added > 0 {

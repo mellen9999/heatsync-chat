@@ -74,6 +74,8 @@ pub enum Cmd {
   Tools(Box<str>, super::modtools::Op),
   TagCard(Box<str>),
   Mute(super::mutes::Op),
+  // your mute and block lists, read again
+  Lists,
 }
 
 struct State {
@@ -188,6 +190,11 @@ pub async fn run(
         Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text).await,
         Some(Cmd::Mute(op)) => {
           tokio::spawn(super::mutes::run(st.http.clone(), st.token.clone(), op));
+        }
+        Some(Cmd::Lists) => {
+          if let Some(t) = st.token.clone() {
+            tokio::spawn(super::mutes::load(st.http.clone(), t, st.out.clone()));
+          }
         }
         Some(Cmd::Mod(r)) => {
           tokio::spawn(super::modact::run(st.http.clone(), st.token.clone(), r, st.out.clone()));

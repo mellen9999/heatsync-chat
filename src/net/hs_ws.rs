@@ -14,9 +14,10 @@ use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::http::ws_config;
 use super::{NetEvent, Out, backoff, retrying};
-use super::{pin, relay, senders};
+use super::{pin, pushed, relay, senders};
 use crate::cosmetics::id::PaintId;
 use crate::heatsync::valid_name;
+use crate::model::livegate::Ask;
 use crate::model::message::Platform;
 use crate::model::stream_events::{self, Ev, Gate, Kind};
 
@@ -585,6 +586,24 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let p = crate::model::post::parse(v.get("data")?)?;
       send(NetEvent::FeedLive(p))
     }
+    // a heatsync name colour changed (to every client): their posts and dms wear it
+    "profile:color" => pushed::profile_color(v).and_then(|c| send(NetEvent::ProfileColor(c))),
+    // someone else's action on a feed post, seen by every client: gone, rewritten, renumbered, moderated
+    "message:hidden" => pushed::hidden(v).and_then(|id| send(NetEvent::PostHidden(id))),
+    "message-edited" => pushed::edited(v).and_then(|e| send(NetEvent::PostEdited(e))),
+    "message-updated" => pushed::updated(v).and_then(|m| send(NetEvent::PostMeta(m))),
+    "message:approved" | "message:flagged" => {
+      pushed::moderated(v, ty == "message:flagged").and_then(|(id, m)| send(NetEvent::PostModerated(id, m)))
+    }
+    // pushed only to your own sockets, from another of your devices: the payload names the change, the
+    // lists are read again (rate-limited in the app)
+    "follows:changed" => send(NetEvent::Refetch(Ask::Follows)),
+    "emote:blocked" | "emote:unblocked" => send(NetEvent::Refetch(Ask::EmoteBlocks)),
+    "user:blocked" | "user:unblocked" => send(NetEvent::Refetch(Ask::Blocks)),
+    "notifications:read" => pushed::unread(v).and_then(|n| send(NetEvent::Unread(n))),
+    "bookmarks:changed" => pushed::bookmark(v).and_then(|(id, on)| send(NetEvent::Bookmark(id, on))),
+    // your account settings changed: only plus is read (the rest of the keys are the site's own)
+    "user_settings:update" => pushed::plus_moved(v).then(|| send(NetEvent::PlusMoved)).flatten(),
     "mute:added" | "mute:removed" | "mute:expired" | "mute:cleared" => {
       super::mutes::frame(v, ty).and_then(|m| send(NetEvent::MuteSync(m)))
     }
@@ -646,9 +665,76 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
   }
 }
 
+// one frame through the same reader the socket uses, for the app's headless tests
+#[cfg(test)]
+pub(crate) fn feed_frame(v: &Value, out: &Out) {
+  dispatch(v, &mut State::default(), out);
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // every push frame is read into one event, and a hostile or short one into none
+  #[test]
+  fn push_frames_become_events_and_bad_ones_become_nothing() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let mut got = |v: Value| {
+      assert!(dispatch(&v, &mut st, &out).is_none());
+      rx.try_iter().collect::<Vec<_>>()
+    };
+    let e = got(json!({"type": "profile:color", "userId": "1", "usernames": ["A"], "color": "#00ff00"}));
+    assert!(matches!(e.as_slice(), [NetEvent::ProfileColor(c)] if *c.names == ["a".into()]));
+    assert!(got(json!({"type": "profile:color", "userId": "1", "usernames": ["A"], "color": "green"})).is_empty());
+    assert!(
+      matches!(got(json!({"type": "message:hidden", "id": "4a"})).as_slice(), [NetEvent::PostHidden(i)] if &**i == "4a")
+    );
+    assert!(got(json!({"type": "message:hidden", "id": "4a4a4a4a4a"})).is_empty(), "an id past 8 is no id");
+    assert!(matches!(
+      got(json!({"type": "message-edited", "message_id": "4a", "content": "x"})).as_slice(),
+      [NetEvent::PostEdited(_)]
+    ));
+    assert!(matches!(
+      got(json!({"type": "message-updated", "base36_id": "4a", "reply_count": 2})).as_slice(),
+      [NetEvent::PostMeta(_)]
+    ));
+    assert!(matches!(
+      got(json!({"type": "message:approved", "id": "4a"})).as_slice(),
+      [NetEvent::PostModerated(_, pushed::Mod::Approved)]
+    ));
+    assert!(matches!(
+      got(json!({"type": "message:flagged", "id": "4a", "categories": ["nsfw"]})).as_slice(),
+      [NetEvent::PostModerated(_, pushed::Mod::Flagged(_))]
+    ));
+    for (ty, ask) in [
+      ("follows:changed", Ask::Follows),
+      ("emote:blocked", Ask::EmoteBlocks),
+      ("emote:unblocked", Ask::EmoteBlocks),
+      ("user:blocked", Ask::Blocks),
+      ("user:unblocked", Ask::Blocks),
+    ] {
+      assert!(matches!(got(json!({"type": ty})).as_slice(), [NetEvent::Refetch(a)] if *a == ask), "{ty}");
+    }
+    assert!(matches!(got(json!({"type": "notifications:read", "unread": -1})).as_slice(), [NetEvent::Unread(0)]));
+    assert!(got(json!({"type": "notifications:read"})).is_empty());
+    assert!(matches!(
+      got(json!({"type": "bookmarks:changed", "id": "4a", "on": true})).as_slice(),
+      [NetEvent::Bookmark(_, true)]
+    ));
+    assert!(got(json!({"type": "bookmarks:changed", "id": "4a"})).is_empty());
+    assert!(matches!(
+      got(json!({"type": "user_settings:update", "plus": false, "ts": 1})).as_slice(),
+      [NetEvent::PlusMoved]
+    ));
+    assert!(got(json!({"type": "user_settings:update", "show_nsfw_emotes": true, "ts": 1})).is_empty());
+    // the frame cap (MAX_FRAME) keeps oversized text out before this point; a long name or edit is cut here
+    let long = "x".repeat(100_000);
+    assert!(got(json!({"type": "profile:color", "userId": "1", "usernames": [long], "color": "#00ff00"})).is_empty());
+    let e = got(json!({"type": "message-edited", "message_id": "4a", "content": "y".repeat(100_000)}));
+    assert!(matches!(e.as_slice(), [NetEvent::PostEdited(e)] if e.text.len() <= 4000));
+  }
 
   #[test]
   fn a_notification_frame_is_checked_and_an_inbox_look_is_heard() {

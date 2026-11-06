@@ -22,6 +22,8 @@ pub enum Op {
 pub struct Lists {
   pub mutes: Vec<(Box<str>, Option<i64>)>,
   pub blocks: Vec<Box<str>>,
+  // the block list answered (an empty `blocks` is then the truth, not a failed read)
+  pub blocks_known: bool,
 }
 
 // a change another device (or heatsync.org) made, pushed over the websocket
@@ -72,6 +74,7 @@ pub async fn load(http: reqwest::Client, token: String, out: Out) {
   out.send(NetEvent::Lists(Lists {
     mutes: m.as_ref().map(mutes_of).unwrap_or_default(),
     blocks: b.as_ref().map(blocks_of).unwrap_or_default(),
+    blocks_known: b.is_some(),
   }));
 }
 

@@ -19,6 +19,8 @@ pub enum EmoteCmd {
   Remove { name: Box<str> },
   // your twitch sub emotes, which heatsync reads off your twitch account
   Subs,
+  // your blocked emotes changed on another device: read the server's list again
+  Blocked,
   // another emote you own under this name makes way for this one (remove, then add: the server holds
   // one emote per name)
   Swap { name: Box<str>, url: Box<str>, zero_width: bool },
@@ -114,6 +116,9 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
         }
         Err(e) => out.status(format!("couldn't add {name}: {e}")),
       }
+    }
+    EmoteCmd::Blocked => {
+      tokio::spawn(load_blocked(http.clone(), token.to_owned(), out.clone()));
     }
     EmoteCmd::Subs => {
       let r = http.get(format!("{ORIGIN}/api/user/emotes")).bearer_auth(token).send().await;

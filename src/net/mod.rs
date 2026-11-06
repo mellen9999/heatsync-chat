@@ -27,6 +27,7 @@ pub mod mutes;
 pub mod pin;
 pub mod pinact;
 pub mod pred;
+pub mod pushed;
 mod recent;
 pub mod relay;
 mod retry;
@@ -292,6 +293,22 @@ pub enum NetEvent {
   Lists(mutes::Lists),
   // a mute changed on another device
   MuteSync(mutes::Sync),
+  // heatsync pushes ("this changed"), already checked (net/pushed.rs)
+  // a name's heatsync colour
+  ProfileColor(pushed::ProfileColor),
+  // a feed post another person's action took away / rewrote / renumbered / moderated
+  PostHidden(Box<str>),
+  PostEdited(pushed::Edit),
+  PostMeta(pushed::Meta),
+  PostModerated(Box<str>, pushed::Mod),
+  // a post bookmarked / un-bookmarked on another device
+  Bookmark(Box<str>, bool),
+  // the account's unread notification count after a look elsewhere
+  Unread(u32),
+  // your plus moved: ask again how you look
+  PlusMoved,
+  // the follows / blocked emotes / blocks changed on another device: read them again
+  Refetch(crate::model::livegate::Ask),
   // a user card's facts (or why not: http status, 0 = no answer)
   Card {
     platform: Platform,
@@ -554,6 +571,8 @@ pub enum Cmd {
   Pin(pinact::Op),
   // your mute list changed (synced while logged in)
   Mute(mutes::Op),
+  // read the mute and block lists again (`user:blocked` / `user:unblocked`)
+  Lists,
 }
 
 const IMAGE_FETCHES: usize = 6;
@@ -974,6 +993,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::AllowYoutubePosting => {
         let _ = sess_tx.send(session::Cmd::Link(auth::Provider::Youtube, "post"));
+      }
+      Cmd::Lists => {
+        let _ = sess_tx.send(session::Cmd::Lists);
       }
       Cmd::Mute(op) => {
         let _ = sess_tx.send(session::Cmd::Mute(op));

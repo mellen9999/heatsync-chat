@@ -1,6 +1,7 @@
 // what the net hands the app: chat lines and relay frames land in their tabs, and every NetEvent has its answer here
 
 use super::{App, FLOOD_TAB, Tab};
+use crate::cosmetics::id::PaintId;
 use crate::model::message::{Message, Platform, flag};
 use crate::model::origin::RACE_MS;
 use crate::model::settings::Counter;
@@ -307,6 +308,15 @@ impl App {
       NetEvent::Lists(_) | NetEvent::BlockedHashes(_) if self.me.is_none() => {}
       NetEvent::Lists(l) => self.on_lists(l),
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
+      NetEvent::ProfileColor(_)
+      | NetEvent::PostHidden(_)
+      | NetEvent::PostEdited(_)
+      | NetEvent::PostMeta(_)
+      | NetEvent::PostModerated(..)
+      | NetEvent::Bookmark(..)
+      | NetEvent::Unread(_)
+      | NetEvent::PlusMoved
+      | NetEvent::Refetch(_) => self.on_pushed(ev),
       NetEvent::Whispers { items, live, epoch } => {
         if whisper::current(epoch, self.whisper.epoch) {
           self.on_whispers(items, live)
@@ -455,6 +465,7 @@ impl App {
           self.kick_mod.clear();
           self.held = Default::default();
           self.following_reset();
+          self.pushed.clear();
           self.import_reset();
           self.relayout_where(None);
         }
@@ -554,6 +565,10 @@ impl App {
       }
       NetEvent::CosmeticsChanged(ids) => {
         ids.iter().for_each(|id| self.res.cosmetics.stale(id));
+        // the server sends this for a flair or avatar change too: the sub flair is asked again for the same ids
+        let twitch: Vec<u64> =
+          ids.iter().filter_map(|id| if let PaintId::Twitch(n) = id { Some(*n) } else { None }).collect();
+        self.res.flairs.stale_ids(&twitch);
         self.wake();
       }
       NetEvent::CosmeticsStale(id) => {
