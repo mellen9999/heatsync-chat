@@ -59,8 +59,26 @@ pub fn init() {
   }
 }
 
+#[cfg(test)]
 pub fn read(url: &str) -> Option<Vec<u8>> {
-  std::fs::read(dir()?.join(key(url))).ok()
+  read_file(&path(url)?)
+}
+
+// the read half, for a thread that must not look the folder up itself
+pub fn read_file(path: &Path) -> Option<Vec<u8>> {
+  std::fs::read(path).ok()
+}
+
+// forget one url's bytes (they no longer decode)
+pub fn remove(url: &str) {
+  if let Some(d) = dir() {
+    let _ = std::fs::remove_file(d.join(key(url)));
+  }
+}
+
+// where a url's bytes live
+pub fn path(url: &str) -> Option<PathBuf> {
+  Some(dir()?.join(key(url)))
 }
 
 pub fn write(url: &str, bytes: &[u8]) {
