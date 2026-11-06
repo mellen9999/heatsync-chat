@@ -1,5 +1,5 @@
 // the filter bar at the top of the chat, headless: shown on channel and mentions tabs only, `/` and a click
-// give it the keys, typing filters live (names, words, @name, /regex/), a bad pattern filters nothing, esc clears
+// give it the keys, typing filters live (names, words, @name, /regex/), a broken /regex/ reads as its literal text (ext), esc clears
 //   cargo test --release findbar
 
 use super::*;
@@ -139,27 +139,25 @@ fn typing_filters_live_and_esc_clears_it() {
 }
 
 #[test]
-fn a_regex_filters_by_pattern_and_a_bad_one_filters_nothing() {
+fn a_regex_filters_by_pattern_and_a_broken_one_reads_as_text() {
   let mut app = chatty();
   open(&mut app);
   type_in(&mut app, "/fo+/");
   assert_eq!(shown(&app), 1, "case-sensitive: bob's foo, not FOOOD");
   type_in(&mut app, "i");
   assert_eq!(shown(&app), 2, "`/fo+/i`");
-  // half-typed, then broken: everything shows, flagged in the bar
+  // half-typed, then broken: read as its literal text, like the ext (no line has a `[`)
   for _ in 0..6 {
     app.find_key(Key::Named(NamedKey::Backspace), None);
   }
   type_in(&mut app, "/[/");
-  assert_eq!(shown(&app), 3);
-  assert_eq!(app.find.note, "bad pattern");
-  assert!(app.tabs[app.active].view.search_bad());
-  // enter leaves it up, flagged; esc clears the flag
+  assert_eq!(shown(&app), 0);
+  assert_eq!(app.find.note, "no match");
   app.find_key(Key::Named(NamedKey::Enter), None);
   assert_eq!(app.find.query, "/[/");
   app.redraw();
   assert!(app.find_clear());
-  assert!(app.find.note.is_empty() && !app.tabs[app.active].view.search_bad());
+  assert!(app.find.note.is_empty());
 }
 
 #[test]

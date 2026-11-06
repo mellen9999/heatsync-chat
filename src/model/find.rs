@@ -2,8 +2,8 @@
 //   /pattern/ or /pattern/i  a regex over the name and the words (`/foo/bar` is plain text, as in the ext)
 //   @name                    one person's lines (their name or login starts with it)
 //   anything else            a substring over the name and the words
-// plain forms ignore case. the ext degrades a dangerous or broken regex to plain text; here a broken one is
-// flagged "bad pattern" and filters nothing, so a half-typed `/[/` never hides the chat
+// plain forms ignore case. like the ext, a broken or overlong regex (a half-typed `/[/`) is read as its
+// literal text, with the same case rule
 use std::ops::Range;
 
 use regex::Regex;
@@ -46,17 +46,19 @@ fn slashes(q: &str) -> Option<(&str, bool)> {
 }
 
 impl Find {
-  // Ok(None) = nothing to look for (empty, or a bare @); Err = a /regex/ that is too long, not valid or too
-  // big. compiled once per query here, never per line. the regex engine is linear-time (no backtracking), so
+  // None = nothing to look for (empty, or a bare @). compiled once per query here, never per line. the regex engine is linear-time (no backtracking), so
   // the ext's ReDoS heuristics and timing probes have nothing to catch: the length cap and the size limits
   // are the whole guard
-  pub fn compile(q: &str) -> Result<Option<Find>, ()> {
+  pub fn compile(q: &str) -> Option<Find> {
     let q = q.trim();
     if let Some((src, ci)) = slashes(q) {
-      if src.chars().count() > MAX_REGEX {
-        return Err(());
+      let build = |s: &str| crate::model::automod::build(s, ci).map(|re| Find(How::Re(re)));
+      let literal = || build(&regex::escape(src));
+      let re = if src.chars().count() > MAX_REGEX { literal() } else { build(src).or_else(literal) };
+      // a literal too big for the size limit (it can't be: 512 chars) would fall to the plain substring below
+      if re.is_some() {
+        return re;
       }
-      return crate::model::automod::build(src, ci).map(|re| Some(Find(How::Re(re)))).ok_or(());
     }
     let (user, t) = match q.strip_prefix('@') {
       Some(rest) => (true, rest.trim()),
@@ -64,13 +66,12 @@ impl Find {
     };
     let term: String = t.chars().take(MAX_TERM).collect();
     let term: Box<str> = term.to_ascii_lowercase().into();
-    Ok((!term.is_empty()).then(|| Find(if user { How::User(term) } else { How::Term(term) })))
+    (!term.is_empty()).then(|| Find(if user { How::User(term) } else { How::Term(term) }))
   }
 
-  // None = no search (nothing typed, or a bad pattern)
   #[cfg(test)]
   pub fn parse(q: &str) -> Option<Find> {
-    Find::compile(q).ok().flatten()
+    Find::compile(q)
   }
 
   // @name: the matches are people, so their names are what lights up
@@ -162,16 +163,16 @@ mod tests {
   }
 
   #[test]
-  fn a_bad_pattern_is_flagged_and_filters_nothing() {
-    assert!(Find::compile("/[/").is_err());
-    assert!(Find::compile("/(a/i").is_err());
-    assert!(Find::parse("/[/").is_none());
-    // too long
-    let long = format!("/{}/", "a".repeat(600));
-    assert!(Find::compile(&long).is_err());
-    assert!(Find::compile(&format!("/{}/", "a".repeat(512))).is_ok());
-    // too big to compile
-    assert!(Find::compile("/((a{100}){100}){100}/").is_err());
+  fn a_broken_or_overlong_regex_is_read_as_its_literal_text_like_the_ext() {
+    let f = Find::parse("/[/").unwrap();
+    assert!(f.test("x", "x", "a [ in it") && !f.test("x", "x", "none"));
+    let f = Find::parse("/(A/i").unwrap();
+    assert!(f.test("x", "x", "so (a here"), "the i still holds");
+    let long = "a".repeat(600);
+    let f = Find::parse(&format!("/{long}/")).unwrap();
+    assert!(f.test("x", "x", &long) && !f.test("x", "x", "a"));
+    // too big to compile: its literal text instead
+    assert!(Find::compile("/((a{100}){100}){100}/").is_some());
     // a quantified-quantifier is no blowup here
     let f = Find::parse("/(a+)+$/").unwrap();
     assert!(!f.test("x", "x", &format!("{}!", "a".repeat(5000))));

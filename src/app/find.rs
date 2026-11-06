@@ -65,11 +65,6 @@ impl App {
     self.find.on && self.prompt.is_some() && self.logs_shown().is_none()
   }
 
-  // the query is a /regex/ that does not compile
-  fn find_bad(&self) -> bool {
-    self.tabs.get(self.active).is_some_and(|t| t.view.search_bad())
-  }
-
   fn find_wanted(&self) -> bool {
     matches!(self.kind(), Kind::Chat | Kind::Mentions)
       && self.screen.is_none()
@@ -156,7 +151,6 @@ impl App {
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     let n = t.view.set_search(q, res, h);
     self.find.note = match (t.view.searching(), n) {
-      (false, _) if t.view.search_bad() => "bad pattern".into(),
       (false, _) => String::new(),
       (true, 0) => "no match".into(),
       (true, 1) => "1 found".into(),
@@ -179,8 +173,8 @@ impl App {
 
   // esc: no search, no prompt. true when there was one
   pub(super) fn find_clear(&mut self) -> bool {
-    let was = self.find_on() || self.find_bad() || self.find.on;
-    if self.find_on() || self.find_bad() {
+    let was = self.find_on() || self.find.on;
+    if self.find_on() {
       self.find_set("");
     }
     self.find.query.clear();
@@ -223,7 +217,7 @@ impl App {
         self.find.query = l.text.clone();
         self.close_prompt();
         // a pattern that will not compile stays up (flagged in the bar) until esc
-        if !self.find_on() && !self.find_bad() {
+        if !self.find_on() {
           self.find.query.clear();
         }
         return;

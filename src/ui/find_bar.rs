@@ -12,7 +12,7 @@ pub struct FindBar<'a> {
   pub preedit: &'a str,
   pub focused: bool,
   pub hint: &'a str,
-  // "3/10", "no match", "bad pattern"
+  // "3/10", "no match"
   pub note: &'a str,
 }
 
