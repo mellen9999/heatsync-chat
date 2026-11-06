@@ -45,6 +45,8 @@ pub struct Bar<'a> {
   pub reply: Option<&'a str>,
   // editing your own post: shown dim before its words
   pub edit: bool,
+  // the keys are in the filter bar: no cursor here
+  pub blur: bool,
   // uncommitted input-method text, drawn underlined at the cursor, and its caret (byte offset)
   pub preedit: &'a str,
   pub preedit_caret: usize,
@@ -381,6 +383,7 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
   }
   underline(c, l, g.pre.clone(), ox, oy, area);
   match b.mode {
+    _ if b.blur => {}
     Mode::Insert => {
       let r = Rect::new(x, y, CURSOR_W, h).intersect(area);
       if !r.is_empty() {

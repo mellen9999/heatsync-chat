@@ -79,6 +79,8 @@ mod tests_cardclip;
 #[cfg(test)]
 mod tests_chain;
 #[cfg(test)]
+mod tests_findbar;
+#[cfg(test)]
 mod tests_input;
 #[cfg(test)]
 mod tests_kickmod;

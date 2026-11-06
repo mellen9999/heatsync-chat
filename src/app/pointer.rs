@@ -54,7 +54,7 @@ impl App {
     if self.suggest_click() {
       return;
     }
-    if self.pin_click() || self.pred_click() {
+    if self.pin_click() || self.pred_click() || self.find_click() {
       return;
     }
     let (chat, input) = (self.chat_area(), self.input_area());

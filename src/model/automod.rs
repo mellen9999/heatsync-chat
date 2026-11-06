@@ -20,7 +20,7 @@ pub fn scan(text: &str) -> &str {
   text.char_indices().nth(SCAN).map_or(text, |(i, _)| &text[..i])
 }
 
-fn build(src: &str, ci: bool) -> Option<Regex> {
+pub fn build(src: &str, ci: bool) -> Option<Regex> {
   RegexBuilder::new(src).case_insensitive(ci).size_limit(1 << 20).dfa_size_limit(1 << 20).nest_limit(40).build().ok()
 }
 

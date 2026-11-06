@@ -27,8 +27,8 @@ pub(super) struct Damage {
 impl App {
   // the vi mode line for what the box is doing right now, and the half-typed command
   pub(super) fn mode_line(&self) -> (Vec<mode_label::Seg>, String) {
-    if self.prompt.is_some() {
-      return (Vec::new(), if self.find.on { self.find.note.clone() } else { String::new() });
+    if self.prompt.is_some() && !self.bar_find() {
+      return (Vec::new(), String::new());
     }
     if let Some(note) = self.rover_note() {
       return (Vec::new(), note);
@@ -38,7 +38,7 @@ impl App {
     let cmd = match self.chord {
       _ if segs.is_empty() || self.mode != Mode::Normal => String::new(),
       Some(' ') => "space".into(),
-      _ => Some(self.vi.showcmd()).filter(|c| !c.is_empty()).unwrap_or_else(|| self.find.note.clone()),
+      _ => Some(self.vi.showcmd()).filter(|c| !c.is_empty()).unwrap_or_default(),
     };
     (segs, cmd)
   }
@@ -58,14 +58,18 @@ impl App {
     }
     if std::mem::take(&mut self.input_dirty) {
       self.sync_suggest();
-      let chips = if self.prompt.is_some() { Vec::new() } else { self.input_chips() };
+      // the filter bar has its own box at the top: the input bar carries on with the message
+      let bf = self.bar_find();
+      let open = self.prompt.is_some() && !bf;
+      let chips = if open { Vec::new() } else { self.input_chips() };
       // a lock shows in the empty box even while inserting (vi), and its countdown re-arms a redraw each second
-      let locked = self.lock_here().filter(|_| self.prompt.is_none() && self.line.text.is_empty());
+      let locked = self.lock_here().filter(|_| !open && self.line.text.is_empty());
       self.lock_sec = locked
         .and_then(|l| l.flips_in(super::now_ms()))
         .map(|ms| Instant::now() + Duration::from_millis(ms.max(1) as u64));
+      let prompt = self.prompt.as_ref().filter(|_| open);
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
-      let hint = match &self.prompt {
+      let hint = match prompt {
         Some(_) if self.find.on && self.logs_shown().is_some() => {
           "type a search · enter finds it · esc cancels".to_owned()
         }
@@ -76,38 +80,35 @@ impl App {
       };
       // the picture view is no place to type (ext): the box steps aside
       let hidden = self.hidden() || self.img_view.is_some();
-      let tag = match &self.prompt {
+      let tag = match prompt {
         Some(_) if self.find.on => vec![("find: ", crate::ui::theme::YELLOW)],
         Some(_) => vec![("path: ", crate::ui::theme::YELLOW)],
         None => self.send_tag(),
       };
-      let reply = self.reply.as_ref().filter(|_| self.prompt.is_none()).map(|r| &*r.nick);
+      let reply = self.reply.as_ref().filter(|_| prompt.is_none()).map(|r| &*r.nick);
       // past what the platform takes, the words go red (ext updateCharCount)
       let typed = &self.line.text;
       let legs: Vec<Platform> = self.legs().into_iter().map(|l| l.0).collect();
-      let over = match (&self.prompt, legs.is_empty()) {
+      let over = match (prompt, legs.is_empty()) {
         (None, false) => typed.char_indices().nth(crate::model::sendto::limit(&legs)).map_or(typed.len(), |(i, _)| i),
         _ => usize::MAX,
       };
       let bar = input_bar::Bar {
-        line: self.prompt.as_ref().unwrap_or(&self.line),
-        mode: if self.prompt.is_some() { Mode::Insert } else { self.mode },
+        line: prompt.unwrap_or(&self.line),
+        mode: if prompt.is_some() { Mode::Insert } else { self.mode },
         target: &tag,
         hint: &hint,
         hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
         over,
-        link: if self.prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) {
-          LOGIN_HINT.len()
-        } else {
-          0
-        },
+        link: if prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) { LOGIN_HINT.len() } else { 0 },
         link_on: self.hover.link,
         reply,
-        edit: self.edit.is_some() && self.prompt.is_none(),
+        edit: self.edit.is_some() && prompt.is_none(),
+        blur: bf,
         preedit: self.ime.preedit(),
         preedit_caret: self.ime.caret(),
         picker_on: self.picker.is_some() || self.hover.btn,
-        upload_on: self.uploading || (self.prompt.is_some() && !self.find.on) || self.hover.up,
+        upload_on: self.uploading || (prompt.is_some() && !self.find.on) || self.hover.up,
         logo: &self.res.logo,
         label: if hidden { &[] } else { &label },
         showcmd: &showcmd,
@@ -127,7 +128,7 @@ impl App {
         let (caret, next, hit) = input_bar::draw(&mut self.canvas, &mut self.res.text, &mut self.res.images, r, &bar);
         self.ime_win.area = Some(caret);
         self.login_link = hit.link;
-        self.input_hit = (self.prompt.is_none() && !self.line.text.is_empty()).then_some(hit);
+        self.input_hit = (prompt.is_none() && !self.line.text.is_empty()).then_some(hit);
         self.input_next = next.map(|ms| Instant::now() + Duration::from_millis(ms.max(ANIM_MIN_MS) as u64));
         dirty = Some(r);
       } else {
@@ -138,6 +139,9 @@ impl App {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     if let Some(r) = self.sync_pred() {
+      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+    }
+    if let Some(r) = self.sync_find() {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let area = self.chat_area();
@@ -396,6 +400,7 @@ impl App {
     }
     self.pin_bar.sig = Default::default();
     self.pred_bar.sig = Default::default();
+    self.find.sig = None;
     self.bar_dirty = true;
     self.wake();
   }

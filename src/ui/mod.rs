@@ -3,6 +3,7 @@ pub mod canvas;
 pub mod card;
 pub mod chat_view;
 pub mod embed;
+pub mod find_bar;
 pub mod form;
 pub mod input_bar;
 pub mod jump_bar;

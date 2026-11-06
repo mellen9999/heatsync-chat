@@ -50,7 +50,10 @@ impl App {
 
   // auto-hide: an empty bar takes no room (mode and reply stay as they are)
   pub(super) fn hidden(&self) -> bool {
-    self.set.auto_hide && self.line.text.is_empty() && !self.ime.composing() && self.prompt.is_none()
+    self.set.auto_hide
+      && self.line.text.is_empty()
+      && !self.ime.composing()
+      && (self.prompt.is_none() || self.bar_find())
   }
 
   // the feed the box speaks as (a send may reach more: `legs`)

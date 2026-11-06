@@ -231,6 +231,7 @@ pub struct ChatView {
   last_text: Box<str>,
   // the search typed with / or ctrl-f: only matching lines show, hits in reverse video
   search: Option<Find>,
+  search_bad: bool,
 }
 
 pub enum Paint {
@@ -302,6 +303,7 @@ impl ChatView {
       tab_hidden: HashSet::new(),
       last_text: "".into(),
       search: None,
+      search_bad: false,
     }
   }
 
@@ -432,7 +434,9 @@ impl ChatView {
   // start, change or (empty query) end the search: lines that don't match go out of sight. returns how
   // many lines show. a picked line stays on screen; otherwise the view goes to the newest
   pub fn set_search(&mut self, q: &str, res: &mut Res, view_h: i32) -> usize {
-    self.search = Find::parse(q);
+    let found = Find::compile(q);
+    self.search_bad = found.is_err();
+    self.search = found.ok().flatten();
     let find = self.search.as_ref();
     for r in &mut self.rows {
       r.miss = find.is_some_and(|f| !f.test(&r.msg.nick, &r.msg.login, &r.msg.body));
@@ -447,6 +451,11 @@ impl ChatView {
       }
     }
     self.found()
+  }
+
+  // the query is a /regex/ that would not compile: it filters nothing
+  pub fn search_bad(&self) -> bool {
+    self.search_bad
   }
 
   pub fn searching(&self) -> bool {
