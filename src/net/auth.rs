@@ -379,14 +379,38 @@ fn parse_chat_token(ok: bool, v: &Value) -> Result<Option<(String, String)>, Str
   }
 }
 
-pub async fn logout(http: &reqwest::Client, token: &str) {
-  let _ = http.post(format!("{ORIGIN}/api/auth/logout")).bearer_auth(token).send().await;
+// did heatsync end the session? an already-dead one (401) counts, so does any 2xx. Err = what to tell the user
+pub async fn logout(http: &reqwest::Client, token: &str) -> Result<(), String> {
+  match http.post(format!("{ORIGIN}/api/auth/logout")).bearer_auth(token).send().await {
+    Ok(r) => logout_verdict(r.status().as_u16()),
+    Err(e) => {
+      eprintln!("logout: {e}");
+      Err(LOGOUT_OPEN.into())
+    }
+  }
+}
+
+const LOGOUT_OPEN: &str = "logged out here, but heatsync didn't hear it: your login there stays open until it runs out";
+
+fn logout_verdict(status: u16) -> Result<(), String> {
+  if (200..300).contains(&status) || status == 401 { Ok(()) } else { Err(LOGOUT_OPEN.into()) }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::model::message::Platform;
+
+  // logging out offline must not look like it worked everywhere
+  #[test]
+  fn a_logout_heatsync_did_not_hear_is_told() {
+    assert!(logout_verdict(200).is_ok() && logout_verdict(204).is_ok());
+    assert!(logout_verdict(401).is_ok(), "already gone there");
+    for code in [403, 429, 500, 503] {
+      let w = logout_verdict(code).unwrap_err();
+      assert!(w.contains("logged out here") && !w.contains(char::is_numeric), "{w}");
+    }
+  }
 
   #[test]
   fn sends_go_out_as_the_platform_name() {

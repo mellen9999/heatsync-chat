@@ -170,8 +170,14 @@ pub async fn run(
         }
         Some(Cmd::Logout) => {
           st.cancel_login("");
+          // you are out here at once; the server's side is told off to the side, and a failure is said
           if let Some(t) = st.token.take() {
-            auth::logout(&st.http, &t).await;
+            let (http, out) = (st.http.clone(), st.out.clone());
+            tokio::spawn(async move {
+              if let Err(why) = auth::logout(&http, &t).await {
+                out.status(why);
+              }
+            });
           }
           st.forget("logged out");
         }
