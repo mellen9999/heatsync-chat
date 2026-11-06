@@ -687,17 +687,12 @@ impl App {
   }
 }
 
-impl ApplicationHandler<NetEvent> for App {
-  fn resumed(&mut self, el: &ActiveEventLoop) {
-    if self.gfx.is_some() {
-      return;
-    }
+impl App {
+  // makes the window and its pixel surface; false (and the app exits) when either can't be had
+  fn open_window(&mut self, el: &ActiveEventLoop, size: winit::dpi::Size) -> bool {
     // x11 shows it; wayland compositors take their icon from the .desktop file instead
     let icon = crate::ui::logo::window_rgba().and_then(|(px, w)| winit::window::Icon::from_rgba(px, w, w).ok());
-    let attrs = Window::default_attributes()
-      .with_title(mentions::TITLE)
-      .with_window_icon(icon)
-      .with_inner_size(winit::dpi::LogicalSize::new(420, 800));
+    let attrs = Window::default_attributes().with_title(mentions::TITLE).with_window_icon(icon).with_inner_size(size);
     // the app id (wayland) and WM_CLASS (x11): what the .desktop file's icon is matched on
     let attrs = WindowAttributesExtWayland::with_name(attrs, APP_ID, APP_ID);
     let attrs = WindowAttributesExtX11::with_name(attrs, APP_ID, APP_ID);
@@ -705,7 +700,8 @@ impl ApplicationHandler<NetEvent> for App {
       Ok(w) => Rc::new(w),
       Err(e) => {
         eprintln!("window: {e}");
-        return el.exit();
+        el.exit();
+        return false;
       }
     };
     let surface = Context::new(window.clone()).and_then(|ctx| Surface::new(&ctx, window.clone()));
@@ -713,19 +709,36 @@ impl ApplicationHandler<NetEvent> for App {
       Ok(s) => s,
       Err(e) => {
         eprintln!("surface: {e}");
-        return el.exit();
+        el.exit();
+        return false;
       }
     };
     self.dpi = window.scale_factor() as f32;
     self.res.set_scale(self.scale());
     let size = window.inner_size();
     self.gfx = Some(Gfx { window, surface });
+    self.occluded = false;
     self.resize(size.width, size.height);
-    self.first_run();
+    true
+  }
+}
+
+impl ApplicationHandler<NetEvent> for App {
+  fn resumed(&mut self, el: &ActiveEventLoop) {
+    if self.gfx.is_some() {
+      return;
+    }
+    let first = self.open_window(el, winit::dpi::LogicalSize::new(420, 800).into());
+    if first {
+      self.first_run();
+    }
   }
 
-  fn user_event(&mut self, _: &ActiveEventLoop, ev: NetEvent) {
-    self.on_net(ev);
+  fn user_event(&mut self, el: &ActiveEventLoop, ev: NetEvent) {
+    match ev {
+      NetEvent::Raise(open) => self.raise(el, &open),
+      ev => self.on_net(ev),
+    }
   }
 
   fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {

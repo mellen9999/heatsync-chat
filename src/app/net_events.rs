@@ -654,7 +654,8 @@ impl App {
       NetEvent::Links { tab, kick, yt } => self.on_links(&tab, kick, yt),
       NetEvent::Upload(u) => self.on_upload(u),
       NetEvent::Pasted { to_picker, got } => self.on_pasted(to_picker, got),
-      NetEvent::Raise(open) => self.raise(&open),
+      // user_event answers it: making a window again needs the event loop
+      NetEvent::Raise(_) => {}
       NetEvent::Inv { op, res } => self.on_inv(op, res),
       NetEvent::Status(s) => self.say(s),
     }
