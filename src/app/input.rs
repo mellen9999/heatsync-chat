@@ -10,8 +10,10 @@ use crate::model::{chan, whisper};
 impl App {
   pub(super) fn hint(&self) -> String {
     if !self.tabs.iter().any(|t| t.kind == Kind::Chat) {
-      return "no channels — click + or press ctrl-t to add one, or /import to add the ones you follow on twitch"
-        .into();
+      let login = if self.me.is_none() { " · ctrl-l log in" } else { "" };
+      return format!(
+        "no channels — click + or press ctrl-t to add one, or /import to add the ones you follow on twitch{login}"
+      );
     }
     if self.kind() == Kind::Mentions {
       return "enter or a click opens the line in its channel".into();

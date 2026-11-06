@@ -6,7 +6,7 @@ use super::theme;
 use crate::model::chan::Form;
 
 const LABELS: [&str; 3] = ["twitch", "kick", "youtube"];
-const HOLD: [&str; 3] = ["username", "username", "username or url"];
+const HOLD: [&str; 3] = ["channel name, like forsen", "channel name, like forsen", "channel name or link"];
 const PAD: i32 = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

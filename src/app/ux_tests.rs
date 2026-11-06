@@ -133,6 +133,15 @@ fn the_key_map_marks_the_vi_rows_and_dims_them_until_vi_is_on() {
 }
 
 #[test]
+fn the_no_channels_hint_says_how_to_log_in_only_while_logged_out() {
+  let (mut app, _rx) = boot(&[], 420, 800);
+  app.me = None;
+  assert!(app.hint().starts_with("no channels") && app.hint().ends_with("· ctrl-l log in"), "{}", app.hint());
+  app.me = Some(me(Some("mellen"), None));
+  assert!(!app.hint().contains("log in"), "{}", app.hint());
+}
+
+#[test]
 fn the_empty_box_offers_log_in_as_a_button_while_logged_out() {
   let (mut app, _rx) = boot(&["forsen"], 420, 800);
   app.me = None;
