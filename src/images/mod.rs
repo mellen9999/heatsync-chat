@@ -9,7 +9,15 @@ use std::time::Instant;
 
 use decode::Decoded;
 
+// an id is the slot's index (low 20 bits) and its era (high 12): a slot that was recycled for
+// another picture has a new era, so an id a chat line kept from before can never show the new one
 pub type ImgId = u32;
+
+const IX_BITS: u32 = 20;
+const IX_MASK: u32 = (1 << IX_BITS) - 1;
+const ERA_MASK: u32 = 0xfff;
+// the id handed out if the registry were ever full: no slot answers to it
+const NO_IMG: ImgId = u32::MAX;
 
 enum State {
   Idle,
@@ -19,6 +27,11 @@ enum State {
 }
 
 struct Slot {
+  // false once recycled: waiting on the free list for the next url
+  live: bool,
+  era: u32,
+  // ms since epoch when last registered, drawn or asked for; a picture quiet this long is recycled
+  used_ms: u64,
   url: Box<str>,
   // logical display height; physical = × scale
   lh: u16,
@@ -39,6 +52,7 @@ struct Slot {
 
 pub struct Images {
   slots: Vec<Slot>,
+  free: Vec<u32>,
   by_url: HashMap<(Box<str>, u16), ImgId>,
   bytes: usize,
   cap: usize,
@@ -58,11 +72,14 @@ const SWEEP_MS: u64 = 10_000;
 // a picture that failed (offline, a 5xx, a bad file) is tried again after this, doubling each time it
 // fails again, up to 8×: 2, 4, 8, 16 minutes
 const RETRY_FAILED_MS: u64 = 120_000;
+// a picture nobody has drawn or asked for in this long (and holding no frames) gives its slot back
+const RECYCLE_MS: u64 = 30 * 60_000;
 
 impl Images {
   pub fn new(scale: f32) -> Self {
     Self {
       slots: Vec::new(),
+      free: Vec::new(),
       by_url: HashMap::new(),
       bytes: 0,
       cap: DEFAULT_CAP,
@@ -93,13 +110,36 @@ impl Images {
     (logical as f32 * self.scale).round().max(1.0) as u32
   }
 
+  fn now_ms(&self) -> u64 {
+    self.epoch.elapsed().as_millis() as u64
+  }
+
+  // the slot an id still points at; None for an id from before its slot was recycled
+  fn ix(&self, id: ImgId) -> Option<usize> {
+    let i = (id & IX_MASK) as usize;
+    self.slots.get(i).filter(|s| s.live && s.era == id >> IX_BITS).map(|_| i)
+  }
+
+  // an id whose slot was recycled: whoever holds it must lay out again and ask by url
+  fn note_stale(&mut self, id: ImgId) {
+    if id != NO_IMG && self.ix(id).is_none() && ((id & IX_MASK) as usize) < self.slots.len() {
+      self.revived = true;
+    }
+  }
+
   pub fn id(&mut self, url: &str, lh: u16) -> ImgId {
     let key = (Box::<str>::from(url), lh);
+    let now = self.now_ms();
     if let Some(&id) = self.by_url.get(&key) {
+      if let Some(i) = self.ix(id) {
+        self.slots[i].used_ms = now;
+      }
       return id;
     }
-    let id = self.slots.len() as ImgId;
-    self.slots.push(Slot {
+    let fresh = Slot {
+      live: true,
+      era: 0,
+      used_ms: now,
       url: key.0.clone(),
       lh,
       state: State::Idle,
@@ -110,7 +150,17 @@ impl Images {
       dims: (0, 0),
       fails: 0,
       failed_ms: 0,
-    });
+    };
+    let id = if let Some(i) = self.free.pop() {
+      let era = (self.slots[i as usize].era + 1) & ERA_MASK;
+      self.slots[i as usize] = Slot { era, ..fresh };
+      i | era << IX_BITS
+    } else if self.slots.len() < IX_MASK as usize {
+      self.slots.push(fresh);
+      (self.slots.len() - 1) as ImgId
+    } else {
+      return NO_IMG;
+    };
     self.by_url.insert(key, id);
     id
   }
@@ -118,7 +168,8 @@ impl Images {
   // a chat picture: at most `lh` high and `max_w` px wide, kept at its own size when smaller
   pub fn id_fit(&mut self, url: &str, lh: u16, max_w: u32) -> ImgId {
     let id = self.id(url, lh);
-    let s = &mut self.slots[id as usize];
+    let Some(i) = self.ix(id) else { return id };
+    let s = &mut self.slots[i];
     let max_w = max_w.clamp(1, 0xffff);
     if s.max_w != max_w {
       s.max_w = max_w;
@@ -135,13 +186,13 @@ impl Images {
 
   // where a picture comes from
   pub fn url(&self, id: ImgId) -> Option<&str> {
-    self.slots.get(id as usize).map(|s| &*s.url)
+    self.ix(id).map(|i| &*self.slots[i].url)
   }
 
   // drop the decoded frames of one picture now (a popup that closed); it reloads from disk if asked again
   pub fn release(&mut self, id: ImgId) {
-    if let Some(s) = self.slots.get_mut(id as usize)
-      && let State::Ready(d) = std::mem::replace(&mut s.state, State::Idle)
+    if let Some(i) = self.ix(id)
+      && let State::Ready(d) = std::mem::replace(&mut self.slots[i].state, State::Idle)
     {
       self.bytes -= d.bytes();
     }
@@ -149,8 +200,10 @@ impl Images {
 
   // ask for the picture now (draw time), without drawing it
   pub fn want(&mut self, id: ImgId) {
-    let Some(want) = self.slots.get(id as usize).map(|s| self.target(s)) else { return };
-    let s = &mut self.slots[id as usize];
+    let Some(i) = self.ix(id) else { return self.note_stale(id) };
+    let (want, now) = (self.target(&self.slots[i]), self.now_ms());
+    let s = &mut self.slots[i];
+    s.used_ms = now;
     if matches!(s.state, State::Idle) {
       s.state = State::Loading;
       self.wanted.push((id, s.url.clone(), want));
@@ -159,7 +212,11 @@ impl Images {
 
   // decoded size, if it ever decoded; layout reserves exactly this
   pub fn dims(&mut self, id: ImgId) -> Option<(u32, u32)> {
-    let s = self.slots.get_mut(id as usize)?;
+    let Some(i) = self.ix(id) else {
+      self.note_stale(id);
+      return None;
+    };
+    let s = &mut self.slots[i];
     (s.dims.0 > 0).then(|| {
       s.guessed_w = s.dims.0;
       s.dims
@@ -167,7 +224,7 @@ impl Images {
   }
 
   pub fn failed(&self, id: ImgId) -> bool {
-    self.slots.get(id as usize).is_some_and(|s| matches!(s.state, State::Failed))
+    self.ix(id).is_some_and(|i| matches!(self.slots[i].state, State::Failed))
   }
 
   // what the decoder is asked for: physical height, and (chat pictures) max width in the high half
@@ -177,9 +234,12 @@ impl Images {
 
   // width at target height: real if decoded, else from provider dims, else square
   pub fn width(&mut self, id: ImgId, native: (u16, u16)) -> u32 {
-    let Some(lh) = self.slots.get(id as usize).map(|s| s.lh) else { return 1 };
-    let th = self.px(lh);
-    let s = &mut self.slots[id as usize];
+    let Some(i) = self.ix(id) else {
+      self.note_stale(id);
+      return 1;
+    };
+    let th = self.px(self.slots[i].lh);
+    let s = &mut self.slots[i];
     if let State::Ready(d) = &s.state {
       return d.w;
     }
@@ -195,9 +255,14 @@ impl Images {
 
   // `play` false holds an animated image on its first frame (and asks for no ticks)
   pub fn frame_with(&mut self, id: ImgId, play: bool) -> Option<(&decode::Frame, u32, u32, Option<u32>)> {
-    let now = self.epoch.elapsed().as_millis() as u64;
-    let h = self.target(self.slots.get(id as usize)?);
-    let s = &mut self.slots[id as usize];
+    let now = self.now_ms();
+    let Some(i) = self.ix(id) else {
+      self.note_stale(id);
+      return None;
+    };
+    let h = self.target(&self.slots[i]);
+    let s = &mut self.slots[i];
+    s.used_ms = now;
     s.last_used = self.tick;
     s.seen_ms = now;
     if matches!(s.state, State::Idle) {
@@ -225,8 +290,9 @@ impl Images {
 
   // returns true when the real width differs from what layout guessed (rows must relayout)
   pub fn loaded(&mut self, id: ImgId, h: u32, res: Result<Decoded, String>) -> bool {
-    let Some(want) = self.slots.get(id as usize).map(|s| self.target(s)) else { return false };
-    let s = &mut self.slots[id as usize];
+    let Some(i) = self.ix(id) else { return false };
+    let want = self.target(&self.slots[i]);
+    let s = &mut self.slots[i];
     if h != want {
       // decoded for a stale scale; ask again
       s.state = State::Idle;
@@ -270,7 +336,10 @@ impl Images {
 
   fn sweep(&mut self, now: u64) -> bool {
     let before = self.bytes;
-    for s in &mut self.slots {
+    for (i, s) in self.slots.iter_mut().enumerate() {
+      if !s.live {
+        continue;
+      }
       if matches!(s.state, State::Failed) && now >= s.failed_ms + (RETRY_FAILED_MS << (s.fails.max(1) - 1).min(3)) {
         s.state = State::Idle;
         self.revived = true;
@@ -280,6 +349,12 @@ impl Images {
       {
         self.bytes -= d.bytes();
         s.state = State::Idle;
+      }
+      // nothing in it, nobody asking for a long while: the slot (and its url) go back for the next picture
+      if matches!(s.state, State::Idle | State::Failed) && s.used_ms + RECYCLE_MS < now {
+        s.live = false;
+        self.by_url.remove(&(std::mem::take(&mut s.url), s.lh));
+        self.free.push(i as u32);
       }
     }
     self.bytes < before
@@ -362,5 +437,62 @@ mod tests {
     }
     im.sweep(RETRY_FAILED_MS * 8);
     assert!(!im.failed(id));
+  }
+
+  fn loaded_px(im: &mut Images, id: ImgId, px: u32) {
+    let h = im.target(&im.slots[(id & 0xfffff) as usize]);
+    im.slots[(id & 0xfffff) as usize].state = State::Loading;
+    let frame = decode::Frame { rgba: vec![7; (px * px * 4) as usize].into(), delay_ms: 0 };
+    im.loaded(id, h, Ok(Decoded { w: px, h: px, frames: vec![frame] }));
+  }
+
+  #[test]
+  fn pictures_nobody_looks_at_any_more_give_their_slots_back() {
+    let mut im = Images::new(1.0);
+    for round in 0..4u64 {
+      for i in 0..500 {
+        im.id(&format!("https://cdn.7tv.app/emote/r{round}x{i}/1x.webp"), 28);
+      }
+      // the next batch arrives well after the last went quiet
+      im.sweep((round + 1) * (RECYCLE_MS + 1));
+    }
+    assert!(im.slots.len() <= 1_000, "the registry kept {} slots for 2000 urls", im.slots.len());
+    assert!(im.by_url.len() <= 1_000);
+  }
+
+  #[test]
+  fn an_old_id_never_shows_the_picture_that_took_its_slot() {
+    let mut im = Images::new(1.0);
+    let old = im.id("https://cdn.7tv.app/emote/old/1x.webp", 28);
+    im.sweep(RECYCLE_MS + 1);
+    let new = im.id("https://cdn.7tv.app/emote/new/1x.webp", 28);
+    loaded_px(&mut im, new, 8);
+    assert_ne!(old, new, "a recycled slot gets a fresh id");
+    assert!(im.url(old).is_none());
+    assert!(im.frame(old).is_none());
+    assert!(im.dims(old).is_none());
+    assert!(!im.failed(old));
+    // rows holding the old id are told to lay out again, and ask by url
+    assert!(im.take_revived());
+    let again = im.id("https://cdn.7tv.app/emote/old/1x.webp", 28);
+    assert_eq!(im.url(again), Some("https://cdn.7tv.app/emote/old/1x.webp"));
+    assert_eq!(im.url(new), Some("https://cdn.7tv.app/emote/new/1x.webp"));
+    assert!(im.dims(new).is_some());
+  }
+
+  #[test]
+  fn a_picture_that_is_on_screen_or_loading_keeps_its_slot() {
+    let mut im = Images::new(1.0);
+    let busy = im.id("https://cdn.7tv.app/emote/busy/1x.webp", 28);
+    let shown = im.id("https://cdn.7tv.app/emote/shown/1x.webp", 28);
+    assert!(im.frame(busy).is_none());
+    loaded_px(&mut im, shown, 8);
+    im.sweep(RECYCLE_MS / 2);
+    // drawn again at that moment (the clock here is real time, so say when by hand)
+    im.frame(shown);
+    im.slots[(shown & 0xfffff) as usize].used_ms = RECYCLE_MS / 2;
+    im.sweep(RECYCLE_MS + 1);
+    assert_eq!(im.id("https://cdn.7tv.app/emote/busy/1x.webp", 28), busy, "still loading");
+    assert_eq!(im.id("https://cdn.7tv.app/emote/shown/1x.webp", 28), shown, "drawn recently");
   }
 }
