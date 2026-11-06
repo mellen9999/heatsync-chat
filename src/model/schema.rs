@@ -141,7 +141,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 74] = [
+pub static DEFS: [Def; 76] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
