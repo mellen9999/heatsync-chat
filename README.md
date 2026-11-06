@@ -51,6 +51,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - emote picker (searches 7tv, ffz and heatsync too; an emoji tab, a gifs tab with search), picture and video upload (pictures lose their hidden location and camera data first)
 - replies and reply threads, pins (pin a line yourself if it's your channel or you mod it), predictions, polls, subs, raids, cheers and redeems, mod actions on twitch and kick (`/nuke` too), clips from a user card, mention highlights + desktop notification + sound. the mentions tab survives a restart, and a whisper pops a line while you're on another tab
 - went-live lines (+ a desktop notification), and who you follow that's live
+- streamer mode (`/streamer on|off|auto`, auto = while obs is running): whisper text, link previews, popup text and sounds are held back, a `● streamer` marker shows in the tab bar, `space s` shows the whispers tab for the session
 - the message box says when you're timed out or banned and for how long, and marks text past the limit red
 - links open in your browser, video links in mpv if you have it
 - settings (and `/reset`, one honest put-everything-back, asks first) and keys match the extension's
