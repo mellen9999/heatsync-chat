@@ -71,7 +71,7 @@ on arch: `paru -S wl-clipboard libnotify xdg-utils zenity mpv yt-dlp`
 
 ## privacy
 
-no analytics, no telemetry, no crash reports sent anywhere. your login token goes to heatsync.org only and is never logged or drawn on screen. chat is never saved to disk, bar the last 500 lines that pinged you (so the mentions tab survives a restart). [docs/PRIVACY.md](docs/PRIVACY.md) lists every host the app talks to and what it sends.
+no analytics, no telemetry, no crash reports sent anywhere. your login token goes to heatsync.org only and is never logged or drawn on screen. chat is never saved to disk, bar the last 500 lines that pinged you (so the mentions tab survives a restart), unless you turn on `save chat logs` (`/chatlogs`, off by default): then every line of your open channels is appended to plain text files in `~/.local/share/heatsync-chat/logs/<platform>/<channel>/<day>.log`, on your machine only. whispers are never saved. [docs/PRIVACY.md](docs/PRIVACY.md) lists every host the app talks to and what it sends.
 
 your settings and tabs live in `~/.config/heatsync-chat`, the picture cache in `~/.cache/heatsync-chat`.
 

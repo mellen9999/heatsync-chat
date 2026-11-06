@@ -8,7 +8,7 @@ every host heatsync-chat talks to, what it gets, and why. no analytics, no telem
 - your heatsync login token goes to `heatsync.org` and nowhere else. the one other token in play is the twitch chat token heatsync hands you at login: it goes to twitch's chat server, so you can send.
 - tokens are never written to a log or drawn on screen.
 - every request says `heatsync-chat/<version>` as its user agent and, like any website visit, the other side sees your ip.
-- chat lines are never saved to disk, bar the lines that pinged you (the mentions tab, see the bottom). what is saved is listed at the bottom.
+- chat lines are never saved to disk, bar the lines that pinged you (the mentions tab, see the bottom) and, only if you turn on `save chat logs` (`/chatlogs`, off by default), every line of your open channels. what is saved is listed at the bottom.
 
 ## every host
 
@@ -59,6 +59,8 @@ in `~/.config/heatsync-chat` (the folder is private to you, `0700`, and so is ev
 - `token`: your heatsync login
 - `crash.log`: a line per crash, with anything secret cut out. it stays here; nothing sends it anywhere
 - `<name>.bak`: a file the app couldn't read gets moved here and the chat says so, so nothing is lost silently
+
+in `~/.local/share/heatsync-chat/logs` (`$XDG_DATA_HOME` if you set it; private, `0700`/`0600`), **only with `save chat logs` on, which is off until you turn it on**: `<platform>/<channel>/<yyyy-mm-dd>.log`, one plain-text line per message (`[hh:mm:ss] name: text`), plus timeouts, bans, subs and other notices. it covers the lines that arrive while the app runs and the channels you have open; history that loads when you open a tab is not saved. whispers and dms are never saved. it never leaves your machine, and the app never reads, trims or deletes it: the disk space is yours to manage. turning the switch off stops writing; the files stay until you delete them. if a write fails (disk full, no permission) the chat says so once and logging stops until you flip the switch off and on.
 
 in `~/.cache/heatsync-chat/img` (also private): the pictures it downloaded, named by a sha256 of their address, capped at 256MB with the oldest dropped. safe to delete any time.
 
