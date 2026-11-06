@@ -24,6 +24,8 @@ pub struct TabLabel<'a> {
 
 // the buttons after the tabs: which is under the pointer (or open), and a newer version's label
 pub struct Hot<'a> {
+  // the tab under the pointer (its position in `tabs`): reversed like the active one
+  pub tab: Option<usize>,
   pub plus: bool,
   pub gear: bool,
   pub keys: bool,
@@ -77,15 +79,16 @@ pub fn draw(
       }
       r
     };
-  for t in tabs {
+  for (i, t) in tabs.iter().enumerate() {
+    let rev = t.active || hot.tab == Some(i);
     let ink = if t.unread { t.hot } else { theme::DIM };
     let count = if t.count.is_empty() { String::new() } else { format!(" {}", t.count) };
     let label = if column { format!(" {}{count}", t.name) } else { format!(" {}{count} ", t.name) };
-    let r = cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, t.active);
+    let r = cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, rev);
     let r = if t.live && !column {
       // a row tab grows by the dot; a column tab is full width already
       let wide = Rect::new(r.x, r.y, r.w + d + 2, r.h);
-      if t.active {
+      if rev {
         c.fill(Rect::new(r.right(), r.y, d + 2, r.h).intersect(inner), theme::WHITE);
       }
       x += d + 2;
@@ -101,11 +104,11 @@ pub fn draw(
       let pad = text.layout(" ", &[], &[], f32::MAX).width().ceil() as i32;
       let u =
         Rect::new(r.x + pad, r.bottom() - 2, (r.w - 2 * pad - if t.live && !column { d + 2 } else { 0 }).max(1), 1);
-      c.fill(u.intersect(inner), if t.active { theme::BLACK } else { theme::WHITE });
+      c.fill(u.intersect(inner), if rev { theme::BLACK } else { theme::WHITE });
     }
     if t.cursor {
       let u = Rect::new(r.x + 2, r.bottom() - 2, (r.w - 4).max(1), 1);
-      c.fill(u.intersect(inner), if t.active { theme::BLACK } else { theme::WHITE });
+      c.fill(u.intersect(inner), if rev { theme::BLACK } else { theme::WHITE });
     }
     hits.push(r);
   }

@@ -74,6 +74,10 @@ pub struct Text {
   pub line_px: f32,
   // the row being drawn sits on a zebra stripe
   pub stripe: bool,
+  // the row being drawn is the picked one: every glyph black (the row is filled white), painted names too
+  pub reverse: bool,
+  // a span of the text being drawn that is reversed (an inline button under the pointer)
+  pub lit: Option<Range<usize>>,
 }
 
 impl Text {
@@ -86,6 +90,8 @@ impl Text {
       font_px: (theme::FONT_PX * scale).round(),
       line_px: (theme::LINE_PX * scale).round(),
       stripe: false,
+      reverse: false,
+      lit: None,
     }
   }
 
@@ -155,8 +161,9 @@ impl Text {
     clip: Rect,
     mut on_box: impl FnMut(&mut Canvas, &PositionedInlineBox),
   ) {
-    let Self { glyphs, scale, stripe: self_stripe, .. } = self;
-    let self_stripe = *self_stripe;
+    let Self { glyphs, scale, stripe: self_stripe, reverse: self_reverse, lit, .. } = self;
+    let (self_stripe, self_reverse) = (*self_stripe, *self_reverse);
+    let lit = lit.clone();
     if glyphs.len() > GLYPH_CACHE_MAX {
       glyphs.clear();
     }
@@ -183,15 +190,25 @@ impl Text {
         let size = run.font_size();
         let bold = run.synthesis().embolden();
         let ink = gr.style().brush.0;
-        if ink & Ink::PAINTED != 0 {
+        if ink & Ink::PAINTED != 0 && !self_reverse {
           continue;
         }
-        if ink & Ink::REVERSE != 0 {
+        if ink & Ink::REVERSE != 0 && !self_reverse {
           let (x, y0, y1) = (ox + gr.offset(), oy + m.block_min_coord, oy + m.block_max_coord);
           let bar = Rect::new(x.floor() as i32, y0.floor() as i32, gr.advance().ceil() as i32, (y1 - y0).ceil() as i32);
           c.fill(bar.intersect(clip), theme::WHITE);
         }
-        let ink = if ink & Ink::LIFT != 0 && self_stripe { theme::DIM_STRIPE } else { ink & 0xff_ffff };
+        let on = lit.as_ref().is_some_and(|r| {
+          let at = run.text_range();
+          r.start <= at.start && at.end <= r.end
+        });
+        let ink = if self_reverse || on {
+          theme::BLACK
+        } else if ink & Ink::LIFT != 0 && self_stripe {
+          theme::DIM_STRIPE
+        } else {
+          ink & 0xff_ffff
+        };
         let coords = run.normalized_coords();
         let key = |g: &parley::Glyph| {
           let gx = ox + g.x;

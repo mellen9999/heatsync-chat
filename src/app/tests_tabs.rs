@@ -775,3 +775,35 @@ fn headless_live_tab_has_a_red_dot() {
   app.on_stream(line(Tone::Offline));
   assert_eq!(red(&mut app, forsen), 0);
 }
+
+// the tab under the pointer is reversed like the active one, and lets go when the pointer leaves
+#[test]
+fn headless_tab_hover_reverses_the_tab() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(720, 200);
+  for t in &mut app.tabs {
+    t.view.resize(720);
+  }
+  app.redraw();
+  let other = (0..app.bar_map.len()).find(|&p| app.bar_map[p] != app.active).expect("a second tab");
+  let r = app.bar_hits[other];
+  let white = |app: &App| {
+    let c = &app.canvas;
+    let ys = r.y..r.bottom();
+    ys.flat_map(|y| (r.x..r.right()).map(move |x| (x, y)))
+      .filter(|&(x, y)| c.px[(y * c.w + x) as usize] == 0xffffff)
+      .count()
+  };
+  let before = white(&app);
+  app.pointer = (r.x + r.w / 2, r.y + r.h / 2);
+  app.bar_hover();
+  app.redraw();
+  assert!(white(&app) > before + (r.w * r.h / 2) as usize, "the hovered tab is a white block");
+  app.pointer = (r.x + r.w / 2, app.canvas.h - 1);
+  app.bar_hover();
+  app.redraw();
+  assert_eq!(white(&app), before, "the pointer left");
+}

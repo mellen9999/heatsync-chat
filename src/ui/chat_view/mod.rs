@@ -216,6 +216,8 @@ pub struct ChatView {
   pub tags: bool,
   // the line picked with `v` / a click (by seq), outlined; replies and actions act on it
   selected: Option<i64>,
+  // the inline button the pointer is on (its line's seq and where its words start): drawn reversed
+  hot: Option<(i64, usize)>,
   // yellow edge (magenta = twitch first message ever) on a person's first line this session (setting first_glow)
   pub glow: bool,
   seen: Seen,
@@ -296,6 +298,7 @@ impl ChatView {
       timestamps: true,
       tags: false,
       selected: None,
+      hot: None,
       glow: true,
       seen: Seen::default(),
       top: false,
@@ -778,6 +781,16 @@ impl ChatView {
   pub fn relayout(&mut self) {
     self.rows.iter_mut().for_each(Self::touch);
     self.stale = true;
+  }
+
+  // the inline button under the pointer changed; true = it did (the caller wakes for a repaint)
+  pub fn set_hot(&mut self, hot: Option<(i64, usize)>) -> bool {
+    let changed = self.hot != hot;
+    if changed {
+      self.hot = hot;
+      self.stale = true;
+    }
+    changed
   }
 
   pub fn invalidate(&mut self) {

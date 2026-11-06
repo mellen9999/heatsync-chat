@@ -19,6 +19,8 @@ pub(super) struct SuggestUi {
   pub(super) list: Option<Suggest>,
   pub(super) at: (Box<str>, usize),
   pub(super) rows: Vec<(usize, Rect)>,
+  // the row the pointer is on (reversed in place of the keyboard's pick until a key moves)
+  pub(super) hot: Option<usize>,
 }
 
 impl App {
@@ -45,6 +47,7 @@ impl App {
     // the same name stays picked as the list narrows
     let was = old.filter(|o| o.kind == kind).and_then(|o| o.items.get(o.sel).map(|p| p.name.clone()));
     let sel = was.and_then(|n| items.iter().position(|p| p.name == n)).unwrap_or(0);
+    self.sug.hot = None;
     self.sug.list = Some(Suggest { kind, range, items, sel });
   }
 
@@ -67,9 +70,21 @@ impl App {
       Key::Named(NamedKey::Escape) => self.sug.list = None,
       _ => return false,
     }
+    self.sug.hot = None;
     self.input_dirty = true;
     self.wake();
     true
+  }
+
+  // the pointer moved: the row under it reverses (a key takes the pick back)
+  pub(super) fn suggest_hover(&mut self) {
+    let (x, y) = self.pointer;
+    let hot = self.sug.list.as_ref().and_then(|_| self.sug.rows.iter().find(|r| r.1.contains(x, y)).map(|r| r.0));
+    if hot != self.sug.hot {
+      self.sug.hot = hot;
+      self.input_dirty = true;
+      self.wake();
+    }
   }
 
   // a pick replaces what was typed; the list stays on as the tab cycle
@@ -130,7 +145,15 @@ impl App {
       rows.push(row);
     }
     let top = self.chat_area().y;
-    let (r, hits) = ui::list(&mut self.canvas, &mut self.res.text, &mut self.res.images, input, top, &rows, sel);
+    let (r, hits) = ui::list(
+      &mut self.canvas,
+      &mut self.res.text,
+      &mut self.res.images,
+      input,
+      top,
+      &rows,
+      (sel, self.sug.hot.filter(|&h| h < rows.len())),
+    );
     self.sug.rows = hits;
     Some(r)
   }

@@ -427,6 +427,23 @@ fn headless_suggest() {
   app.line.insert("so :ka");
   assert_eq!(open(&mut app), Some((S::Emote, vec!["Kappa".into(), "KappaPride".into()])));
   assert!(app.over_input && !app.sug.rows.is_empty(), "the list is on screen");
+  // the pointer over the second row reverses it (the first, picked by keys, goes back to plain)
+  let white_in = |app: &App, r: Rect| {
+    let c = &app.canvas;
+    (r.y..r.bottom())
+      .flat_map(|y| (r.x..r.right()).map(move |x| (x, y)))
+      .filter(|&(x, y)| c.px[(y * c.w + x) as usize] == 0xffffff)
+      .count()
+  };
+  let (first, second) = (app.sug.rows[0].1, app.sug.rows[1].1);
+  assert!(white_in(&app, first) > white_in(&app, second) + 100, "the keyboard's pick is the reversed row");
+  app.pointer = (second.x + 40, second.y + second.h / 2);
+  app.suggest_hover();
+  open(&mut app);
+  assert!(white_in(&app, second) > white_in(&app, first) + 100, "the row under the pointer takes the reverse");
+  key(&mut app, NamedKey::ArrowDown);
+  assert_eq!(app.sug.hot, None, "a key takes the pick back");
+  key(&mut app, NamedKey::ArrowUp);
   key(&mut app, NamedKey::ArrowDown);
   key(&mut app, NamedKey::Enter);
   assert_eq!(app.line.text, "so KappaPride ");

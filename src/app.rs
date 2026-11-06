@@ -777,6 +777,8 @@ impl ApplicationHandler<NetEvent> for App {
         self.input_hover();
         self.jump_hover();
         self.modbar_hover();
+        self.chat_hover();
+        self.suggest_hover();
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
@@ -784,6 +786,10 @@ impl ApplicationHandler<NetEvent> for App {
       WindowEvent::DroppedFile(p) => self.upload_file(p),
       WindowEvent::CursorLeft { .. } => {
         self.hide_tip();
+        if self.hover.tab.take().is_some() {
+          self.bar_dirty = true;
+          self.wake();
+        }
         self.modbar_leave();
       }
       WindowEvent::MouseWheel { delta, .. } => {

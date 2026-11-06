@@ -205,6 +205,17 @@ impl ChatView {
     self.spot_at(area, (x, y), res, |l| &l.reveal)
   }
 
+  // the inline button (show / hide, allow / deny) under (x, y): its line's seq and where its words start
+  pub fn button_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(i64, usize)> {
+    let (i, top) = self.row_at(area, y, res)?;
+    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let ranges = [laid.reveal.clone(), laid.allow.clone(), laid.deny.clone()];
+    let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
+    let k = over(&laid.layout, lx, ly, &ranges)?;
+    Some((self.rows[i].seq, ranges[k].start))
+  }
+
   // the picture under (x, y): a line's inline picture or a feed post's, never an emote or badge; and
   // the video it plays, when it is a still
   pub fn pic_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(ImgId, Option<Box<str>>)> {

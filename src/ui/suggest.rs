@@ -34,7 +34,7 @@ const MAX_H: u16 = 280;
 const PREVIEW: u16 = 22;
 
 // the list right above the box, as wide as it, never above `top`; the picked row is reversed and kept in
-// view. returns the painted rect and each shown row's (index, rect) for clicks
+// view (the row under the pointer, if any, is the reversed one instead). returns the painted rect and each shown row's (index, rect) for clicks
 pub fn list(
   c: &mut Canvas,
   text: &mut Text,
@@ -42,7 +42,7 @@ pub fn list(
   input: Rect,
   top: i32,
   rows: &[Row],
-  sel: usize,
+  (sel, hot): (usize, Option<usize>),
 ) -> (Rect, Vec<(usize, Rect)>) {
   let rh = (text.line_px as i32).max(images.px(PREVIEW) as i32 + 2);
   let room = (input.y - top - 2).min(images.px(MAX_H) as i32);
@@ -57,7 +57,7 @@ pub fn list(
   for (k, row) in rows.iter().enumerate().skip(first).take(fit) {
     let y = r.y + 1 + (k - first) as i32 * rh;
     let cell = Rect::new(r.x + 1, y, r.w - 2, rh);
-    let on = k == sel;
+    let on = k == hot.unwrap_or(sel);
     if on {
       c.fill(cell, theme::WHITE);
     }

@@ -595,6 +595,12 @@ impl App {
   }
 
   pub(super) fn bar_hover(&mut self) {
+    let tab = self.tab_at(self.pointer.0, self.pointer.1).filter(|&p| p < self.bar_map.len());
+    if tab != self.hover.tab {
+      self.hover.tab = tab;
+      self.bar_dirty = true;
+      self.wake();
+    }
     let b = self.bar_button();
     let hover = (b == Some(Button::Plus), b == Some(Button::Gear), b == Some(Button::Keys), b == Some(Button::Update));
     if hover != (self.hover.plus, self.hover.gear, self.hover.keys, self.hover.update) {

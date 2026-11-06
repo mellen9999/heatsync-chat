@@ -205,7 +205,13 @@ impl App {
         bar,
         &labels,
         if hidden_now { (&label, &showcmd) } else { (&[], "") },
-        tab_bar::Hot { plus: self.hover.plus, gear, keys, update: up.as_deref().map(|l| (l, self.hover.update)) },
+        tab_bar::Hot {
+          tab: self.hover.tab,
+          plus: self.hover.plus,
+          gear,
+          keys,
+          update: up.as_deref().map(|l| (l, self.hover.update)),
+        },
       );
       self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));

@@ -448,6 +448,18 @@ fn headless_feed_media() {
   assert!(cyan > 50, "the held box wears its dashed cyan");
   let (at, id) = spot(&mut app, ChatView::reveal_at).expect("the held box has a show button");
   assert_eq!(&*id, "00004a");
+  // the button is a plain word until the pointer is on it, then white behind black
+  let white = |app: &App| app.canvas.px.iter().filter(|&&p| p == 0xffffff).count();
+  app.redraw();
+  let plain = white(&app);
+  app.pointer = at;
+  app.chat_hover();
+  app.redraw();
+  assert!(white(&app) > plain + 100, "hover reverses the button: {} vs {plain}", white(&app));
+  app.pointer = (0, 0);
+  app.chat_hover();
+  app.redraw();
+  assert_eq!(white(&app), plain, "and lets go");
   while asked.try_recv().is_ok() {}
   app.pointer = at;
   app.click();

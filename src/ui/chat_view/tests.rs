@@ -491,6 +491,32 @@ fn a_hit_is_drawn_in_reverse_video() {
   assert!(white(&c) > plain + 300, "{} vs {plain}", white(&c));
 }
 
+// the picked line is reversed like the active tab: white behind black words, no outline
+#[test]
+fn the_picked_line_is_drawn_reversed() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(50, "c".into());
+  v.resize(400);
+  v.push(said("bob", "hello world"));
+  let (mut c, area) = (Canvas::new(400, 60), Rect::new(0, 0, 400, 60));
+  let white = |c: &Canvas| c.px.iter().filter(|&&p| p == theme::WHITE).count();
+  v.draw(&mut c, &mut res, area, area);
+  let before = white(&c);
+  v.select_move(-1, &mut res, 60);
+  assert!(v.selected().is_some());
+  c.fill(area, theme::BLACK);
+  v.draw(&mut c, &mut res, area, area);
+  // most of the line is a white fill, not a 1px edge; the words are dark shades on it
+  let line = res.text.line_px as usize;
+  assert!(white(&c) > before + 400 * line / 2, "{} vs {before}", white(&c));
+  let words = c.px.iter().filter(|&&p| p != theme::WHITE && p != 0).count();
+  assert!(words > 0, "the words are antialiased dark shades on the white");
+  v.deselect();
+  c.fill(area, theme::BLACK);
+  v.draw(&mut c, &mut res, area, area);
+  assert!(white(&c) < before + 400, "unpicked, the fill goes away");
+}
+
 #[test]
 fn a_muted_line_keeps_its_name_but_not_its_words() {
   let mut res = Res::new(1.0);

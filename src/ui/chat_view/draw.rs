@@ -128,6 +128,7 @@ impl ChatView {
     let mut bottom = self.edge(area, res);
     let o = opts!(self);
     let mut drawn_lo = self.rows.len();
+    let hot = self.hot;
     for (i, r) in self.rows.iter_mut().enumerate().rev() {
       if bottom <= area.y {
         break;
@@ -144,7 +145,9 @@ impl ChatView {
       if top < clip.bottom() && bottom > clip.y {
         let row = Rect::new(area.x, top, area.w, r.height);
         let stripe = zebra && r.seq % 2 == 0;
+        let (seq, picked) = (r.seq, self.selected == Some(r.seq));
         let bg = match (r.msg.has(flag::ALERT), stripe) {
+          _ if picked => theme::WHITE,
           (true, true) => theme::MENTION_STRIPE,
           (true, false) => theme::MENTION_BG,
           (false, true) => theme::ZEBRA,
@@ -171,10 +174,6 @@ impl ChatView {
         if let Some(m) = mark {
           c.fill(Rect::new(area.x, top, MARK_W, r.height).intersect(clip), m);
         }
-        if self.selected == Some(r.seq) {
-          // 1px white outline: emphasis by border, never a fill behind text
-          c.outline(Rect::new(area.x, top, area.w, r.height), clip, theme::WHITE);
-        }
         if let Some(laid) = &r.laid {
           let play = res.look.animate_emotes;
           let Res { text, images, arts, .. } = res;
@@ -185,22 +184,36 @@ impl ChatView {
             images.want(id);
           }
           let x0 = (area.x + MARK_W) as f32 + theme::PAD_X;
+          let mut lit_range = None;
           for (range, f) in &laid.frames {
             let Some((fx, ft, fw, fb)) = range_rect(&laid.layout, range) else { continue };
-            let r =
+            let rect =
               Rect::new((x0 + fx).round() as i32, top + ft.round() as i32, fw.round() as i32, (fb - ft).round() as i32);
+            let lit = hot == Some((seq, range.start)) && !picked;
+            let f = if picked { &Frame::Chip(theme::BLACK) } else { f };
+            if lit && matches!(f, Frame::Button | Frame::Hold) {
+              // an inline button under the pointer: reversed, white behind black words
+              c.fill(rect.intersect(clip), theme::WHITE);
+              lit_range = Some(range.clone());
+            }
             match f {
-              Frame::Held => c.dashed(r, clip, theme::CYAN),
-              Frame::Button => c.outline(r, clip, theme::WHITE),
-              Frame::Hold | Frame::Announce => c.outline(r, clip, theme::YELLOW),
-              Frame::Bits => c.outline(r, clip, theme::TWITCH),
-              Frame::Chip(ink) => c.outline(r, clip, *ink),
+              Frame::Held => c.dashed(rect, clip, theme::CYAN),
+              // a plain underlined word: the ext's 1px box is gone, hover reverses it
+              Frame::Button => {
+                let ink = if lit || picked { theme::BLACK } else { theme::WHITE };
+                c.fill(Rect::new(rect.x, rect.bottom() - 1, rect.w, 1).intersect(clip), ink);
+              }
+              Frame::Hold | Frame::Announce => c.outline(rect, clip, theme::YELLOW),
+              Frame::Bits => c.outline(rect, clip, theme::TWITCH),
+              Frame::Chip(ink) => c.outline(rect, clip, *ink),
             }
           }
           let anims = &mut self.anims;
           let name_anims = &mut self.name_anims;
           let x = (area.x + MARK_W) as f32 + theme::PAD_X;
           text.stripe = stripe;
+          text.reverse = picked;
+          text.lit = lit_range;
           let mut stills = Vec::new();
           let mut stand_ins = Vec::new();
           let mut on_emoji = Vec::new();
@@ -249,13 +262,16 @@ impl ChatView {
               self.anims.push(Anim { rect: r.intersect(area), bg, imgs, glyph: Some(g) });
             }
           }
+          text.reverse = false;
+          text.lit = None;
           for r in stills {
             play_mark(c, r, clip);
           }
           for (r, ch, ink) in stand_ins {
             stand_in(c, text, r, ch, ink, clip);
           }
-          for n in &laid.names {
+          // a picked row is reversed: its names are drawn black by the text pass, not as colored art
+          for n in laid.names.iter().filter(|_| !picked) {
             let key = ArtKey {
               uid: n.uid.clone(),
               text: name_art::text_key(&n.nick),

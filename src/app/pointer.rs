@@ -10,6 +10,8 @@ use crate::ui::input_bar;
 // box, then the tab bar's + gear ? and update buttons
 #[derive(Default)]
 pub(super) struct Hover {
+  // the tab under the pointer: its position among the shown tabs
+  pub(super) tab: Option<usize>,
   pub(super) btn: bool,
   pub(super) up: bool,
   pub(super) link: bool,
@@ -20,6 +22,19 @@ pub(super) struct Hover {
 }
 
 impl App {
+  // the show / hide / allow / deny word under the pointer reverses (white behind black)
+  pub(super) fn chat_hover(&mut self) {
+    let (x, y) = self.pointer;
+    let chat = self.chat_area();
+    let over = self.screen.is_none() && self.form.is_none() && self.img_view.is_none() && chat.contains(x, y);
+    let res = &mut self.res;
+    let Some(t) = self.tabs.get_mut(self.active) else { return };
+    let hot = if over { t.view.button_at(chat, x, y, res) } else { None };
+    if t.view.set_hot(hot) {
+      self.wake();
+    }
+  }
+
   // click a line to select it; click the input to type
   pub(super) fn click(&mut self) {
     self.hide_tip();
