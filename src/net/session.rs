@@ -149,6 +149,9 @@ pub async fn run(
     refusals: 0,
     recheck: false,
   };
+  // mute changes leave through one task, so they reach heatsync in the order they were made
+  let (mutes, mutes_rx) = tokio::sync::mpsc::unbounded_channel();
+  super::watch("mute sync", super::mutes::run(st.http.clone(), mutes_rx, st.out.clone()), st.out.clone());
   let mut next = Instant::now();
   loop {
     tokio::select! {
@@ -196,7 +199,7 @@ pub async fn run(
         Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
         Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text).await,
         Some(Cmd::Mute(op)) => {
-          tokio::spawn(super::mutes::run(st.http.clone(), st.token.clone(), op));
+          let _ = mutes.send((st.token.clone(), op));
         }
         Some(Cmd::Lists) => {
           if let Some(t) = st.token.clone() {
