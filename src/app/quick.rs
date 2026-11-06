@@ -25,7 +25,7 @@ impl App {
         }
         None => self.say(format!("use on or off for {}", d.label)),
       },
-      Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) => match d.cmd {
+      Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Buttons(..) => match d.cmd {
         Some(c) => self.say(format!("{} is a list: {c} adds to it", d.label)),
         None => self.say(format!("{} is a list: change it in /settings", d.label)),
       },

@@ -4,6 +4,7 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
+use super::lists::Kind;
 use crate::model::keys::KEYS;
 use crate::model::line::Line;
 use crate::model::schema::{self, Ctl, DEFS, Def, Fx, PRESETS, Preset};
@@ -35,6 +36,8 @@ pub enum Page {
   Import,
   // your heatsync emotes: slots, removed, saved sets (app::inventory)
   Inventory,
+  // a list you keep: muted & blocked people, highlight words, filter rules… (app::lists)
+  List,
 }
 
 pub struct Screen {
@@ -47,6 +50,7 @@ pub struct Screen {
   pub(super) bt: Option<Box<super::blocked::Bt>>,
   pub(super) mt: Option<Box<super::modtools::Mt>>,
   pub(super) inv: Option<Box<super::inventory::Inv>>,
+  pub(super) ls: Option<Box<super::lists::Ls>>,
   // the summary: whose (tab name), and its title and lines as last read
   pub(super) of: Box<str>,
   pub(super) title: String,
@@ -87,6 +91,9 @@ pub(super) enum Target {
   Imp(super::import::Step),
   // your emotes: a row of the current tab (its place in that tab's full list)
   Inv(usize),
+  // a list screen: an entry (its place), the row that adds one
+  Item(usize),
+  AddItem,
   None,
 }
 
@@ -114,6 +121,7 @@ impl Screen {
       bt: None,
       mt: None,
       inv: None,
+      ls: None,
       of: "".into(),
       title: String::new(),
       shown: Vec::new(),
@@ -133,9 +141,10 @@ impl Screen {
 
   // where typed text goes: the search, or the blocked term being added
   pub fn query_mut(&mut self) -> &mut Line {
-    match (self.bt.as_deref_mut(), self.inv.as_deref_mut()) {
-      (Some(bt), _) if bt.adding => &mut bt.add,
-      (_, Some(iv)) if iv.ask.is_some() => &mut iv.input,
+    match (self.bt.as_deref_mut(), self.inv.as_deref_mut(), self.ls.as_deref_mut()) {
+      (Some(bt), ..) if bt.adding => &mut bt.add,
+      (_, Some(iv), _) if iv.ask.is_some() => &mut iv.input,
+      (.., Some(ls)) if ls.adding => &mut ls.add,
       _ => &mut self.q,
     }
   }
@@ -151,6 +160,7 @@ impl Screen {
       Page::ModTools => self.mt.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |m| m.lines(&self.q.text)),
       Page::Account | Page::Following | Page::Import => (self.shown.clone(), self.marks.clone()),
       Page::Inventory => self.inv.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |v| v.lines(&self.q.text)),
+      Page::List => self.ls.as_ref().map_or_else(|| (Vec::new(), Vec::new()), |l| l.lines()),
     }
   }
 
@@ -270,15 +280,19 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       Ctl::Pick(..) => (d.picked(set).unwrap_or_default().to_owned(), None),
       Ctl::Words(marks) => {
         let n = crate::model::filter::with(|f| f.words(marks).len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
+        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
       }
       Ctl::Patterns => {
         let n = crate::model::filter::with(|f| f.patterns().len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
+        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
       }
       Ctl::Rules => {
         let n = crate::model::filter::with(|f| f.rules().len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
+        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
+      }
+      Ctl::People => {
+        let (m, b) = crate::model::filter::with(|f| (f.mutes().len(), f.blocks_sorted().len()));
+        (if m + b == 0 { "nobody".to_owned() } else { format!("{m} muted · {b} blocked") }, None)
       }
       Ctl::Buttons(get, _) => {
         let m = get(set);
@@ -286,7 +300,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       }
       Ctl::Reasons => {
         let n = crate::model::filter::with(|f| f.reasons().len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter adds") }, None)
+        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
       }
     };
     lines.push(L::Row { a: d.label.to_owned(), b, pill });
@@ -468,6 +482,7 @@ impl App {
       Some(Page::Following) => self.following_key(&key),
       Some(Page::Import) => self.import_key(&key),
       Some(Page::Inventory) => self.inv_key(&key, text),
+      Some(Page::List) => self.list_key(&key, text),
       _ => false,
     };
     if spent {
@@ -575,14 +590,20 @@ impl App {
           let (n, at) = (c.names.len(), get(&self.set));
           self.pick_to(d, (at + if adjust.unwrap_or(true) { 1 } else { n - 1 }) % n);
         }
-        // a list lives in slash commands: leave the screen with the command ready to finish
-        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) if adjust.is_none() => {
+        // a list: its own screen
+        Ctl::Words(m) if adjust.is_none() => self.list_open(Kind::Words(m)),
+        Ctl::Patterns if adjust.is_none() => self.list_open(Kind::Patterns),
+        Ctl::Rules if adjust.is_none() => self.list_open(Kind::Rules),
+        Ctl::Reasons if adjust.is_none() => self.list_open(Kind::Reasons),
+        Ctl::People if adjust.is_none() => self.list_open(Kind::People),
+        // the toolbar's buttons live in a slash command: leave with it ready to finish
+        Ctl::Buttons(..) if adjust.is_none() => {
           self.close_screen();
           if let Some(c) = d.cmd {
-            self.type_into_line(&format!("{c} {}", if matches!(d.ctl, Ctl::Rules) { "add " } else { "" }));
+            self.type_into_line(&format!("{c} "));
           }
         }
-        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) => {}
+        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Buttons(..) => {}
       },
       (Some(Target::Preset(p)), None) => self.apply_preset(p),
       (Some(Target::Custom(i)), None) => self.apply_custom_at(i),
@@ -592,6 +613,7 @@ impl App {
       }
       (Some(Target::Account(step)), None) => self.account_step(step),
       (Some(Target::Live(i)), None) => self.following_pick(i),
+      (Some(t @ (Target::Item(_) | Target::AddItem)), None) if s.page == Page::List => self.list_pick(t),
       (Some(Target::Imp(step)), None) => self.import_pick(step),
       (Some(t @ (Target::Allow | Target::Retry | Target::Shield | Target::Level(_) | Target::Unban(_))), _)
         if s.page == Page::ModTools =>
@@ -667,6 +689,8 @@ impl App {
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
     let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
     let inv_title = s.inv.as_ref().map(|v| v.title()).unwrap_or_default();
+    let ls_title = s.ls.as_ref().map(|l| l.title()).unwrap_or_default();
+    let ls_mark = s.ls.as_ref().map(|l| l.prompt()).unwrap_or_default();
     let keys_title = format!("keys · heatsync-chat {}", env!("CARGO_PKG_VERSION"));
     let (title, search, keys) = match (s.page, s.bt.as_deref()) {
       (Page::Blocked, Some(b)) => (
@@ -705,6 +729,10 @@ impl App {
           v.keys(s.typing),
         ),
         None => ("emotes", None, "esc closes"),
+      },
+      (Page::List, _) => match s.ls.as_deref() {
+        Some(l) => (ls_title.as_str(), l.adding.then_some((l.add.text.as_str(), true, "", ls_mark.as_str())), l.keys()),
+        None => ("list", None, "esc closes"),
       },
       (Page::Pred, _) => (s.title.as_str(), None, "read only · j k scroll · r refresh · esc closes"),
       (Page::Account, _) => ("account", None, "j k move · enter picks · esc closes"),
@@ -750,6 +778,7 @@ impl App {
       _ if s.page == Page::Keys => keys_tip(self.set.vi),
       _ if s.page == Page::Inventory => s.inv.as_deref().map_or("", |v| v.tip()),
       _ if s.page == Page::Import => self.import.msg.as_str(),
+      _ if s.page == Page::List => s.ls.as_deref().map_or("", |l| l.tip()),
       _ => tip,
     };
     let v = sheet::View { title, search, lines: &lines, tip, keys, col: None };

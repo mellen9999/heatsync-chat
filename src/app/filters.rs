@@ -282,7 +282,7 @@ impl App {
 }
 
 // 90 → "1m", 7200 → "2h": the length left on a mute
-fn span_text(secs: i64) -> String {
+pub(super) fn span_text(secs: i64) -> String {
   match secs {
     s if s >= 86400 => format!("{}d", (s + 43200) / 86400),
     s if s >= 3600 => format!("{}h", (s + 1800) / 3600),

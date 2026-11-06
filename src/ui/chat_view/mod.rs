@@ -524,6 +524,13 @@ impl ChatView {
     self.tab_hidden.contains(&filter::key(who))
   }
 
+  // everyone hidden in this tab, sorted
+  pub fn hidden_users(&self) -> Vec<Box<str>> {
+    let mut v: Vec<Box<str>> = self.tab_hidden.iter().cloned().collect();
+    v.sort_unstable();
+    v
+  }
+
   pub fn hide_user(&mut self, who: &str, hide: bool) -> bool {
     let k = filter::key(who);
     let changed = if hide { self.tab_hidden.insert(k) } else { self.tab_hidden.remove(&k) };

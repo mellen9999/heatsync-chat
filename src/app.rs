@@ -40,6 +40,7 @@ mod jump;
 mod keys;
 mod layout;
 mod link;
+mod lists;
 mod live_dots;
 mod lock;
 mod logs;
@@ -88,6 +89,8 @@ mod tests_findbar;
 mod tests_input;
 #[cfg(test)]
 mod tests_kickmod;
+#[cfg(test)]
+mod tests_lists;
 #[cfg(test)]
 mod tests_mentions;
 #[cfg(test)]

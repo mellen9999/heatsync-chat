@@ -72,6 +72,8 @@ pub enum Ctl {
   Rules,
   // the ban reasons a ban offers, kept with /banreason
   Reasons,
+  // the people you muted and blocked: opens their list screen
+  People,
   // the mod toolbar's picked buttons (a mask over model::modbar::CATALOG), typed as `/cmd x 1m ban`
   Buttons(fn(&Settings) -> u16, fn(&mut Settings, u16)),
 }
@@ -133,7 +135,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 72] = [
+pub static DEFS: [Def; 73] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -536,7 +538,7 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Chat,
     section: "messages",
     label: "keyword highlights",
-    tip: "tints matched messages orange. whole-word, case-insensitive. enter adds one, /unhighlight removes",
+    tip: "tints matched messages orange. whole-word, case-insensitive. enter opens the list: a adds, x removes",
     alias: "keywordhighlights words",
     ctl: Ctl::Words(true),
     fx: Fx::None,
@@ -800,7 +802,7 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Mod,
     section: "mod toolbar",
     label: "ban reasons",
-    tip: "quick reasons offered when you ban (a ban then always asks first). enter adds one, /unbanreason removes",
+    tip: "quick reasons offered when you ban (a ban then always asks first). enter opens the list: a adds, x removes",
     alias: "modBanReasons reason presets",
     ctl: Ctl::Reasons,
     fx: Fx::None,
@@ -824,7 +826,7 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Mod,
     section: "automod",
     label: "filter regex",
-    tip: "matching messages get hidden. case-insensitive; a pattern that isn't a valid regex matches as plain text. enter adds one, /unautomod removes",
+    tip: "matching messages get hidden. case-insensitive; a pattern that isn't a valid regex matches as plain text. enter opens the list: a adds, x removes",
     alias: "automodRegex pattern",
     ctl: Ctl::Patterns,
     fx: Fx::None,
@@ -872,7 +874,7 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Filters,
     section: "messages",
     label: "mute keywords",
-    tip: "messages containing any of these get hidden. enter adds one, /unhideword removes",
+    tip: "messages containing any of these get hidden. enter opens the list: a adds, x removes",
     alias: "hideword hidden words",
     ctl: Ctl::Words(false),
     fx: Fx::None,
@@ -884,9 +886,21 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Filters,
     section: "rules",
     label: "filter rules",
-    tip: "per-rule highlight/hide filters — keyword, regex, user, badge, msgtype or expr; first hide wins. enter adds one, /rule list shows them, /rule del removes",
+    tip: "per-rule highlight/hide filters — keyword, regex, user, badge, msgtype or expr; first hide wins. enter opens the list: a adds, x removes",
     alias: "chatFilterRules rule",
     ctl: Ctl::Rules,
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
+    id: "people",
+    cmd: None,
+    cat: Cat::Filters,
+    section: "people",
+    label: "muted & blocked people",
+    tip: "everyone you muted, blocked or hid. enter opens the list: x lets one back in, enter on a name opens their card",
+    alias: "mutes blocks hidden users mute block unmute unblock",
+    ctl: Ctl::People,
     fx: Fx::None,
     wire: Wire::None,
   },

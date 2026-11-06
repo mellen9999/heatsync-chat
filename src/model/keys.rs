@@ -31,7 +31,7 @@ const fn v(keys: &'static str, does: &'static str) -> Row {
   Row { keys, does, vi: true }
 }
 
-pub static KEYS: [Group; 13] = [
+pub static KEYS: [Group; 14] = [
   Group {
     name: "anywhere",
     rows: &[
@@ -240,6 +240,16 @@ pub static KEYS: [Group; 13] = [
       k("c", "in a card of a live twitch channel: clip it, copies the link (again: opens the edit page)"),
     ],
   },
+  Group {
+    name: "your lists (settings → muted & blocked people, highlights, rules…)",
+    rows: &[
+      k("j k  up down", "move"),
+      k("enter", "a person: their card · the add row: type a new entry"),
+      k("x", "remove the picked one (unmute, unblock, unhide, delete)"),
+      k("a", "add an entry: a word, pattern, rule or ban reason"),
+      k("esc q", "close"),
+    ],
+  },
 ];
 
 #[cfg(test)]
@@ -277,6 +287,7 @@ mod tests {
       "picture" => "picture",
       "your emotes (ctrl-p)" => "emotes",
       "menus and cards" => "menus",
+      n if n.starts_with("your lists") => "lists",
       _ => "chat",
     }
   }
@@ -295,6 +306,7 @@ mod tests {
       "tab mode" => vec!["app/rover.rs".into()],
       "picture" => vec!["app/img_view.rs".into()],
       "emotes" => vec!["app/inventory.rs".into(), "app/screen.rs".into()],
+      "lists" => vec!["app/lists.rs".into(), "app/screen.rs".into()],
       "menus" => ["pop", "card", "tabs", "emote"].map(|f| format!("app/{f}.rs")).to_vec(),
       _ => {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app");
