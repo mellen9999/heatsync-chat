@@ -16,6 +16,7 @@ pub mod http;
 pub mod import;
 pub mod inventory;
 pub mod irc;
+mod lanes;
 mod links;
 mod live_dots;
 pub mod marks;

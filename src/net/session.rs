@@ -11,6 +11,7 @@ use super::emote_ops::{self, EmoteCmd};
 use super::hs_ws;
 use super::http;
 use super::irc::{self, Creds};
+use super::lanes::Lanes;
 use super::upload;
 use super::{NetEvent, ORIGIN, Out};
 use crate::model::message::{Message, Platform};
@@ -104,6 +105,25 @@ struct State {
   refusals: u32,
   // the next step is the whole account check, even while only the chat login is being retried
   recheck: bool,
+  // kick + youtube sends: in order per channel, off the loop (a slow heatsync takes up to 12s)
+  lanes: Lanes,
+}
+
+// emote ops run in the order asked, off the loop, and a barrier is answered once those before it are done
+enum EmoteJob {
+  Op(String, EmoteCmd),
+  Barrier(tokio::sync::oneshot::Sender<()>),
+}
+
+async fn emote_worker(http: reqwest::Client, mut rx: UnboundedReceiver<EmoteJob>, out: Out) {
+  while let Some(job) = rx.recv().await {
+    match job {
+      EmoteJob::Op(token, c) => emote_ops::run(&http, &token, c, &out).await,
+      EmoteJob::Barrier(done) => {
+        let _ = done.send(());
+      }
+    }
+  }
 }
 
 // one sign-in in the browser: which, and the task holding the loopback port
@@ -148,7 +168,10 @@ pub async fn run(
     refused: None,
     refusals: 0,
     recheck: false,
+    lanes: Lanes::default(),
   };
+  let (emotes, emotes_rx) = tokio::sync::mpsc::unbounded_channel();
+  super::watch("emotes", emote_worker(st.http.clone(), emotes_rx, st.out.clone()), st.out.clone());
   // mute changes leave through one task, so they reach heatsync in the order they were made
   let (mutes, mutes_rx) = tokio::sync::mpsc::unbounded_channel();
   super::watch("mute sync", super::mutes::run(st.http.clone(), mutes_rx, st.out.clone()), st.out.clone());
@@ -182,7 +205,9 @@ pub async fn run(
           st.forget("logged out");
         }
         Some(Cmd::Emote(c)) => match &st.token {
-          Some(t) => emote_ops::run(&st.http, t, c, &st.out).await,
+          Some(t) => {
+            let _ = emotes.send(EmoteJob::Op(t.clone(), c));
+          }
           None => st.out.status("log in first (ctrl-l)"),
         },
         Some(Cmd::Inventory(op)) => {
@@ -197,13 +222,13 @@ pub async fn run(
           next = Instant::now();
         }
         Some(Cmd::Barrier(done)) => {
-          let _ = done.send(());
+          let _ = emotes.send(EmoteJob::Barrier(done));
         }
         Some(Cmd::Upload(p)) => st.upload(p),
         Some(Cmd::Picture(b)) => st.picture(b),
         Some(Cmd::Pick) => st.pick(),
-        Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply).await,
-        Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text).await,
+        Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply),
+        Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text),
         Some(Cmd::Mute(op)) => {
           let _ = mutes.send((st.token.clone(), op));
         }
@@ -521,35 +546,54 @@ impl State {
     }
   }
 
-  // like kick: success shows up through the relay, a refusal is a system line in the tab
-  async fn youtube(&mut self, chan: Box<str>, text: String) {
-    let why = match &self.token {
-      None => Some("log in to send (ctrl-l)".to_owned()),
-      Some(t) => super::youtube::send(&self.http, t, &chan, &text).await.err(),
-    };
-    if let Some(why) = why {
-      let m = Message::system(now_ms(), Platform::Youtube, format!("not sent to youtube: {why}"));
-      self.out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
-    }
+  // each channel's sends go out one after another on their own lane, so a slow one holds up neither the
+  // login loop nor another channel
+  fn youtube(&mut self, chan: Box<str>, text: String) {
+    let job = youtube_job(self.http.clone(), self.token.clone(), chan.clone(), text, self.out.clone());
+    self.lanes.run(&format!("youtube/{chan}"), job);
   }
 
-  async fn kick(&mut self, chan: Box<str>, text: String, reply: Option<Box<str>>) {
-    let why = match &self.token {
-      None => Some("log in to send (ctrl-l)".to_owned()),
-      Some(t) => kick_send(&self.http, t, &chan, &text, reply.as_deref()).await.err(),
-    };
-    // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
-    let told = match why.as_deref() {
-      None => Some(None),
-      Some(w) => crate::model::lock::from_kick(w).map(Some),
-    };
-    if let Some(cause) = told {
-      self.out.send(NetEvent::Lock(Platform::Kick, chan.clone(), cause));
-    }
-    if let Some(why) = why {
-      let m = Message::system(now_ms(), Platform::Kick, format!("not sent to kick: {why}"));
-      self.out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });
-    }
+  fn kick(&mut self, chan: Box<str>, text: String, reply: Option<Box<str>>) {
+    let job = kick_job(self.http.clone(), self.token.clone(), chan.clone(), text, reply, self.out.clone());
+    self.lanes.run(&format!("kick/{chan}"), job);
+  }
+}
+
+// like kick: success shows up through the relay, a refusal is a system line in the tab
+async fn youtube_job(http: reqwest::Client, token: Option<String>, chan: Box<str>, text: String, out: Out) {
+  let why = match &token {
+    None => Some("log in to send (ctrl-l)".to_owned()),
+    Some(t) => super::youtube::send(&http, t, &chan, &text).await.err(),
+  };
+  if let Some(why) = why {
+    let m = Message::system(now_ms(), Platform::Youtube, format!("not sent to youtube: {why}"));
+    out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
+  }
+}
+
+async fn kick_job(
+  http: reqwest::Client,
+  token: Option<String>,
+  chan: Box<str>,
+  text: String,
+  reply: Option<Box<str>>,
+  out: Out,
+) {
+  let why = match &token {
+    None => Some("log in to send (ctrl-l)".to_owned()),
+    Some(t) => kick_send(&http, t, &chan, &text, reply.as_deref()).await.err(),
+  };
+  // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
+  let told = match why.as_deref() {
+    None => Some(None),
+    Some(w) => crate::model::lock::from_kick(w).map(Some),
+  };
+  if let Some(cause) = told {
+    out.send(NetEvent::Lock(Platform::Kick, chan.clone(), cause));
+  }
+  if let Some(why) = why {
+    let m = Message::system(now_ms(), Platform::Kick, format!("not sent to kick: {why}"));
+    out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });
   }
 }
 
@@ -642,6 +686,7 @@ mod tests {
       refused: None,
       refusals: 0,
       recheck: false,
+      lanes: Lanes::default(),
     };
     (st, orx, irx)
   }
