@@ -788,9 +788,9 @@ pub(super) fn badges(
         word(s, spans, ib, w, ink);
       }
     }
-    res.badges.third_party(m, look.third())
+    res.badges.third_party(m, look.third_badges)
   } else {
-    res.badges.for_message(chan, m, look.third())
+    res.badges.for_message(chan, m, look.third_badges)
   };
   let mut found: Vec<(Box<str>, Option<u32>)> = all.into_iter().map(|b| (b.url.clone(), b.bg)).collect();
   // 7tv's badge sits last, right before the name (ext order). seeing a chatter is also what

@@ -195,11 +195,9 @@ pub struct Settings {
   pub paints: bool,
   // heatsync's own animated name paints, apart from 7tv's. default on, like the ext (showNamePaints)
   pub hs_paints: bool,
-  // the per-chatter badge sets from bttv, ffz and chatterino, each on its own switch like the ext
-  // (bttvBadges, ffzBadges, chatterinoBadges). a channel's own ffz mod / vip art is not one of them: it stays
-  pub bttv_badges: bool,
-  pub ffz_badges: bool,
-  pub chatterino_badges: bool,
+  // the per-chatter badge sets from bttv, ffz and chatterino, one switch for all three. a channel's own ffz
+  // mod / vip art is not one of them: it stays. default on
+  pub third_party_badges: bool,
   // what a twitch line wears before the name from heatsync itself: the sub flair a chatter picked there,
   // a flame for a known heatsync user, a heat bar. all default on; the ext has no key for them
   pub sub_flair: bool,
@@ -303,9 +301,7 @@ impl Default for Settings {
       read_line: true,
       paints: true,
       hs_paints: true,
-      bttv_badges: true,
-      ffz_badges: true,
-      chatterino_badges: true,
+      third_party_badges: true,
       sub_flair: true,
       flame: true,
       heat_bars: true,
@@ -407,10 +403,17 @@ impl Settings {
 
   pub fn parse(s: &str) -> Self {
     let mut out = Self::default();
+    // the three badge switches from before the one: on if any of them was
+    let (mut old_badges, mut one_badges) = (None, false);
     for l in s.lines() {
       let Some((k, v)) = l.split_once('=') else { continue };
       let on = v.trim() == "true";
       let k = k.trim();
+      if matches!(k, "bttv_badges" | "ffz_badges" | "chatterino_badges") {
+        old_badges = Some(old_badges.unwrap_or(false) || on);
+        continue;
+      }
+      one_badges |= k == "third_party_badges";
       if schema::def(k).is_some_and(|d| d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v)) {
         continue;
       }
@@ -429,6 +432,10 @@ impl Settings {
       {
         out.tab_counter = d;
       }
+    }
+    // the one switch written by an earlier run of this version wins over the old three
+    if let (false, Some(any)) = (one_badges, old_badges) {
+      out.third_party_badges = any;
     }
     out
   }
@@ -636,9 +643,7 @@ mod tests {
         read_line: true,
         paints: true,
         hs_paints: true,
-        bttv_badges: true,
-        ffz_badges: true,
-        chatterino_badges: true,
+        third_party_badges: true,
         sub_flair: true,
         flame: true,
         heat_bars: true,
@@ -721,6 +726,26 @@ mod tests {
     assert_eq!(s.reset(), want);
     // and the same through the file
     assert_eq!(Settings::parse(&s.reset().render()), want);
+  }
+
+  // bttv, ffz and chatterino badges were three switches: the one that replaces them is on if any was, once, and
+  // the old lines are never read again
+  #[test]
+  fn the_three_badge_switches_become_one_that_is_on_if_any_was() {
+    let all = |a: bool, b: bool, c: bool| format!("vi=true\nbttv_badges={a}\nffz_badges={b}\nchatterino_badges={c}\n");
+    assert!(Settings::parse(&all(false, true, false)).third_party_badges);
+    assert!(Settings::parse(&all(false, false, true)).third_party_badges);
+    let off = Settings::parse(&all(false, false, false));
+    assert!(!off.third_party_badges && off.vi, "all three off: off, and the rest of the file is kept");
+    // run twice: what is written back holds the one switch, and loading that changes nothing
+    let back = Settings::parse(&off.render());
+    assert_eq!(back, off);
+    assert!(off.render().contains("third_party_badges=false") && !off.render().contains("bttv_badges"));
+    // a file with the one switch wins over leftover old lines (an older and a newer run sharing a folder)
+    assert!(!Settings::parse("third_party_badges=false\nbttv_badges=true\n").third_party_badges);
+    assert!(Settings::parse("bttv_badges=false\nthird_party_badges=true\n").third_party_badges);
+    // none of the four: on, the default
+    assert!(Settings::parse("vi=true\n").third_party_badges);
   }
 
   #[test]

@@ -44,9 +44,8 @@ pub struct Look {
   pub spacing: f32,
   pub animate_emotes: bool,
   pub dim_timeouts: bool,
-  pub bttv_badges: bool,
-  pub ffz_badges: bool,
-  pub chatterino_badges: bool,
+  // bttv, ffz and chatterino badges per chatter
+  pub third_badges: bool,
   // heatsync's own marks before a twitch name
   pub sub_flair: bool,
   pub flame: bool,
@@ -72,9 +71,7 @@ impl Look {
       spacing: s.line_height.ratio(),
       animate_emotes: s.animate_emotes == Animate::Always,
       dim_timeouts: s.dim_timeouts,
-      bttv_badges: s.bttv_badges,
-      ffz_badges: s.ffz_badges,
-      chatterino_badges: s.chatterino_badges,
+      third_badges: s.third_party_badges,
       sub_flair: s.sub_flair,
       flame: s.flame,
       heat_bars: s.heat_bars,
@@ -82,11 +79,6 @@ impl Look {
       avatars: s.avatars,
       inventory_emotes: s.render_inventory,
     }
-  }
-
-  // which per-chatter badge sets show
-  pub fn third(&self) -> crate::badges::Third {
-    crate::badges::Third { bttv: self.bttv_badges, ffz: self.ffz_badges, chatterino: self.chatterino_badges }
   }
 
   // the emote box height in chat, before the display scale

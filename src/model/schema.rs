@@ -137,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 73] = [
+pub static DEFS: [Def; 71] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -307,40 +307,16 @@ pub static DEFS: [Def; 73] = [
     wire: Wire::Bool("renderInventoryEmotes"),
   },
   Def {
-    id: "bttv_badges",
-    cmd: Some("/bttvbadges"),
+    id: "third_party_badges",
+    cmd: Some("/thirdpartybadges"),
     cat: Cat::Display,
     section: "cosmetics",
-    label: "bttv badges",
-    tip: "betterttv badges on chatters",
-    alias: "bttvBadges betterttv",
-    ctl: pill!(bttv_badges),
+    label: "third-party badges",
+    tip: "betterttv, frankerfacez and chatterino badges on chatters. a channel's own ffz mod and vip art stays either way",
+    alias: "thirdPartyBadges bttvBadges ffzBadges chatterinoBadges betterttv frankerfacez bttv ffz chatterino",
+    ctl: pill!(third_party_badges),
     fx: Fx::Look,
-    wire: Wire::Bool("bttvBadges"),
-  },
-  Def {
-    id: "ffz_badges",
-    cmd: Some("/ffzbadges"),
-    cat: Cat::Display,
-    section: "cosmetics",
-    label: "ffz badges",
-    tip: "frankerfacez badges on chatters",
-    alias: "ffzBadges frankerfacez",
-    ctl: pill!(ffz_badges),
-    fx: Fx::Look,
-    wire: Wire::Bool("ffzBadges"),
-  },
-  Def {
-    id: "chatterino_badges",
-    cmd: Some("/chatterinobadges"),
-    cat: Cat::Display,
-    section: "cosmetics",
-    label: "chatterino badges",
-    tip: "chatterino badges on chatters",
-    alias: "chatterinoBadges",
-    ctl: pill!(chatterino_badges),
-    fx: Fx::Look,
-    wire: Wire::Bool("chatterinoBadges"),
+    wire: Wire::Bool("thirdPartyBadges"),
   },
   Def {
     id: "sub_flair",

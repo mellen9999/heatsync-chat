@@ -82,7 +82,7 @@ fn bttv_badge_shows_for_its_holder_behind_its_switch() {
   let mut other = m.clone();
   other.user_id = "43".into();
   assert_eq!(n(&mut res, &other), 0, "only its holder");
-  res.look.bttv_badges = false;
+  res.look.third_badges = false;
   assert_eq!(n(&mut res, &m), 0, "bttv badges off");
 }
 

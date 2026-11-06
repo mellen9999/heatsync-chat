@@ -32,14 +32,6 @@ pub enum Source {
   Chatterino,
 }
 
-// which per-chatter sets show (the ext's bttvBadges, ffzBadges, chatterinoBadges)
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Third {
-  pub bttv: bool,
-  pub ffz: bool,
-  pub chatterino: bool,
-}
-
 #[derive(Default)]
 pub struct Badges {
   global: TwitchSet,
@@ -108,9 +100,9 @@ impl Badges {
     }
   }
 
-  // display order: twitch's own (tag order), then bttv, chatterino, ffz; each third-party set behind its
-  // switch (`bttv`, `ffz`, `chatterino`)
-  pub fn for_message<'a>(&'a self, channel: &str, m: &Message, on: Third) -> Vec<&'a Badge> {
+  // display order: twitch's own (tag order), then bttv, chatterino, ffz; the three third-party sets behind one
+  // switch (`on`)
+  pub fn for_message<'a>(&'a self, channel: &str, m: &Message, on: bool) -> Vec<&'a Badge> {
     let ch = self.channels.get(channel);
     let room = self.ffz_room.get(channel);
     let mut out: Vec<&Badge> = m
@@ -125,12 +117,11 @@ impl Badges {
     out
   }
 
-  // the bttv, chatterino then ffz badges one chatter holds, each behind its switch
-  pub fn third_party<'a>(&'a self, m: &Message, on: Third) -> Vec<&'a Badge> {
+  // the bttv, chatterino then ffz badges one chatter holds (none when `on` is off)
+  pub fn third_party<'a>(&'a self, m: &Message, on: bool) -> Vec<&'a Badge> {
     let mut out = Vec::new();
-    if let Ok(uid) = m.user_id.parse::<u64>() {
-      let sets = [(on.bttv, &self.bttv), (on.chatterino, &self.chatterino), (on.ffz, &self.ffz)];
-      for ub in sets.into_iter().filter(|s| s.0).map(|s| s.1) {
+    if let (true, Ok(uid)) = (on, m.user_id.parse::<u64>()) {
+      for ub in [&self.bttv, &self.chatterino, &self.ffz] {
         if let Some(ix) = ub.users.get(&uid) {
           out.extend(ix.iter().filter_map(|&i| ub.list.get(i as usize)));
         }
@@ -160,19 +151,18 @@ mod tests {
     m.user_id = "42".into();
     m.badges =
       vec![("moderator".into(), "1".into()), ("subscriber".into(), "0".into()), ("nope".into(), "1".into())].into();
-    let all = Third { bttv: true, ffz: true, chatterino: true };
-    let urls: Vec<&str> = bs.for_message("c", &m, all).iter().map(|b| &*b.url).collect();
+    let urls: Vec<&str> = bs.for_message("c", &m, true).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["g-mod", "c-sub", "ffz"]);
     bs.set_ffz_room("c", [(key("moderator", "1"), b("ffz-mod"))].into());
-    let urls: Vec<&str> = bs.for_message("c", &m, all).iter().map(|b| &*b.url).collect();
+    let urls: Vec<&str> = bs.for_message("c", &m, true).iter().map(|b| &*b.url).collect();
     assert_eq!(urls, ["ffz-mod", "c-sub", "ffz"], "the channel's ffz mod art wins");
-    assert_eq!(&*bs.for_message("other", &m, all)[0].url, "g-mod", "only in its own channel");
-    let urls: Vec<&str> = bs.for_message("c", &m, Third { ffz: false, ..all }).iter().map(|b| &*b.url).collect();
-    assert_eq!(urls, ["ffz-mod", "c-sub"], "ffz badges off: the channel's own ffz mod art stays");
+    assert_eq!(&*bs.for_message("other", &m, true)[0].url, "g-mod", "only in its own channel");
+    let urls: Vec<&str> = bs.for_message("c", &m, false).iter().map(|b| &*b.url).collect();
+    assert_eq!(urls, ["ffz-mod", "c-sub"], "third-party badges off: the channel's own ffz mod art stays");
   }
 
   #[test]
-  fn bttv_badges_come_first_and_have_their_own_switch() {
+  fn bttv_badges_come_first_and_one_switch_turns_all_three_off() {
     let mut bs = Badges::default();
     bs.set_users(Source::Bttv, UserBadges { list: vec![b("bttv")], users: [(42, vec![0])].into() });
     bs.set_users(Source::Chatterino, UserBadges { list: vec![b("chat")], users: [(42, vec![0])].into() });
@@ -180,14 +170,13 @@ mod tests {
     let mut m = Message::system(0, Platform::Twitch, "x");
     m.kind = Kind::Chat;
     m.user_id = "42".into();
-    let all = Third { bttv: true, ffz: true, chatterino: true };
     let urls = |m: &Message, on| bs.third_party(m, on).iter().map(|b| b.url.to_string()).collect::<Vec<_>>();
-    assert_eq!(urls(&m, all), ["bttv", "chat", "ffz"]);
-    assert_eq!(urls(&m, Third { bttv: false, ..all }), ["chat", "ffz"], "bttv badges off");
+    assert_eq!(urls(&m, true), ["bttv", "chat", "ffz"]);
+    assert!(urls(&m, false).is_empty(), "off: none of the three");
     m.user_id = "43".into();
-    assert!(urls(&m, all).is_empty(), "someone else holds none");
+    assert!(urls(&m, true).is_empty(), "someone else holds none");
     m.user_id = "x".into();
-    assert!(urls(&m, all).is_empty(), "no twitch id, no badge");
+    assert!(urls(&m, true).is_empty(), "no twitch id, no badge");
   }
 
   #[test]
