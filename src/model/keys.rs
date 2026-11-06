@@ -298,7 +298,7 @@ pub static KEYS: [Group; 18] = [
     rows: &[
       k("j k  up down", "move"),
       k("enter", "a person: their card · the add row: type a new entry"),
-      k("x", "remove the picked one (unmute, unblock, unhide, delete)"),
+      k("x delete", "remove the picked one (unmute, unblock, unhide, delete)"),
       k("a", "add an entry: a word, pattern, rule or ban reason"),
       k("esc q", "close"),
     ],
@@ -537,7 +537,7 @@ mod tests {
 
   // keys a handler matches that are not the user's to learn: a letter typed into a box, a repeat of
   // another arm, a guard. (file, key) pairs, each with why
-  const INTERNAL: [(&str, &str); 6] = [
+  const INTERNAL: [(&str, &str); 7] = [
     // the shifted twins of keys that have rows (ctrl-v / ctrl-shift-v, ctrl-+ / ctrl-=, ctrl-_ / ctrl--, + / =)
     ("app/clip.rs", "V"),
     ("app/zoom.rs", "+"),
@@ -547,6 +547,8 @@ mod tests {
     ("app/picker.rs", "Space"),
     // a space typed into the emotes screen's rename / move box
     ("app/inventory.rs", "Space"),
+    // a space typed into a list screen's add box
+    ("app/lists.rs", "Space"),
   ];
 
   fn named_is_documented(n: &str, words: &HashSet<String>) -> bool {
