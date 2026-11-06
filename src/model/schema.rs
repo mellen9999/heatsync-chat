@@ -78,6 +78,8 @@ pub enum Ctl {
   People,
   // the server's mention rules: opens their list screen
   Alerts,
+  // your own slash commands: opens their list screen
+  Commands,
   // the mod toolbar's picked buttons (a mask over model::modbar::CATALOG), typed as `/cmd x 1m ban`
   Buttons(fn(&Settings) -> u16, fn(&mut Settings, u16)),
 }
@@ -139,7 +141,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 71] = [
+pub static DEFS: [Def; 72] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -499,6 +501,18 @@ pub static DEFS: [Def; 71] = [
     ctl: pill!(suggest_inventory),
     fx: Fx::None,
     wire: Wire::Bool("suggestInventoryEmotes"),
+  },
+  Def {
+    id: "my_commands",
+    cmd: None,
+    cat: Cat::Chat,
+    section: "input",
+    label: "your commands",
+    tip: "your own slash commands: /gg good game {1}. {1} {2} are words you type, {1+} the rest, {input} everything, {channel}, {user}. enter opens the list: a adds, x removes. a built-in command with the same name always wins",
+    alias: "custom commands aliases macros shortcuts snippets expand",
+    ctl: Ctl::Commands,
+    fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "dim_timeouts",

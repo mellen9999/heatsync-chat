@@ -205,6 +205,10 @@ impl App {
       self.post_slash(cmd);
       return self.after_send();
     }
+    // after every built-in had its look (a built-in always wins a name); whisper's come later, so ask here
+    if whisper::command(&self.line.text).is_none() && self.ucmd_send() {
+      return self.after_send();
+    }
     if self.feedish() && !self.line.text.trim().is_empty() {
       self.feed_post();
       return self.after_send();

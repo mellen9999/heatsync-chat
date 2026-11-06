@@ -76,6 +76,7 @@ pub mod tabs;
 pub mod tabsync;
 pub mod tagcard;
 pub mod unseen;
+pub mod usercmd;
 pub mod vi;
 pub mod video;
 pub mod whisper;

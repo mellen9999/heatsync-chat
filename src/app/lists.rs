@@ -23,6 +23,8 @@ pub(super) enum Kind {
   Reasons,
   // the server's mention rules
   Alerts,
+  // your own slash commands
+  Commands,
 }
 
 impl Kind {
@@ -32,6 +34,7 @@ impl Kind {
       Kind::Rules => "filter rules",
       Kind::Reasons => "ban reasons",
       Kind::Alerts => "mention rules",
+      Kind::Commands => "your commands",
     }
   }
 
@@ -44,6 +47,7 @@ impl Kind {
       Kind::People => "enter opens their card · x lets them back",
       Kind::Rules => "type: hide or highlight, then keyword regex user badge msgtype or expr, then the value",
       Kind::Reasons => "quick reasons offered when you ban",
+      Kind::Commands => "type: /name what it says. {1} {2} words · {1+} the rest · {input} all · {channel} · {user}",
       Kind::Alerts => {
         "the server watches every channel for these and pings you here. a word, or: phrase big news · regex ^hi · end with #channel to limit it"
       }
@@ -55,6 +59,7 @@ impl Kind {
       Kind::Rules => "hide keyword spoilers",
       Kind::Reasons => "a reason",
       Kind::Alerts => "a word, phrase or regex",
+      Kind::Commands => "/gg good game {1}",
       _ => "a word or phrase",
     }
   }
@@ -78,6 +83,8 @@ enum Del {
   Rule(usize),
   // a mention rule, by the server's id
   Alert(u64),
+  // one of your commands, by name
+  Command(String),
 }
 
 struct Item {
@@ -97,6 +104,8 @@ pub(super) struct Ls {
   // the mention rules as the app holds them, and what an empty list says (signed out, still reading, none)
   mr: Vec<Rule>,
   mr_note: &'static str,
+  // your commands as they stand
+  cmds: Vec<(String, String)>,
 }
 
 impl Ls {
@@ -118,6 +127,7 @@ impl Ls {
         v.extend(self.hidden.iter().map(|n| item(n, "hidden in this tab", Del::Unhide(n.to_string()))));
         v
       }
+      Kind::Commands => self.cmds.iter().map(|(n, e)| item(&format!("/{n}"), e, Del::Command(n.clone()))).collect(),
       Kind::Reasons => f.reasons().iter().map(|r| item(r, "", Del::Reason(r.to_string()))).collect(),
       Kind::Alerts => self
         .mr
@@ -183,7 +193,9 @@ impl App {
     let (mr, mr_note) = (self.mrules.clone(), self.mrules_note());
     self.open_screen(Page::List);
     if let Some(s) = &mut self.screen {
-      s.ls = Some(Box::new(Ls { kind, hidden, adding: false, add: Line::default(), msg: String::new(), mr, mr_note }));
+      let cmds = self.ucmds.iter().map(|(n, e)| (n.to_owned(), e.to_owned())).collect();
+      s.ls =
+        Some(Box::new(Ls { kind, hidden, adding: false, add: Line::default(), msg: String::new(), mr, mr_note, cmds }));
     }
     if kind == Kind::Alerts {
       // another device may have changed them since the last read
@@ -196,6 +208,13 @@ impl App {
     let (mr, mr_note) = (self.mrules.clone(), self.mrules_note());
     if let Some(l) = self.ls() {
       (l.mr, l.mr_note) = (mr, mr_note);
+    }
+  }
+
+  fn list_cmds_sync(&mut self) {
+    let cmds = self.ucmds.iter().map(|(n, e)| (n.to_owned(), e.to_owned())).collect();
+    if let Some(l) = self.ls() {
+      l.cmds = cmds;
     }
   }
 
@@ -239,6 +258,11 @@ impl App {
       Del::Reason(text) => self.list_run(Cmd::Reason { add: false, text: Some(text) }),
       Del::Rule(n) => self.list_run(Cmd::Rule(RuleCmd::Del(n.to_string()))),
       Del::Alert(id) => self.mrules_remove(id),
+      Del::Command(n) => {
+        let said = self.ucmd_remove(&n);
+        self.list_cmds_sync();
+        self.list_note(said);
+      }
     }
   }
 
@@ -260,13 +284,28 @@ impl App {
       }
       return;
     }
+    if kind == Kind::Commands {
+      // kept in the box when refused, so it can be fixed
+      match self.ucmd_add(&typed) {
+        Err(e) => return self.list_note(e),
+        Ok(said) => {
+          self.list_cmds_sync();
+          self.list_note(said);
+        }
+      }
+      if let Some(l) = self.ls() {
+        l.add.set_text(String::new());
+        l.add.home();
+      }
+      return;
+    }
     let cmd = match kind {
       Kind::Reasons => Cmd::Reason { add: true, text: Some(typed) },
       Kind::Rules => match filtercmd::command(&format!("/rule add {typed}")) {
         Some(c) => c,
         None => return,
       },
-      Kind::People | Kind::Alerts => return,
+      Kind::People | Kind::Alerts | Kind::Commands => return,
     };
     self.list_run(cmd);
     if let Some(l) = self.ls() {

@@ -126,6 +126,8 @@ mod tests_streamer;
 #[cfg(test)]
 mod tests_tabs;
 #[cfg(test)]
+mod tests_usercmd;
+#[cfg(test)]
 mod tests_whisper_toast;
 #[cfg(test)]
 mod tests_ytgone;
@@ -133,6 +135,7 @@ mod tip;
 mod unseen;
 mod update;
 mod upload;
+mod usercmd;
 #[cfg(test)]
 mod ux_tests;
 mod whispers;
@@ -295,6 +298,8 @@ pub struct App {
   notes: crate::model::notes::Notes,
   // per-channel go-live bell and muted pings (model::pings)
   pings: crate::model::pings::Pings,
+  // your own slash commands
+  ucmds: crate::model::usercmd::Cmds,
   occluded: bool,
   damage: render::Damage,
   // pending heap trim after bursts of parsing (emote sets, history)
@@ -531,6 +536,7 @@ impl App {
       import: Default::default(),
       notes: crate::model::notes::Notes::load(),
       pings: crate::model::pings::Pings::load(),
+      ucmds: crate::model::usercmd::Cmds::load(),
       occluded: false,
       damage: Default::default(),
       trim_at: None,

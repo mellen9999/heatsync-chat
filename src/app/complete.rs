@@ -28,6 +28,18 @@ fn what(channel: bool, p: Provider) -> &'static str {
 }
 
 impl App {
+  // your own commands that start with what's typed, ahead of the built-in ones (a built-in's name is its own)
+  fn own_commands(&self, word: &str) -> Vec<Pick> {
+    let low = word.to_lowercase();
+    self
+      .ucmds
+      .iter()
+      .map(|(n, _)| format!("/{n}"))
+      .filter(|n| n.starts_with(&low) && !super::usercmd::builtin(&n[1..]))
+      .map(|n| Pick { name: n.into(), what: "your command", emote: false, code: None })
+      .collect()
+  }
+
   // everyone heard in any tab (the ext's username cache), for `@` and the no-emote fallback
   fn everyone(&self) -> Vec<&str> {
     let mut seen = std::collections::HashSet::new();
@@ -38,7 +50,10 @@ impl App {
     let tab = self.tabs.get(self.active);
     let chat = |n: Box<str>| Pick { name: n, what: "chatter", emote: false, code: None };
     if slash {
-      return commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
+      let mut out = self.own_commands(word);
+      let builtin = commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
+      out.extend(builtin);
+      return out;
     }
     let recent = tab.map_or_else(Vec::new, |t| t.view.recent_chatters(now_ms() - RECENT_MS, RECENT_MAX));
     if let Some(q) = word.strip_prefix('@') {

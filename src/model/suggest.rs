@@ -42,7 +42,7 @@ impl Suggest {
 // what the text before the cursor asks for: the list, the bytes a pick replaces, the query (with its `:`/`@`/`/`)
 pub fn trigger(text: &str, cursor: usize) -> Option<(Kind, Range<usize>)> {
   let t = text.as_bytes();
-  if t.first() == Some(&b'/') && t[1..].iter().all(|b| b.is_ascii_alphabetic() || *b == b'?') {
+  if t.first() == Some(&b'/') && t[1..].iter().all(|b| b.is_ascii_alphanumeric() || matches!(*b, b'?' | b'_' | b'-')) {
     return Some((Kind::Command, 0..text.len()));
   }
   let head = &t[..cursor];
@@ -70,6 +70,7 @@ mod tests {
     assert_eq!(at("hey @al_1"), Some((Kind::People, 4..9)));
     assert_eq!(at("/ba"), Some((Kind::Command, 0..3)));
     assert_eq!(at("/"), Some((Kind::Command, 0..1)));
+    assert_eq!(at("/my_cmd-2"), Some((Kind::Command, 0..9)));
     assert_eq!(at("/ban "), None);
     assert_eq!(at("hey @al "), None);
     assert_eq!(at("plain"), None);

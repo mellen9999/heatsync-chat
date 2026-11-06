@@ -123,6 +123,11 @@ impl App {
     let names: Vec<Box<str>> = s.items.iter().map(|p| p.shown().into()).collect();
     let platform = self.target().map_or(Platform::Twitch, |t| t.0);
     let cmds = if kind == Kind::Command { slash::all() } else { Vec::new() };
+    let own: Vec<(String, String)> = if kind == Kind::Command {
+      self.ucmds.iter().map(|(n, e)| (format!("/{n}"), e.to_owned())).collect()
+    } else {
+      Vec::new()
+    };
     let mut rows = Vec::with_capacity(names.len());
     for name in &names {
       let mut row = Row { img: None, name, ink: theme::WHITE, bold: false, args: "", desc: "" };
@@ -137,7 +142,9 @@ impl App {
           row.bold = true;
         }
         Kind::Command => {
-          if let Some(c) = cmds.iter().find(|c| *c.name == **name) {
+          if let Some((_, e)) = own.iter().find(|(n, _)| **n == **name) {
+            row.desc = e;
+          } else if let Some(c) = cmds.iter().find(|c| *c.name == **name) {
             (row.args, row.desc) = (c.args, c.desc);
           }
         }
