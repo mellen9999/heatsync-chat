@@ -880,8 +880,15 @@ pub(super) fn body(
         });
         prev_emote = true;
       }
-      Some((url, _, true, _)) if prev_emote => {
+      Some((url, dims, true, _)) if prev_emote => {
         let img = res.images.id(&url, px);
+        // an overlay wider than its base widens the slot: the whole stack is the slot, so each animation
+        // frame repaints all of it (a slot only as wide as the base left the overlay's sides frozen)
+        let w = res.images.width(img, dims) as f32;
+        let id = boxes.len().wrapping_sub(1) as u64;
+        if let Some(slot) = ib.iter_mut().rev().find(|i| i.id == id) {
+          slot.width = slot.width.max(w);
+        }
         if let Some(last) = boxes.last_mut() {
           last.zw.push(img);
           last.zw_words.push((a as u32, b as u32));
