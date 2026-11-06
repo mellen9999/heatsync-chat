@@ -26,6 +26,17 @@ pub enum Upload {
   Cancelled,
   // no zenity/kdialog: the app asks for a path in the input bar instead
   NoChooser,
+  // a tab-completion answered: for what was typed (`input`) and the ask it belongs to (`seq`)
+  Completed { seq: u64, input: String, text: String, many: Vec<String> },
+}
+
+// listing a folder can hang (a slow or dead network mount): it runs on a blocking thread and the app
+// hears back as an event, like the clipboard
+pub fn complete(seq: u64, input: String, home: Option<String>, out: Out) {
+  tokio::task::spawn_blocking(move || {
+    let (text, many) = crate::model::pathcomp::complete(&input, home.as_deref());
+    out.send(NetEvent::Upload(Upload::Completed { seq, input, text, many }));
+  });
 }
 
 #[derive(Debug, PartialEq)]
@@ -415,5 +426,26 @@ mod tests {
     std::fs::write(d.join("e"), b"").unwrap();
     assert!(load(&d.join("e")).unwrap_err().contains("empty"));
     let _ = std::fs::remove_dir_all(&d);
+  }
+
+  // the folder is read on a blocking thread and the answer comes back as an event
+  #[tokio::test]
+  async fn a_completion_comes_back_as_an_event_with_its_ask_number() {
+    let d = std::env::temp_dir().join(format!("hsc-cmp-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(d.join("cat1.png"), b"x").unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let input = format!("{}/ca", d.display());
+    complete(7, input.clone(), None, Out::Pipe(tx));
+    let ev =
+      tokio::task::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(5))).await.unwrap().expect("an answer");
+    let _ = std::fs::remove_dir_all(&d);
+    match ev {
+      NetEvent::Upload(Upload::Completed { seq: 7, input: i, text, many }) => {
+        assert_eq!((i, text), (input.clone(), format!("{}/cat1.png", d.display())));
+        assert!(many.is_empty());
+      }
+      _ => panic!("not a completion"),
+    }
   }
 }

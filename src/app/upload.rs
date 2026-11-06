@@ -7,7 +7,6 @@ use winit::keyboard::{Key, NamedKey};
 use super::App;
 use crate::model::line::Line;
 use crate::model::message::{Message, Platform};
-use crate::model::pathcomp;
 use crate::net::Cmd;
 use crate::net::upload::{Upload, expand};
 use crate::ui::input_bar;
@@ -68,6 +67,21 @@ impl App {
     self.input_dirty = true;
   }
 
+  // a folder listing is back: it counts only if it is for the newest tab press and for what is still typed
+  fn on_completed(&mut self, seq: u64, input: &str, text: String, many: &[String]) {
+    if seq != self.path_seq {
+      return;
+    }
+    let Some(l) = self.prompt.as_mut().filter(|l| &*l.text == input) else { return };
+    l.set_text(text);
+    l.end();
+    if !many.is_empty() {
+      let shown: Vec<&str> = many.iter().take(8).map(String::as_str).collect();
+      let more = if many.len() > 8 { format!(" +{}", many.len() - 8) } else { String::new() };
+      self.say(format!("{}{more}", shown.join("  ")));
+    }
+  }
+
   pub(super) fn on_upload(&mut self, u: Upload) {
     self.input_dirty = true;
     match u {
@@ -80,6 +94,7 @@ impl App {
         self.uploading = false;
         self.say("");
       }
+      Upload::Completed { seq, input, text, many } => self.on_completed(seq, &input, text, &many),
       Upload::Failed(e) => {
         self.uploading = false;
         self.say(format!("upload failed: {e}"));
@@ -122,15 +137,11 @@ impl App {
         return self.upload_file(path);
       }
       Key::Named(NamedKey::Tab) => {
-        let (t, many) = pathcomp::complete(&l.text, home().as_deref());
-        l.set_text(t);
-        l.end();
-        if !many.is_empty() {
-          let shown: Vec<&str> = many.iter().take(8).map(String::as_str).collect();
-          let more = if many.len() > 8 { format!(" +{}", many.len() - 8) } else { String::new() };
-          let s = format!("{}{more}", shown.join("  "));
-          self.say(s);
-        }
+        // the folder is read off the ui thread; the answer lands in `on_completed`
+        self.path_seq += 1;
+        let ask = Cmd::Complete { seq: self.path_seq, input: l.text.to_string(), home: home() };
+        self.net.send(ask);
+        return;
       }
       Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),
       Key::Named(NamedKey::Backspace) => l.backspace(),

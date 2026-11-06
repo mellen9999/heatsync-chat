@@ -94,6 +94,8 @@ mod tests_modbar;
 #[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
+mod tests_path;
+#[cfg(test)]
 mod tests_pickers;
 #[cfg(test)]
 mod tests_pin;
@@ -351,6 +353,8 @@ pub struct App {
   catalog_reg: crate::model::catalog::Registry,
   // the built-in path prompt (no file dialog installed), and an upload or dialog in flight
   prompt: Option<Line>,
+  // the newest tab-completion asked of the path prompt; an answer to an older one is dropped
+  path_seq: u64,
   uploading: bool,
   // a sign-in is waiting on the browser: esc gives it up
   login_wait: bool,
@@ -545,6 +549,7 @@ impl App {
       catalog_epoch: 0,
       catalog_reg: Default::default(),
       prompt: None,
+      path_seq: 0,
       uploading: false,
       login_wait: false,
       pin_bar: Default::default(),

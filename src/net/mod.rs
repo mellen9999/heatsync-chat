@@ -537,6 +537,8 @@ pub enum Cmd {
   PickerSearch { q: Box<str>, epoch: u32, page: u32, ask: [bool; 3] },
   // upload this file / ask a file dialog for one, then upload it
   Upload(std::path::PathBuf),
+  // tab-complete a path in the upload prompt, off the ui thread; `seq` tells the answer from an old one
+  Complete { seq: u64, input: String, home: Option<String> },
   // a pasted picture: its own bytes (png, jpeg, webp or gif), checked like any upload
   Picture(Vec<u8>),
   // copy this to the clipboard and say `done` (empty = nothing); paste: read it, and say where for
@@ -1117,6 +1119,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Upload(p) => {
         let _ = sess_tx.send(session::Cmd::Upload(p));
       }
+      Cmd::Complete { seq, input, home } => upload::complete(seq, input, home, out.clone()),
       Cmd::Picture(bytes) => {
         let _ = sess_tx.send(session::Cmd::Picture(bytes));
       }
