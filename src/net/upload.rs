@@ -310,7 +310,7 @@ mod tests {
 
   #[test]
   fn a_clipboard_picture_is_never_a_video() {
-    let mp4 = b"\0\0\0\x18ftypisom\0\0\0\0".to_vec();
+    let mp4 = b"\0\0\0\x14ftypisom\0\0\0\0isom".to_vec();
     assert_eq!(checked(mp4.clone(), false).unwrap_err(), "that isn't a picture");
     assert!(checked(mp4, true).unwrap().1.video, "a file can be");
   }

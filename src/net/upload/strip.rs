@@ -9,12 +9,33 @@
 // png: everything a decoder needs; text, exif, time and every unknown chunk go
 // webp: image, alpha, animation and color profile; the exif and xmp chunks go and their flags clear
 // gif: frames, timing, transparency and the loop count; comments, text and application blocks go
+// mp4, mov, avif: metadata boxes (udta, meta, ©xyz, uuid xmp, avif exif items, timed-metadata tracks)
+//   are blanked in place, nothing moves (strip/bmff.rs)
+// tiff: first directory rebuilt from an allowlist, exif/gps/xmp/thumbnails zeroed (strip/tiff.rs)
+// webm: tags, attachments, chapters, title and muxer names are overwritten with Void (strip/mkv.rs)
+// bmp has nowhere to put metadata. a format that can't be cleaned safely is refused, never sent
+
+mod bmff;
+mod mkv;
+#[cfg(test)]
+mod tests_meta;
+mod tiff;
 
 const DAMAGED: &str = "that picture looks damaged, so it wasn't sent";
+const DAMAGED_VIDEO: &str = "that video looks damaged, so it wasn't sent";
+const REFUSED: &str = "can't remove the hidden location info from this kind of file, so it wasn't sent";
 
-// jpeg, png, gif, webp are cleaned; any other mime (avif, bmp, tiff, video) passes through untouched
+// why an in-place cleaner gave up
+#[derive(Debug, PartialEq)]
+enum Fail {
+  Damaged,
+  Refused,
+}
+
+// every format that can carry metadata is cleaned or refused; only bmp (it can't) passes through
 pub fn clean(mime: &str, bytes: Vec<u8>) -> Result<Vec<u8>, String> {
   let out = match mime {
+    "video/mp4" | "video/quicktime" | "image/avif" | "image/tiff" | "video/webm" => return in_place(mime, bytes),
     "image/jpeg" => jpeg(&bytes),
     "image/png" => png(&bytes),
     "image/gif" => gif(&bytes),
@@ -22,6 +43,21 @@ pub fn clean(mime: &str, bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     _ => return Ok(bytes),
   };
   out.ok_or_else(|| DAMAGED.to_string())
+}
+
+fn in_place(mime: &str, mut b: Vec<u8>) -> Result<Vec<u8>, String> {
+  let r = match mime {
+    "image/avif" => bmff::clean(&mut b, true),
+    "image/tiff" => tiff::clean(&mut b),
+    "video/webm" => mkv::clean(&mut b),
+    _ => bmff::clean(&mut b, false),
+  };
+  match r {
+    Ok(()) => Ok(b),
+    Err(Fail::Refused) => Err(REFUSED.to_string()),
+    Err(Fail::Damaged) if mime.starts_with("video") => Err(DAMAGED_VIDEO.to_string()),
+    Err(Fail::Damaged) => Err(DAMAGED.to_string()),
+  }
 }
 
 // ---- jpeg
@@ -715,9 +751,10 @@ mod tests {
   }
 
   #[test]
-  fn other_formats_pass_through() {
+  fn bmp_passes_through_and_unparseable_video_is_refused() {
     let v = b"\0\0\0\x18ftypisom\0\0\0\0 and SECRETDATA".to_vec();
-    assert_eq!(clean("video/mp4", v.clone()).unwrap(), v);
-    assert_eq!(clean("image/avif", v.clone()).unwrap(), v);
+    assert_eq!(clean("image/bmp", v.clone()).unwrap(), v);
+    assert!(clean("video/mp4", v.clone()).unwrap_err().contains("damaged"));
+    assert!(clean("image/avif", v).unwrap_err().contains("damaged"));
   }
 }
