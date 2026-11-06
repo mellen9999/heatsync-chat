@@ -14,7 +14,9 @@ use line::Entry;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
+use std::sync::{Arc, mpsc::TrySendError};
 use std::time::{Duration, Instant};
 
 // nothing waits longer than this to reach the disk
@@ -34,11 +36,13 @@ enum Msg {
 
 pub struct ChatLog {
   tx: Option<SyncSender<Msg>>,
+  // a line was dropped because the queue was full: said once, cleared by the writer when it catches up
+  behind: Arc<AtomicBool>,
 }
 
 impl ChatLog {
   pub fn new(on: bool) -> Self {
-    let mut c = ChatLog { tx: None };
+    let mut c = ChatLog { tx: None, behind: Arc::default() };
     c.set(on);
     c
   }
@@ -48,15 +52,18 @@ impl ChatLog {
     if !on {
       self.tx = None;
     } else if self.tx.is_none() {
-      self.tx = start(crate::store::logs_dir(), crate::store::tell);
+      self.tx = start(crate::store::logs_dir(), crate::store::tell, Arc::clone(&self.behind));
     }
   }
 
   // one live line of a channel. off costs one branch
   pub fn log(&self, p: Platform, chan: &str, m: &Message) {
     let Some(tx) = &self.tx else { return };
-    if let Some(e) = line::entry(p, chan, m, now_ms()) {
-      let _ = tx.try_send(Msg::Line(e));
+    if let Some(e) = line::entry(p, chan, m, now_ms())
+      && let Err(TrySendError::Full(_)) = tx.try_send(Msg::Line(e))
+      && !self.behind.swap(true, Ordering::Relaxed)
+    {
+      crate::store::tell("chat logs fell behind: some lines weren't saved".into());
     }
   }
 
@@ -70,10 +77,14 @@ impl ChatLog {
   }
 }
 
-fn start(root: Option<PathBuf>, tell: impl Fn(String) + Send + 'static) -> Option<SyncSender<Msg>> {
+fn start(
+  root: Option<PathBuf>,
+  tell: impl Fn(String) + Send + 'static,
+  behind: Arc<AtomicBool>,
+) -> Option<SyncSender<Msg>> {
   let (tx, rx) = sync_channel(QUEUE);
   let sink = Sink { root, pending: Vec::new(), bytes: 0, dead: false };
-  match std::thread::Builder::new().name("chat-log".into()).spawn(move || run(rx, sink, tell)) {
+  match std::thread::Builder::new().name("chat-log".into()).spawn(move || run(rx, sink, tell, &behind)) {
     Ok(_) => Some(tx),
     Err(_) => {
       crate::store::tell("couldn't start the chat log writer; chat logs are off".into());
@@ -82,14 +93,21 @@ fn start(root: Option<PathBuf>, tell: impl Fn(String) + Send + 'static) -> Optio
   }
 }
 
-fn run(rx: Receiver<Msg>, mut sink: Sink, tell: impl Fn(String)) {
+fn run(rx: Receiver<Msg>, mut sink: Sink, tell: impl Fn(String), behind: &AtomicBool) {
   let mut due: Option<Instant> = None;
   loop {
     let got = match due {
-      None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+      None => {
+        // about to wait on an empty queue: caught up, so a later overflow is news again
+        behind.store(false, Ordering::Relaxed);
+        rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
+      }
       Some(t) => rx.recv_timeout(t.saturating_duration_since(Instant::now())),
     };
     let mut now = matches!(got, Err(RecvTimeoutError::Timeout));
+    if now {
+      behind.store(false, Ordering::Relaxed);
+    }
     match got {
       Ok(Msg::Line(e)) => {
         due.get_or_insert_with(|| Instant::now() + BATCH);
@@ -235,7 +253,7 @@ mod tests {
     std::fs::write(&r, "in the way").unwrap();
     let said = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&said);
-    let tx = start(Some(r.clone()), move |s| sink.lock().unwrap().push(s)).unwrap();
+    let tx = start(Some(r.clone()), move |s| sink.lock().unwrap().push(s), Arc::default()).unwrap();
     let send = |t: &str| tx.send(Msg::Line(e("a", "2026-11-06", t))).unwrap();
     let sync = || {
       let (a, d) = sync_channel(1);
@@ -259,7 +277,7 @@ mod tests {
   #[test]
   fn the_writer_flushes_on_its_own_and_when_the_switch_goes_off() {
     let r = root("log-c");
-    let tx = start(Some(r.clone()), |_| {}).unwrap();
+    let tx = start(Some(r.clone()), |_| {}, Arc::default()).unwrap();
     tx.send(Msg::Line(e("a", "d", "kept"))).unwrap();
     drop(tx);
     let p = r.join("twitch/a/d.log");
@@ -268,6 +286,40 @@ mod tests {
       std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(std::fs::read_to_string(p).unwrap(), "kept\n");
+  }
+
+  #[test]
+  fn a_full_queue_says_so_once_and_again_after_it_drains() {
+    let _ = crate::store::take_notes();
+    let (tx, rx) = sync_channel(2);
+    let c = ChatLog { tx: Some(tx), behind: Arc::default() };
+    let m = Message::system(1, Platform::Twitch, "hi");
+    for _ in 0..6 {
+      c.log(Platform::Twitch, "a", &m);
+    }
+    let said = crate::store::take_notes();
+    assert_eq!(said, ["chat logs fell behind: some lines weren't saved"]);
+    // the writer catches up (no thread here: drain by hand and clear the flag as it does)
+    while rx.try_recv().is_ok() {}
+    c.behind.store(false, Ordering::Relaxed);
+    for _ in 0..6 {
+      c.log(Platform::Twitch, "a", &m);
+    }
+    assert_eq!(crate::store::take_notes().len(), 1);
+  }
+
+  #[test]
+  fn the_writer_clears_the_flag_once_it_is_caught_up() {
+    let behind = Arc::new(AtomicBool::new(true));
+    let tx = start(Some(root("log-d")), |_| {}, Arc::clone(&behind)).unwrap();
+    let (a, d) = sync_channel(1);
+    tx.send(Msg::Flush(a)).unwrap();
+    d.recv_timeout(Duration::from_secs(5)).unwrap();
+    let t = Instant::now();
+    while behind.load(Ordering::Relaxed) && t.elapsed() < Duration::from_secs(5) {
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!behind.load(Ordering::Relaxed));
   }
 
   #[test]
