@@ -2,7 +2,6 @@
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
-use crate::emotes::Provider;
 use crate::model::picker::{Focus, Item, Picker, Sec, Tab};
 use crate::ui::picker::{Geo, draw, geo_of};
 use crate::util::time::now_ms;
@@ -36,9 +35,6 @@ impl App {
     self.close_menu();
     let mut p = Picker::new(mine, channel, global, &self.recents);
     p.prefs = crate::model::picker_search::Prefs::load();
-    p.search.ffz_first =
-      self.set.emote_provider.order().iter().find(|p| matches!(p, Provider::Ffz | Provider::SevenTv))
-        == Some(&Provider::Ffz);
     self.picker = Some(p);
     self.picker_changed();
   }

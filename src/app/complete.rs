@@ -164,11 +164,8 @@ impl App {
         || own.and_then(|id| res.senders.peek(id, n, now)).is_some_and(|e| *e.url == *u)
         || res.emotes.global(n).is_some_and(|e| *e.url == *u)
     };
-    let ffz_first = self.set.emote_provider.order().iter().find(|p| matches!(p, Provider::Ffz | Provider::SevenTv))
-      == Some(&Provider::Ffz);
-    let step = r.absorb(stv, ffz, ffz_first, &mut c.matches, &mut self.catalog_reg, |n, u| {
-      res.blocked.contains(n, u) || mine(n, u)
-    });
+    let step =
+      r.absorb(stv, ffz, &mut c.matches, &mut self.catalog_reg, |n, u| res.blocked.contains(n, u) || mine(n, u));
     let (word, none, done) = (r.search.clone(), c.matches.is_empty(), r.done());
     if step.chase {
       self.ask_catalog(false);
@@ -535,7 +532,7 @@ mod tests {
     let mut reg = crate::model::catalog::Registry::default();
     cy.ask(1, 0, true);
     let blocked = |n: &str, u: &str| app.res.blocked.contains(n, u);
-    cy.absorb(Some(page(vec![hit("aablk", "2"), hit("aafine", "4")], false)), None, true, &mut m, &mut reg, blocked);
+    cy.absorb(Some(page(vec![hit("aablk", "2"), hit("aafine", "4")], false)), None, &mut m, &mut reg, blocked);
     assert_eq!(m.iter().map(|p| &*p.name).collect::<Vec<_>>(), ["aafine"]);
   }
 

@@ -89,12 +89,12 @@ pub enum Found {
   Preview(Box<str>),
 }
 
-// the first http(s) link when it embeds; else (partial links on, ext extractChatEmbed) the first youtube
+// the first http(s) link when it embeds; else (links on, ext extractChatEmbed) the first youtube
 // video, tweet or reddit post named without its scheme or host: `watch?v=…`, `name/status/…`, `r/x/comments/…`
-pub fn find(body: &str, partial: bool) -> Option<Found> {
+pub fn find(body: &str, links: bool) -> Option<Found> {
   full(body).or_else(|| {
-    let links = if partial { crate::model::links::find(body, true) } else { Vec::new() };
-    links.into_iter().find_map(|l| match crate::model::video::yt_id(&l.url) {
+    let found = if links { crate::model::links::find(body) } else { Vec::new() };
+    found.into_iter().find_map(|l| match crate::model::video::yt_id(&l.url) {
       Some(id) => Some(Found::Pic(yt(id, &l.url))),
       // a bare `r/sub` is only a link: a post (`…/comments/…`) previews
       None => (preview::site(&l.url).is_some() && (!l.url.contains("reddit.com/") || l.url.contains("/comments/")))
@@ -182,12 +182,12 @@ mod tests {
   }
 
   #[test]
-  fn a_youtube_link_without_its_host_embeds_when_partial_links_are_on() {
+  fn a_youtube_link_without_its_host_embeds_when_links_are_on() {
     for t in ["watch?v=dQw4w9WgXcQ lol", "lol youtube.com/watch?v=dQw4w9WgXcQ", "see shorts/dQw4w9WgXcQ"] {
       let Some(Found::Pic(e)) = find(t, true) else { panic!("{t}") };
       assert!(e.display.contains("dQw4w9WgXcQ"), "{t}");
       assert!(e.play.as_deref().is_some_and(|p| p.starts_with("https://") && p.contains("youtube.com/")), "{t}");
-      assert!(find(t, false).is_none(), "{t}: partial links off");
+      assert!(find(t, false).is_none(), "{t}: links off");
     }
     // a real link that embeds wins over a fragment
     assert!(matches!(

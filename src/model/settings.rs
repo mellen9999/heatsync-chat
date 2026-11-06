@@ -123,23 +123,6 @@ choice! {
   Animate { Always = "always", Never = "never" }
 }
 
-choice! {
-  // which third-party provider wins an emote name two of them define (ext emoteProviderPriority)
-  EmoteProvider { Ffz = "ffz", SevenTv = "7tv", Bttv = "bttv" }
-}
-
-impl EmoteProvider {
-  // the winner first, then the rest in the ext's old merge order
-  pub fn order(self) -> [crate::emotes::Provider; 3] {
-    use crate::emotes::{Provider, order_for};
-    order_for(match self {
-      EmoteProvider::Ffz => Provider::Ffz,
-      EmoteProvider::SevenTv => Provider::SevenTv,
-      EmoteProvider::Bttv => Provider::Bttv,
-    })
-  }
-}
-
 impl Volume {
   pub fn percent(self) -> u8 {
     [0, 10, 20, 30, 50, 70, 100][self as usize]
@@ -205,8 +188,6 @@ pub struct Settings {
   pub heat_bars: bool,
   // badges as short text chips instead of pictures (ext textBadges). default off, like the ext
   pub text_badges: bool,
-  // who wins an emote name two third-party providers share (ext emoteProviderPriority). default ffz
-  pub emote_provider: EmoteProvider,
   // pronoundb pronouns beside a twitch name on the card and the name popup. default on, like the ext
   // (hs_show_pronouns). off, pronoundb is never asked
   pub pronouns: bool,
@@ -237,8 +218,6 @@ pub struct Settings {
   pub inline_dm: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
-  // host-less and defanged links (watch?v=…, r/sub/comments/…, site (dot) com) are clickable. default on, like the ext (partialLinksEnabled)
-  pub partial_links: bool,
   // urls in chat are links at all. default on, like the ext (linksEnabled)
   pub links: bool,
   // draw emotes from a heatsync inventory (the sender's) and suggest your own. default on, like the ext
@@ -306,7 +285,6 @@ impl Default for Settings {
       flame: true,
       heat_bars: true,
       text_badges: false,
-      emote_provider: EmoteProvider::Ffz,
       pronouns: true,
       stream_stats: true,
       paint_motion: true,
@@ -324,7 +302,6 @@ impl Default for Settings {
       whisper_toast: true,
       inline_dm: false,
       media: true,
-      partial_links: true,
       links: true,
       render_inventory: true,
       suggest_inventory: true,
@@ -648,7 +625,6 @@ mod tests {
         flame: true,
         heat_bars: true,
         text_badges: false,
-        emote_provider: EmoteProvider::Ffz,
         pronouns: true,
         stream_stats: true,
         paint_motion: true,
@@ -666,7 +642,6 @@ mod tests {
         whisper_toast: true,
         inline_dm: false,
         media: true,
-        partial_links: true,
         links: true,
         render_inventory: true,
         suggest_inventory: true,
@@ -837,20 +812,25 @@ mod tests {
   }
 
   #[test]
-  fn text_badges_and_provider_priority_round_trip() {
-    use crate::emotes::Provider::*;
-    let d = Settings::default();
-    assert!(!d.text_badges && d.emote_provider == EmoteProvider::Ffz);
-    let s = Settings::parse("text_badges=true\nemote_provider=7tv\n");
-    assert!(s.text_badges && s.emote_provider == EmoteProvider::SevenTv);
+  fn text_badges_round_trip() {
+    assert!(!Settings::default().text_badges);
+    let s = Settings::parse("text_badges=true\n");
+    assert!(s.text_badges);
     assert_eq!(Settings::parse(&s.render()), s);
-    // an unknown name leaves the default
-    assert_eq!(Settings::parse("emote_provider=twitch").emote_provider, EmoteProvider::Ffz);
-    assert_eq!(EmoteProvider::Ffz.order(), [Ffz, SevenTv, Bttv]);
-    assert_eq!(EmoteProvider::SevenTv.order(), [SevenTv, Ffz, Bttv]);
-    assert_eq!(EmoteProvider::Bttv.order(), [Bttv, SevenTv, Ffz]);
     assert_eq!(local_cmd("/textbadges"), Some(Local::Toggle("text_badges")));
-    assert_eq!(local_cmd("/emoteprovider bttv"), Some(Local::Pick("emote_provider", Some(2))));
+  }
+
+  // two settings are gone (the emote provider pick, partial links): a file from before still loads, keeps every
+  // other setting, is written back without them, and their commands are no longer commands
+  #[test]
+  fn the_dropped_provider_and_partial_link_settings_are_ignored_quietly() {
+    let old = "vi=true\nemote_provider=bttv\npartial_links=false\nzebra=false\n";
+    let s = Settings::parse(old);
+    assert!(s.vi && !s.zebra);
+    assert_eq!(s, Settings { vi: true, zebra: false, ..Settings::default() });
+    assert!(!s.render().contains("emote_provider") && !s.render().contains("partial_links"));
+    assert_eq!(local_cmd("/emoteprovider bttv"), None);
+    assert_eq!(local_cmd("/partiallinks"), None);
   }
 
   #[test]

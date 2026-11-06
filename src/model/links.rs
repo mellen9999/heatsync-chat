@@ -23,7 +23,7 @@ const TLDS: [&str; 32] = [
 
 type Hit = Option<(usize, Option<String>)>;
 
-pub fn find(body: &str, partial: bool) -> Vec<Link> {
+pub fn find(body: &str) -> Vec<Link> {
   let mut out: Vec<Link> = Vec::new();
   // almost every line has none of these: skip without scanning
   let maybe = body.contains(['/', '.', '?']) || body.to_ascii_lowercase().contains("dot");
@@ -43,14 +43,12 @@ pub fn find(body: &str, partial: bool) -> Vec<Link> {
     }
     at = end;
   }
-  if partial {
-    pass(body, &mut out, yt, false);
-    pass(body, &mut out, yt_list, false);
-    pass(body, &mut out, reddit, false);
-    pass(body, &mut out, tweet, false);
-    pass(body, &mut out, defang, true);
-    pass(body, &mut out, bare, false);
-  }
+  pass(body, &mut out, yt, false);
+  pass(body, &mut out, yt_list, false);
+  pass(body, &mut out, reddit, false);
+  pass(body, &mut out, tweet, false);
+  pass(body, &mut out, defang, true);
+  pass(body, &mut out, bare, false);
   out.sort_by_key(|l| l.range.start);
   out
 }
@@ -377,7 +375,7 @@ mod tests {
 
   // (shown text, target) of every link in the line
   fn got(body: &str) -> Vec<(&str, String)> {
-    find(body, true).into_iter().map(|l| (&body[l.range], l.url)).collect()
+    find(body).into_iter().map(|l| (&body[l.range], l.url)).collect()
   }
 
   fn one(body: &str) -> (String, String) {
@@ -406,12 +404,6 @@ mod tests {
     assert_eq!(got("youtube.com/shorts/e2B1_DNpsV4").len(), 1);
     assert_eq!(got("reddit.com/r/place").len(), 1);
     none("javascript:alert(1)");
-  }
-
-  #[test]
-  fn partial_off_leaves_only_full_links() {
-    assert!(find("watch?v=Gz0fAz9n_Os heatsync.org", false).is_empty());
-    assert_eq!(find("heatsync.org/x", false).len(), 1);
   }
 
   #[test]
@@ -522,12 +514,12 @@ mod tests {
   #[test]
   fn hostile_text_is_bounded_and_boundary_safe() {
     let long = format!("{}.com/{}", "a".repeat(5000), "b".repeat(5000));
-    assert!(find(&long, true).is_empty());
+    assert!(find(&long).is_empty());
     let many = "a.com ".repeat(500);
-    assert_eq!(find(&many, true).len(), MAX_LINKS);
+    assert_eq!(find(&many).len(), MAX_LINKS);
     for t in ["é.com", "héllo wörld r/éé", "(dot)é", "a (dot) é.com/é", "watch?v=ééééééé", "x\u{a0}dot\u{a0}org"]
     {
-      for l in find(t, true) {
+      for l in find(t) {
         assert!(t.is_char_boundary(l.range.start) && t.is_char_boundary(l.range.end), "{t}");
       }
     }

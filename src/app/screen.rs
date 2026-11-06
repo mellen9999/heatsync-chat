@@ -315,7 +315,6 @@ impl App {
         self.relayout_where(None);
       }
       Fx::Links => {
-        self.res.partial_links = self.set.partial_links;
         self.res.links = self.set.links;
         self.relayout_where(None);
       }

@@ -96,15 +96,12 @@ pub struct Search {
   ex: [bool; 3],
   rows: [Vec<Hit>; 3],
   chased: u8,
-  // emoteProviderPriority: the 7tv / ffz winner of a same-name collision lists first
-  pub ffz_first: bool,
 }
 
 impl Search {
   // a new word (or None): everything from the last one is gone
   pub fn reset(&mut self, q: Option<&str>) {
-    let ffz_first = self.ffz_first;
-    *self = Search { q: q.unwrap_or("").into(), ffz_first, ..Default::default() };
+    *self = Search { q: q.unwrap_or("").into(), ..Default::default() };
   }
 
   pub fn pending(&self) -> bool {
@@ -185,7 +182,8 @@ impl Search {
         3
       }
     };
-    let (a, b) = if self.ffz_first { (1, 0) } else { (0, 1) };
+    // ffz before 7tv (the ext's emoteProviderPriority default)
+    let (a, b) = (1, 0);
     let mut seen: HashSet<&str> = names.iter().copied().collect();
     let mut seen_pics: HashSet<&str> = HashSet::new();
     let mut out: Vec<(u8, usize, &Hit)> = Vec::new();
@@ -269,11 +267,8 @@ mod tests {
     let hs = page(vec![hit("hsSad", "g", Source::Heatsync), hit("zzz", "h", Source::Heatsync)], false);
     s.absorb(1, [Some(stv), Some(ffz), Some(hs)]).unwrap();
     let r = s.ranked(&Prefs::default(), &none(), &none());
-    // exact first (every different upload of it), then prefix, then substring, then fuzzy; 7tv ahead of ffz
-    assert_eq!(names(&r), ["sad", "Sad", "SadA", "SadB", "NotSad", "hsSad", "zzz"]);
-    s.ffz_first = true;
-    let r = s.ranked(&Prefs::default(), &none(), &none());
-    assert_eq!(names(&r)[..4], ["Sad", "sad", "SadB", "SadA"]);
+    // exact first (every different upload of it), then prefix, then substring, then fuzzy; ffz ahead of 7tv
+    assert_eq!(names(&r), ["Sad", "sad", "SadB", "SadA", "NotSad", "hsSad", "zzz"]);
     assert_eq!(&*r[2].url, "https://cdn.7tv.app/emote/d/1x.webp");
     // exact: only the name typed in full
     let ex = Prefs { exact: true, ..Prefs::default() };

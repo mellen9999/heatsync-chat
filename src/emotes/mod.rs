@@ -66,17 +66,9 @@ impl Scope {
   }
 }
 
-// which provider wins a name two of them define (ext setting emoteProviderPriority, default ffz): the
-// pick leads, the other two keep the ext's old merge order (7tv, ffz, bttv). only ever among the
-// third-party sets: heatsync inventory emotes never come through here
-pub fn order_for(first: Provider) -> [Provider; 3] {
-  let mut out = [first; 3];
-  let rest = [Provider::SevenTv, Provider::Ffz, Provider::Bttv].into_iter().filter(|p| *p != first);
-  for (slot, p) in out.iter_mut().skip(1).zip(rest) {
-    *slot = p;
-  }
-  out
-}
+// which provider wins a name two of them define: ffz, then 7tv, then bttv (the ext's emoteProviderPriority
+// default). only ever among the third-party sets: heatsync inventory emotes never come through here
+const ORDER: [Provider; 3] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv];
 
 pub struct Emotes {
   global: Scope,
@@ -89,15 +81,11 @@ pub struct Emotes {
 
 impl Default for Emotes {
   fn default() -> Self {
-    Emotes { global: Scope::default(), channels: HashMap::new(), order: order_for(Provider::Ffz), subs: Set::new() }
+    Emotes { global: Scope::default(), channels: HashMap::new(), order: ORDER, subs: Set::new() }
   }
 }
 
 impl Emotes {
-  pub fn set_order(&mut self, order: [Provider; 3]) {
-    self.order = order;
-  }
-
   pub fn set(&mut self, channel: Option<&str>, p: Provider, set: Set) {
     let scope = match channel {
       Some(c) => self.channels.entry(c.into()).or_default(),
@@ -179,31 +167,19 @@ mod tests {
   }
 
   #[test]
-  fn order_leads_with_the_pick_and_keeps_the_rest() {
-    use Provider::*;
-    assert_eq!(order_for(Ffz), [Ffz, SevenTv, Bttv]);
-    assert_eq!(order_for(SevenTv), [SevenTv, Ffz, Bttv]);
-    assert_eq!(order_for(Bttv), [Bttv, SevenTv, Ffz]);
-  }
-
-  #[test]
-  fn the_pick_decides_a_shared_name_in_every_view() {
+  fn ffz_wins_a_shared_name_then_7tv_then_bttv_in_every_view() {
     let mut em = Emotes::default();
     em.set(Some("c"), Provider::SevenTv, [("Same".into(), e("c-7tv"))].into());
     em.set(Some("c"), Provider::Bttv, [("Same".into(), e("c-bttv"))].into());
     em.set(None, Provider::Ffz, [("G".into(), e("g-ffz"))].into());
     em.set(None, Provider::Bttv, [("G".into(), e("g-bttv"))].into());
-    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv");
-    assert_eq!(&*em.global("G").unwrap().url, "g-ffz");
-    em.set_order(order_for(Provider::Bttv));
-    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-bttv");
-    assert_eq!(&*em.global("G").unwrap().url, "g-bttv");
+    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv", "7tv before bttv");
+    assert_eq!(&*em.global("G").unwrap().url, "g-ffz", "ffz before bttv");
+    em.set(Some("c"), Provider::Ffz, [("Same".into(), e("c-ffz"))].into());
+    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-ffz", "ffz before 7tv");
     let names = em.channel_names("c");
     assert_eq!(names.len(), 1);
-    assert_eq!(names[0].1, Provider::Bttv);
-    assert_eq!(&*em.global_entries()[0].1.url, "g-bttv");
-    // a provider the pick doesn't have a name in still serves it
-    em.set_order(order_for(Provider::Ffz));
-    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv");
+    assert_eq!(names[0].1, Provider::Ffz);
+    assert_eq!(&*em.global_entries()[0].1.url, "g-ffz");
   }
 }

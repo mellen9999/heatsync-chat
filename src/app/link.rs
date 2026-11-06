@@ -63,13 +63,13 @@ impl App {
 
   // `o` on a picked line
   pub(super) fn open_selected_link(&mut self) {
-    let (links_on, partial) = (self.set.links, self.set.partial_links);
+    let links_on = self.set.links;
     let url = self
       .tabs
       .get(self.active)
       .and_then(|t| t.view.selected())
       .filter(|_| links_on)
-      .and_then(|m| links::find(&m.body, partial).into_iter().next())
+      .and_then(|m| links::find(&m.body).into_iter().next())
       .map(|l| l.url);
     match url {
       Some(u) => self.open_link(&u),

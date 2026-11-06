@@ -137,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 71] = [
+pub static DEFS: [Def; 69] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -367,18 +367,6 @@ pub static DEFS: [Def; 71] = [
     wire: Wire::Bool("textBadges"),
   },
   Def {
-    id: "emote_provider",
-    cmd: Some("/emoteprovider"),
-    cat: Cat::Display,
-    section: "cosmetics",
-    label: "which emote wins",
-    tip: "when 7tv, bttv and ffz have an emote with the same name, the site picked here shows. /emoteprovider 7tv",
-    alias: "emoteProviderPriority 7tv bttv ffz priority",
-    ctl: pick!(emote_provider, EmoteProvider),
-    fx: Fx::Look,
-    wire: Wire::Name("emoteProviderPriority"),
-  },
-  Def {
     id: "paint_motion",
     cmd: Some("/paintmotion"),
     cat: Cat::Display,
@@ -485,18 +473,6 @@ pub static DEFS: [Def; 71] = [
     ctl: pill!(media),
     fx: Fx::Media,
     wire: Wire::Bool("mediaEmbedsEnabled"),
-  },
-  Def {
-    id: "partial_links",
-    cmd: Some("/partiallinks"),
-    cat: Cat::Chat,
-    section: "messages",
-    label: "partial links",
-    tip: "also make links out of half links, like a bare youtube id or \"site (dot) com\", which chats use to dodge link filters",
-    alias: "partiallinks defang",
-    ctl: pill!(partial_links),
-    fx: Fx::Links,
-    wire: Wire::Bool("partialLinksEnabled"),
   },
   Def {
     id: "links",

@@ -609,7 +609,7 @@ pub(super) fn picture(
     return (None, None, None);
   }
   let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
-  let e = match embed::find(&m.body, res.links && res.partial_links) {
+  let e = match embed::find(&m.body, res.links) {
     None => return (None, None, None),
     Some(embed::Found::Pic(e)) => e,
     Some(embed::Found::Preview(url)) => {
@@ -875,7 +875,7 @@ pub(super) fn body(
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
 ) -> Words {
-  let links = if res.links { crate::model::links::find(&m.body, res.partial_links) } else { Vec::new() };
+  let links = if res.links { crate::model::links::find(&m.body) } else { Vec::new() };
   let mut runs = Vec::new();
   let mut people = Vec::new();
   let px = res.look.emote_px();

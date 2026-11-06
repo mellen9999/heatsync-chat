@@ -118,8 +118,6 @@ pub struct Res {
   pub previews: crate::model::preview::Previews,
   // inline pictures under chat lines (ext mediaEmbedsEnabled)
   pub media: bool,
-  // host-less and defanged links count as links (ext partialLinksEnabled)
-  pub partial_links: bool,
   // urls are links at all (ext linksEnabled)
   pub links: bool,
 }
@@ -144,15 +142,13 @@ impl Res {
       chatters: Chatters::default(),
       previews: Default::default(),
       media: true,
-      partial_links: true,
       links: true,
     }
   }
 
-  // the settings that shape drawing: the look, and which provider wins a shared emote name
+  // the settings that shape drawing
   pub fn apply_look(&mut self, s: &Settings) {
     self.look = Look::of(s);
-    self.emotes.set_order(s.emote_provider.order());
   }
 
   // what a word may become an emote from (`emotes::resolve`, the one render chokepoint)

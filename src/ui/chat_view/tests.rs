@@ -882,11 +882,8 @@ fn links_hit_test_to_their_canonical_target() {
   };
   let urls = scan(&mut v, &mut res);
   assert!(!urls.is_empty() && urls.iter().all(|u| u == "https://www.youtube.com/watch?v=Gz0fAz9n_Os"), "{urls:?}");
-  // plain words are not links, and the switch turns the partial rule off
+  // plain words are not links
   assert!(v.link_at(area, 2, 199, &mut res).is_none());
-  res.partial_links = false;
-  v.relayout();
-  assert!(scan(&mut v, &mut res).is_empty());
 }
 
 fn plain(id: &str, body: &str) -> Message {

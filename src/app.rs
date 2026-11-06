@@ -467,7 +467,6 @@ impl App {
     }
     res.media = set.media;
     res.apply_look(&set);
-    res.partial_links = set.partial_links;
     res.links = set.links;
     Self {
       gfx: None,
