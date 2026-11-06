@@ -53,7 +53,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - went-live lines (+ a desktop notification), and who you follow that's live
 - the message box says when you're timed out or banned and for how long, and marks text past the limit red
 - links open in your browser, video links in mpv if you have it
-- settings, presets (normal, minimal, power user, moderator, low ram, and your own: `/preset save <name>`) and keys match the extension's
+- settings (and `/reset`, one honest put-everything-back, asks first) and keys match the extension's
 
 ## optional extras
 

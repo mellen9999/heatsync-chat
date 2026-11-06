@@ -131,6 +131,7 @@ impl App {
       Local::Counter(Some(c)) => self.counter_to(c),
       Local::Counter(None) => self.say("usage: /tabcounter unread, heat or off"),
       Local::Settings => self.open_screen(screen::Page::Settings),
+      Local::Reset => self.ask_reset(),
       Local::Keys => self.open_screen(screen::Page::Keys),
       Local::Login(arg) => self.login_cmd(&arg),
       Local::Logout => self.logout_cmd(),
@@ -172,11 +173,6 @@ impl App {
     if let Some(cmd) = crate::model::filtercmd::command(&self.line.text) {
       self.line.take();
       self.filter_cmd(cmd);
-      return self.after_send();
-    }
-    if let Some(cmd) = crate::model::presets::command(&self.line.text) {
-      self.line.take();
-      self.preset_cmd(cmd);
       return self.after_send();
     }
     if let Some(cmd) = crate::model::notes::command(&self.line.text) {

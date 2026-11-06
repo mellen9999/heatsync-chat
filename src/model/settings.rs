@@ -393,6 +393,18 @@ impl Settings {
     }
   }
 
+  // every look and behaviour back to its default. kept: which built-in tabs are on the bar (a layout choice,
+  // like the tabs themselves). nothing here holds a login, a token, a list or anything you wrote
+  pub fn reset(&self) -> Self {
+    Settings {
+      tab_feed: self.tab_feed,
+      tab_whispers: self.tab_whispers,
+      tab_mentions: self.tab_mentions,
+      tab_modlog: self.tab_modlog,
+      ..Self::default()
+    }
+  }
+
   pub fn parse(s: &str) -> Self {
     let mut out = Self::default();
     for l in s.lines() {
@@ -484,6 +496,8 @@ pub enum Local {
   Tab(Option<Kind>, bool),
   // the settings screen, the key map
   Settings,
+  // /reset: every look and behaviour back to its default (asks first)
+  Reset,
   Keys,
   // /login [platform], /logout, /account: who you are
   Login(String),
@@ -576,6 +590,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
   }
   match low.as_str() {
     "/settings" => Some(Local::Settings),
+    "/reset" => Some(Local::Reset),
     "/keys" | "/help" => Some(Local::Keys),
     "/logout" => Some(Local::Logout),
     "/account" => Some(Local::Account),
@@ -674,6 +689,38 @@ mod tests {
     );
     assert_eq!(Settings::parse(""), Settings::default());
     assert_eq!(Settings::parse("garbage\nvi\n=true\nvi=maybe"), Settings::default());
+  }
+
+  // the old "normal" preset left zebra, tags, paints, stats and emoji size as they were: a reset must not
+  #[test]
+  fn reset_puts_back_every_saved_setting_but_the_tabs_on_the_bar() {
+    let mut s = Settings::default();
+    for d in &schema::DEFS {
+      match d.ctl {
+        Ctl::Pill(get, set) => {
+          let v = !get(&s);
+          set(&mut s, v)
+        }
+        Ctl::Pick(c, get, set) => {
+          let v = (get(&s) + 1) % c.names.len();
+          set(&mut s, v)
+        }
+        Ctl::Buttons(_, set) => set(&mut s, 0b101),
+        _ => {}
+      }
+    }
+    (s.zoom, s.tab_side, s.tab_counter) = (150, Side::Left, Counter::Heat);
+    // the test really moved every line the file keeps
+    let (was, now) = (Settings::default().render(), s.render());
+    for (a, b) in was.lines().zip(now.lines()) {
+      assert_ne!(a, b, "the test left {a} alone");
+    }
+    let mut want = Settings::default();
+    (want.tab_feed, want.tab_whispers, want.tab_mentions, want.tab_modlog) =
+      (s.tab_feed, s.tab_whispers, s.tab_mentions, s.tab_modlog);
+    assert_eq!(s.reset(), want);
+    // and the same through the file
+    assert_eq!(Settings::parse(&s.reset().render()), want);
   }
 
   #[test]

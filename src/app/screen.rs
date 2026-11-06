@@ -7,7 +7,7 @@ use super::App;
 use super::lists::Kind;
 use crate::model::keys::KEYS;
 use crate::model::line::Line;
-use crate::model::schema::{self, Ctl, DEFS, Def, Fx, PRESETS, Preset};
+use crate::model::schema::{Ctl, DEFS, Def, Fx};
 use crate::model::settings::{Settings, ZOOM_MAX, ZOOM_STEP, clamp_zoom};
 use crate::model::vi::Mode;
 use crate::ui::canvas::Rect;
@@ -53,6 +53,8 @@ pub struct Screen {
   pub(super) ls: Option<Box<super::lists::Ls>>,
   // the summary: whose (tab name), and its title and lines as last read
   pub(super) of: Box<str>,
+  // the settings screen is asking "reset everything to defaults?": y does it, any other key keeps
+  pub(super) ask_reset: bool,
   pub(super) title: String,
   pub(super) shown: Vec<L>,
   // the status screen: what its rows stand for, and the stream (None = still asking, Some(None) = no answer)
@@ -66,10 +68,8 @@ pub struct Screen {
 #[derive(Clone, Copy)]
 pub(super) enum Target {
   Def(&'static Def),
-  Preset(&'static Preset),
-  // one of your own presets (its place in the saved list), and the row that saves the current settings
-  Custom(usize),
-  SavePreset,
+  // the settings row that puts every look and behaviour back to its default (asks first)
+  Reset,
   // blocked terms: a term (its place in the list), ask for the permission, ask again
   Term(usize),
   Allow,
@@ -97,6 +97,12 @@ pub(super) enum Target {
   None,
 }
 
+// what the reset row answers to in the search, and what it says
+const RESET_WORDS: &str = "reset to defaults restore default settings";
+const RESET_LABEL: &str = "reset to defaults";
+const RESET_TIP: &str = "puts every look and behaviour setting back to its default. keeps your login, your tabs and which built-in tabs show, filter rules, muted and blocked people, mention rules, notes and everything saved";
+const RESET_ASK: &str = "reset every look and behaviour setting to its default? your login, tabs, filter rules, people lists, mention rules and notes stay · y resets · any other key keeps";
+
 // what a key asks of the app, once the screen's own state is updated
 enum Do {
   Nothing,
@@ -104,8 +110,6 @@ enum Do {
   Toggle,
   // l / h: set a switch on / off, or step zoom up / down
   Adjust(bool),
-  // x: delete the picked row (one of your presets)
-  Delete,
   Keys,
   Settings,
 }
@@ -123,6 +127,7 @@ impl Screen {
       inv: None,
       ls: None,
       of: "".into(),
+      ask_reset: false,
       title: String::new(),
       shown: Vec::new(),
       marks: Vec::new(),
@@ -231,39 +236,11 @@ fn keys_tip(vi: bool) -> &'static str {
 fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
   let mut lines = Vec::new();
   let mut targets = Vec::new();
-  let presets: Vec<&'static Preset> = PRESETS
-    .iter()
-    .filter(|p| {
-      let hay = format!("preset {} {}", p.name, p.tip).to_lowercase();
-      q.split_whitespace().all(|w| hay.contains(&w.to_lowercase()))
-    })
-    .collect();
-  if !presets.is_empty() {
-    lines.push(L::Head("presets".into()));
+  if q.split_whitespace().all(|w| RESET_WORDS.contains(&w.to_lowercase())) {
+    lines.push(L::Head("reset".into()));
     targets.push(Target::None);
-    for p in presets {
-      lines.push(L::Row { a: p.name.to_owned(), b: String::new(), pill: Some(p.active(set)) });
-      targets.push(Target::Preset(p));
-    }
-  }
-  let own = crate::model::presets::with(|c| c.all().to_vec());
-  let words = |hay: &str| q.split_whitespace().all(|w| hay.to_lowercase().contains(&w.to_lowercase()));
-  let rows: Vec<(usize, &crate::model::presets::Custom)> =
-    own.iter().enumerate().filter(|(_, c)| words(&format!("preset {}", c.name))).collect();
-  let save = words("preset save current as");
-  if !rows.is_empty() || save {
-    if lines.is_empty() {
-      lines.push(L::Head("presets".into()));
-      targets.push(Target::None);
-    }
-    for (i, c) in rows {
-      lines.push(L::Row { a: c.name.clone(), b: "x deletes".to_owned(), pill: Some(c.active(set)) });
-      targets.push(Target::Custom(i));
-    }
-    if save {
-      lines.push(L::Row { a: "save current as…".to_owned(), b: "enter types a name".to_owned(), pill: None });
-      targets.push(Target::SavePreset);
-    }
+    lines.push(L::Row { a: RESET_LABEL.to_owned(), b: "enter asks first".to_owned(), pill: None });
+    targets.push(Target::Reset);
   }
   let mut last = None;
   for d in DEFS.iter().filter(|d| d.matches(q)) {
@@ -311,7 +288,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
 }
 
 impl App {
-  // ---- changing a setting: the one path for slash commands, the screen and presets ----
+  // ---- changing a setting: the one path for slash commands and the screen ----
 
   // what a flipped switch has to redo
   pub(super) fn applied(&mut self, fx: Fx) {
@@ -416,23 +393,38 @@ impl App {
     }
   }
 
-  pub(super) fn apply_preset(&mut self, p: &'static Preset) {
-    for (id, on) in p.diff {
-      if let Some(d) = schema::def(id)
-        && d.put(&mut self.set, *on)
-      {
-        self.applied(d.fx);
+  // every look and behaviour back to its default, each change applied the way flipping it would (the kept
+  // ones are in `Settings::reset`)
+  pub(super) fn reset_settings(&mut self) {
+    let old = self.set;
+    self.set = old.reset();
+    let mut fx = Vec::new();
+    for d in DEFS.iter() {
+      let moved = d.on(&old) != d.on(&self.set) || d.picked(&old) != d.picked(&self.set);
+      if moved && d.fx != Fx::None && !fx.contains(&d.fx) {
+        fx.push(d.fx);
       }
     }
-    for (id, v) in p.picks {
-      if let Some(d) = schema::def(id)
-        && d.pick(&mut self.set, v)
-      {
-        self.applied(d.fx);
-      }
+    let (side, counter, zoom) = (self.set.tab_side, self.set.tab_counter, self.set.zoom);
+    (self.set.tab_side, self.set.tab_counter, self.set.zoom) = (old.tab_side, old.tab_counter, old.zoom);
+    self.side_to(side);
+    self.counter_to(counter);
+    self.zoom_to(zoom);
+    for f in fx {
+      self.applied(f);
     }
     self.set.save();
-    self.say(format!("preset {}", p.name));
+    self.say("settings are back to their defaults");
+  }
+
+  // /reset and the settings row: open the settings and ask first
+  pub(super) fn ask_reset(&mut self) {
+    if !self.screen_is(Page::Settings) {
+      self.open_screen(Page::Settings);
+    }
+    if let Some(s) = self.screen.as_mut() {
+      s.ask_reset = true;
+    }
   }
 
   // ---- opening and closing ----
@@ -481,6 +473,14 @@ impl App {
   // ---- keys and the mouse ----
 
   pub(super) fn screen_key(&mut self, key: Key<&str>, text: Option<&str>) {
+    // the reset question takes the next key: y does it, anything else keeps
+    if let Some(s) = self.screen.as_mut().filter(|s| s.ask_reset) {
+      s.ask_reset = false;
+      if matches!(key, Key::Character("y")) {
+        self.reset_settings();
+      }
+      return self.screen_changed();
+    }
     let page = self.screen.as_ref().map(|s| s.page);
     let spent = match page {
       Some(Page::Blocked) => self.blocked_key(&key, text),
@@ -546,7 +546,6 @@ impl App {
         {
           s.typing = true
         }
-        Key::Character("x") if s.page == Page::Settings => act = Do::Delete,
         Key::Character("?") if s.page == Page::Settings => act = Do::Keys,
         Key::Character("?") => act = Do::Settings,
         Key::Named(NamedKey::Enter | NamedKey::Space) if !ctrl => act = Do::Toggle,
@@ -568,7 +567,6 @@ impl App {
       Do::Settings => self.open_screen(Page::Settings),
       Do::Toggle => self.screen_pick(None),
       Do::Adjust(up) => self.screen_pick(Some(up)),
-      Do::Delete => self.delete_picked_preset(),
     }
   }
 
@@ -613,12 +611,7 @@ impl App {
         }
         Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Buttons(..) => {}
       },
-      (Some(Target::Preset(p)), None) => self.apply_preset(p),
-      (Some(Target::Custom(i)), None) => self.apply_custom_at(i),
-      (Some(Target::SavePreset), None) => {
-        self.close_screen();
-        self.type_into_line("/preset save ");
-      }
+      (Some(Target::Reset), None) => self.ask_reset(),
       (Some(Target::Account(step)), None) => self.account_step(step),
       (Some(Target::Live(i)), None) => self.following_pick(i),
       (Some(t @ (Target::Item(_) | Target::AddItem)), None) if s.page == Page::List => self.list_pick(t),
@@ -680,10 +673,9 @@ impl App {
     let (lines, targets) = s.lines(&self.set);
     s.st.settle(&lines);
     let tip = match targets.get(s.st.at) {
+      _ if s.ask_reset => RESET_ASK,
       Some(Target::Def(d)) => d.tip,
-      Some(Target::Preset(p)) => p.tip,
-      Some(Target::Custom(_)) => "your saved preset: enter applies it, x deletes it",
-      Some(Target::SavePreset) => "saves every switch and choice that differs from the defaults, under a name",
+      Some(Target::Reset) => RESET_TIP,
       Some(Target::Account(step)) => step.tip(),
       _ if s.page == Page::Following => self.following.tip(match targets.get(s.st.at) {
         Some(Target::Live(i)) => Some(*i),
@@ -805,7 +797,7 @@ mod tests {
     assert_eq!(lines.len(), targets.len());
     let rows = targets.iter().filter(|t| matches!(t, Target::Def(_))).count();
     assert_eq!(rows, DEFS.len());
-    assert!(matches!(&lines[0], L::Head(h) if h == "presets"));
+    assert!(matches!(&lines[0], L::Head(h) if h == "reset"));
     assert!(lines.iter().any(|l| matches!(l, L::Head(h) if h == "filters · messages")));
     // headings never come twice in a row and never end the list
     assert!(matches!(lines.last(), Some(L::Row { .. })));
@@ -821,9 +813,37 @@ mod tests {
     assert!(matches!(&lines[0], L::Head(_)));
     let (none, _) = settings_lines("zzzz", &Settings::default());
     assert!(none.is_empty());
-    // a preset answers its own name
-    let (p, t) = settings_lines("normal", &Settings::default());
-    assert!(t.iter().any(|t| matches!(t, Target::Preset(p) if p.name == "normal")) && p.len() == 2);
+    // the reset row answers to its own words
+    let (p, t) = settings_lines("reset defaults", &Settings::default());
+    assert!(t.iter().any(|t| matches!(t, Target::Reset)) && p.len() == 2);
+  }
+
+  // the old "normal" preset left these changed while still reading as active; the reset asks first, then
+  // puts back all of them, and leaves the bar's tabs and the saved lists alone
+  #[test]
+  fn reset_asks_first_then_restores_the_defaults_and_keeps_the_lists() {
+    let (net, _asked) = crate::net::Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    crate::model::filter::edit(|f| _ = f.block("troll"));
+    app.set = Settings::default();
+    app.set.zebra = false;
+    app.set.platform_tags = false;
+    app.set.hs_paints = false;
+    app.set.stream_stats = false;
+    app.set.emoji_size = crate::model::settings::EmoteSize::X4;
+    app.set.tab_feed = false;
+    app.open_screen(Page::Settings);
+    app.ask_reset();
+    assert!(app.screen.as_ref().unwrap().ask_reset);
+    // anything but y keeps what you have
+    app.screen_key(Key::Character("n"), None);
+    assert!(!app.screen.as_ref().unwrap().ask_reset && !app.set.zebra);
+    app.ask_reset();
+    app.screen_key(Key::Character("y"), None);
+    assert!(app.set.zebra && app.set.platform_tags && app.set.hs_paints && app.set.stream_stats);
+    assert_eq!(app.set.emoji_size, Settings::default().emoji_size);
+    assert!(!app.set.tab_feed, "the tabs on the bar stay as they were");
+    assert!(crate::model::filter::with(|f| f.blocked("troll")));
   }
 
   #[test]

@@ -52,7 +52,6 @@ pub mod pin;
 pub mod post;
 pub mod postcmd;
 pub mod pred;
-pub mod presets;
 pub mod preview;
 pub mod pronouns;
 pub mod quick;

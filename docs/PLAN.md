@@ -89,7 +89,7 @@ src/
 4. **login + send** — server addition, native login, irc send, kick send, reply threading, input (history 50, vi-mode port of `chrome/vi-mode.js`, wysiwyg emote preview), tab-complete (ext `compareAcMatches` order), emote picker (virtual grid, recents, catalog search, emoji tab), gifs, mentions (tint/sound/notif, mention-rules)
 5. **tabs + social** — live, feed (posts, like, reply, composer, trending, heat tiers), whispers (eventsub + send), mentions, pinned; seen-state + settings sync; user card (+ pronouns, logs, clips); archive search
 6. **mod + filters** — mod toolbar/keys (delete/timeouts/ban/unban/purge, confirm, reasons), client automod (caps + regex w/ redos guard), filter-rules dsl, hide bots/commands/dupes/keywords, mute (timed, kick/yt→twitch alias, server sync), block, emote block
-7. **settings + polish** — schema-driven settings view (port native-relevant keys of `settings-schema.js`, presets incl low-ram), keyboard map overlay, PKGBUILD, 24h soak
+7. **settings + polish** — schema-driven settings view (port native-relevant keys of `settings-schema.js`; presets were cut for one `/reset`), keyboard map overlay, PKGBUILD, 24h soak
 
 ## ui rules (mellen design taste)
 - monospace system font 15px, dark only, ansi 0-7 palette, square everything, hover/active = white bg black text, emphasis = bold/underline/reverse/blink only, unicode icons, lowercase copy, no motion

@@ -54,7 +54,7 @@ a heatsync emote only draws on a line if that sender's own heatsync inventory ha
 
 in `~/.config/heatsync-chat` (the folder is private to you, `0700`, and so is every file, `0600`; older installs are tightened at start):
 
-- `settings`, `tabs`, `notes`, `filters`, `blocked` (emotes you hid), `hidden_paints`, `emote-frecency`, `recent`, `recent-gifs`, `tabsync` (your heatsync account's tab list as of the last sync, with your heatsync name, so tabs can be matched back after a restart; used only for that account), `presets` (your saved settings presets; never synced), `picker-search` (which picker chips are on; never synced)
+- `settings`, `tabs`, `notes`, `filters`, `blocked` (emotes you hid), `hidden_paints`, `emote-frecency`, `recent`, `recent-gifs`, `tabsync` (your heatsync account's tab list as of the last sync, with your heatsync name, so tabs can be matched back after a restart; used only for that account), `presets` (only from older versions, which had settings presets; nothing reads it now and it is safe to delete), `picker-search` (which picker chips are on; never synced)
 - `mentions`: the last 500 lines that pinged you, with who sent them and which channel, tagged with your heatsync name so only you get them back. the mentions tab uses it to survive a restart; a file over a day old is dropped, and logging out (or another account logging in) deletes it
 - `token`: your heatsync login
 - `crash.log`: a line per crash, with anything secret cut out. it stays here; nothing sends it anywhere

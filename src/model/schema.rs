@@ -1,5 +1,5 @@
-// the one table of every setting: the settings screen, the slash commands, the settings file and the
-// presets all read it. labels and tips are the ext's (settings-schema.js + locale strings), lowercase.
+// the one table of every setting: the settings screen, the slash commands and the settings file
+// all read it. labels and tips are the ext's (settings-schema.js + locale strings), lowercase.
 // adding a switch = one Settings field and one row here
 use crate::model::settings::{Choice, Settings};
 use crate::model::tabs::Kind;
@@ -1151,81 +1151,6 @@ impl Def {
   }
 }
 
-// a whole bundle of switches at once, from the ext's presets, keeping only settings this app has
-pub struct Preset {
-  pub name: &'static str,
-  pub tip: &'static str,
-  pub diff: &'static [(&'static str, bool)],
-  // pick rows by value name (emote size and the like)
-  pub picks: &'static [(&'static str, &'static str)],
-}
-
-pub static PRESETS: [Preset; 5] = [
-  Preset {
-    name: "normal",
-    tip: "the defaults: every tab, paints and pictures on, plain input",
-    diff: &[
-      ("vi", false),
-      ("first_glow", true),
-      ("paints", true),
-      ("media", true),
-      ("tab_feed", true),
-      ("tab_whispers", true),
-      ("tab_mentions", true),
-    ],
-    picks: &[],
-  },
-  Preset {
-    name: "minimal",
-    tip: "just chat: no glow, paints, pictures, stripes, platform tags or extra tabs",
-    diff: &[
-      ("zebra", false),
-      ("platform_tags", false),
-      ("first_glow", false),
-      ("paints", false),
-      ("media", false),
-      ("tab_feed", false),
-      ("tab_whispers", false),
-      ("tab_mentions", false),
-    ],
-    picks: &[],
-  },
-  Preset {
-    name: "power user",
-    tip: "every tab on, timestamps, vi keys",
-    diff: &[("vi", true), ("timestamps", true), ("tab_feed", true), ("tab_whispers", true), ("tab_mentions", true)],
-    picks: &[],
-  },
-  Preset {
-    name: "moderator",
-    tip: "timestamps + readable names + all-caps automod",
-    diff: &[("timestamps", true), ("automod_caps", true), ("readable", true)],
-    picks: &[],
-  },
-  Preset {
-    name: "low ram",
-    tip: "cosmetics, feed, whispers, stats and previews off; 1x emotes",
-    diff: &[
-      ("avatars", false),
-      ("media", false),
-      ("paints", false),
-      ("hs_paints", false),
-      ("tab_feed", false),
-      ("tab_whispers", false),
-      ("stream_stats", false),
-      ("tab_mentions", true),
-    ],
-    picks: &[("emote_size", "1x"), ("emoji_size", "1x")],
-  },
-];
-
-impl Preset {
-  pub fn active(&self, s: &Settings) -> bool {
-    self.diff.iter().all(|(id, v)| def(id).and_then(|d| d.on(s)) == Some(*v))
-      && self.picks.iter().all(|(id, v)| def(id).and_then(|d| d.picked(s)) == Some(*v))
-  }
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -1238,54 +1163,6 @@ mod tests {
       assert!(DEFS[i + 1..].iter().all(|o| o.id != d.id && (d.cmd.is_none() || o.cmd != d.cmd)));
       assert!(d.cmd.is_none_or(|c| c.starts_with('/') && c == c.to_lowercase()));
     }
-  }
-
-  #[test]
-  fn presets_only_name_real_switches() {
-    for p in &PRESETS {
-      for (id, _) in p.diff {
-        assert!(def(id).and_then(|d| d.on(&Settings::default())).is_some(), "{id}");
-      }
-      for (id, v) in p.picks {
-        let mut t = Settings::default();
-        assert!(def(id).is_some_and(|d| d.pick(&mut t, v)), "{id}");
-      }
-    }
-    assert!(PRESETS[2].diff.iter().any(|d| d.0 == "vi"));
-    // a fresh install reads as normal
-    assert!(PRESETS[0].active(&Settings::default()));
-  }
-
-  #[test]
-  fn a_preset_reads_active_only_when_all_of_it_matches() {
-    let mut s = Settings::default();
-    let power = &PRESETS[2];
-    assert!(!power.active(&s));
-    for (id, v) in power.diff {
-      assert!(def(id).unwrap().put(&mut s, *v));
-    }
-    assert!(power.active(&s));
-    s.vi = false;
-    assert!(!power.active(&s));
-  }
-
-  #[test]
-  fn low_ram_needs_its_picks_and_moderator_is_small() {
-    let low = PRESETS.iter().find(|p| p.name == "low ram").unwrap();
-    assert!(PRESETS.iter().any(|p| p.name == "moderator"));
-    let mut s = Settings::default();
-    for (id, v) in low.diff {
-      def(id).unwrap().put(&mut s, *v);
-    }
-    // the bools alone aren't enough: emoji size defaults to 2x
-    assert!(!low.active(&s));
-    for (id, v) in low.picks {
-      assert!(def(id).unwrap().pick(&mut s, v));
-    }
-    assert!(low.active(&s));
-    assert!(def("emote_size").unwrap().pick(&mut s, "2x"));
-    assert!(!low.active(&s));
-    assert!(!PRESETS[1].active(&Settings::default()) && !low.active(&Settings::default()));
   }
 
   #[test]

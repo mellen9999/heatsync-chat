@@ -68,11 +68,7 @@ const FIXED: [Slash; 87] = [
   s("/show", "<tab>", "show a hidden tab"),
   s("/note", "<user> [text]", "a private note on someone; no text deletes it"),
   s("/delnote", "<user>", "remove your note"),
-  s(
-    "/preset",
-    "[name] | save <name> | del <name>",
-    "apply a settings preset; alone, list them; save or delete your own",
-  ),
+  s("/reset", "", "put every look and behaviour setting back to its default (asks first)"),
   s("/hideword", "[term]", "hide lines with a term; alone, list them"),
   s("/unhideword", "<term>", "stop hiding a term"),
   s("/highlight", "[term]", "light up lines with a word; alone, list them"),

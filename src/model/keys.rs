@@ -38,7 +38,10 @@ pub static KEYS: [Group; 18] = [
     rows: &[
       k("f1", "this screen · the ? button · /keys"),
       k("ctrl-,", "settings · the ⚙ button"),
-      k("/preset", "apply a settings preset; /preset save <name> keeps yours (settings: enter applies, x deletes)"),
+      k(
+        "/reset",
+        "every look and behaviour setting back to its default; asks y first, keeps your login, tabs, lists and rules",
+      ),
       k("ctrl-t", "add a channel · the + button"),
       k("ctrl-l", "log in · account menu (link, log out)"),
       k("ctrl-shift-l", "log out"),
@@ -240,9 +243,9 @@ pub static KEYS: [Group; 18] = [
       k("ctrl-d ctrl-u  pageup pagedown", "half a page, a page"),
       k("gg G  home end", "first, last"),
       k("/", "filter the list: type, enter stops typing, esc clears"),
-      k("enter space", "flip it, apply a preset, or finish a list's command in the box"),
+      k("enter space", "flip it, open a list, or ask to reset everything to defaults"),
       k("h l  left right", "step a choice down, up (zoom, tab side, counter, pickers)"),
-      k("x", "delete the picked preset of yours"),
+      k("y", "after the reset question: yes (any other key keeps your settings)"),
       k("?", "the key list"),
       k("esc q", "close (esc clears the filter first)"),
     ],
