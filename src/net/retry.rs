@@ -88,6 +88,16 @@ where
   until_with(out, &LAST_SAID, what, max, alive, backoff, f).await
 }
 
+// a failure that will come back the same: the server said no (4xx, but not "slow down" or "timed out") or what
+// it sent is past our size cap. fetch errors read "http <code>" / "too large" (net/http.rs)
+fn permanent(e: &str) -> bool {
+  e == "too large"
+    || e
+      .strip_prefix("http ")
+      .and_then(|c| c.parse::<u16>().ok())
+      .is_some_and(|c| (400..500).contains(&c) && !matches!(c, 408 | 425 | 429))
+}
+
 async fn until_with<T, Fut>(
   out: &Out,
   last_said: &AtomicI64,
@@ -113,7 +123,8 @@ where
       Err(e) => {
         tries += 1;
         eprintln!("{what}: {e}");
-        if tries >= max {
+        // asking again can't change a "no" or a body that is too big: stop instead of every minute forever
+        if tries >= max || permanent(&e) {
           out.status(format!("couldn't load {what}"));
           return None;
         }
@@ -218,6 +229,52 @@ mod tests {
     assert_eq!(got, None);
     assert_eq!(calls.get(), 3);
     assert_eq!(said(&rx).last().map(String::as_str), Some("couldn't load kick history"));
+  }
+
+  // a "no" or a body too big is the same next time: one try, a plain line, no minute-by-minute re-download
+  #[tokio::test]
+  async fn a_permanent_failure_is_not_retried_but_a_busy_server_is() {
+    assert!(permanent("http 403") && permanent("http 410") && permanent("too large"));
+    assert!(!permanent("http 429") && !permanent("http 408") && !permanent("http 503") && !permanent("down"));
+    for (err, calls) in [("http 403", 1), ("too large", 1), ("http 503", 3)] {
+      let (tx, rx) = std::sync::mpsc::channel();
+      let out = Out::Pipe(tx);
+      let n = std::cell::Cell::new(0);
+      let quiet = AtomicI64::new(0);
+      let got: Option<()> = until_with(
+        &out,
+        &quiet,
+        "x",
+        3,
+        || true,
+        |_| Duration::from_millis(1),
+        || {
+          n.set(n.get() + 1);
+          async move { Err(err.into()) }
+        },
+      )
+      .await;
+      assert_eq!((got, n.get()), (None, calls), "{err}");
+      assert_eq!(said(&rx).last().map(String::as_str), Some("couldn't load x"), "{err}");
+    }
+    // forever-retrying fetches stop on a permanent one as well
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let n = std::cell::Cell::new(0);
+    let quiet = AtomicI64::new(0);
+    let got: Option<()> = until_with(
+      &Out::Pipe(tx),
+      &quiet,
+      "y",
+      u32::MAX,
+      || true,
+      |_| Duration::from_millis(1),
+      || {
+        n.set(n.get() + 1);
+        async { Err("http 404".into()) }
+      },
+    )
+    .await;
+    assert_eq!((got, n.get()), (None, 1));
   }
 
   #[tokio::test]
