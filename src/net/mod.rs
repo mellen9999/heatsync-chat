@@ -151,6 +151,8 @@ pub enum NetEvent {
     to_picker: bool,
     got: Result<crate::util::clip::Paste, String>,
   },
+  // a second launch asked this window to come forward, with any channels it was given
+  Raise(Vec<Box<str>>),
   // a chatter's picture url (None = none found)
   Avatar(Platform, Box<str>, Option<Box<str>>),
   // 7tv paints + badges for twitch ids (None = wears nothing)

@@ -28,14 +28,23 @@ usage: heatsync-chat [channel ...]
   --bench [n]    check drawing speed without a window, on n fake lines (default 10000)
   --flood        a window of fake busy chat, for testing
 
-one window at a time: a second one tells you and closes.
+one window at a time: opening a second one brings the first forward (and opens the channel you gave it).
 your settings and tabs are in ~/.config/heatsync-chat, the picture cache in
 ~/.cache/heatsync-chat. both are private to you.
 ";
 
-// the second launch's one plain sentence
+// the second launch's one plain sentence, for when the running window can't be reached (an older
+// version, no socket): said to the terminal and as a desktop notification, since a launcher shows neither
 const RUNNING: &str = "heatsync-chat is already open: look for its window (ctrl-t there adds a channel). \
 only one runs at a time, so two can't overwrite each other's saved tabs";
+
+fn already_open(given: &[Box<str>]) {
+  if store::wake_running(given) {
+    return;
+  }
+  util::notify::send("heatsync-chat", "heatsync-chat is already open", "look for its window");
+  println!("{RUNNING}");
+}
 
 // the saved tabs; lines that aren't channels are kept in tabs.bak and said so in chat
 fn saved_tabs() -> Vec<Box<str>> {
@@ -79,7 +88,7 @@ fn main() {
     None
   } else {
     match store::lock_instance() {
-      Some(Err(())) => return println!("{RUNNING}"),
+      Some(Err(())) => return already_open(&given),
       Some(Ok(held)) => Some(held),
       None => None,
     }
@@ -103,6 +112,11 @@ fn main() {
       std::process::exit(1);
     }
   };
+  // only the lock holder binds, so a second launch can reach this window
+  if let (Some(_), Some(l)) = (&_lock, store::bind_wake()) {
+    let proxy = el.create_proxy();
+    store::serve_wake(l, move |open| proxy.send_event(net::NetEvent::Raise(open)).is_ok());
+  }
   let net = net::Net::spawn(el.create_proxy());
   let mut app = app::App::new(net, channels, flood);
   if let Err(e) = el.run_app(&mut app) {

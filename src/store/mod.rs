@@ -4,9 +4,11 @@
 // read are both kept as a plain note for the ui to say once (`take_notes`)
 mod later;
 mod lock;
+mod wake;
 
 pub use later::{flush, put as write_later};
 pub use lock::lock_instance;
+pub use wake::{bind as bind_wake, ping as wake_running, serve as serve_wake};
 
 use std::io::{Error, ErrorKind, Result, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};

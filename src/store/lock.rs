@@ -11,12 +11,17 @@ const NAME: &str = "heatsync-chat.lock";
 // keep this alive for as long as the app runs
 pub struct Held(#[allow(dead_code)] File);
 
-fn path() -> Option<PathBuf> {
+// a file beside the lock: the runtime folder, else beside the settings
+pub(super) fn sibling(name: &str) -> Option<PathBuf> {
   std::env::var_os("XDG_RUNTIME_DIR")
     .map(PathBuf::from)
     .filter(|p| p.is_absolute() && p.is_dir())
-    .map(|p| p.join(NAME))
-    .or_else(|| super::ensure_dir().ok().map(|d| d.join(NAME)))
+    .map(|p| p.join(name))
+    .or_else(|| super::ensure_dir().ok().map(|d| d.join(name)))
+}
+
+fn path() -> Option<PathBuf> {
+  sibling(NAME)
 }
 
 // Some(Err(())) = someone else holds it. None = we couldn't make a lock at all: run anyway (a broken
@@ -25,7 +30,7 @@ pub fn lock_instance() -> Option<Result<Held, ()>> {
   take(&path()?)
 }
 
-fn take(p: &std::path::Path) -> Option<Result<Held, ()>> {
+pub(super) fn take(p: &std::path::Path) -> Option<Result<Held, ()>> {
   let f = File::options().create(true).truncate(false).write(true).mode(0o600).open(p).ok()?;
   // SAFETY: a plain flock on a descriptor we own and keep open
   let r = unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
