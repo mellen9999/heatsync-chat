@@ -160,7 +160,13 @@ async fn install(http: &reqwest::Client, r: &Release) -> Result<(), String> {
   if !verify(&r.version, &asset_name(), &bin, &sig) {
     return Err("the download isn't signed by heatsync: not installed".into());
   }
-  replace(exe, &bin).map_err(|e| format!("couldn't replace the app ({e})"))
+  // the write + fsync of a big binary blocks: not on the net runtime, where it would stall chat
+  off_thread(move || replace(exe, &bin)).await.and_then(|r| r.map_err(|e| format!("couldn't replace the app ({e})")))
+}
+
+// `f` on a blocking thread
+async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+  tokio::task::spawn_blocking(f).await.map_err(|e| format!("couldn't replace the app ({e})"))
 }
 
 // `exe` becomes the new bytes or stays as it was: written whole and flushed under a side name, one
@@ -386,6 +392,20 @@ mod tests {
     // a folder we can't write leaves the old app alone and says so
     let gone = d.join("nope").join("heatsync-chat");
     assert!(replace(&gone, b"x").is_err());
+    let _ = std::fs::remove_dir_all(&d);
+  }
+
+  // the install's file work runs on a blocking thread, so the net runtime keeps serving chat meanwhile
+  #[tokio::test(flavor = "current_thread")]
+  async fn the_install_write_leaves_the_runtime_thread() {
+    let here = std::thread::current().id();
+    let there = off_thread(|| std::thread::current().id()).await.unwrap();
+    assert_ne!(here, there);
+    let d = std::env::temp_dir().join(format!("hsc-off-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    let exe: &'static Path = Box::leak(d.join("app").into_boxed_path());
+    off_thread(move || replace(exe, b"new bytes")).await.unwrap().unwrap();
+    assert_eq!(std::fs::read(exe).unwrap(), b"new bytes");
     let _ = std::fs::remove_dir_all(&d);
   }
 }
