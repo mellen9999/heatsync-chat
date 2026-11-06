@@ -148,7 +148,7 @@ pub fn command(text: &str) -> Option<Result<Cmd, &'static str>> {
       }
     }
     "color" => color(arg).map(Cmd::Color).ok_or("usage: /color <name|#hex>, like /color coral or /color #ff8800"),
-    "poll" | "prediction" => {
+    "poll" | "prediction" | "pred" | "predict" => {
       let poll = word == "poll";
       let usage = if poll {
         "usage: /poll title | choice | choice [| up to 5] [| seconds]"
@@ -257,6 +257,9 @@ mod tests {
     // a number last with only two choices is a choice
     assert!(matches!(ok("/poll t | a | 2"), Cmd::Poll { ref choices, secs: 120, .. } if choices == &["a", "2"]));
     assert!(matches!(ok("/prediction t | a | b | 10"), Cmd::Prediction { secs: 30, .. }));
+    // the ext's short names
+    assert!(matches!(ok("/pred t | a | b"), Cmd::Prediction { .. }));
+    assert!(matches!(ok("/predict t | a | b"), Cmd::Prediction { .. }));
     assert!(
       matches!(ok("/prediction t | a | b | c | d | e | f | g | h | i | j"), Cmd::Prediction { ref outcomes, .. } if outcomes.len() == 10)
     );
