@@ -899,6 +899,11 @@ impl Net {
     let _ = self.tx.send(c);
   }
 
+  // false once the network part has stopped (a crash): nothing sent now would ever go anywhere
+  pub fn alive(&self) -> bool {
+    !self.tx.is_closed()
+  }
+
   // a net that goes nowhere: what the app asks for lands in the returned receiver (offline probes)
   #[cfg(test)]
   pub(crate) fn tap() -> (Net, mpsc::UnboundedReceiver<Cmd>) {
@@ -944,8 +949,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let (sess_tx, sess_rx) = mpsc::unbounded_channel();
   let (irc_tx, irc_rx) = mpsc::unbounded_channel();
   watch("chat", irc::run(irc_rx, sess_tx.clone(), http.clone(), out.clone()), out.clone());
-  tokio::spawn(global_emotes(http.clone(), out.clone()));
-  tokio::spawn(global_badges(http.clone(), out.clone()));
+  watch("emotes", global_emotes(http.clone(), out.clone()), out.clone());
+  watch("badges", global_badges(http.clone(), out.clone()), out.clone());
   let (hs_tx, hs_rx) = mpsc::unbounded_channel();
   let (pin_tx, pin_rx) = mpsc::unbounded_channel();
   watch("pins", pin::run(http.clone(), pin_rx, out.clone()), out.clone());
@@ -978,10 +983,10 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     match cmd {
       Cmd::Join(ch) => {
         let tab = open.join(&ch);
-        tokio::spawn(recent::fetch(http.clone(), ch.clone(), tab.clone(), out.clone()));
+        watch("chat history", recent::fetch(http.clone(), ch.clone(), tab.clone(), out.clone()), out.clone());
         if ident::twitch_room(&ch) {
-          tokio::spawn(channel_badges(http.clone(), ch.clone(), tab.clone(), out.clone()));
-          tokio::spawn(links::discover(http.clone(), ch.clone(), tab, out.clone()));
+          watch("badges", channel_badges(http.clone(), ch.clone(), tab.clone(), out.clone()), out.clone());
+          watch("linked channels", links::discover(http.clone(), ch.clone(), tab, out.clone()), out.clone());
           let _ = hs_tx.send(hs_ws::Cmd::Join(Platform::Twitch, ch.clone()));
         }
         let _ = irc_tx.send(irc::Cmd::Join(ch));
@@ -996,12 +1001,12 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         if let hs_ws::Cmd::Join(Platform::Kick, slug) = &c
           && ident::relay_key(slug)
         {
-          tokio::spawn(kick_badges(http.clone(), slug.clone(), out.clone()));
+          watch("kick badges", kick_badges(http.clone(), slug.clone(), out.clone()), out.clone());
         }
         let _ = hs_tx.send(c);
       }
       Cmd::Backfill(p, key, archive) => {
-        tokio::spawn(links::backfill(http.clone(), p, key, archive, out.clone()));
+        watch("history", links::backfill(http.clone(), p, key, archive, out.clone()), out.clone());
       }
       Cmd::Login(p) => {
         let _ = sess_tx.send(session::Cmd::Login(p, "base"));
@@ -1046,7 +1051,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = sess_tx.send(session::Cmd::Import);
       }
       Cmd::LiveDots(twitch, kick) => {
-        tokio::spawn(live_dots::ask(http.clone(), twitch, kick, out.clone()));
+        watch("live dots", live_dots::ask(http.clone(), twitch, kick, out.clone()), out.clone());
       }
       Cmd::Blocked(room, op) => {
         let _ = sess_tx.send(session::Cmd::Blocked(room, op));
@@ -1076,13 +1081,13 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = sess_tx.send(session::Cmd::Social(c));
       }
       Cmd::Update(c) => {
-        tokio::spawn(update::run(http.clone(), c, out.clone()));
+        watch("updater", update::run(http.clone(), c, out.clone()), out.clone());
       }
       Cmd::Pronouns(uid) => {
-        tokio::spawn(pronouns(http.clone(), uid, out.clone()));
+        watch("pronouns", pronouns(http.clone(), uid, out.clone()), out.clone());
       }
       Cmd::Preview(url) => {
-        tokio::spawn(preview(http.clone(), url, out.clone()));
+        watch("previews", preview(http.clone(), url, out.clone()), out.clone());
       }
       Cmd::Play(url) => {
         let o = out.clone();
@@ -1103,10 +1108,10 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = sess_tx.send(session::Cmd::Emote(c));
       }
       Cmd::Catalog { q, epoch, page, stv, ffz } => {
-        tokio::spawn(catalog::run(http.clone(), q, epoch, page, (stv, ffz), out.clone()));
+        watch("emote search", catalog::run(http.clone(), q, epoch, page, (stv, ffz), out.clone()), out.clone());
       }
       Cmd::PickerSearch { q, epoch, page, ask } => {
-        tokio::spawn(catalog::search(http.clone(), q, epoch, page, ask, out.clone()));
+        watch("emote search", catalog::search(http.clone(), q, epoch, page, ask, out.clone()), out.clone());
       }
       Cmd::Upload(p) => {
         let _ = sess_tx.send(session::Cmd::Upload(p));
@@ -1143,7 +1148,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = stv_tx.send(seventv::Cmd::Me(id));
       }
       Cmd::Room(ch, room) => {
-        tokio::spawn(channel_emotes(http.clone(), ch, room, stv_tx.clone(), open.clone(), out.clone()));
+        watch(
+          "channel emotes",
+          channel_emotes(http.clone(), ch, room, stv_tx.clone(), open.clone(), out.clone()),
+          out.clone(),
+        );
       }
       Cmd::Image(id, u, h) => {
         tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
@@ -1184,6 +1193,21 @@ mod tests {
       let _ = s.write_all(reply.as_bytes()).await;
     });
     addr
+  }
+
+  // a one-shot job that panics says so instead of dying silently
+  #[tokio::test]
+  async fn a_panicking_job_is_reported() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    watch("chat history", async { panic!("boom") }, Out::Pipe(tx));
+    for _ in 0..50 {
+      tokio::time::sleep(Duration::from_millis(10)).await;
+      if let Ok(NetEvent::Status(s)) = rx.try_recv() {
+        assert!(s.starts_with("chat history stopped after a crash"), "{s}");
+        return;
+      }
+    }
+    panic!("no word of the crash");
   }
 
   #[test]

@@ -248,6 +248,10 @@ impl App {
       }
       return;
     }
+    // the network part crashed: a line sent now goes nowhere, so it stays in the box
+    if !self.net.alive() {
+      return self.say("not sent: the network part stopped, restart heatsync-chat");
+    }
     if let Some(text) = self.line.take() {
       for (p, k) in &shut {
         if let Some(l) = self.locks.get(*p, k, now) {

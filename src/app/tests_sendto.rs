@@ -76,6 +76,17 @@ fn a_line_goes_to_every_feed_of_the_tab() {
   assert_eq!(app.line.text, "", "the box empties once");
 }
 
+// the network part crashed: the line stays in the box and the user is told, nothing is "sent" into the void
+#[test]
+fn a_line_stays_in_the_box_when_the_network_is_gone() {
+  let (mut app, rx) = boot();
+  drop(rx);
+  type_and_send(&mut app, "hello");
+  assert_eq!(app.line.text, "hello", "not lost");
+  let said = app.tabs[app.active].view.bodies();
+  assert!(said.iter().any(|b| b.contains("not sent") && b.contains("restart heatsync-chat")), "{said:?}");
+}
+
 #[test]
 fn ctrl_n_steps_all_then_each_and_alt_keys_pick_a_pair() {
   let (mut app, mut rx) = boot();
