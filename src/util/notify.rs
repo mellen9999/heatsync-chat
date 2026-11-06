@@ -64,13 +64,24 @@ pub fn send(what: &str, title: &str, body: &str) {
 // window closes, not a process and a popup each. the owner polls `due` for its wake time
 const GAP: Duration = Duration::from_secs(3);
 
-#[derive(Default)]
 pub struct Coalesce {
   last: Option<Instant>,
   held: u32,
+  // what the follow-up counts, singular and plural: "1 more mention", "5 more mentions"
+  noun: (&'static str, &'static str),
+}
+
+impl Default for Coalesce {
+  fn default() -> Self {
+    Self::new("mention", "mentions")
+  }
 }
 
 impl Coalesce {
+  pub fn new(one: &'static str, many: &'static str) -> Self {
+    Self { last: None, held: 0, noun: (one, many) }
+  }
+
   // true: show this one now. false: it is counted and rides in the follow-up
   pub fn offer(&mut self, now: Instant) -> bool {
     if self.last.is_some_and(|t| now < t + GAP) {
@@ -94,7 +105,7 @@ impl Coalesce {
     let n = std::mem::take(&mut self.held);
     // the follow-up is itself a notification: the next window starts here
     self.last = Some(now);
-    Some(if n == 1 { "1 more mention".into() } else { format!("{n} more mentions") })
+    Some(if n == 1 { format!("1 more {}", self.noun.0) } else { format!("{n} more {}", self.noun.1) })
   }
 }
 
@@ -120,6 +131,17 @@ mod tests {
     assert!(!c.offer(t0 + GAP + ms(10)));
     assert_eq!(c.tick(t0 + GAP * 2).as_deref(), Some("1 more mention"));
     assert!(c.offer(t0 + GAP * 6));
+  }
+
+  #[test]
+  fn a_burst_of_go_lives_is_one_popup_and_a_count() {
+    let t0 = Instant::now();
+    let mut c = Coalesce::new("stream update", "stream updates");
+    assert!(c.offer(t0));
+    for i in 1..=4 {
+      assert!(!c.offer(t0 + Duration::from_millis(i * 100)));
+    }
+    assert_eq!(c.tick(t0 + GAP).as_deref(), Some("4 more stream updates"));
   }
 
   #[test]

@@ -342,6 +342,8 @@ pub struct App {
   flash_due: Option<Instant>,
   // desktop mention popups: one per 3s, the rest counted
   notify_pace: crate::util::notify::Coalesce,
+  // the same for went-live and game-switch popups
+  live_pace: crate::util::notify::Coalesce,
   // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
   dpi: f32,
   zoom_acc: f32,
@@ -543,6 +545,7 @@ impl App {
       flash: None,
       flash_due: None,
       notify_pace: Default::default(),
+      live_pace: crate::util::notify::Coalesce::new("stream update", "stream updates"),
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
@@ -858,6 +861,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.flash_tick();
     }
     self.notify_pace_tick(now);
+    self.live_pace_tick(now);
     self.mentions_save_tick(now);
     if self.held.due().is_some_and(|t| t <= now) {
       self.held_tick();
@@ -900,6 +904,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.pace_due,
       self.flash_due,
       self.notify_pace.due(),
+      self.live_pace.due(),
       self.mentions_save,
       self.held.due(),
       self.ui_state_due(),

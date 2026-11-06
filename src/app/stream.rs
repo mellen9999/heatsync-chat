@@ -121,6 +121,13 @@ impl App {
     Some((format!("{} {what}", notify::name(&l.channel)), l.game.to_string()))
   }
 
+  // a burst of go-lives held back by the 3s limit: one popup says how many
+  pub(super) fn live_pace_tick(&mut self, now: std::time::Instant) {
+    if let Some(text) = self.live_pace.tick(now) {
+      notify::send("went-live", "heatsync", &text);
+    }
+  }
+
   // the row for a line. their color: the frame's, else the followed colors, else what chat has seen of them
   // on that platform (a lookup is queued if nobody has), else twitch's name palette. their id: the frame's
   // `userId`, else what chat learned, else a lookup (queued). a color or id still missing follows the
@@ -214,7 +221,9 @@ impl App {
     if !shown {
       return;
     }
-    if let Some((title, body)) = self.stream_alert(&l) {
+    if let Some((title, body)) = self.stream_alert(&l)
+      && self.live_pace.offer(std::time::Instant::now())
+    {
       notify::send("went-live", &title, &body);
     }
     // in every chat tab (ext: wherever you are reading), followed channels too; only the channel's own
