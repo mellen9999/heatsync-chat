@@ -2,13 +2,15 @@
 // the folder is owner-only (0700) and so is every file in it (0600): the login token, notes and
 // reading habits stay yours. nothing here fails quietly: a save that fails and a file that can't be
 // read are both kept as a plain note for the ui to say once (`take_notes`)
+mod later;
 mod lock;
 
+pub use later::{flush, put as write_later};
 pub use lock::lock_instance;
 
 use std::io::{Error, ErrorKind, Result, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(not(test))]
 fn dir() -> Option<PathBuf> {
@@ -100,7 +102,10 @@ fn saved(name: &str) {
 
 // the folder, made owner-only if it is missing or was left looser by an older version
 fn ensure_dir() -> Result<PathBuf> {
-  let d = dir().ok_or_else(|| Error::other("no home directory"))?;
+  ensure(dir().ok_or_else(|| Error::other("no home directory"))?)
+}
+
+fn ensure(d: PathBuf) -> Result<PathBuf> {
   match std::fs::metadata(&d) {
     Ok(m) if !m.is_dir() => return Err(Error::new(ErrorKind::NotADirectory, "not a folder")),
     Ok(m) if m.permissions().mode() & 0o077 != 0 => std::fs::set_permissions(&d, PermissionsExt::from_mode(0o700))?,
@@ -135,6 +140,10 @@ pub fn path_of(name: &str) -> Option<PathBuf> {
 // None = no such file, or one we can't use. a file that exists but can't be read as text is moved
 // aside as `<name>.bak` and said so: the next save starts a fresh one, nothing is lost
 pub fn read(name: &str) -> Option<String> {
+  // a write that is still waiting is the newest word on the file
+  if let Some(s) = later::pending(name) {
+    return Some(s);
+  }
   match std::fs::read_to_string(dir()?.join(name)) {
     Ok(s) => Some(s),
     Err(e) if e.kind() == ErrorKind::NotFound => None,
@@ -169,6 +178,8 @@ pub fn set_aside(name: &str, part: Option<usize>) {
 
 // default owner-only; see `ensure_dir`
 pub fn write(name: &str, data: &str) -> Result<()> {
+  // a newer word than any text still waiting
+  later::cancel(name);
   let r = write_file(name, data);
   match &r {
     Ok(()) => saved(name),
@@ -183,13 +194,25 @@ pub fn write_secret(name: &str, data: &str) -> Result<()> {
 }
 
 pub fn remove(name: &str) {
+  later::cancel(name);
   if let Some(d) = dir() {
     let _ = std::fs::remove_file(d.join(name));
   }
 }
 
 fn write_file(name: &str, data: &str) -> Result<()> {
-  let d = ensure_dir()?;
+  write_to(&ensure_dir()?, name, data)
+}
+
+// a write that waited (see `later`): the same save, failures said the same way
+fn write_job(dir: &Path, name: &str, data: &str) {
+  match ensure(dir.to_path_buf()).and_then(|d| write_to(&d, name, data)) {
+    Ok(()) => saved(name),
+    Err(e) => save_failed(name, &e),
+  }
+}
+
+fn write_to(d: &Path, name: &str, data: &str) -> Result<()> {
   let tmp = d.join(format!(".{name}.tmp"));
   let _ = std::fs::remove_file(&tmp);
   let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;

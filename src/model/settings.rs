@@ -452,10 +452,10 @@ impl Settings {
     s.trim().is_empty() || s.lines().any(|l| l.split_once('=').is_some_and(|(k, _)| known(k.trim())))
   }
 
+  // written half a second after the last change, off the ui thread (a zoom wheel is a change per notch);
+  // `store::flush` on the way out writes it at once
   pub fn save(&self) {
-    if let Err(e) = store::write("settings", &self.render()) {
-      eprintln!("save settings: {e}");
-    }
+    store::write_later("settings", &self.render());
   }
 }
 

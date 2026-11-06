@@ -45,8 +45,8 @@ impl App {
     }
     if !update::self_updates() {
       // a package manager's copy: its own update path, so just show what's new
-      let _ = crate::util::open::open_url(update::PAGE);
-      return self.say("installed by a package manager: update it there (the release page is open)");
+      let opened = crate::util::open::open_url(update::PAGE);
+      return self.say(package_manager_line(&opened));
     }
     self.upd.installing = true;
     self.bar_dirty = true;
@@ -59,8 +59,9 @@ impl App {
     self.bar_dirty = true;
     match res {
       Ok(()) => {
-        // tabs and settings are already on disk: start the new copy in this one's place
+        // the new copy starts in this one's place: what waits to be written goes to disk first
         self.save_tabs();
+        self.flush_to_disk();
         let e = update::restart();
         self.say(format!("updated: restart the app to use it ({e})"));
         self.upd.release = None;
@@ -68,5 +69,25 @@ impl App {
       Err(e) => self.say(&e),
     }
     self.wake();
+  }
+}
+
+// what the update button says when a package manager owns this copy
+fn package_manager_line(opened: &Result<(), String>) -> String {
+  match opened {
+    Ok(()) => "installed by a package manager: update it there (the release page is open)".into(),
+    Err(e) => format!("installed by a package manager: update it there (couldn't open the release page: {e})"),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_release_page_that_would_not_open_is_not_called_open() {
+    assert!(package_manager_line(&Ok(())).ends_with("(the release page is open)"));
+    let said = package_manager_line(&Err("couldn't open the link, this system has no link opener (xdg-open)".into()));
+    assert!(!said.contains("is open") && said.contains("no link opener"), "{said}");
   }
 }

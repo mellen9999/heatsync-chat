@@ -303,3 +303,20 @@ fn a_hostile_notification_line_in_the_file_is_dropped() {
   assert_eq!((rows.len(), junk), (1, 2));
   assert_eq!(&*rows[0].body, "xy");
 }
+
+// the way out and the update restart both go through flush_to_disk: nothing waiting is lost
+#[test]
+fn leaving_or_restarting_writes_the_mentions_and_the_settings_that_were_waiting() {
+  fresh();
+  let mut a = app();
+  login(&mut a, "mellen");
+  mention(&mut a, "1");
+  a.zoom_by(1);
+  a.zoom_by(1);
+  assert!(a.mentions_save.is_some() && !exists(file::FILE), "the mention waits");
+  assert!(!exists("settings"), "a zoom step doesn't touch the disk on the ui thread");
+  a.flush_to_disk();
+  assert!(a.mentions_save.is_none() && exists(file::FILE));
+  assert!(exists("settings"));
+  assert!(store::read("settings").is_some_and(|s| s.contains("zoom=")));
+}

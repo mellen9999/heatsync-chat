@@ -3,6 +3,7 @@
 // control bytes and capped. best effort: no notify-send is said once on stderr
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 // body cap (ext: 200 chars then "...")
 pub const BODY_MAX: usize = 200;
@@ -59,9 +60,67 @@ pub fn send(what: &str, title: &str, body: &str) {
   }
 }
 
+// at most one notification per GAP: a raid of mentions is one popup now and one "N more" when the
+// window closes, not a process and a popup each. the owner polls `due` for its wake time
+const GAP: Duration = Duration::from_secs(3);
+
+#[derive(Default)]
+pub struct Coalesce {
+  last: Option<Instant>,
+  held: u32,
+}
+
+impl Coalesce {
+  // true: show this one now. false: it is counted and rides in the follow-up
+  pub fn offer(&mut self, now: Instant) -> bool {
+    if self.last.is_some_and(|t| now < t + GAP) {
+      self.held = self.held.saturating_add(1);
+      return false;
+    }
+    self.last = Some(now);
+    true
+  }
+
+  // when the follow-up is owed (None: nothing is held, so nothing wakes)
+  pub fn due(&self) -> Option<Instant> {
+    self.last.filter(|_| self.held > 0).map(|t| t + GAP)
+  }
+
+  // the follow-up's text once the window has closed
+  pub fn tick(&mut self, now: Instant) -> Option<String> {
+    if self.due().is_none_or(|t| t > now) {
+      return None;
+    }
+    let n = std::mem::take(&mut self.held);
+    // the follow-up is itself a notification: the next window starts here
+    self.last = Some(now);
+    Some(if n == 1 { "1 more mention".into() } else { format!("{n} more mentions") })
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_raid_of_mentions_is_one_popup_and_one_follow_up() {
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let mut c = Coalesce::default();
+    assert!(c.offer(t0), "the first shows at once");
+    assert!(c.due().is_none(), "nothing held, nothing to wake for");
+    for i in 1..=50 {
+      assert!(!c.offer(t0 + ms(i * 50)), "inside the window");
+    }
+    assert_eq!(c.due(), Some(t0 + GAP));
+    assert_eq!(c.tick(t0 + ms(2999)), None);
+    assert_eq!(c.tick(t0 + GAP).as_deref(), Some("50 more mentions"));
+    assert!(c.due().is_none() && c.tick(t0 + GAP * 9).is_none(), "said once");
+    // the follow-up opened a new window; a mention in it waits, one after it shows
+    assert!(!c.offer(t0 + GAP + ms(10)));
+    assert_eq!(c.tick(t0 + GAP * 2).as_deref(), Some("1 more mention"));
+    assert!(c.offer(t0 + GAP * 6));
+  }
 
   #[test]
   fn notification_text_is_escaped_and_capped() {

@@ -334,6 +334,8 @@ pub struct App {
   // the title flashing who @'d you while the window is away: their name, and when it next turns
   flash: Option<(Box<str>, bool)>,
   flash_due: Option<Instant>,
+  // desktop mention popups: one per 3s, the rest counted
+  notify_pace: crate::util::notify::Coalesce,
   // display scale factor (zoom multiplies it), and smooth-wheel travel toward a zoom step
   dpi: f32,
   zoom_acc: f32,
@@ -532,6 +534,7 @@ impl App {
       upd: update::Update { release: None, installing: false, due: Some(Instant::now() + update::FIRST_CHECK) },
       flash: None,
       flash_due: None,
+      notify_pace: Default::default(),
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,
@@ -714,7 +717,7 @@ impl ApplicationHandler<NetEvent> for App {
   fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
     match ev {
       WindowEvent::CloseRequested => {
-        self.mentions_flush();
+        self.flush_to_disk();
         el.exit()
       }
       WindowEvent::Resized(s) => self.resize(s.width, s.height),
@@ -845,6 +848,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.flash_due.is_some_and(|t| t <= now) {
       self.flash_tick();
     }
+    self.notify_pace_tick(now);
     self.mentions_save_tick(now);
     if self.held.due().is_some_and(|t| t <= now) {
       self.held_tick();
@@ -886,6 +890,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.heat_due,
       self.pace_due,
       self.flash_due,
+      self.notify_pace.due(),
       self.mentions_save,
       self.held.due(),
       self.ui_state_due(),

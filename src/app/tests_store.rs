@@ -20,6 +20,7 @@ fn a_set_aside_file_and_a_failed_save_reach_the_chat() {
   std::fs::remove_dir_all(store::folder()).unwrap();
   std::fs::write(store::folder(), "in the way").unwrap();
   Settings::default().save();
+  store::flush();
   app.say_store_notes();
   assert!(said(&app).is_some_and(|s| s.starts_with("couldn't save your settings")), "{:?}", said(&app));
   let n = app.tabs[app.active].view.len();

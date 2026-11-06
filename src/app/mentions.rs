@@ -56,7 +56,7 @@ impl App {
     if self.focused {
       return;
     }
-    if self.set.notify {
+    if self.set.notify && self.notify_pace.offer(Instant::now()) {
       notify::send("mention", title, body);
     }
     crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
@@ -118,6 +118,12 @@ impl App {
     let _ = store::write(file::FILE, &file::encode(&owner, now_ms(), v.msgs()));
   }
 
+  // everything that waits for its turn to be written, written now: on the way out or into a restart
+  pub(super) fn flush_to_disk(&mut self) {
+    self.mentions_flush();
+    store::flush();
+  }
+
   // signed in as someone: the tab gets their last mentions back, as history, if the file is theirs and
   // under a day old. another account's file is left alone; a stale or unreadable one is dealt with
   pub(super) fn mentions_restore(&mut self) {
@@ -155,6 +161,13 @@ impl App {
       self.tabs[i].unread = false;
       self.bar_dirty = true;
       self.wake();
+    }
+  }
+
+  // a raid's worth of mentions held back by the 3s limit: one line says how many
+  pub(super) fn notify_pace_tick(&mut self, now: Instant) {
+    if let Some(text) = self.notify_pace.tick(now) {
+      notify::send("mention", "heatsync", &text);
     }
   }
 
