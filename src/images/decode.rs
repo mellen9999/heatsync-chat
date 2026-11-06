@@ -30,6 +30,10 @@ const MAX_STILL_PX: u64 = 4096 * 3072;
 const MAX_SRC_BYTES: usize = 48 << 20;
 // decoded frames of one chat picture
 const EMBED_BYTES: usize = 6 << 20;
+// decoded frames of one emote, badge or avatar: an animation keeps the frames that fit
+const EMOTE_BYTES: usize = 8 << 20;
+// an emote is never wider than this many times its height; a hostile strip is squeezed, not allocated
+const MAX_ASPECT: u32 = 16;
 
 // browsers treat ≤10ms as "unset" and play it at 100ms; match them
 fn delay(ms: u32) -> u32 {
@@ -37,7 +41,8 @@ fn delay(ms: u32) -> u32 {
 }
 
 // `target` = height in the low 16 bits. a nonzero high half is a chat picture: fit inside that width
-// and the height, never enlarge, and keep its frames under EMBED_BYTES
+// and the height, never enlarge, and keep its frames under EMBED_BYTES. an emote keeps the frames that fit EMOTE_BYTES, and is never
+// wider than MAX_ASPECT × its height
 pub fn decode(bytes: &[u8], target: u32) -> Result<Decoded, String> {
   let (target_h, max_w) = ((target & 0xffff).clamp(1, 512), target >> 16);
   let (w, h, frames) = if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
@@ -55,12 +60,14 @@ pub fn decode(bytes: &[u8], target: u32) -> Result<Decoded, String> {
     return Err("no frames".into());
   }
   let (tw, th) = if max_w == 0 {
-    (((w as u64 * target_h as u64).div_ceil(h as u64) as u32).clamp(1, MAX_SIDE), target_h)
+    let tw = (w as u64 * target_h as u64).div_ceil(h as u64) as u32;
+    (tw.clamp(1, (target_h * MAX_ASPECT).min(MAX_SIDE)), target_h)
   } else {
     let k = 1f64.min(max_w as f64 / w as f64).min(target_h as f64 / h as f64);
     (((w as f64 * k).round() as u32).clamp(1, MAX_SIDE), ((h as f64 * k).round() as u32).max(1))
   };
-  let keep = if max_w == 0 { usize::MAX } else { (EMBED_BYTES / (tw as usize * th as usize * 4)).max(1) };
+  let budget = if max_w == 0 { EMOTE_BYTES } else { EMBED_BYTES };
+  let keep = (budget / (tw as usize * th as usize * 4)).max(1);
   let frames = frames
     .into_iter()
     .take(keep)
@@ -239,6 +246,37 @@ pub fn resize(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Box<[u8]> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // an animated gif of `n` frames, `w`x`h`, all one colour: a hostile one asks for a huge strip
+  fn strip_gif(w: u16, h: u16, n: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+      let mut e = gif::Encoder::new(&mut bytes, w, h, &[255, 0, 0, 0, 0, 0]).unwrap();
+      for _ in 0..n {
+        let f =
+          gif::Frame { width: w, height: h, buffer: vec![0; w as usize * h as usize].into(), ..Default::default() };
+        e.write_frame(&f).unwrap();
+      }
+    }
+    bytes
+  }
+
+  #[test]
+  fn a_hostile_animated_strip_stays_inside_the_frame_budget() {
+    // 4096x1 × 512 frames used to decode to 4096x28 each: ~235MB
+    for (w, h, th) in [(4096, 1, 28), (1, 1024, 28), (4096, 1, 56)] {
+      let d = decode(&strip_gif(w, h, 512), th).unwrap();
+      assert!(d.bytes() <= EMOTE_BYTES, "{w}x{h}: {} bytes", d.bytes());
+      assert!(!d.frames.is_empty());
+      assert!(d.w <= th * MAX_ASPECT, "{w}x{h}: wide {}", d.w);
+    }
+  }
+
+  #[test]
+  fn an_ordinary_emote_keeps_all_its_frames() {
+    let d = decode(&strip_gif(112, 28, 60), 28).unwrap();
+    assert_eq!((d.w, d.h, d.frames.len()), (112, 28, 60));
+  }
 
   #[test]
   fn rejects_garbage() {
