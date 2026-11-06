@@ -34,13 +34,13 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 ```
 
 - `ctrl-t` adds a channel (twitch name, `kick:name`, `yt:@handle`), `ctrl-l` logs in with heatsync
-- `?` shows every key, `ctrl-,` opens settings (or click ⚙)
+- `f1` (or the `?` button on the tab bar) shows every key, `ctrl-,` opens settings (or click ⚙)
 - `ctrl-f` searches the tab, `tab` completes emotes and names (7tv, bttv and ffz too: `nyan` or `:nyan`)
-- `/vi` turns on vim keys (`j`/`k`, `gg`/`G`, `gt`/`gT`)
+- `/vi` turns on vim keys (`v` picks a line, `j`/`k` move it, `space g`/`space G` oldest and newest, `gt`/`gT` tabs)
 - `ctrl-b` shows who you follow that's live, `ctrl-p` your heatsync emotes (rename, reorder, remove, share)
 - `ctrl-n` picks which feeds a merged tab sends to (all of them by default)
 - `/import` adds the channels you follow on twitch, live ones first
-- `t` on a picked line opens its reply thread
+- click the ↳ line of a reply to open its thread (with vim keys, `t` on a picked line does too)
 - `/sharelayout` (or `/sl`) copies your tabs as a `heatsync.org/m/…` link, `/layout <link>` opens someone else's
 
 ## what's in it
@@ -71,7 +71,7 @@ on arch: `paru -S wl-clipboard libnotify xdg-utils zenity mpv yt-dlp`
 
 ## privacy
 
-no analytics, no telemetry, no crash reports sent anywhere. your login token goes to heatsync.org only and is never logged or drawn on screen. chat is never saved to disk. [docs/PRIVACY.md](docs/PRIVACY.md) lists every host the app talks to and what it sends.
+no analytics, no telemetry, no crash reports sent anywhere. your login token goes to heatsync.org only and is never logged or drawn on screen. chat is never saved to disk, bar the last 500 lines that pinged you (so the mentions tab survives a restart). [docs/PRIVACY.md](docs/PRIVACY.md) lists every host the app talks to and what it sends.
 
 your settings and tabs live in `~/.config/heatsync-chat`, the picture cache in `~/.cache/heatsync-chat`.
 

@@ -17,11 +17,15 @@
 | window/input/ime | winit 0.30 | wayland(dwl)+x11+windows, ime, hidpi |
 | pixels | softbuffer (wl_shm) + own blitter | no gpu ctx (mesa/vk alone = 30-80MB); ui is rects+glyphs+images only |
 | text | parley (inline boxes for emotes/badges, bidi, fallback via fontique) + swash raster → glyph cache | correct cjk/emoji/rtl, system monospace |
-| net | tokio current_thread on ONE bg thread; tokio-rustls, tokio-tungstenite, reqwest(rustls, gzip) | epoll = zero idle wakeups, real timeouts |
+| net | tokio current_thread on ONE bg thread; tokio-tungstenite, reqwest(rustls, gzip), rustls + ring (no openssl) | epoll = zero idle wakeups, real timeouts |
 | images | image-webp, gif, png (pure rust) | decode at display height only |
+| line breaks | icu_segmenter (compiled data only) | correct wrapping for cjk and other scripts |
+| vector | tiny-skia | the window frame and flat svg badges (bttv) the image decoders can't read |
+| patterns | regex (no default features) | filter rules, automod, mention rules |
+| signing | ring | ed25519 check of the self-update; the tls provider too |
 | misc | serde/serde_json | settings and wire json |
 - notifications/sound/links/clipboard: spawn `notify-send` / `pw-play` / `xdg-open` / `wl-copy` + `wl-paste` or `xclip` (no dbus/audio/clipboard deps), best-effort, logged once if missing
-- no ring/openssl-free compromise needed: rustls default provider; no C++/qt/webview anywhere
+- tls is rustls with the ring provider (reqwest `rustls-no-provider`, rustls `ring`), no openssl; no C++/qt/webview anywhere
 
 ## architecture
 ```
@@ -50,7 +54,7 @@ src/
 ```
 - one render chokepoint: `emotes/resolve.rs` — word renders iff SENDER's inventory has it; catalog/search cache never feeds render
 - render loop: winit `ControlFlow::Wait`; redraw only on change; new messages = memmove framebuffer + draw new rows; animated emotes = damage only their rects at their frame times; pause when unfocused/occluded
-- memory: messages ~1000/channel ring (setting `hs_dom_render_cap` → scrollback cap), layout lazily for visible rows only, frame cache byte cap (default 24MB), off-screen emotes evicted to disk-cached bytes
+- memory: messages ~1000/channel ring (`SCROLLBACK` in `src/app.rs`, not a setting), layout lazily for visible rows only, frame cache byte cap (default 24MB), off-screen emotes evicted to disk-cached bytes
 - streamer-safe: tokens/emails never rendered or logged (redacted), device codes only on screen
 
 ## data sources (from research)
@@ -67,8 +71,8 @@ src/
 - one login = heatsync + twitch irc token + kick send + all server-brokered actions. pilotable: "log in" button → browser opens → done
 
 ## skipped (named, not hidden)
-- lost natively (need twitch web-session integrity tokens): prediction/poll voting, channel-point redeems + auto-claim, follow/unfollow, highlighted messages, resub share — read-only banners for predictions/polls only if eventsub allows, else skipped
-- browser-only: overlay positioning, player volume, title flash, noise-hide css, yt layout toggles
+- lost natively (need twitch web-session integrity tokens): prediction/poll voting, channel-point redeems + auto-claim, follow/unfollow, highlighted messages, resub share — the prediction banner is built read-only from twitch's public web gql (`src/net/pred.rs`)
+- browser-only: overlay positioning, player volume, noise-hide css, yt layout toggles
 - youtube moderation: heatsync has no youtube mod endpoint, so youtube lines get no mod menu
 - importing kick follows: the ext reads the browser's kick.com cookie, which a native app doesn't have. `/import` is twitch only
 - i18n 35 langs: english first, string table structured for later (ext strings reusable)
@@ -89,11 +93,11 @@ src/
 
 ## ui rules (mellen design taste)
 - monospace system font 15px, dark only, ansi 0-7 palette, square everything, hover/active = white bg black text, emphasis = bold/underline/reverse/blink only, unicode icons, lowercase copy, no motion
-- keyboard-first: `j/k` `gg/G` `ctrl-d/u` scroll, `/` filter (`@name` scope), `i` insert, esc normal, `gt/gT` + `alt-1..9` tabs, `:` command line (ext slash commands), `?` keymap overlay; mouse fully works too
+- keyboard-first: `ctrl-d/u` + pageup/pagedown scroll, `ctrl-f` filter (`@name` scope); with `/vi`: `v` picks a line, `j/k` move it (or recall sent lines in the box), `space g`/`space G` oldest/newest, `i` insert, esc normal, `gt/gT` tabs; `alt-1..9` tabs; slash commands typed in the box; `f1` or the `?` button for the keymap; mouse fully works too
 
 ## verification
 - `cargo test`: irc parser, heatsync ws frames (fuzz every type w/ hostile shapes, like plugin harness), resolve.rs invariant ("lost" must not render from catalog), modifiers grammar, tab-complete order, heat tiers, lookup cache swr/negative ttl, ws backoff/generation/watchdog
-- headless render snapshots: cpu renderer draws to a buffer → golden png compare (no display needed)
+- headless render tests: the cpu renderer draws to a buffer and tests count inked pixels and check rects (no display needed, no golden images); `HSC_DUMP=<dir>` writes a frame as ppm for a look
 - real run on dwl: join a busy channel, `grim` screenshot → read it; RSS via `/proc/<pid>/status` vs chatterino's 243MB; `perf stat`/`pidstat` idle + flood cpu
 - each milestone: the ext side-by-side in chrome on the same channel — same emotes, same markers, same lines
 - 24h soak: RSS flat (if glibc creep shows, `malloc_trim` after evictions)

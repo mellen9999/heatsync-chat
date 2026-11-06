@@ -30,7 +30,7 @@ every host heatsync-chat talks to, what it gets, and why. no analytics, no telem
 | `files.kick.com` | kick emote pictures | the file request | when a line shows one |
 | `yt3.ggpht.com`, `*.googleusercontent.com` | youtube emoji and picture files a relayed line carries | the file request | when a line shows one |
 | `pronoundb.org` | pronouns on a card or name popup | the twitch id of that person | when you open their card. once a day per person. off with `/pronouns` |
-| `api.github.com`, `github.com` | new versions | asking for the latest release (github sees your ip and which version you run); the download only if you press update | 20s after start, then every 6 hours. off with `/updates` |
+| `api.github.com`, `github.com`, `*.githubusercontent.com` | new versions | asking for the latest release (github sees your ip and which version you run); the download only if you press update (github sends it from its own file host, `*.githubusercontent.com`) | 20s after start, then every 6 hours. off with `/updates` |
 
 images are only ever fetched from the hosts above (an allowlist; anything else, or a link that sneaks credentials into the address, is refused). pictures from any other site that show under a chat line go through heatsync's picture proxy, so that site never sees you.
 
@@ -54,7 +54,7 @@ a heatsync emote only draws on a line if that sender's own heatsync inventory ha
 
 in `~/.config/heatsync-chat` (the folder is private to you, `0700`, and so is every file, `0600`; older installs are tightened at start):
 
-- `settings`, `tabs`, `notes`, `filters`, `blocked` (emotes you hid), `hidden_paints`, `emote-frecency`, `recent`, `recent-gifs`, `presets` (your saved settings presets; never synced), `picker-search` (which picker chips are on; never synced)
+- `settings`, `tabs`, `notes`, `filters`, `blocked` (emotes you hid), `hidden_paints`, `emote-frecency`, `recent`, `recent-gifs`, `tabsync` (your heatsync account's tab list as of the last sync, with your heatsync name, so tabs can be matched back after a restart; used only for that account), `presets` (your saved settings presets; never synced), `picker-search` (which picker chips are on; never synced)
 - `mentions`: the last 500 lines that pinged you, with who sent them and which channel, tagged with your heatsync name so only you get them back. the mentions tab uses it to survive a restart; a file over a day old is dropped, and logging out (or another account logging in) deletes it
 - `token`: your heatsync login
 - `crash.log`: a line per crash, with anything secret cut out. it stays here; nothing sends it anywhere
