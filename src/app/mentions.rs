@@ -64,7 +64,11 @@ impl App {
   // the sound a highlight rule gives a live line (ext playFilterRuleSound): the rule's, at the mention
   // volume. none for backlog, your own lines, a blocked person, or a line a hide rule takes
   pub(super) fn line_sound(&self, room: &str, m: &Message) -> Option<Preset> {
-    if m.has(flag::HISTORY) || m.has(flag::OWN) || filter::with(|f| f.blocked(&filter::key(&m.login))) {
+    if self.sound_muted()
+      || m.has(flag::HISTORY)
+      || m.has(flag::OWN)
+      || filter::with(|f| f.blocked(&filter::key(&m.login)))
+    {
       return None;
     }
     filter::with(|f| f.rule_sound(m, room))
@@ -76,9 +80,11 @@ impl App {
       return;
     }
     if self.set.notify && self.notify_pace.offer(Instant::now()) {
-      notify::send("mention", title, body);
+      notify::send("mention", title, self.popup_body(body));
     }
-    crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
+    if !self.sound_muted() {
+      crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
+    }
     if self.set.title_flash {
       // the latest name; an already running flash picks it up on its next turn
       let shown = self.flash.as_ref().is_some_and(|f| f.1);

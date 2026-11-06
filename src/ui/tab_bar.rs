@@ -32,6 +32,8 @@ pub struct Hot<'a> {
   pub gear: bool,
   pub keys: bool,
   pub update: Option<(&'a str, bool)>,
+  // streamer mode's marker, after the buttons (not a button)
+  pub mark: Option<&'a str>,
 }
 
 // returns each tab's rect, then the `+`, the gear and the `?` (for clicks). hot: pointer on a button, or its screen open.
@@ -129,6 +131,9 @@ pub fn draw(
   }
   if let Some((label, on)) = hot.update {
     hits.push(cell(c, text, &mut x, &mut y, &format!(" {label} "), theme::YELLOW, true, on));
+  }
+  if let Some(m) = hot.mark {
+    cell(c, text, &mut x, &mut y, &format!(" {m} "), theme::GREEN, true, false);
   }
   // the mode line: after the buttons on a row, wrapped under them in a column
   // a column indents every wrapped line by one cell, like the tab names

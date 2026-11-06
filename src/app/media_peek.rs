@@ -29,7 +29,7 @@ impl App {
   pub(super) fn media_hover(&mut self) -> bool {
     let (x, y) = self.pointer;
     let chat = self.chat_area();
-    let on = (self.tip_free() && self.picker.is_none() && chat.contains(x, y))
+    let on = (!self.streamer_hot() && self.tip_free() && self.picker.is_none() && chat.contains(x, y))
       .then(|| {
         let res = &mut self.res;
         self.tabs.get_mut(self.active)?.view.media_at(chat, x, y, res)

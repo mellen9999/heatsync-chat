@@ -41,6 +41,8 @@ pub enum Fx {
   // paint motion flipped: every animated name is built again
   PaintMotion,
   Media,
+  // streamer mode flipped: previews, whisper rows and the marker follow
+  Streamer,
   // the chat look changed (clock, stripes, name colors, tags, emote size, spacing, animation, dimming):
   // the look is rebuilt and every line laid out again
   Look,
@@ -137,7 +139,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 69] = [
+pub static DEFS: [Def; 71] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -557,6 +559,30 @@ pub static DEFS: [Def; 69] = [
     ctl: pick!(mention_volume, Volume),
     fx: Fx::None,
     wire: Wire::Level("mentionSoundVolume"),
+  },
+  Def {
+    id: "streamer",
+    cmd: Some("/streamer"),
+    cat: Cat::Notifs,
+    section: "streamer mode",
+    label: "streamer mode",
+    tip: "hides whisper text, link previews and popup text, and mutes sounds, so nothing private shows on stream. auto = on while obs is running. space s shows the whispers tab for this session",
+    alias: "obs stream privacy hide whisper dm live",
+    ctl: pick!(streamer, Streamer),
+    fx: Fx::Streamer,
+    wire: Wire::None,
+  },
+  Def {
+    id: "streamer_sounds",
+    cmd: Some("/streamersounds"),
+    cat: Cat::Notifs,
+    section: "streamer mode",
+    label: "keep sounds",
+    tip: "the mention ping and rule sounds still play while streamer mode is on",
+    alias: "streamer mode sound mute",
+    ctl: pill!(streamer_sounds),
+    fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "title_flash",

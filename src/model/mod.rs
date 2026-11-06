@@ -68,6 +68,7 @@ pub mod slash;
 pub mod stats;
 pub mod status;
 pub mod stream_events;
+pub mod streamer;
 pub mod suggest;
 pub mod sync;
 pub mod tab_count;

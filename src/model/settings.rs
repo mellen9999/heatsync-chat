@@ -119,6 +119,10 @@ choice! {
   Volume { V0 = "0", V10 = "10", V20 = "20", V30 = "30", V50 = "50", V70 = "70", V100 = "100" }
 }
 choice! {
+  // streamer mode: hide what must not show on a stream. `auto` = while obs is running
+  Streamer { Off = "off", On = "on", Auto = "auto" }
+}
+choice! {
   // animated emotes: play, or hold their first frame (ext animateEmotes, minus its `hover`)
   Animate { Always = "always", Never = "never" }
 }
@@ -235,6 +239,10 @@ pub struct Settings {
   // the window title flashes `@name ← heatsync` while unfocused after an @mention. default on, like the ext
   pub title_flash: bool,
   pub mention_volume: Volume,
+  // streamer mode (src/app/streamer.rs): whisper text, link previews, popup text and sounds are held back
+  pub streamer: Streamer,
+  // ...and the mention ping and rule sounds still play while it is on
+  pub streamer_sounds: bool,
   // look for a newer release now and then (github sees the ask). default on
   pub updates: bool,
   // every live line of every open channel is appended to a file on this machine (src/chatlog.rs). default off
@@ -312,6 +320,8 @@ impl Default for Settings {
       notify: false,
       title_flash: true,
       mention_volume: Volume::V30,
+      streamer: Streamer::Off,
+      streamer_sounds: false,
       updates: true,
       chat_logs: false,
       hide_bots: false,
@@ -664,6 +674,8 @@ mod tests {
         notify: false,
         title_flash: true,
         mention_volume: Volume::V30,
+        streamer: Streamer::Off,
+        streamer_sounds: false,
         updates: true,
         chat_logs: false,
         hide_bots: false,

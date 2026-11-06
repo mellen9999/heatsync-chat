@@ -186,11 +186,16 @@ pub struct Previews {
   slots: HashMap<Box<str>, Slot>,
   order: VecDeque<Box<str>>,
   wanted: Vec<Box<str>>,
+  // streamer mode: nothing is asked and nothing shows, whatever was already fetched
+  pub hush: bool,
 }
 
 impl Previews {
   // the preview of `url` once it is here; the first look asks for it
   pub fn get(&mut self, url: &str) -> Option<Arc<Preview>> {
+    if self.hush {
+      return None;
+    }
     match self.slots.get(url) {
       Some(Slot::Done(p)) => p.clone(),
       Some(Slot::Asked) => None,

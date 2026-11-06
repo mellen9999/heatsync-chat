@@ -196,6 +196,7 @@ impl App {
         .collect();
       let bar = self.bar();
       let up = self.update_label();
+      let mark = self.streamer_mark();
       let (gear, keys) = (
         self.hover.gear || self.screen_is(screen::Page::Settings),
         self.hover.keys || self.screen_is(screen::Page::Keys),
@@ -212,6 +213,7 @@ impl App {
           gear,
           keys,
           update: up.as_deref().map(|l| (l, self.hover.update)),
+          mark,
         },
       );
       self.bar_map = shown;

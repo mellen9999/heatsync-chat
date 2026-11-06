@@ -83,7 +83,7 @@ impl App {
 
   pub(super) fn put_row(&mut self, w: &Whisper) {
     let Some(i) = self.tab_of(Kind::Whispers) else { return };
-    let m = whisper::message(w);
+    let m = whisper::message(w, self.hides_whispers());
     let v = self.tabs[i].chat();
     if !v.replace(&m.id.clone(), m.clone()) {
       v.push(m);
@@ -106,13 +106,15 @@ impl App {
       return;
     }
     if live {
-      let rows: Vec<_> = self.whisper.timeline.iter().rev().take(1).map(whisper::message).collect();
+      let hide = self.hides_whispers();
+      let rows: Vec<_> = self.whisper.timeline.iter().rev().take(1).map(|w| whisper::message(w, hide)).collect();
       for m in rows {
         self.tabs[i].chat().push(m);
       }
     } else {
       // history lands in time order among whatever is already here
-      let rows: Vec<_> = self.whisper.timeline.iter().map(whisper::message).collect();
+      let hide = self.hides_whispers();
+      let rows: Vec<_> = self.whisper.timeline.iter().map(|w| whisper::message(w, hide)).collect();
       let v = self.tabs[i].chat();
       v.clear();
       for m in rows {
@@ -152,6 +154,7 @@ impl App {
   // (a status line here is a plain line in the chat): the whispers tab is a click away on the tab bar
   fn whisper_toast(&mut self, w: &Whisper) {
     let now = now_ms();
+    let hot = self.streamer_hot();
     let ws = &mut self.whisper;
     ws.toasts.retain(|t| now - t.at < TOAST_MS);
     ws.toast_seq += 1;
@@ -170,8 +173,14 @@ impl App {
     let t = &mut ws.toasts[at];
     (t.n, t.at) = (t.n + 1, now);
     let more = if t.n > 1 { format!(" ×{}", t.n) } else { String::new() };
-    let snippet: String = w.text.chars().take(TOAST_CHARS).collect();
-    let mut m = Message::system(now, Platform::Twitch, format!("{} whispered: {snippet}{more}", w.who.name));
+    // streamer mode: who, never what
+    let line = if hot {
+      format!("whisper from {}{more}", w.who.name)
+    } else {
+      let snippet: String = w.text.chars().take(TOAST_CHARS).collect();
+      format!("{} whispered: {snippet}{more}", w.who.name)
+    };
+    let mut m = Message::system(now, Platform::Twitch, line);
     m.color = theme::CYAN;
     let old = t.id.clone();
     let Some(tab) = self.tabs.get_mut(self.active) else { return };
@@ -200,7 +209,7 @@ impl App {
     m.user_id = if twitch { w.who.id.clone() } else { "".into() };
     m.nick = w.who.name.clone();
     m.color = w.who.color;
-    m.body = w.text.clone();
+    m.body = if self.streamer_hot() { crate::model::streamer::HIDDEN_SHORT.into() } else { w.text.clone() };
     m.x = Some(Box::new(Extra {
       head: Box::new([Seg { text: "[dm] ".into(), ink: theme::YELLOW, bold: true }]),
       edge: theme::YELLOW,
@@ -398,7 +407,7 @@ mod tests {
     let mut t = crate::model::whisper::Timeline::default();
     let k = t.push_out(who, "hi").key;
     let w = t.settle(k, Status::Failed(Fail::Server), None).unwrap().clone();
-    assert!(whisper::message(&w).has(flag::ALERT));
+    assert!(whisper::message(&w, false).has(flag::ALERT));
   }
 
   fn signed_in(app: &mut App, twitch: bool) {

@@ -319,9 +319,10 @@ impl App {
         self.relayout_where(None);
       }
       Fx::Media => {
-        self.res.media = self.set.media;
+        self.sync_media();
         self.relayout_where(None);
       }
+      Fx::Streamer => self.streamer_follow(),
       Fx::ChatLogs => self.chatlog.set(self.set.chat_logs),
       Fx::Filters => {
         self.push_flags();

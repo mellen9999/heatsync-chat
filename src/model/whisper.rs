@@ -186,6 +186,10 @@ impl Timeline {
     true
   }
 
+  pub fn is_empty(&self) -> bool {
+    self.list.is_empty()
+  }
+
   #[cfg(test)]
   pub fn len(&self) -> usize {
     self.list.len()
@@ -334,10 +338,11 @@ pub fn fail_text(f: &Fail) -> String {
   }
 }
 
-pub fn message(w: &Whisper) -> Message {
+// `hide`: streamer mode keeps the words off the row (who and when stay)
+pub fn message(w: &Whisper, hide: bool) -> Message {
   let (arrow, to_name, to_ink) =
     if w.out { (theme::HEATSYNC, w.who.name.clone(), w.who.color) } else { (theme::CYAN, "you".into(), theme::WHITE) };
-  let mut body = w.text.to_string();
+  let mut body = if hide { super::streamer::HIDDEN.to_string() } else { w.text.to_string() };
   let mut flags = if w.out { flag::BRAND } else { flag::HIGHLIGHTED };
   match &w.status {
     Status::Sent => {}
@@ -501,19 +506,19 @@ mod tests {
   fn rows_read_like_the_ext() {
     let who = Who { via: Via::Twitch, id: "42".into(), login: "bob".into(), name: "Bob".into(), color: 0xff0000 };
     let mut w = Whisper { key: 7, ext: "".into(), ts: 1, out: true, who, text: "hi".into(), status: Status::Pending };
-    let m = message(&w);
+    let m = message(&w, false);
     assert_eq!((&*m.id, &*m.nick, &*m.body), ("w7", "you", "hi …"));
     assert!(m.user_id.is_empty(), "your own side is just \"you\": no paint");
     assert!(m.has(flag::BRAND) && !m.has(flag::ALERT));
     let x = m.x.unwrap();
     assert_eq!(&*x.tail[1].text, "Bob");
     w.status = Status::Failed(Fail::Relink);
-    let m = message(&w);
+    let m = message(&w, false);
     assert!(m.has(flag::ALERT) && m.body.contains("re-link"));
     w.out = false;
     w.status = Status::Sent;
-    assert_eq!(&*message(&w).user_id, "42", "their name wears their paint");
-    let m = message(&w);
+    assert_eq!(&*message(&w, false).user_id, "42", "their name wears their paint");
+    let m = message(&w, false);
     assert!(m.has(flag::HIGHLIGHTED));
     assert_eq!(&*m.nick, "Bob");
     assert_eq!(&*m.x.unwrap().tail[1].text, "you");
@@ -604,7 +609,7 @@ mod tests {
       text: "hi".into(),
       status: Status::Failed(Fail::Follow("amy".into())),
     };
-    let m = message(&w);
+    let m = message(&w, false);
     let x = m.x.unwrap();
     assert_eq!((&*x.head[0].text, x.head[0].ink), ("[H] ", theme::HEATSYNC));
     assert!(m.body.contains("/follow amy"));

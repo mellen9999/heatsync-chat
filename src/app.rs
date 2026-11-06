@@ -75,6 +75,7 @@ mod sendto;
 mod stats;
 mod status;
 mod stream;
+mod streamer;
 mod suggest;
 mod tabs;
 mod tabsync;
@@ -120,6 +121,8 @@ mod tests_screens;
 mod tests_sendto;
 #[cfg(test)]
 mod tests_store;
+#[cfg(test)]
+mod tests_streamer;
 #[cfg(test)]
 mod tests_tabs;
 #[cfg(test)]
@@ -350,6 +353,8 @@ pub struct App {
   // the tab index behind each drawn rect (hidden tabs have none)
   bar_map: Vec<usize>,
   upd: update::Update,
+  // streamer mode: on or not, the obs look, whispers shown on purpose
+  streamer: streamer::State,
   // the title flashing who @'d you while the window is away: their name, and when it next turns
   flash: Option<(Box<str>, bool)>,
   flash_due: Option<Instant>,
@@ -470,7 +475,9 @@ impl App {
       res.heats.mute();
       res.flairs.mute();
     }
-    res.media = set.media;
+    let streamer = streamer::State::boot(&set);
+    res.previews.hush = streamer.on;
+    res.media = set.media && !streamer.on;
     res.apply_look(&set);
     res.links = set.links;
     Self {
@@ -557,6 +564,7 @@ impl App {
       screen: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
+      streamer,
       upd: update::Update { release: None, installing: false, due: Some(Instant::now() + update::FIRST_CHECK) },
       flash: None,
       flash_due: None,
@@ -898,6 +906,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.flash_due.is_some_and(|t| t <= now) {
       self.flash_tick();
     }
+    self.streamer_tick(now);
     self.notify_pace_tick(now);
     self.live_pace_tick(now);
     self.mentions_save_tick(now);
@@ -941,6 +950,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.heat_due,
       self.pace_due,
       self.flash_due,
+      self.streamer.due,
       self.notify_pace.due(),
       self.live_pace.due(),
       self.mentions_save,
