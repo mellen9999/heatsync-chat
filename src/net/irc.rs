@@ -653,9 +653,9 @@ mod tests {
     );
     let l = parse(&raw).unwrap();
     let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!() };
-    assert!(m.nick.len() <= MAX_NAME && !m.nick.is_empty(), "{}", m.nick.len());
-    assert!(m.id.len() <= MAX_ID && !m.id.is_empty(), "{}", m.id.len());
-    assert!(m.reply_to.as_ref().is_some_and(|n| n.len() <= MAX_NAME));
+    assert!(m.nick.len() <= 100 && !m.nick.is_empty(), "{}", m.nick.len());
+    assert!(m.id.len() <= 128 && !m.id.is_empty(), "{}", m.id.len());
+    assert!(m.reply_to.as_ref().is_some_and(|n| n.len() <= 100));
   }
 
   #[test]
