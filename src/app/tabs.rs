@@ -36,6 +36,16 @@ pub enum TabAct {
   Keep,
   // a built-in tab leaves the bar
   Hide,
+  // this tab's lines go, here only (/lclear)
+  Lclear,
+  // twitch channel tools, for the broadcaster / mods (/announce, /poll, /prediction): the tab opens with the
+  // command typed, ready to finish
+  Announce,
+  Poll,
+  Predict,
+  // the lineup as a link on the clipboard (/sharelayout), and a pasted link's tabs (/layout)
+  Share,
+  UseLayout,
 }
 
 impl TabMenu {
@@ -624,6 +634,23 @@ impl App {
       Kind::Chat => vec![(TabAct::Edit, "edit".into()), (TabAct::Remove, "remove".into())],
       _ => vec![(TabAct::Hide, "hide".into())],
     };
+    let mut items = items;
+    if self.tabs[i].kind == Kind::Chat {
+      items.push((TabAct::Lclear, "clear lines".into()));
+      let chan = self.tabs[i].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
+      if let Some(c) = chan.filter(|_| self.me.is_some()) {
+        let caster = self.is_caster(&c);
+        if caster || self.can_mod(Platform::Twitch, &c) {
+          items.push((TabAct::Announce, "announce…".into()));
+        }
+        if caster {
+          items.push((TabAct::Poll, "poll…".into()));
+          items.push((TabAct::Predict, "prediction…".into()));
+        }
+      }
+    }
+    items.push((TabAct::Share, "share layout".into()));
+    items.push((TabAct::UseLayout, "use a shared layout…".into()));
     self.overlay = Some(Overlay::Tab(TabMenu { menu: Menu::new(items, at), tab: i }));
     self.tab_menu_changed();
   }
@@ -667,8 +694,32 @@ impl App {
           self.set_shown(k, false);
         }
       }
+      Some(TabAct::Lclear) => {
+        self.select(m.tab);
+        self.lclear();
+      }
+      Some(TabAct::Announce) => {
+        self.type_in_tab(m.tab, "/announce ", "type the announcement, then enter");
+      }
+      Some(TabAct::Poll) => {
+        self.type_in_tab(m.tab, "/poll ", "title | choice | choice | seconds (optional), then enter");
+      }
+      Some(TabAct::Predict) => {
+        self.type_in_tab(m.tab, "/prediction ", "title | outcome | outcome | seconds (optional), then enter");
+      }
+      Some(TabAct::Share) => self.share_lineup(),
+      Some(TabAct::UseLayout) => {
+        self.type_in_tab(m.tab, "/layout ", "paste a heatsync.org/m/ link, then enter");
+      }
       None => {}
     }
+  }
+
+  // go to a tab and put a command in its box with a line saying what to type
+  fn type_in_tab(&mut self, tab: usize, cmd: &str, hint: &str) {
+    self.select(tab);
+    self.type_into_line(cmd);
+    self.say(hint);
   }
 
   pub(super) fn tab_menu_key(&mut self, key: Key<&str>) {

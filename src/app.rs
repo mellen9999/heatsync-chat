@@ -106,6 +106,8 @@ mod tests_pin;
 #[cfg(test)]
 mod tests_pushed;
 #[cfg(test)]
+mod tests_reach;
+#[cfg(test)]
 mod tests_react;
 #[cfg(test)]
 mod tests_screens;

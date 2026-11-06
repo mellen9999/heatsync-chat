@@ -609,7 +609,10 @@ fn headless_tab_menu_is_edit_remove() {
   };
   app.tabs[flood].event = false;
   app.tabs[flood].unread = false;
-  assert_eq!(menu_of(&mut app, flood), Some(vec!["edit".to_owned(), "remove".to_owned()]));
+  assert_eq!(
+    menu_of(&mut app, flood),
+    Some(["edit", "remove", "clear lines", "share layout", "use a shared layout…"].map(str::to_owned).to_vec())
+  );
   // j then enter picks remove's neighbour: edit is first, so enter opens the form
   app.tab_menu_key(Key::Named(NamedKey::Enter));
   let f = app.form.as_ref().expect("edit opens the form");

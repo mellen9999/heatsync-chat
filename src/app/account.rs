@@ -17,6 +17,10 @@ pub(super) enum Step {
   Login(Provider),
   Link(Provider),
   Logout,
+  // your twitch follows, picked into tabs (what /import does)
+  Import,
+  // your twitch chat color: types /color ready to finish
+  Color,
 }
 
 impl Step {
@@ -25,6 +29,8 @@ impl Step {
     match self {
       Step::Login(_) => "opens your browser to log in",
       Step::Link(_) => "opens your browser to link it to this account",
+      Step::Import => "lists the twitch channels you follow so you can add them as tabs (same as /import)",
+      Step::Color => "types /color for you: a name like coral, or a #hex. twitch turbo or prime may be needed for hex",
       Step::Logout => "logs you out of heatsync on this computer; ctrl-l or /login gets you back in",
     }
   }
@@ -61,6 +67,10 @@ pub(super) fn rows(me: Option<&Me>) -> (Vec<L>, Vec<Target>) {
       None => put(row(p.name().into(), "not linked · enter links it".into()), Target::Account(Step::Link(p))),
     }
   }
+  put(row("import your twitch follows".into(), "/import".into()), Target::Account(Step::Import));
+  if me.twitch.is_some() {
+    put(row("chat color…".into(), "/color".into()), Target::Account(Step::Color));
+  }
   put(row("log out".into(), "/logout".into()), Target::Account(Step::Logout));
   (lines, marks)
 }
@@ -89,6 +99,11 @@ impl App {
   pub(super) fn account_step(&mut self, step: Step) {
     self.close_screen();
     match step {
+      Step::Import => self.toggle_import(),
+      Step::Color => {
+        self.type_into_line("/color ");
+        self.say("type a color name (coral, red, blue violet…) or a #hex, then enter");
+      }
       Step::Login(p) => self.act(Act::Login(p), None, None),
       Step::Link(p) => self.act(Act::Link(p), None, None),
       Step::Logout => self.act(Act::Logout, None, None),
@@ -169,7 +184,10 @@ mod tests {
     assert!(t.contains(&"kick | not linked · enter links it".to_owned()));
     let steps: Vec<Step> =
       marks.iter().filter_map(|t| if let Target::Account(s) = t { Some(*s) } else { None }).collect();
-    assert_eq!(steps, [Step::Link(Provider::Kick), Step::Link(Provider::Youtube), Step::Logout]);
+    assert_eq!(
+      steps,
+      [Step::Link(Provider::Kick), Step::Link(Provider::Youtube), Step::Import, Step::Color, Step::Logout]
+    );
   }
 
   #[test]
