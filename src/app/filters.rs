@@ -91,8 +91,6 @@ impl App {
           (false, false) => format!("{who} isn't hidden here"),
         });
       }
-      Cmd::Word { marks, add, term } => self.word(marks, add, term),
-      Cmd::Pattern { add, pat } => self.pattern(add, pat),
       Cmd::Reason { add, text } => self.ban_reason(add, text),
       Cmd::Rule(r) => self.rule(r),
       Cmd::Mutes => {
@@ -155,44 +153,6 @@ impl App {
     }
     self.saved();
     self.say(format!("unblocked {name}"));
-  }
-
-  fn word(&mut self, marks: bool, add: bool, term: Option<String>) {
-    let what = if marks { "highlight" } else { "hidden word" };
-    let Some(term) = term else {
-      let list = filter::with(|f| f.words(marks).iter().map(|w| w.to_string()).collect::<Vec<_>>());
-      return self.say(if list.is_empty() {
-        format!("no {what}s. /{} <term> adds one", if marks { "highlight" } else { "hideword" })
-      } else {
-        format!("{what}s: {}", list.join(", "))
-      });
-    };
-    if !filter::edit(|f| f.word(marks, add, &term)) {
-      return self.say(if add { format!("couldn't add that {what}") } else { format!("{term} isn't a {what}") });
-    }
-    self.saved();
-    self.say(format!("{} {what} {}", if add { "added" } else { "removed" }, term.to_lowercase()));
-  }
-
-  fn pattern(&mut self, add: bool, pat: Option<String>) {
-    let Some(pat) = pat else {
-      let list = filter::with(|f| f.patterns().iter().map(|p| p.to_string()).collect::<Vec<_>>());
-      return self.say(if list.is_empty() {
-        "no automod patterns. /automod <regex> adds one".to_owned()
-      } else {
-        format!("automod: {}", list.join("  "))
-      });
-    };
-    if !filter::edit(|f| f.pattern(add, &pat)) {
-      return self.say(if add {
-        "couldn't add that pattern (empty, a repeat, or too many)".to_owned()
-      } else {
-        format!("{pat} isn't an automod pattern")
-      });
-    }
-    self.texts_edited();
-    self.saved();
-    self.say(format!("{} automod pattern {}", if add { "added" } else { "removed" }, pat.trim()));
   }
 
   fn ban_reason(&mut self, add: bool, text: Option<String>) {

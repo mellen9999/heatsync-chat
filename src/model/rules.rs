@@ -473,6 +473,81 @@ impl Compiled {
   }
 }
 
+// what the window kept before there was one rules list: words to hide, words to highlight, automod patterns.
+// they fold into rules once, on load (`Rules::fold`)
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Old {
+  // hidden anywhere inside a line, any case: a regex rule on the escaped text, so "spoil" still hides "spoiler"
+  Hidden(String),
+  // lit up as a whole word, any case: a keyword rule
+  Marked(String),
+  // hidden when it matches: a regex rule
+  Pattern(String),
+}
+
+// the longest term or pattern taken from an old file
+const MAX_OLD: usize = 4096;
+
+// the ext's own regex escape, so the rule reads the same in both
+fn js_escape(t: &str) -> String {
+  let mut out = String::with_capacity(t.len() + 4);
+  for c in t.chars() {
+    if ".*+?^${}()|[]\\".contains(c) {
+      out.push('\\');
+    }
+    out.push(c);
+  }
+  out
+}
+
+fn fnv(s: &str) -> u64 {
+  s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+}
+
+impl Old {
+  // one line of the filters file, which keeps what did not fit until the next load
+  pub fn line(&self) -> String {
+    match self {
+      Old::Hidden(t) => format!("hide {t}"),
+      Old::Marked(t) => format!("mark {t}"),
+      Old::Pattern(t) => format!("automod {t}"),
+    }
+  }
+
+  pub fn from_line(kind: &str, rest: &str) -> Option<Old> {
+    let t = rest.trim();
+    if t.is_empty() || t.chars().count() > MAX_OLD || t.chars().any(char::is_control) {
+      return None;
+    }
+    match kind {
+      "hide" => Some(Old::Hidden(t.to_lowercase())),
+      "mark" => Some(Old::Marked(t.to_lowercase())),
+      "automod" => Some(Old::Pattern(t.to_owned())),
+      _ => None,
+    }
+  }
+
+  // the same id for the same entry every time, so folding twice adds nothing
+  fn rule(&self) -> Value {
+    let (tag, action, ty, val) = match self {
+      Old::Hidden(t) => ("h", "hide", "regex", js_escape(t)),
+      Old::Marked(t) => ("m", "highlight", "keyword", t.clone()),
+      Old::Pattern(t) => ("p", "hide", "regex", t.clone()),
+    };
+    let mut raw = json!({
+      "id": format!("old-{tag}-{:016x}", fnv(&val)),
+      "enabled": true,
+      "scope": "all",
+      "match": { "type": ty, "value": val, "caseSensitive": false },
+      "action": action,
+    });
+    if action == "highlight" {
+      raw["color"] = json!("#ffff00");
+    }
+    raw
+  }
+}
+
 #[derive(Default, Clone, Debug)]
 pub struct Rules {
   list: Vec<Rule>,
@@ -525,6 +600,49 @@ impl Rules {
       Some(c) => Judged { verdict: Verdict::Mark, ink: c.ink, sound: c.sound },
       None => Judged { verdict: Verdict::Pass, ink: None, sound: None },
     }
+  }
+
+  fn has_id(&self, id: &str) -> bool {
+    self.list.iter().any(|r| r.raw.get("id").and_then(Value::as_str) == Some(id))
+  }
+
+  // old words and patterns become rules, after the ones already there (earlier wins). one already folded by an
+  // earlier load is skipped, so this is safe to run on every load. what does not fit (the rules are full) is
+  // handed back to be kept, never dropped
+  pub fn fold(&mut self, old: Vec<Old>) -> Vec<Old> {
+    let mut left = Vec::new();
+    for o in old {
+      let raw = o.rule();
+      if raw["id"].as_str().is_some_and(|id| self.has_id(id)) {
+        continue;
+      }
+      let Some(c) = compile(&raw) else { continue };
+      self.list.push(Rule { raw, c: Some(c) });
+      if self.list.len() > MAX_RULES || self.json().len() > MAX_JSON {
+        self.list.pop();
+        left.push(o);
+      }
+    }
+    left
+  }
+
+  // the account's rules replaced ours; the rules folded here from old words that it lacks go back after
+  // them. true = some did
+  pub fn keep_old_of(&mut self, mine: &Rules) -> bool {
+    let mut put = false;
+    for r in &mine.list {
+      let id = r.raw.get("id").and_then(Value::as_str).unwrap_or_default();
+      if !id.starts_with("old-") || self.has_id(id) || self.list.len() >= MAX_RULES {
+        continue;
+      }
+      self.list.push(r.clone());
+      if self.json().len() > MAX_JSON {
+        self.list.pop();
+      } else {
+        put = true;
+      }
+    }
+    put
   }
 
   // one line per rule for /rule list: "1 on hide keyword spoiler"

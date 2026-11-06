@@ -3,11 +3,8 @@
 //   /mute <user> [10m|2h|3d|perm]   /unmute <user>   (a day by default, like the ext)
 //   /block <user> (toggles)   /unblock <user>
 //   /hide <user>   /unhide <user>             this tab only, until restart
-//   /hideword [term]  /unhideword <term>      hide lines containing a term; no term lists them
-//   /highlight [term] /unhighlight <term>     light up lines containing a whole word
-//   /automod [regex]  /unautomod <regex>      hide lines matching a pattern (the ext's filter regex); no arg lists
 //   /banreason [text]  /unbanreason <text>    quick reasons a ban offers; no text lists them
-//   /rule [list]                              the per-rule hide / highlight list, in the order they win
+//   /rule [list]                              the hide / highlight rules, in the order they win (words, patterns, users...)
 //   /rule add <hide|highlight> <keyword|regex|user|badge|msgtype|expr> <value>
 //   /rule del|on|off|up|down <number|id>
 //   /mutes  /blocks                           who is muted / blocked
@@ -29,10 +26,6 @@ pub enum Cmd {
   Unblock(String),
   // user, hide (true) or bring back (false)
   Hide(String, bool),
-  // marks (highlight) or hide list, add or remove, and the term (None = list them)
-  Word { marks: bool, add: bool, term: Option<String> },
-  // an automod pattern: add or remove, and the pattern (None = list them)
-  Pattern { add: bool, pat: Option<String> },
   // a ban reason: add or remove, and the reason (None = list them)
   Reason { add: bool, text: Option<String> },
   // /rule ...
@@ -113,15 +106,6 @@ pub fn command(text: &str) -> Option<Cmd> {
     "unblock" => user("usage: /unblock <user>", &Cmd::Unblock),
     "hide" => user("usage: /hide <user> (this tab only)", &|u| Cmd::Hide(u, true)),
     "unhide" => user("usage: /unhide <user>", &|u| Cmd::Hide(u, false)),
-    "hideword" => Cmd::Word { marks: false, add: true, term },
-    "unhideword" if term.is_some() => Cmd::Word { marks: false, add: false, term },
-    "highlight" => Cmd::Word { marks: true, add: true, term },
-    "unhighlight" if term.is_some() => Cmd::Word { marks: true, add: false, term },
-    "unhideword" => Cmd::Usage("usage: /unhideword <term>"),
-    "unhighlight" => Cmd::Usage("usage: /unhighlight <term>"),
-    "automod" => Cmd::Pattern { add: true, pat: term },
-    "unautomod" if term.is_some() => Cmd::Pattern { add: false, pat: term },
-    "unautomod" => Cmd::Usage("usage: /unautomod <pattern>"),
     "banreason" => Cmd::Reason { add: true, text: term },
     "unbanreason" if term.is_some() => Cmd::Reason { add: false, text: term },
     "unbanreason" => Cmd::Usage("usage: /unbanreason <reason>"),
@@ -143,14 +127,6 @@ mod tests {
     assert_eq!(command("/banreason"), Some(Cmd::Reason { add: true, text: None }));
     assert_eq!(command("/unbanreason x"), Some(Cmd::Reason { add: false, text: Some("x".into()) }));
     assert!(matches!(command("/unbanreason"), Some(Cmd::Usage(_))));
-  }
-
-  #[test]
-  fn patterns_keep_spaces() {
-    assert_eq!(command("/automod buy \\d+ now"), Some(Cmd::Pattern { add: true, pat: Some("buy \\d+ now".into()) }));
-    assert_eq!(command("/automod"), Some(Cmd::Pattern { add: true, pat: None }));
-    assert_eq!(command("/unautomod x"), Some(Cmd::Pattern { add: false, pat: Some("x".into()) }));
-    assert!(matches!(command("/unautomod"), Some(Cmd::Usage(_))));
   }
 
   #[test]
@@ -199,13 +175,9 @@ mod tests {
   }
 
   #[test]
-  fn words_keep_spaces() {
-    assert_eq!(
-      command("/hideword big spoiler"),
-      Some(Cmd::Word { marks: false, add: true, term: Some("big spoiler".into()) })
-    );
-    assert_eq!(command("/highlight"), Some(Cmd::Word { marks: true, add: true, term: None }));
-    assert_eq!(command("/unhighlight gg"), Some(Cmd::Word { marks: true, add: false, term: Some("gg".into()) }));
-    assert!(matches!(command("/unhideword"), Some(Cmd::Usage(_))));
+  fn the_old_word_and_pattern_commands_are_gone() {
+    for c in ["/hideword x", "/unhideword x", "/highlight x", "/unhighlight x", "/automod x", "/unautomod x"] {
+      assert_eq!(command(c), None, "{c}");
+    }
   }
 }

@@ -1,4 +1,4 @@
-// the list screens (muted & blocked people, highlight words, filter rules…): reached from settings, x removes
+// the list screens (muted & blocked people, filter rules, ban reasons…): reached from settings, x removes
 // and a adds through the slash commands' own paths
 use super::lists::Kind;
 use super::screen::{Page, Target};
@@ -78,20 +78,20 @@ fn enter_on_a_person_opens_their_card() {
 }
 
 #[test]
-fn highlight_words_add_with_a_and_delete_with_x() {
+fn filter_rules_add_with_a_and_delete_with_x() {
   let mut app = boot();
-  via_settings(&mut app, "highlights");
+  via_settings(&mut app, "filter_rules");
   assert_eq!(rows(&app), ["nothing yet|", "add…|a"]);
   press(&mut app, "a");
-  type_in(&mut app, "Loot");
+  type_in(&mut app, "highlight keyword Loot");
   app.on_key(Key::Named(NamedKey::Enter), None);
-  assert_eq!(filter::with(|f| f.words(true).iter().map(|w| w.to_string()).collect::<Vec<_>>()), ["loot"]);
-  assert_eq!(rows(&app)[0], "loot|");
+  assert_eq!(filter::with(|f| f.rules().len()), 1);
+  assert_eq!(rows(&app)[0], "on highlight keyword Loot|");
   // the field stays for the next one; esc, esc ends it
   app.on_key(Key::Named(NamedKey::Escape), None);
   assert!(!app.screen.as_ref().unwrap().typing());
   press(&mut app, "x");
-  assert!(filter::with(|f| f.words(true).is_empty()));
+  assert_eq!(filter::with(|f| f.rules().len()), 0);
   // enter on the add row starts typing too
   press(&mut app, "j");
   app.on_key(Key::Named(NamedKey::Enter), None);
@@ -99,24 +99,19 @@ fn highlight_words_add_with_a_and_delete_with_x() {
 }
 
 #[test]
-fn rules_patterns_reasons_and_hidden_words_each_have_a_list() {
+fn rules_and_ban_reasons_each_have_a_list() {
   let mut app = boot();
-  for (id, text, check) in [
-    ("hidden_words", "spoiler", 0),
-    ("automod_regex", "buy \\d+", 1),
-    ("ban_reasons", "spam", 2),
-    ("filter_rules", "hide keyword nope", 3),
-  ] {
+  for (id, text, check) in [("ban_reasons", "spam", 0), ("filter_rules", "hide keyword nope", 1)] {
     via_settings(&mut app, id);
     press(&mut app, "a");
     type_in(&mut app, text);
     app.on_key(Key::Named(NamedKey::Enter), None);
     app.on_key(Key::Named(NamedKey::Escape), None);
-    let n = filter::with(|f| [f.words(false).len(), f.patterns().len(), f.reasons().len(), f.rules().len()][check]);
+    let n = filter::with(|f| [f.reasons().len(), f.rules().len()][check]);
     assert_eq!(n, 1, "{id} added");
     assert!(rows(&app).len() == 2, "{id}: {:?}", rows(&app));
     press(&mut app, "x");
-    let n = filter::with(|f| [f.words(false).len(), f.patterns().len(), f.reasons().len(), f.rules().len()][check]);
+    let n = filter::with(|f| [f.reasons().len(), f.rules().len()][check]);
     assert_eq!(n, 0, "{id} deleted");
     app.close_screen();
   }

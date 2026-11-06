@@ -68,11 +68,7 @@ pub enum Ctl {
   Counter,
   // a few named values, stepped with h / l and typed as `/cmd value`: read the place, write it
   Pick(&'static Choice, fn(&Settings) -> usize, fn(&mut Settings, usize)),
-  // a list kept with slash commands (hidden words, highlight words); true = highlight
-  Words(bool),
-  // the automod patterns, kept with /automod and /unautomod
-  Patterns,
-  // the per-rule hide / highlight list, kept with /rule
+  // the hide / highlight rules (hidden words, highlights and patterns are rules), kept with /rule
   Rules,
   // the ban reasons a ban offers, kept with /banreason
   Reasons,
@@ -141,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 76] = [
+pub static DEFS: [Def; 73] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -551,18 +547,6 @@ pub static DEFS: [Def; 76] = [
     wire: Wire::Bool("suggestInventoryEmotes"),
   },
   Def {
-    id: "highlights",
-    cmd: Some("/highlight"),
-    cat: Cat::Chat,
-    section: "messages",
-    label: "keyword highlights",
-    tip: "tints matched messages orange. whole-word, case-insensitive. enter opens the list: a adds, x removes",
-    alias: "keywordhighlights words",
-    ctl: Ctl::Words(true),
-    fx: Fx::None,
-    wire: Wire::None,
-  },
-  Def {
     id: "dim_timeouts",
     cmd: Some("/dimtimeouts"),
     cat: Cat::Chat,
@@ -863,18 +847,6 @@ pub static DEFS: [Def; 76] = [
     wire: Wire::Bool("automodAllCaps"),
   },
   Def {
-    id: "automod_regex",
-    cmd: Some("/automod"),
-    cat: Cat::Mod,
-    section: "automod",
-    label: "hide by pattern",
-    tip: "hide messages that match a pattern. capitals don't matter; a pattern that isn't valid matches as plain text. enter opens the list: a adds, x removes",
-    alias: "automodRegex pattern",
-    ctl: Ctl::Patterns,
-    fx: Fx::None,
-    wire: Wire::None,
-  },
-  Def {
     id: "hide_bots",
     cmd: Some("/hidebots"),
     cat: Cat::Filters,
@@ -911,25 +883,13 @@ pub static DEFS: [Def; 76] = [
     wire: Wire::Bool("hideDuplicates"),
   },
   Def {
-    id: "hidden_words",
-    cmd: Some("/hideword"),
-    cat: Cat::Filters,
-    section: "messages",
-    label: "mute keywords",
-    tip: "messages containing any of these get hidden. enter opens the list: a adds, x removes",
-    alias: "hideword hidden words",
-    ctl: Ctl::Words(false),
-    fx: Fx::None,
-    wire: Wire::None,
-  },
-  Def {
     id: "filter_rules",
     cmd: Some("/rule"),
     cat: Cat::Filters,
     section: "rules",
     label: "filter rules",
-    tip: "rules that highlight or hide lines by word, pattern, user, badge or kind of message; the first hide wins. enter opens the list: a adds, x removes",
-    alias: "chatFilterRules rule",
+    tip: "rules that hide or highlight lines by word, pattern, user, badge or kind of message; the first hide wins. mute keywords, keyword highlights and hide-by-pattern are rules now. enter opens the list: a adds (hide keyword spoilers), x removes",
+    alias: "chatFilterRules rule keywordhighlights highlight words hidden words mute keywords automodRegex pattern regex hideword",
     ctl: Ctl::Rules,
     fx: Fx::None,
     wire: Wire::None,

@@ -1,7 +1,7 @@
-// the lists you keep, as screens over the chat: who you muted, blocked or hid, and your highlight words,
-// hidden words, automod patterns, filter rules and ban reasons. j/k move, x removes the picked one, a (or
+// the lists you keep, as screens over the chat: who you muted, blocked or hid, your filter rules (hidden
+// words, highlights and patterns are rules) and ban reasons. j/k move, x removes the picked one, a (or
 // enter on the add row) types a new one, enter on a person opens their card, esc closes. every change is
-// the slash command's own path (`filter_cmd`), so /mute, /unhighlight and this screen can never disagree.
+// the slash command's own path (`filter_cmd`), so /mute, /rule and this screen can never disagree.
 // the mention rules are the exception: they live on the server, so a change is asked of it (app/mrules.rs)
 // and enter switches a rule on or off
 use winit::keyboard::{Key, NamedKey};
@@ -19,9 +19,6 @@ use crate::util::time::now_ms;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Kind {
   People,
-  // true = the highlight words, false = the hidden ones
-  Words(bool),
-  Patterns,
   Rules,
   Reasons,
   // the server's mention rules
@@ -32,9 +29,6 @@ impl Kind {
   fn title(self) -> &'static str {
     match self {
       Kind::People => "muted & blocked people",
-      Kind::Words(true) => "highlight words",
-      Kind::Words(false) => "hidden words",
-      Kind::Patterns => "automod patterns",
       Kind::Rules => "filter rules",
       Kind::Reasons => "ban reasons",
       Kind::Alerts => "mention rules",
@@ -48,9 +42,6 @@ impl Kind {
   fn hint(self) -> &'static str {
     match self {
       Kind::People => "enter opens their card · x lets them back",
-      Kind::Words(true) => "messages with these words are tinted. whole word, any case",
-      Kind::Words(false) => "messages with these words are hidden",
-      Kind::Patterns => "messages matching a pattern are hidden (a regex, or plain text if it isn't one)",
       Kind::Rules => "type: hide or highlight, then keyword regex user badge msgtype or expr, then the value",
       Kind::Reasons => "quick reasons offered when you ban",
       Kind::Alerts => {
@@ -62,7 +53,6 @@ impl Kind {
   fn adding(self) -> &'static str {
     match self {
       Kind::Rules => "hide keyword spoilers",
-      Kind::Patterns => "a pattern",
       Kind::Reasons => "a reason",
       Kind::Alerts => "a word, phrase or regex",
       _ => "a word or phrase",
@@ -83,8 +73,6 @@ enum Del {
   Unmute(String),
   Unblock(String),
   Unhide(String),
-  Word(bool, String),
-  Pattern(String),
   Reason(String),
   // its number in /rule list
   Rule(usize),
@@ -130,8 +118,6 @@ impl Ls {
         v.extend(self.hidden.iter().map(|n| item(n, "hidden in this tab", Del::Unhide(n.to_string()))));
         v
       }
-      Kind::Words(m) => f.words(m).iter().map(|w| item(w, "", Del::Word(m, w.to_string()))).collect(),
-      Kind::Patterns => f.patterns().iter().map(|p| item(p, "", Del::Pattern(p.to_string()))).collect(),
       Kind::Reasons => f.reasons().iter().map(|r| item(r, "", Del::Reason(r.to_string()))).collect(),
       Kind::Alerts => self
         .mr
@@ -250,8 +236,6 @@ impl App {
           l.hidden.retain(|h| **h != *n);
         }
       }
-      Del::Word(marks, term) => self.list_run(Cmd::Word { marks, add: false, term: Some(term) }),
-      Del::Pattern(pat) => self.list_run(Cmd::Pattern { add: false, pat: Some(pat) }),
       Del::Reason(text) => self.list_run(Cmd::Reason { add: false, text: Some(text) }),
       Del::Rule(n) => self.list_run(Cmd::Rule(RuleCmd::Del(n.to_string()))),
       Del::Alert(id) => self.mrules_remove(id),
@@ -277,8 +261,6 @@ impl App {
       return;
     }
     let cmd = match kind {
-      Kind::Words(marks) => Cmd::Word { marks, add: true, term: Some(typed) },
-      Kind::Patterns => Cmd::Pattern { add: true, pat: Some(typed) },
       Kind::Reasons => Cmd::Reason { add: true, text: Some(typed) },
       Kind::Rules => match filtercmd::command(&format!("/rule add {typed}")) {
         Some(c) => c,

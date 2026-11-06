@@ -255,14 +255,6 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       Ctl::Side => (set.tab_side.name().to_owned(), None),
       Ctl::Counter => (set.tab_counter.name().to_owned(), None),
       Ctl::Pick(..) => (d.picked(set).unwrap_or_default().to_owned(), None),
-      Ctl::Words(marks) => {
-        let n = crate::model::filter::with(|f| f.words(marks).len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
-      }
-      Ctl::Patterns => {
-        let n = crate::model::filter::with(|f| f.patterns().len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
-      }
       Ctl::Rules => {
         let n = crate::model::filter::with(|f| f.rules().len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
@@ -596,8 +588,6 @@ impl App {
           self.pick_to(d, (at + if adjust.unwrap_or(true) { 1 } else { n - 1 }) % n);
         }
         // a list: its own screen
-        Ctl::Words(m) if adjust.is_none() => self.list_open(Kind::Words(m)),
-        Ctl::Patterns if adjust.is_none() => self.list_open(Kind::Patterns),
         Ctl::Rules if adjust.is_none() => self.list_open(Kind::Rules),
         Ctl::Reasons if adjust.is_none() => self.list_open(Kind::Reasons),
         Ctl::People if adjust.is_none() => self.list_open(Kind::People),
@@ -609,7 +599,7 @@ impl App {
             self.type_into_line(&format!("{c} "));
           }
         }
-        Ctl::Words(_) | Ctl::Patterns | Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Buttons(..) => {}
+        Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Buttons(..) => {}
       },
       (Some(Target::Reset), None) => self.ask_reset(),
       (Some(Target::Account(step)), None) => self.account_step(step),
@@ -809,7 +799,7 @@ mod tests {
     let (lines, targets) = settings_lines("hide", &Settings::default());
     let ids: Vec<&str> =
       targets.iter().filter_map(|t| if let Target::Def(d) = t { Some(d.id) } else { None }).collect();
-    assert!(ids.contains(&"hide_bots") && ids.contains(&"hidden_words") && !ids.contains(&"vi"));
+    assert!(ids.contains(&"hide_bots") && ids.contains(&"filter_rules") && !ids.contains(&"vi"));
     assert!(matches!(&lines[0], L::Head(_)));
     let (none, _) = settings_lines("zzzz", &Settings::default());
     assert!(none.is_empty());

@@ -21,11 +21,11 @@ const ECHO_MS: i64 = 3000;
 const MAX_ITEMS: usize = 256;
 const MAX_TEXT: usize = 64;
 // the ext's free-text settings that ride the same channel, and the longest value of each we take (the
-// server caps the big ones at 32KB; the ext's own maxLen for the patterns is 4096)
-pub const AUTOMOD: &str = "automodRegex";
+// server caps the big ones at 32KB). the old automodRegex and keywordHighlights are rules now: the account's
+// copy of them is not read
 pub const RULES: &str = "chatFilterRules";
 pub const REASONS: &str = "modBanReasons";
-const TEXTS: [(&str, usize); 3] = [(AUTOMOD, 4096), (RULES, 32 * 1024), (REASONS, crate::model::reasons::MAX_TEXT)];
+const TEXTS: [(&str, usize); 2] = [(RULES, 32 * 1024), (REASONS, crate::model::reasons::MAX_TEXT)];
 // the ext's default for hiddenTabs: what a list that was never written means
 const HIDDEN_DEFAULT: [&str; 3] = ["pinned", "modlog", "discover"];
 
@@ -45,14 +45,7 @@ fn get_cell(d: &Def, s: &Settings) -> Option<Cell> {
     Ctl::Pick(c, get, _) => Some(Cell::Is(c.names[get(s)])),
     Ctl::Side => Some(Cell::Is(s.tab_side.name())),
     Ctl::Counter => Some(Cell::Is(s.tab_counter.name())),
-    Ctl::Zoom
-    | Ctl::People
-    | Ctl::Alerts
-    | Ctl::Words(_)
-    | Ctl::Patterns
-    | Ctl::Rules
-    | Ctl::Reasons
-    | Ctl::Buttons(..) => None,
+    Ctl::Zoom | Ctl::People | Ctl::Alerts | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) => None,
   }
 }
 
@@ -464,8 +457,6 @@ mod tests {
     let mut rules = crate::model::rules::Rules::default();
     rules.add("a1".into(), "hide", "keyword", "spoiler").unwrap();
     rules.add("a2".into(), "highlight", "expr", "user:bob && !first").unwrap();
-    out.push((AUTOMOD, json!("bit\\.ly\nfree\\s+v-bucks")));
-    out.push((AUTOMOD, json!("")));
     out.push((RULES, json!(rules.json())));
     out.push((RULES, json!("[]")));
     out.push((REASONS, json!("spam\nhate speech")));
@@ -545,13 +536,12 @@ mod tests {
   #[test]
   fn the_text_rows_fit_the_ext() {
     let fx = fixture();
-    let (empty, none) = (crate::model::automod::Automod::default(), crate::model::rules::Rules::default());
+    let none = crate::model::rules::Rules::default();
     for (key, cap) in TEXTS {
       assert_eq!(fx[key]["type"], "text", "{key}");
       // a text setting with no maxLen of its own takes the ext's default, 4096
       assert!(cap as u64 <= fx[key]["maxLen"].as_u64().unwrap_or(4096), "{key}");
     }
-    assert_eq!(json!(empty.text()), fx[AUTOMOD]["default"]);
     assert_eq!(json!(none.json()), fx[RULES]["default"]);
     assert_eq!(json!(crate::model::reasons::Reasons::default().text()), fx[REASONS]["default"]);
   }
@@ -561,23 +551,23 @@ mod tests {
     let s = Settings::default();
     let mut a = Acct::new(&s);
     // the account's word, the first time: applied
-    let got = a.text_inbound(&one(AUTOMOD, json!("a\nb")), NOW);
-    assert_eq!(got, vec![(AUTOMOD, "a\nb".to_owned(), true)]);
-    assert!(a.text_inbound(&one(AUTOMOD, json!("a\nb")), NOW + 1).is_empty(), "nothing new");
-    assert_eq!(a.text_inbound(&one(AUTOMOD, json!("c")), NOW + 2), vec![(AUTOMOD, "c".to_owned(), false)]);
+    let got = a.text_inbound(&one(REASONS, json!("a\nb")), NOW);
+    assert_eq!(got, vec![(REASONS, "a\nb".to_owned(), true)]);
+    assert!(a.text_inbound(&one(REASONS, json!("a\nb")), NOW + 1).is_empty(), "nothing new");
+    assert_eq!(a.text_inbound(&one(REASONS, json!("c")), NOW + 2), vec![(REASONS, "c".to_owned(), false)]);
     // wrong type, too long, not ours: ignored
     assert!(a.text_inbound(&one(RULES, json!(5)), NOW).is_empty());
-    assert!(a.text_inbound(&one(AUTOMOD, json!("x".repeat(5000))), NOW).is_empty());
+    assert!(a.text_inbound(&one(REASONS, json!("x".repeat(5000))), NOW).is_empty());
     assert_eq!(a.ignored, 1);
     // our edit goes once, after the debounce, and its echo changes nothing
-    a.text_queue(AUTOMOD, "mine".into(), NOW + 10);
+    a.text_queue(REASONS, "mine".into(), NOW + 10);
     assert!(a.outbound(&s, NOW + 10, true).is_none());
     let patch = a.outbound(&s, NOW + 10 + DEBOUNCE_MS, true).unwrap();
-    assert_eq!(patch[AUTOMOD], json!("mine"));
+    assert_eq!(patch[REASONS], json!("mine"));
     assert!(a.outbound(&s, NOW + 500, true).is_none());
     // a push that crossed our write is waited out, the echo clears it
-    assert!(a.text_inbound(&one(AUTOMOD, json!("c")), NOW + 300).is_empty());
-    assert!(a.text_inbound(&one(AUTOMOD, json!("mine")), NOW + 400).is_empty());
+    assert!(a.text_inbound(&one(REASONS, json!("c")), NOW + 300).is_empty());
+    assert!(a.text_inbound(&one(REASONS, json!("mine")), NOW + 400).is_empty());
     assert!(!a.stale(NOW + 9999));
     // not signed in yet: it waits, and goes when ready
     a.text_queue(RULES, "[]".into(), NOW + 1000);
@@ -590,11 +580,14 @@ mod tests {
 
   #[test]
   fn text_rows_are_plucked_with_their_own_bounds() {
-    let st = json!({ "automodRegex": "x", "chatFilterRules": "[]", "other": "y".repeat(100) });
+    let st = json!({ "modBanReasons": "x", "chatFilterRules": "[]", "other": "y".repeat(100) });
     let (got, bad) = pluck(&st);
     assert_eq!((got.len(), bad), (2, 0));
-    let st = json!({ "automodRegex": "x".repeat(5000), "chatFilterRules": ["a"] });
+    let st = json!({ "modBanReasons": "x".repeat(5000), "chatFilterRules": ["a"] });
     assert_eq!(pluck(&st), (Vec::new(), 2));
+    // the old text settings are rules now: the account's copy is not read
+    let st = json!({ "automodRegex": "bit\\.ly", "keywordHighlights": "gg" });
+    assert_eq!(pluck(&st), (Vec::new(), 0));
     let st = json!({ "chatFilterRules": "r".repeat(30_000) });
     assert_eq!(pluck(&st).0.len(), 1);
   }

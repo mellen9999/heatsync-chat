@@ -4,10 +4,10 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::model::automod::{self, Automod};
+use crate::model::automod;
 use crate::model::message::{Message, flag};
 use crate::model::reasons::Reasons;
-use crate::model::rules::{INKS, Judged, Line, Rules, Verdict};
+use crate::model::rules::{INKS, Judged, Line, Old, Rules, Verdict};
 use crate::store;
 use crate::ui::theme;
 use crate::util::sound::Preset;
@@ -16,7 +16,7 @@ use crate::util::sound::Preset;
 pub const HIDDEN: u8 = 1;
 // the sender is muted: their line stays (name, time) but the words and pictures go
 pub const MUTED: u8 = 2;
-// a keyword you highlight is in it
+// a highlight rule matched it
 pub const MARKED: u8 = 4;
 // a highlight rule's colour: 1 + its place in rules::INKS, in these three bits (0 = the plain highlight)
 const INK_SHIFT: u32 = 3;
@@ -47,8 +47,8 @@ const BOTS: [&str; 12] = [
 ];
 
 // hostile or just huge lists must not grow without bound
-const MAX_TERMS: usize = 200;
-const MAX_TERM: usize = 64;
+// an old file is read for this many words and patterns, no more
+const MAX_OLD: usize = 1024;
 const MAX_NAMES: usize = 5000;
 pub const DEFAULT_MUTE_MS: i64 = 24 * 3600 * 1000;
 
@@ -57,16 +57,16 @@ pub struct Filters {
   pub bots: bool,
   pub cmds: bool,
   pub dupes: bool,
-  // automod: hide lines that are mostly capitals (ext automodAllCaps) or match a pattern (automodRegex)
+  // automod: hide lines that are mostly capitals (ext automodAllCaps)
   pub caps: bool,
-  automod: Automod,
   // the ext's ban reasons (modBanReasons): the choices a ban offers
   reasons: Reasons,
-  // the ext's per-rule hide / highlight list (chatFilterRules)
+  // the ext's per-rule hide / highlight list (chatFilterRules): hidden words, highlights and patterns live here
   rules: Rules,
-  // lowercase terms: a line containing one is hidden / lit up
-  words: Vec<Box<str>>,
-  marks: Vec<Box<str>>,
+  // words and patterns from an older file that did not fit in the rules yet: kept in the file, tried again on load
+  old: Vec<Old>,
+  // this load turned old words into rules: the file is written again without them
+  folded: bool,
   // lowercase login → when the mute ends (None = until you lift it)
   mutes: HashMap<Box<str>, Option<i64>>,
   blocks: HashSet<Box<str>>,
@@ -80,25 +80,6 @@ pub struct Filters {
 // "@Bob" → "bob"; youtube handles carry a leading @ in chat but not in lists
 pub fn key(name: &str) -> Box<str> {
   name.trim().trim_start_matches('@').to_lowercase().into()
-}
-
-fn word_char(c: char) -> bool {
-  c.is_alphanumeric() || c == '_'
-}
-
-// `term` in `text` as a whole word (the ext's \b…\b), both already lowercase
-fn has_word(text: &str, term: &str) -> bool {
-  let (Some(first), Some(last)) = (term.chars().next(), term.chars().next_back()) else { return false };
-  text.match_indices(term).any(|(i, _)| {
-    let before = text[..i].chars().next_back();
-    let after = text[i + term.len()..].chars().next();
-    (!word_char(first) || !before.is_some_and(word_char)) && (!word_char(last) || !after.is_some_and(word_char))
-  })
-}
-
-fn clean_term(t: &str) -> Option<Box<str>> {
-  let t = t.trim().to_lowercase();
-  (!t.is_empty() && t.chars().count() <= MAX_TERM && !t.chars().any(char::is_control)).then(|| t.into())
 }
 
 impl Filters {
@@ -129,13 +110,9 @@ impl Filters {
     if !me && self.cmds && m.body.starts_with('!') {
       return HIDDEN;
     }
-    let low = (!self.words.is_empty() || !self.marks.is_empty()).then(|| m.body.to_lowercase());
-    if !me && low.as_deref().is_some_and(|l| self.words.iter().any(|w| l.contains(&**w))) {
-      return HIDDEN;
-    }
     // automod, then the rules: the ext's order. your own lines are never hidden; a hide rule that
     // matches one also keeps a highlight rule from lighting it
-    if !me && ((self.caps && automod::all_caps(&m.body)) || self.automod.hits(&m.body)) {
+    if !me && self.caps && automod::all_caps(&m.body) {
       return HIDDEN;
     }
     let ruled = self.ruled(m, chan);
@@ -155,8 +132,6 @@ impl Filters {
     if ruled.verdict == Verdict::Mark {
       let at = ruled.ink.and_then(|c| INKS.iter().position(|&i| i == c)).map_or(0, |i| i as u8 + 1);
       look |= MARKED | at << INK_SHIFT;
-    } else if low.as_deref().is_some_and(|l| self.marks.iter().any(|t| has_word(l, t))) {
-      look |= MARKED;
     }
     look
   }
@@ -301,45 +276,6 @@ impl Filters {
     v
   }
 
-  pub fn words(&self, marks: bool) -> &[Box<str>] {
-    if marks { &self.marks } else { &self.words }
-  }
-
-  // add / remove a hide or highlight term. false = nothing changed (bad, duplicate, full, not there)
-  pub fn word(&mut self, marks: bool, add: bool, term: &str) -> bool {
-    let Some(t) = clean_term(term) else { return false };
-    let list = if marks { &mut self.marks } else { &mut self.words };
-    match (add, list.iter().position(|w| *w == t)) {
-      (true, None) if list.len() < MAX_TERMS => {
-        list.push(t);
-        true
-      }
-      (false, Some(i)) => {
-        list.remove(i);
-        true
-      }
-      _ => false,
-    }
-  }
-
-  pub fn patterns(&self) -> &[Box<str>] {
-    self.automod.patterns()
-  }
-
-  // add / remove one automod pattern. false = nothing changed
-  pub fn pattern(&mut self, add: bool, p: &str) -> bool {
-    self.automod.pattern(add, p)
-  }
-
-  // the ext's automodRegex text (one pattern per line) in and out
-  pub fn patterns_text(&self) -> String {
-    self.automod.text()
-  }
-
-  pub fn set_patterns_text(&mut self, t: &str) -> bool {
-    self.automod.set_text(t)
-  }
-
   pub fn reasons(&self) -> &[Box<str>] {
     self.reasons.list()
   }
@@ -366,19 +302,29 @@ impl Filters {
     &mut self.rules
   }
 
+  // the account's rules just replaced ours (`mine`, as text): rules folded here from old words that it lacks are put back
+  pub fn keep_old_rules_of(&mut self, mine: &str) -> bool {
+    Rules::parse(mine).is_some_and(|m| self.rules.keep_old_of(&m))
+  }
+
   // the ext's chatFilterRules text in. false = unusable, the rules stay as they were
   pub fn set_rules_text(&mut self, t: &str) -> bool {
     Rules::parse(t).map(|r| self.rules = r).is_some()
   }
 
+  // the file in. lines for hidden words, highlight words and automod patterns are from before the one rules list:
+  // they are folded into the rules here (the same entry never twice), and the file is written again without them
   pub fn parse(s: &str) -> Self {
     let mut f = Self::default();
+    let mut old = Vec::new();
     for l in s.lines() {
       let (kind, rest) = l.split_once(' ').unwrap_or((l, ""));
       match kind {
-        "hide" => _ = f.word(false, true, rest),
-        "mark" => _ = f.word(true, true, rest),
-        "automod" => _ = f.pattern(true, rest),
+        "hide" | "mark" | "automod" => {
+          if old.len() < MAX_OLD {
+            old.extend(Old::from_line(kind, rest));
+          }
+        }
         "banreason" => _ = f.reason(true, rest),
         "rules" => _ = f.set_rules_text(rest),
         "block" => _ = f.block(rest),
@@ -394,19 +340,16 @@ impl Filters {
         _ => {}
       }
     }
+    f.folded = !old.is_empty();
+    f.old = f.rules.fold(old);
     f
   }
 
   pub fn render(&self) -> String {
     let mut s = String::new();
-    for w in &self.words {
-      s.push_str(&format!("hide {w}\n"));
-    }
-    for w in &self.marks {
-      s.push_str(&format!("mark {w}\n"));
-    }
-    for p in self.automod.patterns() {
-      s.push_str(&format!("automod {p}\n"));
+    for o in &self.old {
+      s.push_str(&o.line());
+      s.push('\n');
     }
     for r in self.reasons.list() {
       s.push_str(&format!("banreason {r}\n"));
@@ -430,8 +373,13 @@ impl Filters {
     s
   }
 
+  // an older file is written again at once, so its words are rules from now on
   pub fn load() -> Self {
-    store::read("filters").map(|s| Self::parse(&s)).unwrap_or_default()
+    let f = store::read("filters").map(|s| Self::parse(&s)).unwrap_or_default();
+    if f.folded {
+      f.save();
+    }
+    f
   }
 
   pub fn save(&self) {
@@ -476,8 +424,8 @@ mod tests {
 
   #[test]
   fn bots_commands_and_words_hide() {
-    let mut f = Filters { bots: true, cmds: true, ..Filters::default() };
-    f.word(false, true, "Spoiler");
+    let mut f = Filters::parse("hide Spoiler\n");
+    (f.bots, f.cmds) = (true, true);
     assert_eq!(judge(&f, &line("nightbot", "hi")), HIDDEN);
     assert_eq!(judge(&f, &line("bob", "!drops")), HIDDEN);
     assert_eq!(judge(&f, &line("bob", "no SPOILERS please")), HIDDEN);
@@ -529,19 +477,16 @@ mod tests {
 
   #[test]
   fn highlights_are_whole_words() {
-    let mut f = Filters::default();
-    f.word(true, true, "gg");
-    f.word(true, true, "!drops");
-    assert_eq!(judge(&f, &line("a", "GG wp")), MARKED);
+    let f = Filters::parse("mark gg\nmark !drops\n");
+    assert_eq!(judge(&f, &line("a", "GG wp")) & MARKED, MARKED);
     assert_eq!(judge(&f, &line("a", "oggy")), 0);
-    assert_eq!(judge(&f, &line("a", "gg.")), MARKED);
-    assert_eq!(judge(&f, &line("a", "got !drops")), MARKED);
+    assert_eq!(judge(&f, &line("a", "gg.")) & MARKED, MARKED);
+    assert_eq!(judge(&f, &line("a", "got !drops")) & MARKED, MARKED);
   }
 
   #[test]
   fn special_characters_are_plain_text() {
-    let mut f = Filters::default();
-    f.word(false, true, "a.c(");
+    let f = Filters::parse("hide a.c(\n");
     assert_eq!(judge(&f, &line("x", "abc(")), 0);
     assert_eq!(judge(&f, &line("x", "A.C( yes")), HIDDEN);
   }
@@ -549,18 +494,15 @@ mod tests {
   #[test]
   fn file_roundtrip_and_limits() {
     let mut f = Filters::default();
-    f.word(false, true, "spoil er");
-    f.word(true, true, "gg");
+    f.rules_mut().add("a".into(), "hide", "keyword", "spoil er").unwrap();
     f.block("troll");
     f.mute("quiet", Some(5));
     f.mute("perm", None);
     let g = Filters::parse(&f.render());
-    assert_eq!(g.words(false), f.words(false));
-    assert_eq!(g.words(true), f.words(true));
+    assert_eq!(g.rules().json(), f.rules().json());
     assert!(g.blocked("troll"));
     assert_eq!(g.mutes(), vec![("perm", None), ("quiet", Some(5))]);
     assert_eq!(Filters::parse("garbage\nmute\nhide \n").mutes().len(), 0);
-    assert!(!Filters::default().clone().word(false, true, &"x".repeat(MAX_TERM + 1)));
   }
 
   #[test]
@@ -576,9 +518,7 @@ mod tests {
     assert_eq!(mark_ink(at(&f, "forsen")), theme::RED);
     assert_eq!(at(&f, "forsen") & MARKED, MARKED);
     assert_eq!(at(&f, "xqc"), 0, "another channel: no mark");
-    // a highlight word has no colour of its own: the plain highlight
-    f.word(true, true, "gg");
-    assert_eq!(at(&f, "xqc"), MARKED);
+    // a rule with no colour of its own is the plain highlight
     assert_eq!(mark_ink(MARKED), theme::CYAN);
     // every palette colour comes back as itself
     for (i, c) in INKS.iter().enumerate() {
@@ -592,9 +532,9 @@ mod tests {
   }
 
   #[test]
-  fn automod_and_rules_share_the_one_verdict() {
+  fn caps_and_rules_share_the_one_verdict() {
     let mut f = Filters { caps: true, ..Filters::default() };
-    f.pattern(true, r"bit\.ly");
+    f.rules_mut().add("p".into(), "hide", "regex", r"bit\.ly").unwrap();
     f.rules_mut().add("a".into(), "hide", "keyword", "nope").unwrap();
     f.rules_mut().add("b".into(), "highlight", "keyword", "gg").unwrap();
     let shout = "STOP SHOUTING AT ME PLEASE";
@@ -613,13 +553,12 @@ mod tests {
     // a highlight rule still lights your own line, a hide rule that matches it keeps it plain
     assert_eq!(judge(&f, &line("me", "gg")), MARKED | 3 << 3);
     assert_eq!(judge(&f, &line("me", "gg nope")), 0);
-    // a hide rule beats the highlight rules after it and the keyword highlights
-    f.word(true, true, "gg");
+    // a hide rule beats the highlight rules
     assert_eq!(judge(&f, &line("a", "gg nope")), HIDDEN);
     // turned off, the lines come back
     f.caps = false;
     assert_eq!(judge(&f, &line("a", shout)), 0);
-    assert!(f.pattern(false, r"bit\.ly"));
+    assert!(f.rules_mut().remove("p"));
     assert_eq!(judge(&f, &line("a", "bit.ly")), 0);
     assert!(f.rules_mut().remove("1"));
     assert_eq!(judge(&f, &line("a", "oh nope")), 0);
@@ -629,25 +568,79 @@ mod tests {
   }
 
   #[test]
-  fn automod_and_rules_survive_the_file_and_the_account_text() {
+  fn rules_survive_the_file_and_the_account_text() {
     let mut f = Filters::default();
-    f.pattern(true, r"free\s+v-?bucks");
-    f.pattern(true, "oh (no");
+    f.rules_mut().add("p".into(), "hide", "regex", r"free\s+v-?bucks").unwrap();
     f.rules_mut().add("a".into(), "hide", "expr", "user:bob && !first").unwrap();
     let g = Filters::parse(&f.render());
-    assert_eq!(g.patterns_text(), f.patterns_text());
     assert_eq!(g.rules().json(), f.rules().json());
     assert_eq!(judge(&g, &line("bob", "hi")), HIDDEN);
     assert_eq!(judge(&g, &line("al", "FREE   vbucks")), HIDDEN);
     // the account's text in: unusable text changes nothing
     let mut h = Filters::default();
-    assert!(h.set_patterns_text("a\n  b  \n") && h.patterns().len() == 2);
-    assert!(!h.set_patterns_text(&"x\n".repeat(100)) && h.patterns().len() == 2);
-    assert!(h.set_rules_text(&f.rules().json()) && h.rules().len() == 1);
-    assert!(!h.set_rules_text("{\"not\":\"an array\"}") && h.rules().len() == 1);
+    assert!(h.set_rules_text(&f.rules().json()) && h.rules().len() == 2);
+    assert!(!h.set_rules_text("{\"not\":\"an array\"}") && h.rules().len() == 2);
     // a hostile file line is skipped, not fatal
-    let junk = Filters::parse("rules [[[[\nrules {}\nautomod \nautomod x\n");
-    assert_eq!((junk.patterns().len(), junk.rules().len()), (1, 0));
+    let junk = Filters::parse("rules [[[[\nrules {}\nautomod \nhide \nmark \u{7}\n");
+    assert_eq!(junk.rules().len(), 0);
+  }
+
+  // hidden words, highlight words and automod patterns became rules: all three kinds in one old file, kept
+  // behaving the way they did, the file written again once, and a second load adding nothing
+  #[test]
+  fn old_words_and_patterns_fold_into_rules_once_and_lose_nothing() {
+    let old = "hide spoil\nmark gg\nautomod buy \\d+ followers\nautomod oh(no\nblock troll\nrules []\n";
+    let f = Filters::parse(old);
+    assert!(f.folded && f.old.is_empty());
+    assert_eq!(f.rules().len(), 4);
+    // a hidden word hides anywhere in a line, a highlight word is a whole word, a pattern is a regex
+    assert_eq!(judge(&f, &line("a", "no SPOILERS here")), HIDDEN);
+    assert_eq!(judge(&f, &line("a", "gg wp")) & MARKED, MARKED);
+    assert_eq!(judge(&f, &line("a", "oggy")), 0);
+    assert_eq!(judge(&f, &line("a", "BUY 500 Followers")), HIDDEN);
+    assert_eq!(judge(&f, &line("a", "well OH(NO then")), HIDDEN, "a pattern that is not a regex is text, as before");
+    assert!(f.blocked("troll"), "everything else in the file stays");
+    // rewritten without the old lines; loading that, or the old file again, adds no second copy
+    let now = f.render();
+    assert!(!now.contains("hide spoil") && !now.contains("mark gg") && !now.contains("automod"));
+    let again = Filters::parse(&now);
+    assert!(!again.folded);
+    assert_eq!(again.rules().json(), f.rules().json());
+    let both = Filters::parse(&format!("{old}{now}"));
+    assert_eq!(both.rules().json(), f.rules().json(), "a file with both (a crash between) stays one set");
+    // the same entry typed twice is one rule
+    assert_eq!(Filters::parse("hide x\nhide X\n").rules().len(), 1);
+  }
+
+  #[test]
+  fn the_filters_file_is_written_again_without_its_old_lines_on_load() {
+    store::write("filters", "hide spoil\nmark gg\nautomod bit\\.ly\n").unwrap();
+    let f = Filters::load();
+    assert_eq!(f.rules().len(), 3);
+    let on_disk = store::read("filters").unwrap();
+    assert!(on_disk.starts_with("rules ") && !on_disk.contains("hide spoil"));
+    // a second start finds the rules and nothing to fold
+    assert_eq!(Filters::load().rules().json(), f.rules().json());
+  }
+
+  // a full rules list keeps the rest in the file, never drops them, and tries again on the next load
+  #[test]
+  fn what_does_not_fit_in_the_rules_stays_in_the_file() {
+    let words: String = (0..260).map(|i| format!("hide word{i}\n")).collect();
+    let f = Filters::parse(&words);
+    assert_eq!(f.rules().len(), crate::model::rules::MAX_RULES);
+    assert_eq!(f.old.len(), 60);
+    let out = f.render();
+    assert_eq!(out.lines().filter(|l| l.starts_with("hide ")).count(), 60);
+    let g = Filters::parse(&out);
+    assert_eq!((g.rules().len(), g.old.len()), (crate::model::rules::MAX_RULES, 60));
+    // room made: they fold in on the next load
+    let mut h = g.clone();
+    for i in 0..60 {
+      assert!(h.rules_mut().remove("1"), "{i}");
+    }
+    let h = Filters::parse(&h.render());
+    assert_eq!((h.rules().len(), h.old.len()), (crate::model::rules::MAX_RULES, 0));
   }
 
   #[test]

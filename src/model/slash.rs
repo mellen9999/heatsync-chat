@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 87] = [
+const FIXED: [Slash; 81] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -69,16 +69,10 @@ const FIXED: [Slash; 87] = [
   s("/note", "<user> [text]", "a private note on someone; no text deletes it"),
   s("/delnote", "<user>", "remove your note"),
   s("/reset", "", "put every look and behaviour setting back to its default (asks first)"),
-  s("/hideword", "[term]", "hide lines with a term; alone, list them"),
-  s("/unhideword", "<term>", "stop hiding a term"),
-  s("/highlight", "[term]", "light up lines with a word; alone, list them"),
-  s("/unhighlight", "<term>", "stop lighting a word"),
-  s("/automod", "[pattern]", "hide lines matching a regex; alone, list them"),
-  s("/unautomod", "<pattern>", "stop hiding a pattern"),
   s("/banreason", "[reason]", "a quick reason your bans offer; alone, list them"),
   s("/modbuttons", "[x 1m 10m 1h 24h 7d purge ban unban | off]", "the hover buttons on a line you can moderate"),
   s("/unbanreason", "<reason>", "stop offering a reason"),
-  s("/rule", "[add|del|on|off|up|down|list] ...", "per-rule hide / highlight filters"),
+  s("/rule", "[add|del|on|off|up|down|list] ...", "hide / highlight rules: words, patterns, users, badges"),
   s("/mutes", "", "who is muted"),
   s("/blocks", "", "who is blocked"),
   s("/login", "[twitch|kick|youtube]", "log in; when in, link a platform"),

@@ -55,7 +55,7 @@ impl App {
     self.wake();
   }
 
-  // the account's free-text settings (automod patterns, filter rules). the first word from the account about
+  // the account's free-text settings (filter rules, ban reasons). the first word from the account about
   // one that says nothing, while we hold some, is not a delete: ours goes up instead
   fn on_texts(&mut self, st: &Inbound) {
     let now = now_ms();
@@ -63,7 +63,6 @@ impl App {
     for (key, value, first) in self.acct.text_inbound(st, now) {
       let blank = |t: &str| matches!(t.trim(), "" | "[]");
       let mine = filter::with(|f| match key {
-        sync::AUTOMOD => f.patterns_text(),
         sync::REASONS => f.reasons_text(),
         _ => f.rules().json(),
       });
@@ -72,12 +71,15 @@ impl App {
         continue;
       }
       let ok = filter::edit(|f| match key {
-        sync::AUTOMOD => f.set_patterns_text(&value),
         sync::REASONS => f.set_reasons_text(&value),
         _ => f.set_rules_text(&value),
       });
       if ok {
         changed = true;
+        // rules folded here from old words that the account does not hold yet go up with the next patch
+        if key == sync::RULES && first && filter::edit(|f| f.keep_old_rules_of(&mine)) {
+          self.acct.text_queue(key, filter::with(|f| f.rules().json()), now);
+        }
       } else {
         self.acct.ignored += 1;
       }
@@ -93,8 +95,7 @@ impl App {
       return;
     }
     let now = now_ms();
-    let (patterns, rules, reasons) = filter::with(|f| (f.patterns_text(), f.rules().json(), f.reasons_text()));
-    self.acct.text_queue(sync::AUTOMOD, patterns, now);
+    let (rules, reasons) = filter::with(|f| (f.rules().json(), f.reasons_text()));
     self.acct.text_queue(sync::REASONS, reasons, now);
     self.acct.text_queue(sync::RULES, rules, now);
   }
