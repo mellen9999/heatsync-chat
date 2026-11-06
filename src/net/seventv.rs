@@ -9,10 +9,9 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, interval, sleep, timeout};
-use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
-use super::http::ws_config;
+use super::http::ws_connect;
 use super::{NetEvent, Out, backoff, retry, retrying};
 use crate::emotes::live::{self, valid_id};
 use crate::emotes::{Provider, providers};
@@ -115,7 +114,7 @@ pub async fn run(
       }
     }
     let mut failed = false;
-    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
+    match timeout(HANDSHAKE_LIMIT, ws_connect(URL, MAX_FRAME)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         if had_session {
@@ -335,6 +334,7 @@ fn dispatch(v: &Value, st: &State) -> Vec<NetEvent> {
 mod tests {
   use super::*;
   use crate::cosmetics::id::PaintId;
+  use tokio_tungstenite::connect_async_with_config;
 
   fn watch(ch: &str, set: &str, user: Option<(&str, u64)>) -> Cmd {
     Cmd::Watch { ch: ch.into(), set: set.into(), user: user.map(|(u, t)| (u.into(), t)) }

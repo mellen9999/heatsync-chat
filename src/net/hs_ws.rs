@@ -9,10 +9,9 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, interval, sleep, timeout};
-use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
-use super::http::ws_config;
+use super::http::ws_connect;
 use super::{NetEvent, Out, backoff, retrying, session};
 use super::{pin, pushed, relay, senders};
 use crate::cosmetics::id::PaintId;
@@ -105,7 +104,7 @@ pub async fn run(
   let mut told = false;
   loop {
     let mut wait = None;
-    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
+    match timeout(HANDSHAKE_LIMIT, ws_connect(URL, MAX_FRAME)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         if std::mem::take(&mut told) {

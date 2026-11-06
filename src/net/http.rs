@@ -96,9 +96,40 @@ pub fn ws_config(max: usize) -> WebSocketConfig {
   WebSocketConfig::default().max_message_size(Some(max)).max_frame_size(Some(max))
 }
 
+type Wss = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+// opens a socket the way every http request goes out: capped frames and our user agent (docs/PRIVACY.md)
+pub async fn ws_connect(
+  url: &str,
+  max: usize,
+) -> Result<(Wss, tokio_tungstenite::tungstenite::handshake::client::Response), tokio_tungstenite::tungstenite::Error> {
+  use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+  let mut req = url.into_client_request()?;
+  req
+    .headers_mut()
+    .insert("user-agent", tokio_tungstenite::tungstenite::http::HeaderValue::from_static(super::USER_AGENT));
+  tokio_tungstenite::connect_async_with_config(req, Some(ws_config(max)), false).await
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[tokio::test]
+  async fn a_socket_says_who_it_is_like_every_request() {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", l.local_addr().unwrap());
+    let seen = tokio::spawn(async move {
+      let (mut s, _) = l.accept().await.unwrap();
+      let mut buf = [0u8; 2048];
+      let n = s.read(&mut buf).await.unwrap();
+      String::from_utf8_lossy(&buf[..n]).to_lowercase()
+    });
+    // the server never finishes the handshake: only what the client sent matters
+    let _ = ws_connect(&url, 1000).await;
+    let head = seen.await.unwrap();
+    assert!(head.contains(&format!("user-agent: {}", crate::net::USER_AGENT)), "{head}");
+  }
 
   #[test]
   fn the_servers_words_come_out_plain() {

@@ -6,11 +6,10 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, interval, sleep, timeout};
-use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::dupe::Dupes;
-use super::http::ws_config;
+use super::http::ws_connect;
 use super::{Out, Reply, backoff};
 use crate::model::chain;
 use crate::model::color;
@@ -403,7 +402,7 @@ pub async fn run(
   let mut dupes = Dupes::default();
   loop {
     let mut why = "can't reach twitch";
-    match timeout(HANDSHAKE_LIMIT, connect_async_with_config(URL, Some(ws_config(MAX_FRAME)), false)).await {
+    match timeout(HANDSHAKE_LIMIT, ws_connect(URL, MAX_FRAME)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         out.status(if creds.is_some() { "twitch connected" } else { "twitch connected (read-only)" });
