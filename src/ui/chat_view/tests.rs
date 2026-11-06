@@ -511,6 +511,7 @@ fn the_picked_line_is_drawn_reversed() {
   assert!(white(&c) > before + 400 * line / 2, "{} vs {before}", white(&c));
   let words = c.px.iter().filter(|&&p| p != theme::WHITE && p != 0).count();
   assert!(words > 0, "the words are antialiased dark shades on the white");
+  crate::bench::dump(&c);
   v.deselect();
   c.fill(area, theme::BLACK);
   v.draw(&mut c, &mut res, area, area);
