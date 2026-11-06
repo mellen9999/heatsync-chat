@@ -304,7 +304,10 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       }
       Chat::Msg(m)
     }
-    "NOTICE" => Chat::Msg(Message::system(ts_of(l), Platform::Twitch, clamp(l.trailing()?, MAX_BODY))),
+    "NOTICE" => {
+      let text = crate::model::notice::plain(l.tag("msg-id").as_deref(), l.trailing()?);
+      Chat::Msg(Message::system(ts_of(l), Platform::Twitch, clamp(&text, MAX_BODY)))
+    }
     "CLEARMSG" => Chat::ClearMsg(l.tag("target-msg-id")?.into(), l.tag("login").unwrap_or_default().into()),
     "CLEARCHAT" => match l.trailing() {
       Some(u) => Chat::ClearUser {
