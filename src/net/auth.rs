@@ -134,7 +134,7 @@ async fn link_ticket(http: &reqwest::Client, token: &str) -> Result<String, Stri
   match v.get("ticket").and_then(Value::as_str) {
     Some(t) if ok && t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => Ok(t.to_string()),
     _ if expired => Err("session expired, log in again (ctrl-l)".to_string()),
-    _ => Err(v.get("error").and_then(Value::as_str).unwrap_or("couldn't start linking").chars().take(100).collect()),
+    _ => Err(words(&v, "couldn't start linking")),
   }
 }
 
@@ -216,7 +216,15 @@ async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<
   let v = body(r).await?;
   match v.get("token").and_then(Value::as_str) {
     Some(t) if ok && valid_token(t) => Ok(t.to_string()),
-    _ => Err(v.get("error").and_then(Value::as_str).unwrap_or("login failed").chars().take(100).collect()),
+    _ => Err(words(&v, "login failed")),
+  }
+}
+
+// the server's reason in our words, or `plain` when it gave none
+fn words(v: &Value, plain: &str) -> String {
+  match http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")) {
+    w if w.is_empty() => plain.into(),
+    w => w,
   }
 }
 
@@ -241,7 +249,7 @@ fn open_browser(url: &str) -> Result<(), String> {
     .map(drop)
     .map_err(|e| {
       eprintln!("login browser: {e}");
-      "couldn't open your browser, so the login can't start".to_string()
+      "couldn't open your browser, install xdg-utils (paru -S xdg-utils)".to_string()
     })
 }
 

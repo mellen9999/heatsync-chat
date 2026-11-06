@@ -300,7 +300,7 @@ async fn session(
       }
       _ = dog.tick() => {
         if last_rx.elapsed() > beat * 3 {
-          out.status("7tv events silent, reconnecting");
+          out.status("can't reach 7tv, trying again");
           return End::Reconnect;
         }
       }

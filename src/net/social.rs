@@ -667,7 +667,7 @@ pub fn classify(status: u16, v: &Value) -> Fail {
   } else if err.is_empty() {
     Fail::Other(super::http::plain_status(status).into())
   } else {
-    Fail::Other(err.chars().take(100).collect::<String>().into())
+    Fail::Other(super::http::server_words(err).into())
   }
 }
 
@@ -684,7 +684,7 @@ pub fn classify_dm(status: u16, v: &Value, login: &str) -> Fail {
   } else if err.is_empty() {
     Fail::Other(super::http::plain_status(status).into())
   } else {
-    Fail::Other(err.chars().filter(|c| !c.is_control()).take(100).collect::<String>().into())
+    Fail::Other(super::http::server_words(err).into())
   }
 }
 
@@ -700,7 +700,7 @@ mod tests {
     assert_eq!(classify_dm(0, &Value::Null, "amy"), Fail::Server);
     assert_eq!(classify_dm(500, &json!({}), "amy"), Fail::Server);
     assert_eq!(classify_dm(403, &json!({"error": "blocked", "code": "blocked"}), "amy"), Fail::Other("blocked".into()));
-    assert_eq!(classify_dm(400, &Value::Null, "amy"), Fail::Other("that didn't work (heatsync said 400)".into()));
+    assert_eq!(classify_dm(400, &Value::Null, "amy"), Fail::Other("that didn't work, try again".into()));
     let long = json!({"error": "x\u{7}".repeat(300)});
     assert_eq!(classify_dm(400, &long, "a"), Fail::Other("x".repeat(100).into()));
   }
@@ -723,7 +723,7 @@ mod tests {
     assert_eq!(classify(401, &json!({"error": "Not authenticated with Twitch"})), Fail::Auth);
     assert_eq!(classify(0, &Value::Null), Fail::Server);
     assert_eq!(classify(502, &json!({})), Fail::Server);
-    assert_eq!(classify(400, &json!({"error": "Message too long"})), Fail::Other("Message too long".into()));
+    assert_eq!(classify(400, &json!({"error": "Message too long"})), Fail::Other("message too long".into()));
     assert_eq!(classify(429, &Value::Null), Fail::Other("slow down, try again in a bit".into()));
     // a bare 401 with an unknown reason is shown as the server said it
     assert_eq!(classify(401, &json!({"error": "nope"})), Fail::Other("nope".into()));

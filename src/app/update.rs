@@ -62,8 +62,9 @@ impl App {
         // the new copy starts in this one's place: what waits to be written goes to disk first
         self.save_tabs();
         self.flush_to_disk();
-        let e = update::restart();
-        self.say(format!("updated: restart the app to use it ({e})"));
+        // restart only returns when the new copy couldn't start
+        eprintln!("update restart: {}", update::restart());
+        self.say("updated · close the app and open it again to use the new version");
         self.upd.release = None;
       }
       Err(e) => self.say(&e),
@@ -76,7 +77,7 @@ impl App {
 fn package_manager_line(opened: &Result<(), String>) -> String {
   match opened {
     Ok(()) => "installed by a package manager: update it there (the release page is open)".into(),
-    Err(e) => format!("installed by a package manager: update it there (couldn't open the release page: {e})"),
+    Err(e) => format!("installed by a package manager: update it there ({e})"),
   }
 }
 
@@ -87,7 +88,7 @@ mod tests {
   #[test]
   fn a_release_page_that_would_not_open_is_not_called_open() {
     assert!(package_manager_line(&Ok(())).ends_with("(the release page is open)"));
-    let said = package_manager_line(&Err("couldn't open the link, this system has no link opener (xdg-open)".into()));
-    assert!(!said.contains("is open") && said.contains("no link opener"), "{said}");
+    let said = package_manager_line(&Err("can't open links yet, install xdg-utils (paru -S xdg-utils)".into()));
+    assert!(!said.contains("is open") && said.contains("xdg-utils"), "{said}");
   }
 }

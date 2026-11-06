@@ -174,7 +174,7 @@ fn every_answer_says_the_exts_words() {
   assert_eq!(said(&app), "unpinned");
   assert!(app.pin_bar.pins.current(&app.tabs[app.active].sources).is_none());
   for (f, want) in [
-    (Fail::Auth, "sign in to heatsync again"),
+    (Fail::Auth, "log in to heatsync again (ctrl-l)"),
     (Fail::Denied, "only mods can pin here"),
     (Fail::NotArchived, "not in the archive yet \u{2014} try again in a moment"),
     (Fail::Other, "couldn't pin"),

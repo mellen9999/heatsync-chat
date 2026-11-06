@@ -17,7 +17,7 @@ use crate::util::time::now_ms;
 const THREAD_ROWS: usize = 1000;
 
 pub(super) const LOGIN_FIRST: &str = "log in at heatsync.org first";
-pub(super) const TRY_AGAIN: &str = "that didn’t work — try again";
+pub(super) const TRY_AGAIN: &str = "that didn't work — try again";
 
 impl App {
   fn feed_tab(&self) -> Option<usize> {

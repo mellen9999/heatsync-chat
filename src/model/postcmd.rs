@@ -8,7 +8,7 @@ pub enum Cmd {
 }
 
 pub const OP_USAGE: &str = "usage: /op <text> posts to your feed";
-pub const RE_USAGE: &str = "usage: /re <text> answers the last [OP] in chat";
+pub const RE_USAGE: &str = "usage: /re <text> answers the last heatsync post in chat";
 
 pub fn command(text: &str) -> Option<Cmd> {
   let t = text.trim();

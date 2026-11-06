@@ -196,7 +196,7 @@ pub fn classify(status: u16, v: &Value) -> Result<(), Fail> {
     0 => Fail::Other("no answer from heatsync".into()),
     403 => Fail::Other("you're not a mod here".into()),
     _ if err.is_empty() => Fail::Other(http::plain_status(status)),
-    _ => Fail::Other(err.chars().take(100).collect()),
+    _ => Fail::Other(http::server_words(err)),
   })
 }
 

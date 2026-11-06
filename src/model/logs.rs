@@ -534,7 +534,7 @@ impl Logs {
       _ => "all channels".into(),
     };
     let what = self.query.as_ref().map_or_else(String::new, |q| format!(" · search \"{q}\""));
-    let swap = if self.home.is_some() { " · a swap scope" } else { "" };
+    let swap = if self.home.is_some() { " · a all/this channel" } else { "" };
     format!("{} · {scope}{what} · / search{swap} · y copy link · esc back", self.who.nick)
   }
 }
@@ -785,7 +785,7 @@ mod tests {
     assert!(!l.all && l.channel() == Some("xqc"));
     assert!(l.toggle_scope() && l.all);
     assert!(l.toggle_scope() && !l.all && l.channel() == Some("xqc"));
-    assert!(l.hint().contains("#xqc") && l.hint().contains("a swap scope"));
+    assert!(l.hint().contains("#xqc") && l.hint().contains("a all/this channel"));
   }
 
   #[test]

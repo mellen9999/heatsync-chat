@@ -89,7 +89,9 @@ async fn call(req: reqwest::RequestBuilder) -> Result<Value, Oops> {
   match classify(status, &v) {
     Ok(()) => Ok(v),
     // a 400 carries a reason worth showing (twitch's own for a color)
-    Err(f) if status == 400 => Err(Oops(f, tidy(v.get("error").and_then(Value::as_str).unwrap_or(""), 120))),
+    Err(f) if status == 400 => {
+      Err(Oops(f, super::http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")).into()))
+    }
     Err(f) => Err(f.into()),
   }
 }

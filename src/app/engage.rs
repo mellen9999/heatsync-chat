@@ -140,7 +140,7 @@ impl App {
       return;
     }
     if engage::edit_left(p.ts, now_ms()).is_none() {
-      return self.say("can’t edit it any more — posts can be edited for 10 minutes");
+      return self.say("can't edit it any more — posts can be edited for 10 minutes");
     }
     let draft = match self.edit.take() {
       Some(e) => e.draft,
@@ -169,7 +169,7 @@ impl App {
     let id = e.id.clone();
     let text = self.line.text.trim().to_owned();
     if text.is_empty() {
-      return self.say("a post can’t be empty");
+      return self.say("a post can't be empty");
     }
     if engage::too_long(&text) {
       return self.say("posts are 500 characters at most");
@@ -203,7 +203,7 @@ impl App {
         self.say(match status {
           401 => LOGIN_FIRST,
           400 => "that edit was refused",
-          403 => "can’t edit that — the 10 minutes may be up",
+          403 => "can't edit that — the 10 minutes may be up",
           404 | 410 => "that post is gone",
           429 => "slow down",
           _ => TRY_AGAIN,
@@ -239,8 +239,8 @@ impl App {
         self.say("post deleted");
       }
       Err(401) => self.say(LOGIN_FIRST),
-      Err(403) => self.say("that isn’t your post"),
-      Err(_) => self.say("couldn’t delete — try again"),
+      Err(403) => self.say("that isn't your post"),
+      Err(_) => self.say("couldn't delete — try again"),
     }
   }
 
@@ -265,7 +265,7 @@ impl App {
     let reply_to = if word == "/re" {
       match self.feed.last_op() {
         Some(id) => Some(id),
-        None => return self.say("no [OP] has shown in chat yet"),
+        None => return self.say("no heatsync post in chat yet"),
       }
     } else {
       None

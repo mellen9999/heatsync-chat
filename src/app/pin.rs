@@ -166,7 +166,7 @@ impl App {
         self.on_pin(platform, &chan, if set { pin } else { None });
         self.say(if set { "pinned" } else { "unpinned" });
       }
-      Err(Fail::Auth) => self.say("sign in to heatsync again"),
+      Err(Fail::Auth) => self.say("log in to heatsync again (ctrl-l)"),
       Err(Fail::Relink) => {
         self.say("link heatsync to set this");
         self.net.send(Cmd::Relink("mod"));

@@ -77,7 +77,7 @@ pub fn open_url(url: &str) -> Result<(), String> {
     .spawn()
     .map_err(|e| {
       eprintln!("xdg-open: {e}");
-      "couldn't open the link, this system has no link opener (xdg-open)".to_string()
+      "can't open links yet, install xdg-utils (paru -S xdg-utils)".to_string()
     })?;
   // reap it so it never lingers as a zombie
   std::thread::spawn(move || _ = child.wait());

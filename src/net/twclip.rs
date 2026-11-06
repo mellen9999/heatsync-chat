@@ -58,12 +58,11 @@ pub fn classify(status: u16, v: &Value) -> Result<Made, Fail> {
     let url = |k: &str| v.get(k).and_then(Value::as_str).and_then(twitch_page);
     return Ok(Made { clip_url: url("clip_url"), edit_url: url("edit_url") });
   }
-  let words: String =
-    v.get("error").and_then(Value::as_str).unwrap_or("").chars().filter(|c| !c.is_control()).take(MAX_WORDS).collect();
-  Err(Fail::Other(match (status, words.trim()) {
+  let words = super::http::server_words(v.get("error").and_then(Value::as_str).unwrap_or(""));
+  Err(Fail::Other(match (status, words.as_str()) {
     (0, _) => "no answer from heatsync".into(),
     (_, "") => super::http::plain_status(status),
-    (_, w) => w.to_owned(),
+    (_, w) => w.chars().take(MAX_WORDS).collect(),
   }))
 }
 
@@ -136,11 +135,11 @@ mod tests {
     );
     assert_eq!(
       classify(401, &json!({ "error": "Not authenticated with Twitch" })),
-      Err(Fail::Other("Not authenticated with Twitch".into()))
+      Err(Fail::Other("you're logged out, log in again (ctrl-l)".into()))
     );
     assert_eq!(
       classify(429, &json!({ "error": "Clip rate limit \u{2014} try again in a minute" })),
-      Err(Fail::Other("Clip rate limit \u{2014} try again in a minute".into()))
+      Err(Fail::Other("slow down, try again in a minute".into()))
     );
     assert_eq!(classify(200, &json!({ "success": false, "error": "nope" })), Err(Fail::Other("nope".into())));
     assert_eq!(classify(0, &Value::Null), Err(Fail::Other("no answer from heatsync".into())));

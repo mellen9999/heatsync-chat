@@ -179,7 +179,7 @@ fn headless_react_chips() {
   assert!(reacts(&sent(&mut asked)).is_empty(), "one request per chip at a time");
   app.on_net(NetEvent::Reacted { id: "00004a".into(), emote: 1, on: true, res: Err(500) });
   assert_eq!(chips_of(&app, "00004a")[0], (1, 2, false, true), "rolled back");
-  assert_eq!(last_say(&app, feed), "that didn’t work — try again");
+  assert_eq!(last_say(&app, feed), "that didn't work — try again");
   app.on_net(NetEvent::Reacted { id: "00004a".into(), emote: 1, on: true, res: Err(401) });
   assert_eq!(chips_of(&app, "00004a")[0], (1, 2, false, true), "an answer nobody waits for changes nothing");
   // press, accepted: it stays; press again: it comes off, a refusal keeps it

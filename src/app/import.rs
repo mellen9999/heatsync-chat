@@ -81,7 +81,7 @@ impl Import {
     let imp = |s| Target::Imp(s);
     let (l, t): (Vec<L>, Vec<Target>) = match (me, self.phase) {
       (false, _) | (_, Phase::Failed(Fail::Login)) => (
-        vec![say("sign in with twitch to import your follows, sorted by who's live"), say("sign in")],
+        vec![say("log in with twitch to import your follows, sorted by who's live"), say("log in")],
         vec![Target::None, imp(Step::SignIn)],
       ),
       (_, Phase::Reading) => (vec![say("reading your twitch follows…")], vec![Target::None]),
@@ -469,7 +469,7 @@ mod tests {
     };
     assert_eq!(
       say(&mut app, Fail::Login),
-      ["sign in with twitch to import your follows, sorted by who's live | ", "sign in | "]
+      ["log in with twitch to import your follows, sorted by who's live | ", "log in | "]
     );
     assert_eq!(say(&mut app, Fail::Down), ["couldn't reach twitch — try again in a minute | ", "try again | "]);
     assert_eq!(
@@ -499,7 +499,7 @@ mod tests {
     app.me = None;
     app.toggle_import();
     assert_eq!(asks(&mut asked), 0, "nobody to ask for");
-    assert!(texts(&app)[0].starts_with("sign in with twitch"));
+    assert!(texts(&app)[0].starts_with("log in with twitch"));
     app.toggle_import();
     assert!(app.screen.is_none());
     app.me = Some(me());

@@ -40,9 +40,10 @@ async fn read(mut r: reqwest::Response, max: usize) -> Result<(u16, Value), Stri
 }
 
 pub(super) fn why(code: u16, v: &Value) -> String {
-  v.get("error")
-    .and_then(Value::as_str)
-    .map_or_else(|| super::http::plain_status(code), |e| e.chars().take(100).collect())
+  match super::http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")) {
+    w if w.is_empty() => super::http::plain_status(code),
+    w => w,
+  }
 }
 
 pub(super) fn ok(code: u16) -> bool {
@@ -100,7 +101,7 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
         .await;
       // 404 = it was never blocked on the server: nothing to undo
       if let Err(e) = result(r).await
-        && e != "Block not found"
+        && e != super::http::server_words("Block not found")
       {
         out.status(format!("unblocked here, but sync failed: {e}"));
       }

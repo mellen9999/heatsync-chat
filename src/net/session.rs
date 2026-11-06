@@ -653,9 +653,10 @@ async fn kick_send(
     Some("scope_missing") => "re-link kick on heatsync.org to allow sending".into(),
     Some("token_expired") => "kick login expired, re-link on heatsync.org".into(),
     Some("rate_limited") => "slow down".into(),
-    _ => {
-      v.get("error").and_then(Value::as_str).map_or_else(|| http::plain_status(code), |e| e.chars().take(100).collect())
-    }
+    _ => match http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")) {
+      w if w.is_empty() => http::plain_status(code),
+      w => w,
+    },
   })
 }
 

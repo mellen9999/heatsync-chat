@@ -160,9 +160,9 @@ pub fn kick_event(v: &Value, kicks: bool) -> Option<Message> {
   let (said, notice) = if kicks {
     let amount = v.get("amount").and_then(Value::as_u64).filter(|&n| (1..=10_000_000).contains(&n))?;
     let gift = str_of(v, "giftName").map(|g| format!(" ({})", flat(g, 40))).unwrap_or_default();
-    (format!("{who} gifted {amount} KICKs{gift}!"), Notice::Bits)
+    (format!("{who} gifted {amount} KICKs{gift}"), Notice::Bits)
   } else {
-    let said = str_of(v, "message").map(|t| flat(t, 200)).unwrap_or_else(|| format!("{who} subscribed!"));
+    let said = str_of(v, "message").map(|t| flat(t, 200)).unwrap_or_else(|| format!("{who} subscribed"));
     (said, Notice::Sub)
   };
   let words = if kicks { str_of(v, "message").map(|t| flat(t, MAX_TEXT)).unwrap_or_default() } else { String::new() };
@@ -255,10 +255,10 @@ mod tests {
     assert!(!m.kind.said());
     let kicks = json!({"username": "amy", "amount": 500, "giftName": "rage", "message": ""});
     let m = kick_event(&kicks, true).unwrap();
-    assert_eq!((m.kind, m.notice(), &*m.body), (Kind::System, Notice::Bits, "amy gifted 500 KICKs (rage)!"));
+    assert_eq!((m.kind, m.notice(), &*m.body), (Kind::System, Notice::Bits, "amy gifted 500 KICKs (rage)"));
     let kicks = json!({"username": "amy", "amount": 5, "giftName": "", "message": "gg\nwp"});
     let m = kick_event(&kicks, true).unwrap();
-    assert_eq!((m.kind, m.system.as_deref(), &*m.body), (Kind::Event, Some("amy gifted 5 KICKs!"), "gg wp"));
+    assert_eq!((m.kind, m.system.as_deref(), &*m.body), (Kind::Event, Some("amy gifted 5 KICKs"), "gg wp"));
     assert!(kick_event(&json!({"username": "a b", "amount": 5}), true).is_none());
     assert!(kick_event(&json!({"username": "amy", "amount": 0}), true).is_none());
     assert!(kick_event(&json!({"username": "amy", "amount": -3}), true).is_none());

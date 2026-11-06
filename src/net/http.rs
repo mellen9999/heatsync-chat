@@ -16,7 +16,45 @@ pub fn plain_status(code: u16) -> String {
     403 => "heatsync said no".into(),
     429 => "slow down, try again in a bit".into(),
     500.. => "heatsync is having trouble, try again soon".into(),
-    _ => format!("that didn't work (heatsync said {code})"),
+    _ => "that didn't work, try again".into(),
+  }
+}
+
+// what the server said, in our words. its text is hostile and often a code or a developer sentence
+// ("Rate limit exceeded", "invalid_params"): the ones it sends often get our copy, the rest come out
+// lowercase, one line, no trailing period, at most 100 chars
+pub fn server_words(raw: &str) -> String {
+  let clean: String = raw.chars().filter(|c| !c.is_control()).take(100).collect();
+  let low = clean.trim().to_lowercase().replace('_', " ").replace('’', "'");
+  let low = low.trim_end_matches('.').trim_end();
+  let has = |ks: &[&str]| ks.iter().any(|k| low.contains(k));
+  if low.is_empty() {
+    String::new()
+  } else if has(&["rate limit", "too many", "slow down"]) {
+    "slow down, try again in a minute".into()
+  } else if has(&["unauthorized", "login required", "not authenticated", "invalid session", "no twitch token"]) {
+    "you're logged out, log in again (ctrl-l)".into()
+  } else if has(&["not linked"]) {
+    "link that account on heatsync.org first".into()
+  } else if has(&["not a member", "not moderator", "not a moderator"]) {
+    "you're not a mod here".into()
+  } else if has(&[
+    "internal server error",
+    "upstream error",
+    "unavailable",
+    "health check",
+    "query failed",
+    "search failed",
+    "busy",
+  ]) || low.starts_with("failed to")
+  {
+    "heatsync is having trouble, try again soon".into()
+  } else if low.starts_with("invalid") || low.starts_with("bad ") {
+    "that didn't look right, check it and try again".into()
+  } else if low.contains("not found") {
+    "couldn't find that".into()
+  } else {
+    low.to_owned()
   }
 }
 
@@ -61,6 +99,25 @@ pub fn ws_config(max: usize) -> WebSocketConfig {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn the_servers_words_come_out_plain() {
+    let said = server_words;
+    assert_eq!(said("Rate limit exceeded"), "slow down, try again in a minute");
+    assert_eq!(said("rate_limit"), "slow down, try again in a minute");
+    assert_eq!(said("Too many requests"), "slow down, try again in a minute");
+    assert_eq!(said("Unauthorized"), "you're logged out, log in again (ctrl-l)");
+    assert_eq!(said("platform account not linked"), "link that account on heatsync.org first");
+    assert_eq!(said("internal_server_error"), "heatsync is having trouble, try again soon");
+    assert_eq!(said("Failed to fetch streams"), "heatsync is having trouble, try again soon");
+    assert_eq!(said("Invalid channel name"), "that didn't look right, check it and try again");
+    assert_eq!(said("Set not found"), "couldn't find that");
+    // anything else: lowercase, one line, no trailing period
+    assert_eq!(said("You can't react to your own line."), "you can't react to your own line");
+    assert_eq!(said("name held by your upload"), "name held by your upload");
+    assert_eq!(said(""), "");
+    assert_eq!(said(&"x\n".repeat(200)).chars().count(), 100);
+  }
   use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
   // a one-shot local server answering with `body`, chunked when `len` is None

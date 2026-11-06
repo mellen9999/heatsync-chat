@@ -153,20 +153,31 @@ fn offered(r: &Release) -> bool {
 
 // download, check the signature, swap the file in one rename. Err says what went wrong in plain words
 async fn install(http: &reqwest::Client, r: &Release) -> Result<(), String> {
-  let (bin, sig) = r.bin.as_ref().ok_or("no build for this machine in that release")?;
-  let exe = exe().ok_or("can't tell where this app lives")?;
-  let bin = fetch(http, bin, MAX_BIN, 300).await.map_err(|e| format!("download failed ({e})"))?;
-  let sig = fetch(http, sig, MAX_SIG, 30).await.map_err(|e| format!("download failed ({e})"))?;
+  let (bin, sig) = r.bin.as_ref().ok_or("there is no download for this computer yet")?;
+  let exe = exe().ok_or("can't find where this app is installed")?;
+  let bin = fetch(http, bin, MAX_BIN, 300).await.map_err(download_failed)?;
+  let sig = fetch(http, sig, MAX_SIG, 30).await.map_err(download_failed)?;
   if !verify(&r.version, &asset_name(), &bin, &sig) {
     return Err("the download isn't signed by heatsync: not installed".into());
   }
   // the write + fsync of a big binary blocks: not on the net runtime, where it would stall chat
-  off_thread(move || replace(exe, &bin)).await.and_then(|r| r.map_err(|e| format!("couldn't replace the app ({e})")))
+  off_thread(move || replace(exe, &bin)).await.and_then(|r| r.map_err(replace_failed))
+}
+
+// the technical reason goes to stderr, the screen gets plain words
+fn download_failed(e: String) -> String {
+  eprintln!("update download: {e}");
+  "the download didn't work, try again later".into()
+}
+
+fn replace_failed(e: impl std::fmt::Display) -> String {
+  eprintln!("update replace: {e}");
+  "couldn't put the new version in place, nothing was changed".into()
 }
 
 // `f` on a blocking thread
 async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-  tokio::task::spawn_blocking(f).await.map_err(|e| format!("couldn't replace the app ({e})"))
+  tokio::task::spawn_blocking(f).await.map_err(replace_failed)
 }
 
 // `exe` becomes the new bytes or stays as it was: written whole and flushed under a side name, one
