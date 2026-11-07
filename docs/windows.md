@@ -1,6 +1,6 @@
 # heatsync-chat → windows
 
-status: phases 1 (compile) and 2 (run) are done; 3 (parity) and 4 (ship) are open. the plan below is the study the work followed; this section is what is true now.
+status: phases 1-4 are done (compile, run, parity, ship); what is left is the hand checklist on a real windows session (item 9 below). the plan below is the study the work followed; this section is what is true now.
 
 ## where it stands
 - 36 compile errors → 0. `cargo check` and `cargo clippy --release --all-targets -- -D warnings` are clean for `x86_64-pc-windows-gnu`, and for linux. linux behaviour is unchanged (same tests, bench append 0.199ms before and after).
@@ -16,24 +16,24 @@ status: phases 1 (compile) and 2 (run) are done; 3 (parity) and 4 (ship) are ope
   - obs: a process snapshot, `obs64.exe` / `obs32.exe`, capped at 20k entries.
   - clipboard: win32 clipboard. text as utf-16 with CRLF converted both ways; pictures as the registered `PNG` format, else a 24/32-bit bitmap re-encoded as png; open is retried for 250ms, then "the clipboard didn't answer".
   - sound: `PlaySoundW` from the wav bytes already made in memory, on a thread of its own.
-  - notifications: none yet (said once in the log). the tray balloon is phase 3.
+  - notifications: a tray balloon (`util/notify_windows.rs`). nothing exists until the first one; then a thread with a message-only window sleeps in GetMessage, the icon is added for the balloon, removed 10s after the last one and at exit. the ui thread only leaves the text in a slot and posts a message, so a slow shell never freezes it. same chokepoint as linux (`notify::send`, streamer mode and the pacing are decided before it), text unescaped back to plain, cut to the balloon's 63/255 utf-16 units
+  - `/font <name>`: no tool; the name is checked (`util/font_windows.rs`) and fontique's DirectWrite list judges it on the ui thread (`Text::installed_name`), saved under the spelling the system uses. a miss says "no font family called x is installed"
+  - symbols: text is set in the picked family, the system monospace (Consolas), then Segoe UI Symbol, Segoe UI Emoji, Segoe UI, Cambria Math (`ui/symbols_windows.rs`). DirectWrite's own fallback goes by script and the ui's symbols are script-neutral, so the gear drew as a box. unix is unchanged (an empty tail)
+  - upload picker: `GetOpenFileNameW` (`net/upload/choose_windows.rs`); `rooted`/`expand_as`/`parse_pick_as` and path completion take drive letters, `\`, shares and `file:///C:/…`, tested on linux
+  - exe icon + version block: `build.rs` writes an .ico from `assets/icon-48/96.png` and an .rc from Cargo.toml's version, compiles it with `zig rc` (or llvm-windres/windres) and links it. no crate, nothing committed; no compiler = a warning and the generic icon (release.sh refuses such a build)
   - updater: asset `heatsync-chat-x86_64-windows.exe`; the running exe is renamed to `.heatsync-chat.old`, the new one renamed in (5 tries, 200ms apart, for antivirus), and a failed second step renames the first back. the `.sig2` check is unchanged. restart = spawn the new exe, exit. `.old` is removed at the next start.
   - window: dark title bar, window icon through winit, focus by `focus_window` (no close-and-reopen trick: that is for wayland).
   - the release exe is a "windows" program (no console). `--help` / `-V` re-attach to the starting terminal; stderr goes to the log file; "already open" and "can't open a window" are a message box.
-- build (from linux): this box has no `cargo-zigbuild`. what worked: zig as the C compiler and the linker through two tiny wrapper scripts (drop rustc's `--target`, map `-lgcc_eh` to `-lunwind`, drop the mingw runtime libs and `-Bstatic/-Bdynamic`), `RUSTFLAGS="-C dlltool=<wrapper for zig dlltool>"`, `cargo build --release --target x86_64-pc-windows-gnu`. the exe is ~12MB, imports only system dlls (kernel32, user32, gdi32, shell32, ole32, dwrite, winmm, ws2_32, bcrypt, crypt32, psapi, dwmapi, imm32, uxtheme, advapi32, ntdll and the `api-ms-win-*` ucrt set: windows 10 or newer). `cargo zigbuild` should do all of that itself: not tried here, phase 4.
+- build (from linux): `sh packaging/windows.sh build --release` (also `clippy …`, `test …`): cargo-zigbuild when installed, else the wrapper recipe below, written to a temp folder. the recipe: zig as the C compiler and the linker through two tiny wrapper scripts (drop rustc's `--target`, map `-lgcc_eh` to `-lunwind`, drop the mingw runtime libs and `-Bstatic/-Bdynamic`), `RUSTFLAGS="-C dlltool=<wrapper for zig dlltool>"`, `cargo build --release --target x86_64-pc-windows-gnu`. the exe is ~12MB, imports only system dlls (kernel32, user32, gdi32, shell32, ole32, dwrite, winmm, ws2_32, bcrypt, crypt32, psapi, dwmapi, imm32, uxtheme, advapi32, ntdll and the `api-ms-win-*` ucrt set: windows 10 or newer). `cargo zigbuild` should do all of that itself: not tried here, phase 4.
 - tests: `cargo test --release --target x86_64-pc-windows-gnu` with `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine` (and a display: `xvfb-run`). run with `--test-threads=1`, and delete `%TEMP%\hsc-*` between runs: wine repeats process and thread ids, and the tests' scratch folders are named from them. 1527 pass, 2 fail (both draw text and need the real default font: `ui::chat_view` reply line wrap at 140px, `tests_modbar` arrow colour).
 
-## phase 3: what still differs from linux
-1. notifications: tray balloon (`Shell_NotifyIconW`, added on first use, removed ~10s after the last one). `notify::clean` needs a "no markup escaping" mode for it.
-2. `/font <name>`: still runs `fc-match`. use parley's `family_id(name)` directly on windows (no file/mmap step: `Found.file` optional). default font = Consolas through DirectWrite, unverified. colour emoji (Segoe UI Emoji) unverified.
-3. upload file picker: still zenity/kdialog. `GetOpenFileNameW`. `net/upload.rs` `parse_pick` and `expand` accept only `/`-rooted paths: use `Path::is_absolute`, and `\\server\share` + `C:\`.
-4. path completion in the input bar (`model/pathcomp.rs`) splits on `/` only.
-5. text that names folders: `--help` uses `dirs::HELP_FOLDERS` and the logs status line uses `dirs::show`; a grep for `~/.config`, `.cache`, `/proc`, `xdg` outside the unix files finds nothing else.
-6. memory: no glibc arena/trim analog. measure a 30 minute busy chat on windows (private bytes), and add `HeapCompact` / `SetProcessWorkingSetSize` after bursts only if it drifts. budget numbers need a windows baseline: bench prints working set and private bytes there, not anon/file.
-7. exe icon + version resource (needs `windres` or a prebuilt `.res`); the taskbar shows the generic icon until then.
-8. idle cpu: see the first risk below. must read 0 in task manager before anything ships.
-9. dpi, ime, vim keys, copy/paste of a screenshot (win+shift+s): hand checklist (section 6), needs a real windows session.
-10. phase 4 as planned: release.sh windows branch, zip, README line, wine gate.
+## phase 3 and 4: what was done, what is left
+1. notifications, 2. `/font`, 3. upload picker, 4. path completion, 7. icon + version: done (see above).
+5. text that names folders: `--help` uses `dirs::HELP_FOLDERS`, the logs status line `dirs::show`; nothing else names a unix folder.
+6. memory: no glibc arena/trim analog. a real windows run measured private 18.2MB; add `HeapCompact` / `SetProcessWorkingSetSize` after bursts only if a 30 minute busy chat drifts.
+8. idle cpu: **0.0% over 30s on a real windows runner** (windows-latest). the ~55k wakeups/s under wine are wine's: winit 0.30's windows wait is `MsgWaitForMultipleObjectsEx(…, QS_ALLINPUT, MWMO_INPUTAVAILABLE)`, which returns at once while the queue reports input, and wine keeps reporting it (the internal-paint flag `request_redraw` sets is not cleared when there is no update region). the app side was read for a deadline in the past or one recomputed to "now" each turn: every deadline in `about_to_wait` is cleared when it fires (`t <= now` then a tick that clears it), IME updates are deduped (`ime_win.sent`), and `ControlFlow::Wait` is used when nothing is due. no app change was made.
+9. dpi, ime, vim keys, copy/paste of a screenshot (win+shift+s): hand checklist, needs a real windows session.
+10. ship: `packaging/release.sh` builds the exe after the linux ones with `packaging/windows.sh`, checks it is an exe with a version block, signs it (`.sig2`, same key and message as linux, the asset name inside) and lists it in SHA256SUMS. one bare exe, no zip, no installer. the updater picks `heatsync-chat-x86_64-windows.exe` on windows (`net/update.rs asset`, tested for every system).
 
 ## what was proved under wine 11 (xvfb, scratch prefix, deleted after)
 - starts, draws (dark window, tabs, the add-channel box), stays up. `--version`, `--help` print from a terminal. `--bench` runs headless: append 0.10ms.
@@ -42,7 +42,7 @@ status: phases 1 (compile) and 2 (run) are done; 3 (parity) and 4 (ship) are ope
 - not provable under wine: the real clipboard (only the pure parts ran), PlaySound audio, ShellExecute opening a browser, the tray, real fonts, dpi, smartscreen, memory and cpu budgets, av locking the updater.
 
 ## risks found while doing it
-1. **idle cpu under wine is not 0.** winit's windows loop returns from `MsgWaitForMultipleObjectsEx` at once and `about_to_wait` runs ~55,000 times a second (65% of a core), though the next deadline is seconds away and nothing redraws. linux, same app, same display: 0. almost certainly wine (winit 0.30 waits with `MWMO_INPUTAVAILABLE | QS_ALLINPUT`, which wine answers with "input available" forever), but unproven until it is measured on a real windows session. if it is real, the fix is in how the loop waits, not in the app logic.
+1. **idle cpu under wine is not 0** (~55,000 wakeups a second, 65% of a core), but it is 0.0% on real windows (30s, windows-latest): a wine artifact, see item 8 above.
 2. under wine, many threads building a font context at once crash inside DirectWrite (a null COM interface in `windows-core`). tests pass one at a time. the real app builds its font context once, on the ui thread.
 3. everything the clipboard, notifications and sound do on a real desktop is untested beyond compile and the pure parts.
 
