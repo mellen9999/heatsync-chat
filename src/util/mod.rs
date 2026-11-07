@@ -15,6 +15,8 @@ pub mod owner;
 #[cfg_attr(windows, path = "rss_windows.rs")]
 pub mod rss;
 pub mod sound;
+// the unix halves (clipboard, font) run tools; windows asks the system directly
+#[cfg(unix)]
 pub mod spawn;
 #[cfg_attr(unix, path = "stdio_unix.rs")]
 #[cfg_attr(windows, path = "stdio_windows.rs")]

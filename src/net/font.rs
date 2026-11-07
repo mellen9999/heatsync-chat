@@ -5,7 +5,7 @@ use crate::util::font;
 
 pub fn find(name: Box<str>, out: Out) {
   tokio::task::spawn_blocking(move || {
-    let found = font::find(&name).map_err(|m| m.said(&name));
+    let found = font::find(&name);
     out.send(NetEvent::Font { asked: name, found });
   });
 }

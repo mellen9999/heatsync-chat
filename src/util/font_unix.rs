@@ -1,26 +1,16 @@
-// which installed font a family name means, asked of fontconfig's own `fc-match` (the tool every desktop with
-// fonts has). run the way the clipboard tools are (util::spawn): an argument list and never a shell, a
+// the font lookup on unix: asked of fontconfig's own `fc-match` (the tool every desktop with fonts has). run the way the clipboard tools are (util::spawn): an argument list and never a shell, a
 // deadline, a cap on what it may print. it blocks, so callers run it off the ui thread (see net/font.rs).
 // fc-match never says no: for a name it doesn't have it hands back the nearest font, so the answer is only
 // taken when the font it names is the one that was asked for
-use std::path::PathBuf;
 use std::time::Duration;
 
-use super::spawn::{Fail, Tool, run};
+use super::{Found, MAX_NAME};
+use crate::util::spawn::{Fail, Tool, run};
 
-// the longest family name taken (the ext's customFontName is 64 too)
-pub const MAX_NAME: usize = 64;
 // a cold font cache can take a few seconds to build the first time
 const WAIT: Duration = Duration::from_secs(5);
 const MAX_OUT: usize = 4 << 10;
 const PKG: &str = "fontconfig";
-
-// the font a name means: its family as fontconfig spells it, and the file it lives in
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Found {
-  pub family: String,
-  pub file: PathBuf,
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Miss {
@@ -84,14 +74,18 @@ fn parse(out: &str, asked: &str) -> Result<Found, Miss> {
     if first.len() > MAX_NAME || first.chars().any(char::is_control) {
       return Err(Miss::Odd);
     }
-    Ok(Found { family: first.to_owned(), file: path.to_owned() })
+    Ok(Found { family: first.to_owned(), file: Some(path.to_owned()) })
   } else {
     Err(Miss::Absent(first.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect()))
   }
 }
 
-// blocks for up to a few seconds
-pub fn find(name: &str) -> Result<Found, Miss> {
+// blocks for up to a few seconds; the answer or one plain sentence for the status bar
+pub fn find(name: &str) -> Result<Found, String> {
+  lookup(name).map_err(|m| m.said(name))
+}
+
+fn lookup(name: &str) -> Result<Found, Miss> {
   let ran = run(&tool(name), None, Some(MAX_OUT), WAIT, PKG).map_err(|e| match e {
     Fail::Missing(_) => Miss::NoTool,
     Fail::Timeout => Miss::Slow,
@@ -131,7 +125,8 @@ mod tests {
   #[cfg(unix)]
   #[test]
   fn the_font_asked_for_is_found_whatever_the_case() {
-    let want = Found { family: "DejaVu Sans Mono".into(), file: "/usr/share/fonts/TTF/DejaVuSansMono.ttf".into() };
+    let want =
+      Found { family: "DejaVu Sans Mono".into(), file: Some("/usr/share/fonts/TTF/DejaVuSansMono.ttf".into()) };
     assert_eq!(parse(OUT, "DejaVu Sans Mono"), Ok(want.clone()));
     assert_eq!(parse(OUT, "dejavu sans mono"), Ok(want.clone()));
     assert_eq!(parse(OUT, "  DEJAVU SANS MONO "), Ok(want));
@@ -217,8 +212,11 @@ mod tests {
     }
     let found = find(&family).unwrap_or_else(|e| panic!("{family}: {e:?}"));
     assert_eq!(found.family, family);
-    assert!(found.file.is_file(), "{:?}", found.file);
-    assert!(matches!(find("hsc no such family 9"), Err(Miss::Absent(_))));
-    assert!(matches!(find("hsc-no-such, family: -x"), Err(Miss::Absent(_))), "separators and a dash are just letters");
+    assert!(found.file.as_deref().is_some_and(std::path::Path::is_file), "{:?}", found.file);
+    assert!(matches!(lookup("hsc no such family 9"), Err(Miss::Absent(_))));
+    assert!(
+      matches!(lookup("hsc-no-such, family: -x"), Err(Miss::Absent(_))),
+      "separators and a dash are just letters"
+    );
   }
 }

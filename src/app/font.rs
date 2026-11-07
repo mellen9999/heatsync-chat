@@ -12,7 +12,7 @@ impl App {
 
   // the family in settings changed (`typed`: someone just set it, so a failure takes it back) or it is the saved one
   // at start (a failure leaves it saved: the font may be on a drive that isn't there today). empty = the system
-  // monospace again, at once; a name is asked of fontconfig and answered by `font_found`
+  // monospace again, at once; a name is looked up and answered by `font_found`
   pub(super) fn font_follow(&mut self, typed: bool) {
     let name = self.set.font_family.as_str();
     if name.is_empty() {
@@ -32,15 +32,24 @@ impl App {
     self.net.send(Cmd::Font(name));
   }
 
-  // fontconfig answered for `asked`. an answer for a name that isn't the latest one asked is dropped
+  // the font lookup answered for `asked`. an answer for a name that isn't the latest one asked is dropped
   pub(super) fn font_found(&mut self, asked: Box<str>, found: Result<Found, String>) {
     let Some((_, typed)) = self.font_ask.take_if(|(want, _)| *want == asked) else { return };
     let found = found.and_then(|f| {
+      // no file (windows): the system's font list is the only judge, and it spells the name its own way
+      let family = match f.file {
+        Some(_) => f.family.clone(),
+        None => self
+          .res
+          .text
+          .installed_name(&f.family)
+          .ok_or_else(|| format!("no font family called {asked} is installed"))?,
+      };
       let mut keep = self.set.font_family;
-      if !keep.set(&f.family) {
+      if !keep.set(&family) {
         return Err(format!("the font {asked} has a name too long to keep"));
       }
-      if !self.res.text.use_family(&f.family, &f.file) {
+      if !self.res.text.use_family(&family, f.file.as_deref()) {
         return Err(format!("couldn't load the font {asked}"));
       }
       Ok(keep)

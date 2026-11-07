@@ -111,12 +111,21 @@ impl Text {
     self.glyphs.clear();
   }
 
-  // set all text in `family`, a name fontconfig gave with the file it lives in. the family is drawn from the
-  // system fonts when they hold it; if not, its file is added the way fontique adds any font file (mapped, not
-  // read in). false = parley cannot draw it, and nothing changed
-  pub fn use_family(&mut self, family: &str, file: &Path) -> bool {
+  // the system's own spelling of a family it has (DirectWrite's list on windows), or None
+  pub fn installed_name(&mut self, name: &str) -> Option<String> {
     let fonts = &mut self.fonts.collection;
-    if fonts.family_id(family).is_none() {
+    let id = fonts.family_id(name)?;
+    fonts.family_name(id).map(str::to_owned)
+  }
+
+  // set all text in `family`, a name the font lookup gave, with the file it lives in when it knows one. the family
+  // is drawn from the system fonts when they hold it; if not, its file is added the way fontique adds any font
+  // file (mapped, not read in). false = parley cannot draw it, and nothing changed
+  pub fn use_family(&mut self, family: &str, file: Option<&Path>) -> bool {
+    let fonts = &mut self.fonts.collection;
+    if fonts.family_id(family).is_none()
+      && let Some(file) = file
+    {
       fonts.load_fonts_from_paths([file]);
     }
     if fonts.family_id(family).is_none() {

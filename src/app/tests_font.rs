@@ -149,7 +149,7 @@ fn a_family_that_will_not_load_keeps_the_font_that_was_working() {
   let junk = dir.join("junk.ttf");
   std::fs::write(&junk, b"this is not a font").unwrap();
   typed(&mut a, "/font Junk Sans");
-  a.font_found(asked(&mut rx).remove(0), Ok(Found { family: "Junk Sans".into(), file: junk }));
+  a.font_found(asked(&mut rx).remove(0), Ok(Found { family: "Junk Sans".into(), file: Some(junk) }));
   std::fs::remove_dir_all(&dir).ok();
   a.redraw();
   assert_eq!(said(&a), format!("couldn't load the font Junk Sans: still using {}", f.family));
@@ -192,7 +192,7 @@ fn the_saved_font_is_asked_at_start_and_a_failure_then_leaves_it_saved() {
 #[test]
 fn a_font_file_the_system_does_not_list_is_loaded_from_its_file() {
   let Some(f) = installed("sans-serif") else { return };
-  let Ok(mut bytes) = std::fs::read(&f.file) else { return };
+  let Ok(mut bytes) = std::fs::read(f.file.as_deref().unwrap()) else { return };
   if bytes.len() > 8 << 20 {
     return;
   }
@@ -216,10 +216,27 @@ fn a_font_file_the_system_does_not_list_is_loaded_from_its_file() {
   let mine = dir.join("mine.ttf");
   std::fs::write(&mine, &bytes).unwrap();
   let (mut a, _rx) = app();
-  let loaded = a.res.text.use_family(&new_name, &mine);
+  let loaded = a.res.text.use_family(&new_name, Some(&mine));
   std::fs::remove_dir_all(&dir).ok();
   assert!(loaded, "{new_name} is added from its file");
   assert_eq!(a.res.text.family(), Some(new_name.as_str()));
   a.relayout_all();
   a.redraw();
+}
+
+// windows has no tool that finds a file: the lookup gives just the name and the system's font list judges it
+#[test]
+fn a_name_without_a_file_is_judged_by_the_system_font_list() {
+  let Some(f) = installed("sans-serif") else { return };
+  let (mut a, mut rx) = app();
+  let lower = f.family.to_lowercase();
+  typed(&mut a, &format!("/font {lower}"));
+  a.font_found(asked(&mut rx).remove(0), Ok(Found { family: lower.clone(), file: None }));
+  let now = a.res.text.family().expect("the family is set").to_owned();
+  assert!(now.eq_ignore_ascii_case(&f.family), "{now}");
+  assert_eq!(a.set.font_family.as_str(), now.as_str(), "saved as the system spells it");
+  typed(&mut a, "/font hsc no such family 9");
+  a.font_found(asked(&mut rx).remove(0), Ok(Found { family: "hsc no such family 9".into(), file: None }));
+  assert_eq!(said(&a), format!("no font family called hsc no such family 9 is installed: still using {now}"));
+  assert_eq!(a.res.text.family(), Some(now.as_str()));
 }
