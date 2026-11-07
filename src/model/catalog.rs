@@ -38,6 +38,15 @@ pub enum Source {
 }
 
 impl Source {
+  // the label a vouch carries (heatsync's emote provider names)
+  pub fn provider(self) -> &'static str {
+    match self {
+      Source::SevenTv => "7tv",
+      Source::Ffz => "ffz",
+      Source::Heatsync => "heatsync",
+    }
+  }
+
   fn what(self) -> &'static str {
     match self {
       Source::SevenTv => "catalog · 7tv",
@@ -324,6 +333,7 @@ impl Cycle {
 pub struct Rec {
   pub url: Box<str>,
   pub zero_width: bool,
+  pub provider: &'static str,
 }
 
 // names tab-completed from the catalogs, newest last, bounded. this is the ONLY thing that carries a
@@ -338,7 +348,9 @@ impl Registry {
   pub fn track(&mut self, h: &Hit) {
     self.order.retain(|n| *n != h.name);
     self.order.push(h.name.clone());
-    self.map.insert(h.name.clone(), Rec { url: h.url.clone(), zero_width: h.zero_width });
+    self
+      .map
+      .insert(h.name.clone(), Rec { url: h.url.clone(), zero_width: h.zero_width, provider: h.source.provider() });
     while self.order.len() > REGISTRY_CAP {
       let old = self.order.remove(0);
       self.map.remove(&old);

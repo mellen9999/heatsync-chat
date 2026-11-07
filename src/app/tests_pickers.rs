@@ -406,7 +406,7 @@ mod catalog_search {
 
   fn asks(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<Cmd> {
     std::iter::from_fn(|| rx.try_recv().ok())
-      .filter(|c| matches!(c, Cmd::PickerSearch { .. } | Cmd::Emote(_) | Cmd::HoldSends | Cmd::Send { .. }))
+      .filter(|c| matches!(c, Cmd::PickerSearch { .. } | Cmd::Emote(_) | Cmd::Send { .. }))
       .collect()
   }
 

@@ -46,6 +46,32 @@ pub enum Cmd {
   // the feed thread on screen (its root post id), whose live reactions and votes come here; None = none.
   // one room at a time: naming another leaves the last (the ext's feed_thread)
   Thread(Option<Box<str>>),
+  // the emotes a line you just sent names that you picked on purpose (Tab, the picker), so the room draws
+  // them from your word while they join your inventory (`emotes:used`). rule 7: a send never waits on that
+  Used(Platform, Box<str>, Vec<Vouch>),
+}
+
+// one picked emote: name, image, provider label
+pub struct Vouch {
+  pub name: Box<str>,
+  pub url: Box<str>,
+  pub provider: &'static str,
+}
+
+// the server's own bounds on `emotes:used` (ws-handlers.ts handleEmoteUsed)
+const MAX_VOUCH: usize = 50;
+const MAX_VOUCH_URL: usize = 500;
+
+fn vouch_frame(p: Platform, ch: &str, v: &[Vouch]) -> Option<Value> {
+  let name = |n: &str| (1..=64).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+  let emotes: Vec<Value> = v
+    .iter()
+    .filter(|e| name(&e.name) && e.url.starts_with("https://") && e.url.len() <= MAX_VOUCH_URL)
+    .take(MAX_VOUCH)
+    .map(|e| json!({"emoteName": &*e.name, "emoteData": {"url": &*e.url, "provider": e.provider}}))
+    .collect();
+  (!emotes.is_empty() && ident::relay_key(ch))
+    .then(|| json!({"type": "emotes:used", "platform": plat(p), "channel": ch, "emotes": emotes}))
 }
 
 fn plat(p: Platform) -> &'static str {
@@ -187,6 +213,8 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
     Cmd::UiSync(patch) => vec![json!({"type": "ui-state:sync", "patch": patch})],
     Cmd::TabSync(channels) => vec![json!({"type": "multichat:sync", "channels": channels})],
     Cmd::TabPull => vec![json!({"type": "multichat:pull"})],
+    // only a room we are in (the server refuses the rest)
+    Cmd::Used(p, ch, v) if st.rooms.contains(&(plat(p), ch.clone())) => vouch_frame(p, &ch, &v).into_iter().collect(),
     Cmd::Thread(id) => {
       let id: Option<Box<str>> = id
         .filter(|i| (1..=8).contains(&i.len()) && i.bytes().all(|b| b.is_ascii_alphanumeric()))

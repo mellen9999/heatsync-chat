@@ -126,6 +126,21 @@ impl App {
     }
   }
 
+  // the picks in a line you just sent, told to each room it went to
+  pub(super) fn vouch(&mut self, legs: &[(Platform, Box<str>)], picks: Vec<crate::net::hs_ws::Vouch>) {
+    if picks.is_empty() {
+      return;
+    }
+    for (platform, chan) in legs {
+      let each = picks.iter().map(|v| crate::net::hs_ws::Vouch {
+        name: v.name.clone(),
+        url: v.url.clone(),
+        provider: v.provider,
+      });
+      self.net.send(Cmd::Hs(crate::net::hs_ws::Cmd::Used(*platform, chan.clone(), each.collect())));
+    }
+  }
+
   // one of your own lines came back from `p`: true when it is another feed's copy of a send already shown
   pub(super) fn echo_folded(&mut self, p: Platform, m: &Message) -> bool {
     m.kind.said() && self.mentions.mine(m) && self.sentfold.folds(now_ms(), p, &m.body)

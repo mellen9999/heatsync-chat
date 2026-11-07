@@ -7,6 +7,7 @@ use crate::model::complete::{Cand, Complete, MIN_WORD, Pick, commands, emoji, em
 use crate::model::slash;
 use crate::net::Cmd;
 use crate::net::emote_ops::EmoteCmd;
+use crate::net::hs_ws::Vouch;
 use crate::util::time::now_ms;
 
 // people who spoke in this tab lately lead a bare word (ext RECENCY_WINDOW_MS / RECENCY_MAX)
@@ -80,7 +81,7 @@ impl App {
     let subs: Vec<Cand> = subs.map(|(name, _)| Cand { name, tier: 1, what: "your sub emote · all twitch" }).collect();
     let global = self.res.emotes.global_names().into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
     let global = global.map(|(name, p, _)| Cand { name, tier: 2, what: what(false, p) });
-    let found = emotes(q, channel.chain(own).chain(mine).chain(subs).chain(global), |n| self.frecency.score(n, now));
+    let found = emotes(q, own.chain(mine).chain(subs).chain(channel).chain(global), |n| self.frecency.score(n, now));
     // a bare word: people who spoke here lately first; with no emote at all, anyone heard anywhere
     let mut out: Vec<Pick> =
       if q == word { people(q, &recent, &[], false) } else { Vec::new() }.into_iter().map(|(n, _)| chat(n)).collect();
@@ -205,10 +206,12 @@ impl App {
   // from then on (the ext's autoAddInputEmotes): your inventory's emote beats the channel's of the same
   // name, so a different IDK you picked is the IDK people see. not what you block, a twitch global
   // (twitch draws those itself), or the very emote you already own; another emote you own under that
-  // name is swapped for the one you picked
-  pub(super) fn auto_add(&mut self, text: &str) {
+  // name is swapped for the one you picked. the line never waits on the add (rule 7): the picks come
+  // back as vouches, which the room draws from while the add lands, and a swap that fails leaves your
+  // old emote in place
+  pub(super) fn auto_add(&mut self, text: &str) -> Vec<Vouch> {
     if self.me.is_none() {
-      return;
+      return Vec::new();
     }
     let (own, now, res) = (self.own_id(), now_ms(), &self.res);
     let owned = |w: &str| own.and_then(|id| res.senders.peek(id, w, now)).map(|e| e.url.clone());
@@ -219,9 +222,10 @@ impl App {
         || res.emotes.sub(w).is_some()
     };
     let picked = self.catalog_reg.take_sent(text, skip);
-    let any = !picked.is_empty();
+    let mut vouches = Vec::with_capacity(picked.len());
     for (name, rec) in picked {
       let (url, zero_width) = (rec.url, rec.zero_width);
+      vouches.push(Vouch { name: name.clone(), url: url.clone(), provider: rec.provider });
       let cmd = if owned(&name).is_some() {
         EmoteCmd::Swap { name, url, zero_width }
       } else {
@@ -229,10 +233,7 @@ impl App {
       };
       self.net.send(Cmd::Emote(cmd));
     }
-    // the line that picked them goes out after they land, else heatsync stamps it with your old emotes
-    if any {
-      self.net.send(Cmd::HoldSends);
-    }
+    vouches
   }
 
   // put the cycle's current candidate in the box, followed by one space to keep typing (kept, not
@@ -328,7 +329,7 @@ mod tests {
 
   fn asked(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<Cmd> {
     std::iter::from_fn(|| rx.try_recv().ok())
-      .filter(|c| matches!(c, Cmd::Catalog { .. } | Cmd::Emote(_) | Cmd::HoldSends | Cmd::Send { .. }))
+      .filter(|c| matches!(c, Cmd::Catalog { .. } | Cmd::Emote(_) | Cmd::Hs(_) | Cmd::Send { .. }))
       .collect()
   }
 
@@ -504,18 +505,28 @@ mod tests {
       "only names that were tabbed onto, each once"
     );
     assert!(sent.iter().any(|c| matches!(c, Cmd::Send { text, .. } if text.contains("zzcatLol hello"))));
-    // the line waits for those adds: the hold comes after them and before the line
-    let at = |f: &dyn Fn(&Cmd) -> bool| sent.iter().rposition(f);
-    let (add, hold, line) = (
-      at(&|c| matches!(c, Cmd::Emote(_))),
-      at(&|c| matches!(c, Cmd::HoldSends)),
-      at(&|c| matches!(c, Cmd::Send { .. })),
+    // rule 7: the line never waits on those adds, and the room is told what was picked, once per room
+    let vouched: Vec<_> = sent
+      .iter()
+      .filter_map(|c| match c {
+        Cmd::Hs(crate::net::hs_ws::Cmd::Used(p, chan, v)) => {
+          Some((*p, chan.to_string(), v.iter().map(|e| (e.name.to_string(), e.provider)).collect::<Vec<_>>()))
+        }
+        _ => None,
+      })
+      .collect();
+    assert_eq!(
+      vouched,
+      [(
+        crate::model::message::Platform::Twitch,
+        "forsen".to_string(),
+        vec![("zzcatLol".to_string(), "7tv"), ("zzcatWide".to_string(), "7tv")]
+      )]
     );
-    assert!(add < hold && hold < line && add.is_some(), "add, hold, line: {add:?} {hold:?} {line:?}");
     app.line.insert("zzcatLol");
     app.send();
     let again = asked(&mut rx);
-    assert!(again.iter().all(|c| !matches!(c, Cmd::Emote(_) | Cmd::HoldSends)), "added once, nothing to wait for");
+    assert!(again.iter().all(|c| !matches!(c, Cmd::Emote(_) | Cmd::Hs(_))), "added once, vouched once");
   }
 
   // a name you own, block or get as a global is never added; logged out adds nothing; blocked names
@@ -594,5 +605,87 @@ mod tests {
     // the next trigger asks page 2, from 7tv only (ffz had nothing / failed)
     let next = asked(&mut rx);
     assert!(matches!(next.as_slice(), [Cmd::Catalog { page: 2, stv: true, ffz: false, .. }]), "{}", next.len());
+  }
+
+  fn url7(id: &str) -> String {
+    format!("https://cdn.7tv.app/emote/{id}/1x.webp")
+  }
+
+  // the same word W in every source at once, for the composer rules below: the channel's ffz, a global 7tv,
+  // and (when `own`) W in your own inventory
+  fn w_everywhere(app: &mut App, own: bool) {
+    use crate::emotes::{Emote, Provider};
+    let e = |id: &str| Emote { url: url7(id).into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(Some("forsen"), Provider::Ffz, [("W".into(), e("CHANFFZ"))].into());
+    app.res.emotes.set(None, Provider::SevenTv, [("W".into(), e("GLOBAL7"))].into());
+    if own {
+      let row = serde_json::json!({"custom_name": "W", "url": url7("INV"), "width": 32, "height": 32,
+        "added_at": "2026-10-30T22:26:51.099Z"});
+      app.res.senders.lookup(1, "W", 0);
+      app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    }
+  }
+
+  // rule 6: the composer chip is exactly what sends: the pick, else your inventory, else the channel, else
+  // the globals. tab says the same about where W comes from
+  #[test]
+  fn rule_6_the_chip_shows_what_sends_pick_then_inventory_then_channel_then_globals() {
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    w_everywhere(&mut app, true);
+    let chip = |app: &App| app.box_url("W").map(|u| u.to_string());
+    app.catalog_reg.track(&hit("W", "PICK"));
+    assert_eq!(chip(&app), Some(url7("PICK")), "the pick");
+    app.catalog_reg.forget("W");
+    assert_eq!(chip(&app), Some(url7("INV")), "your inventory beats the channel's and the globals'");
+    let what = app.candidates("W", false).iter().find(|p| &*p.name == "W").map(|p| p.what);
+    assert_eq!(what, Some("your inventory · heatsync only"), "tab names the one that sends");
+    app.res.senders.stale(1, Some("W"));
+    assert_eq!(chip(&app), Some(url7("CHANFFZ")), "removed: the channel's");
+    app.res.emotes.set(Some("forsen"), crate::emotes::Provider::Ffz, Default::default());
+    assert_eq!(chip(&app), Some(url7("GLOBAL7")), "then the globals");
+    assert_eq!(chip_case(&app, "w"), None, "case is exact");
+  }
+
+  fn chip_case(app: &App, w: &str) -> Option<String> {
+    app.box_url(w).map(|u| u.to_string())
+  }
+
+  // rule 7: a pick you don't own is added and the message goes out in the same breath (no hold, the room is
+  // vouched for it); a pick on top of a different W you own swaps on purpose; a W you own and did not pick
+  // again is never touched
+  #[test]
+  fn rule_7_a_pick_joins_the_inventory_without_holding_the_message() {
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    // no W of mine: the pick is an add, the line goes, the room is vouched
+    app.catalog_reg.track(&hit("W", "PICK"));
+    app.line.insert("W");
+    app.send();
+    let sent = asked(&mut rx);
+    let kinds: Vec<&str> = sent
+      .iter()
+      .map(|c| match c {
+        Cmd::Emote(EmoteCmd::Add { .. }) => "add",
+        Cmd::Emote(EmoteCmd::Swap { .. }) => "swap",
+        Cmd::Send { .. } => "send",
+        Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)) => "vouch",
+        _ => "other",
+      })
+      .collect();
+    assert_eq!(kinds, ["add", "send", "vouch"]);
+    // a different W of mine: the pick replaces it on purpose, in one swap
+    w_everywhere(&mut app, true);
+    app.catalog_reg.track(&hit("W", "PICK"));
+    app.line.insert("W");
+    app.send();
+    assert!(asked(&mut rx).iter().any(|c| matches!(c, Cmd::Emote(EmoteCmd::Swap { name, .. }) if &**name == "W")));
+    // the same W again, no pick: nothing is added, swapped or vouched
+    app.line.insert("W");
+    app.send();
+    let again = asked(&mut rx);
+    assert!(again.iter().all(|c| matches!(c, Cmd::Send { .. })), "just the line");
   }
 }

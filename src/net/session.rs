@@ -54,8 +54,6 @@ pub enum Cmd {
   HsRejected,
   Emote(EmoteCmd),
   Inventory(super::inventory::Op),
-  // answered once every emote op asked before it is done (they run in order): a chat line waits on it
-  Barrier(tokio::sync::oneshot::Sender<()>),
   Upload(std::path::PathBuf),
   Picture(Vec<u8>),
   Pick,
@@ -109,19 +107,15 @@ struct State {
   lanes: Lanes,
 }
 
-// emote ops run in the order asked, off the loop, and a barrier is answered once those before it are done
+// emote ops run in the order asked, off the loop
 enum EmoteJob {
   Op(String, EmoteCmd),
-  Barrier(tokio::sync::oneshot::Sender<()>),
 }
 
 async fn emote_worker(http: reqwest::Client, mut rx: UnboundedReceiver<EmoteJob>, out: Out) {
   while let Some(job) = rx.recv().await {
     match job {
       EmoteJob::Op(token, c) => emote_ops::run(&http, &token, c, &out).await,
-      EmoteJob::Barrier(done) => {
-        let _ = done.send(());
-      }
     }
   }
 }
@@ -220,9 +214,6 @@ pub async fn run(
         Some(Cmd::HsRejected) => {
           st.hs_rejected();
           next = Instant::now();
-        }
-        Some(Cmd::Barrier(done)) => {
-          let _ = emotes.send(EmoteJob::Barrier(done));
         }
         Some(Cmd::Upload(p)) => st.upload(p),
         Some(Cmd::Picture(b)) => st.picture(b),
