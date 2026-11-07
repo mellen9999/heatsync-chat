@@ -147,12 +147,6 @@ impl PingSound {
   }
 }
 
-impl EmoteSize {
-  pub fn mul(self) -> u16 {
-    [1, 2, 4][self as usize]
-  }
-}
-
 impl LineHeight {
   // the row's line height as a ratio of the base line
   pub fn ratio(self) -> f32 {
@@ -1003,7 +997,6 @@ mod tests {
     assert_eq!(local_cmd("/lineheight 22"), Some(Local::Pick("line_height", Some(1))));
     assert_eq!(local_cmd("/animateemotes never"), Some(Local::Pick("animate_emotes", Some(1))));
     assert_eq!(local_cmd("/animateemotes hover"), Some(Local::Pick("animate_emotes", None)));
-    assert_eq!(local_cmd("/emotesize"), Some(Local::Pick("emote_size", None)));
     assert_eq!(local_cmd("/pingsound chime"), Some(Local::Pick("ping_sound", Some(3))));
     assert_eq!(local_cmd("/pingsound custom"), Some(Local::Pick("ping_sound", Some(4))));
     assert_eq!(local_cmd("/pingsound bell"), Some(Local::Pick("ping_sound", None)));

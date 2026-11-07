@@ -181,7 +181,19 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 64] = [
+pub static DEFS: [Def; 69] = [
+  Def {
+    id: "font_family",
+    cmd: Some("/font"),
+    cat: Cat::Display,
+    section: "font",
+    label: "font family",
+    tip: "an installed font for all the text, by name: /font fira code. off is the system monospace. a monospace family lines up best. stays on this computer (the ext's font setting names a font on its computer)",
+    alias: "fontFamily customFontName typeface monospace",
+    ctl: Ctl::Text(&FONT),
+    fx: Fx::Font,
+    wire: Wire::None,
+  },
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
