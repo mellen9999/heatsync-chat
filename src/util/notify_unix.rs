@@ -27,3 +27,6 @@ pub fn show(what: &str, title: &str, body: &str) {
     }
   }
 }
+
+// nothing stays behind on unix: the daemon owns the popup
+pub fn shutdown() {}

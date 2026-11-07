@@ -53,6 +53,7 @@ fn already_open(given: &[Box<str>]) {
   util::notify::send("heatsync-chat", "heatsync-chat is already open", "look for its window");
   println!("{RUNNING}");
   util::stdio::alert("heatsync-chat", RUNNING);
+  util::notify::shutdown();
 }
 
 // the saved tabs; lines that aren't channels are kept in tabs.bak and said so in chat
@@ -134,7 +135,9 @@ fn main() {
   }
   let net = net::Net::spawn(el.create_proxy());
   let mut app = app::App::new(net, channels, flood);
-  if let Err(e) = el.run_app(&mut app) {
+  let ran = el.run_app(&mut app);
+  util::notify::shutdown();
+  if let Err(e) = ran {
     eprintln!("{e}");
     std::process::exit(1);
   }

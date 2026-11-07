@@ -1,9 +1,9 @@
 // desktop notifications (ext fireNotification): notify-send with an argument list, never a shell. text
 // is untrusted (chat lines, channel names), so it is escaped for the daemon's markup, stripped of
-// control bytes and capped. best effort: no notify-send is said once on stderr (windows: none yet)
+// control bytes and capped. best effort: no notify-send is said once on stderr
 use std::time::{Duration, Instant};
 
-// the popup itself: notify-send on unix; windows has none yet (see notify_windows.rs)
+// the popup itself: notify-send on unix, a tray balloon on windows
 #[cfg_attr(unix, path = "notify_unix.rs")]
 #[cfg_attr(windows, path = "notify_windows.rs")]
 mod os;
@@ -34,6 +34,48 @@ pub fn clean(s: &str, max: usize) -> String {
 // a channel or person name, ready for a title (already escaped: `send` takes titles as given)
 pub fn name(s: &str) -> String {
   clean(s, NAME_MAX)
+}
+
+// the text above is escaped for a daemon that reads markup; a windows balloon shows plain text, so it takes
+// back exactly the three escapes `clean` makes, in one pass ("&amp;lt;" is "&lt;", not "<")
+#[cfg(any(windows, test))]
+fn unmark(s: &str) -> String {
+  let mut out = String::with_capacity(s.len());
+  let mut rest = s;
+  while let Some(i) = rest.find('&') {
+    out.push_str(&rest[..i]);
+    rest = &rest[i..];
+    match [("&amp;", '&'), ("&lt;", '<'), ("&gt;", '>')].iter().find(|(e, _)| rest.starts_with(e)) {
+      Some((e, c)) => {
+        out.push(*c);
+        rest = &rest[e.len()..];
+      }
+      None => {
+        out.push('&');
+        rest = &rest[1..];
+      }
+    }
+  }
+  out.push_str(rest);
+  out
+}
+
+// `s` cut to at most `max` utf-16 units (what a balloon's fixed buffers count in) without splitting a character
+#[cfg(any(windows, test))]
+fn fit(s: &str, max: usize) -> &str {
+  let mut units = 0;
+  for (i, c) in s.char_indices() {
+    units += c.len_utf16();
+    if units > max {
+      return &s[..i];
+    }
+  }
+  s
+}
+
+// take the popup down before the process ends (windows: the tray icon; unix has nothing to remove)
+pub fn shutdown() {
+  os::shutdown();
 }
 
 // show one notification. `title` is built from `name()` parts; the body is cleaned here.
@@ -135,5 +177,24 @@ mod tests {
     assert!(c.ends_with("..."));
     assert_eq!(clean("-h", 10), "-h");
     assert_eq!(name(&"y".repeat(90)).len(), NAME_MAX + 3);
+  }
+
+  #[test]
+  fn a_balloon_buffer_is_filled_by_units_not_bytes() {
+    assert_eq!(fit("abcdef", 4), "abcd");
+    assert_eq!(fit("abc", 4), "abc");
+    // an astral char is two units and is dropped whole rather than cut in half
+    assert_eq!(fit("ab😀", 3), "ab");
+    assert_eq!(fit("ab😀", 4), "ab😀");
+    assert_eq!(fit("日本語", 2), "日本");
+    assert_eq!(fit("", 0), "");
+  }
+
+  #[test]
+  fn a_balloon_gets_back_the_plain_text() {
+    for raw in ["a<b>&c", "&lt;", "x &amp; y", "&", "a & b <3", "&&amp;&", "日本 <é>"] {
+      assert_eq!(unmark(&clean(raw, 50)), raw, "{raw}");
+    }
+    assert_eq!(unmark("&unknown; &#39;"), "&unknown; &#39;");
   }
 }

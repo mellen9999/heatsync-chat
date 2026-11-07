@@ -88,7 +88,10 @@ fn swap(ren: Rename, exe: &Path, new: &Path, old: &Path, bin: &[u8], pause: Dura
 pub fn restart() -> Error {
   let Some(p) = exe() else { return Error::other("no path") };
   match std::process::Command::new(p).args(std::env::args_os().skip(1)).env(RESTART_VAR, "1").spawn() {
-    Ok(_) => std::process::exit(0),
+    Ok(_) => {
+      crate::util::notify::shutdown();
+      std::process::exit(0)
+    }
     Err(e) => e,
   }
 }
