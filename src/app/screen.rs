@@ -233,6 +233,13 @@ fn keys_tip(vi: bool) -> &'static str {
   }
 }
 
+// a row whose enter opens a list of its own says so on the row itself
+pub(super) const OPENS: &str = "enter \u{203a}";
+
+fn opens(summary: String) -> String {
+  format!("{summary} \u{b7} {OPENS}")
+}
+
 fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
   let mut lines = Vec::new();
   let mut targets = Vec::new();
@@ -257,21 +264,20 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       Ctl::Pick(..) => (d.picked(set).unwrap_or_default().to_owned(), None),
       Ctl::Rules => {
         let n = crate::model::filter::with(|f| f.rules().len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
+        (opens(if n == 0 { "none".to_owned() } else { n.to_string() }), None)
       }
-      Ctl::Alerts => ("enter opens".to_owned(), None),
-      Ctl::Commands => ("enter opens".to_owned(), None),
+      Ctl::Alerts | Ctl::Commands => (OPENS.to_owned(), None),
       Ctl::People => {
         let (m, b) = crate::model::filter::with(|f| (f.mutes().len(), f.blocks_sorted().len()));
-        (if m + b == 0 { "nobody".to_owned() } else { format!("{m} muted · {b} blocked") }, None)
+        (opens(if m + b == 0 { "nobody".to_owned() } else { format!("{m} muted · {b} blocked") }), None)
       }
       Ctl::Buttons(get, _) => {
         let m = get(set);
-        (if m == 0 { "none".to_owned() } else { crate::model::modbar::labels(m) }, None)
+        (opens(if m == 0 { "none".to_owned() } else { crate::model::modbar::labels(m) }), None)
       }
       Ctl::Reasons => {
         let n = crate::model::filter::with(|f| f.reasons().len());
-        (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
+        (opens(if n == 0 { "none".to_owned() } else { n.to_string() }), None)
       }
       Ctl::Text(w) => {
         let v = (w.get)(set);
@@ -906,6 +912,21 @@ mod tests {
     // every other row stays a normal row
     let (lines, _) = settings_lines("", &Settings::default());
     assert_eq!(lines.iter().filter(|l| matches!(l, L::Tint { .. })).count(), 1);
+  }
+
+  // every row whose enter opens a list of its own says so on the row, and no other row does
+  #[test]
+  fn list_rows_wear_an_enter_marker() {
+    let (lines, targets) = settings_lines("", &Settings::default());
+    let mut lists = 0;
+    for (l, t) in lines.iter().zip(&targets) {
+      let (Target::Def(d), L::Row { b, .. } | L::Tint { b, .. }) = (t, l) else { continue };
+      let opens =
+        matches!(d.ctl, Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Commands | Ctl::Buttons(..));
+      assert_eq!(b.ends_with(OPENS), opens, "{}: {b:?}", d.id);
+      lists += usize::from(opens);
+    }
+    assert_eq!(lists, 6);
   }
 
   #[test]
