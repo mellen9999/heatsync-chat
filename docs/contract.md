@@ -14,6 +14,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - emote dims 1..65535 finite · message text ≤2000 · display name ≤100 · ≤50 emote tokens/message
 - chat badges on kick / youtube lines ≤16 per line, names `[a-z0-9_-]{1,32}`, kick `count` (months) 1..1200 else `1` (`badges/relay.rs`) · ≤250 msgs per backfill / youtube batch (keep the tail) · ws `batch` ≤256 · `senderKeys` ≤50 · heat push ≤500 · pin content 500 / name 64
 - twitch irc tags that mark a line (`net/irc.rs marks`): `source-room-id` digits ≤20 (the `shared` chip; named by one public web gql ask, `net/roomname.rs`: a login `[\w]{1,50}`, ≤500 rooms kept, ≤32 queued, 2 in flight, a miss never repeated), `source-id` ≤128 printable (a copy from another room pings and lands in mentions once: last 400 ids kept) · `animation-id` `[a-z0-9_-]{1,32}` else `effect` (the `fx:` chip), only with `msg-id=animated-message` · `msg-id=gigantified-emote-message` (last emote drawn at 56px through the usual picture path and its 24MB cap) · `msg-id=user-intro` (`new here` chip) · `returning-chatter=1` (white edge) · `first-msg=1` (magenta edge and the `◇ first message in this channel` line)
+- 7tv personal sets: ≤100 emotes/set, ≤6 sets/owner, ≤1000 owners, ≤4000 emotes held, ≤40 rooms, ≤48 set subscriptions; ids `[A-Za-z0-9]{1,40}`; urls built by us on `cdn.7tv.app`
 - image host allowlist (https, no userinfo `@`, bare `[\w.-]+` host, exact or `.`-suffix): `7tv.app betterttv.net frankerfacez.com kick.com ggpht.com googleusercontent.com static-cdn.jtvnw.net heatsync.org fourtf.com` (+ `7tv.io`, `cdn.heatsync.org`, `files.kick.com` covered by suffix)
 
 ## rest
@@ -95,6 +96,7 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 ## render rules
 - heatsync emote renders iff the sender's own inventory has the exact-case whitespace token, `height>0`, msg time within `[added_at−120s (−15s on your own lines), until+120s)` and before any removal tombstone, not locally blocked, ≤50/msg
 - relayed `hsEmotes` are server-computed from the sender's inventory — look up only the words present
+- 7tv personal emote renders iff 7tv named the SENDER's twitch id as owner of the set holding the exact-case token (twitch lines only, switch `personal_emotes`). order: line refs, the sender's heatsync inventory, their personal set, the channel's emotes, globals (the ext lays the heatsync set over the 7tv personal one; chatterino7 and the 7tv extension put the personal set ahead of the channel's). a twitch emote placed by the line's tags is never replaced. blocks file it under its 7tv emote id
 - cw gate: skip `nsfw` or `cw_cats` ∋ `sexual|gore` unless the viewer opted in (`viewer_show_*`)
 - size: scale by height only — cdn 1x is ≤32px tall but stored dims are native; never trust stored width. 7tv `.avif` → `.webp`
 - heat bar: hidden <5. tiers 5 `▎` white · 20 `▍` white · 50 `▍` yellow · 100/200/500 `▌` yellow · 1000/5000 `▊` red. twitch lines only. never 🔥 beside it
@@ -105,7 +107,11 @@ distilled from the extension + the chatterino plugin (`heatsync-chatterino`), wh
 - threadlink `>>id` → `https://heatsync.org/thread/<id>`
 
 ## 7tv EventAPI `wss://events.7tv.io/v3`
-- one socket, opened only while a channel is joined and has a 7tv set. frames ≤512KB. hello → `subscription_limit` (we cap at 120) + `heartbeat_interval`; 3 missed beats → recycle
+- one socket, opened only while a channel is joined and has a 7tv set, or `personal_emotes` is on with a twitch room open. frames ≤512KB. hello → `subscription_limit` (we cap at 120) + `heartbeat_interval`; 3 missed beats → recycle
 - subscribe (op 35) / unsubscribe (op 36) `{type, condition:{object_id}}`: `emote_set.update` per channel set (deduped, a twitch+kick pair can share one), `user.*` per broadcaster + us → `CosmeticsStale`
 - `emote_set.update` body: `pushed` / `pulled` / `updated` items with `key:"emotes"`, ≤200 each, ids `[A-Za-z0-9]{1,40}`, urls are built by us on `cdn.7tv.app`. `updated` = rename / flag change
+- personal emote sets (switch `personal_emotes`, local: the ext has no key; default on): subscribe `entitlement.create` + `entitlement.delete` with `condition:{ctx:"channel", platform:"TWITCH", id:<room id>}` per open twitch room (≤40, deduped; the same call paints use in chatterino; nothing about us goes with it). 7tv answers with an `entitlement.create` per chatter it knows is present there (plus the server's own `emote_set.create|update` pushes, which are not read). body `object:{kind:"EMOTE_SET", ref_id:<set id>, user:{connections:[{platform:"TWITCH", id:"<twitch id>"}]}}`: only that kind, `ref_id` `[A-Za-z0-9]{1,40}`, ≤16 connections read, ≤4 twitch ids taken (digits, 1..20 chars, non-zero). a set is tied to a chatter by their twitch id and nothing else; kick and youtube lines never look one up
+  - the set is read whole once (`GET /v3/emote-sets/<id>`, ≤1MiB, body `id` must be the one asked, ≤100 emotes, two reads at a time, ≤32 per ask; a 404 is an empty set) and edited live by `emote_set.update` (the newest ≤48 sets heard get their own subscription; a delta for a set we do not hold is dropped). a reconnect marks every held set due for a new read
+  - own set: the user lookup that finds our 7tv user (`GET /v3/users/twitch/<id>`, only while `7tv paints + badges` is on) lists `user.emote_sets`; those with `flags & 4` (personal) are ours. no other request carries our id
+  - kept per owner: ≤1000 owners (least recently seen out), ≤1500 sets, ≤4000 emotes in all, ≤6 sets per owner, memory only
 - reconnect: backoff as heatsync ws, reset after ≥30s; after any reconnect each set is refetched whole (`/v3/emote-sets/<id>`) because deltas were missed

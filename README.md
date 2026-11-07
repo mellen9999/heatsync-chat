@@ -48,6 +48,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - twitch, kick and youtube in one tab or many, plus feed, whispers and mentions tabs (heatsync replies and @s land in mentions). a merged tab sends one line to all its feeds at once
 - feed posts: `**bold**` or `__bold__` draws bold, `*under*` or `_under_` draws underlined (the ext italicises those; there is no italic here). a marker with no partner stays as typed. post heat moves live. `x` on one of your own dms in whispers deletes it for both of you (it asks first)
 - heatsync emotes: a word shows as someone's heatsync emote only if *they* own it. 7tv, bttv, ffz and native emotes, overlay (zero-width) emotes, animated
+- 7tv personal emotes: a 7tv subscriber's own set shows in their lines in any channel, and only theirs (`/personalemotes` turns it off)
 - heatsync paints, badges and name colors, live. bttv badges, sub flair and heat bars
 - emote picker (searches 7tv, ffz and heatsync too; an emoji tab, a gifs tab with search), picture and video upload (pictures lose their hidden location and camera data first)
 - replies and reply threads, pins (pin a line yourself if it's your channel or you mod it), predictions, polls, subs, raids, cheers and redeems, mod actions on twitch and kick (`/nuke` too), clips from a user card, mention highlights + desktop notification + sound. the mentions tab survives a restart, and a whisper pops a line while you're on another tab
