@@ -1,6 +1,56 @@
-# heatsync-chat → windows: port plan (read-only study, repo untouched)
+# heatsync-chat → windows
 
-base: origin/main @ c4753e7, v0.3.2. scratch: /tmp/claude-1000/wp (copy of the tree, build output, logs).
+status: phases 1 (compile) and 2 (run) are done; 3 (parity) and 4 (ship) are open. the plan below is the study the work followed; this section is what is true now.
+
+## where it stands
+- 36 compile errors → 0. `cargo check` and `cargo clippy --release --all-targets -- -D warnings` are clean for `x86_64-pc-windows-gnu`, and for linux. linux behaviour is unchanged (same tests, bench append 0.199ms before and after).
+- layout: one concern, one file per platform, same functions in each, joined by a single `#[cfg_attr(unix, path = "x_unix.rs")] #[cfg_attr(windows, path = "x_windows.rs")] mod x;` line. no `#[cfg]` in the app logic. the files:
+  `util/{dirs,owner,local,open,clip,sound,notify,rss,stdio}_{unix,windows}.rs`, `util/win.rs` (wide strings + a self-closing handle, windows only), `store/{lock,wake}_{unix,windows}.rs` (the wake message itself is shared: `store/wake.rs`), `net/update_{unix,windows}.rs`, `model/obs_{unix,windows}.rs`, `app/winsys_{unix,windows}.rs`.
+- what each windows half does:
+  - paths: settings and tabs in `%APPDATA%\heatsync-chat` (roams), chat logs in `%LOCALAPPDATA%\heatsync-chat\logs`, picture cache in `%LOCALAPPDATA%\heatsync-chat\img`, the stderr log at `%LOCALAPPDATA%\heatsync-chat\heatsync-chat.log` (restarts past 256KB). a variable that is unset or not an absolute path is no folder: saves fail loud with "no home directory".
+  - private files: no mode bits. a folder under the user profile inherits the account's own access list (the owner, SYSTEM and the administrators, no other user), so everything made inside is private the same way. the chat log keeps its "no symlink at the file's name" rule by refusing one.
+  - single instance: named mutex `Local\heatsync-chat` (per login session). a copy started by the updater's restart waits up to 3s for it (it has `HSC_RESTARTED` set, only for that child); a normal second launch never waits.
+  - second launch wakes the first: named pipe `\\.\pipe\heatsync-chat-<account>`, message mode, remote clients refused, first-instance flag so a squatted name is not served. every read is overlapped with a 1s deadline and a 2KB cap; the same codec and the same hostile-input rules as the unix socket (`store/wake.rs`). default pipe access: only the creating account can write.
+  - local time: `FileTimeToSystemTime` + `SystemTimeToTzSpecificLocalTime`.
+  - links and the login browser: `ShellExecuteW` (one validated string, no shell). `mpv` found on PATH by `PATHEXT` (never the current folder), started with no console window.
+  - obs: a process snapshot, `obs64.exe` / `obs32.exe`, capped at 20k entries.
+  - clipboard: win32 clipboard. text as utf-16 with CRLF converted both ways; pictures as the registered `PNG` format, else a 24/32-bit bitmap re-encoded as png; open is retried for 250ms, then "the clipboard didn't answer".
+  - sound: `PlaySoundW` from the wav bytes already made in memory, on a thread of its own.
+  - notifications: none yet (said once in the log). the tray balloon is phase 3.
+  - updater: asset `heatsync-chat-x86_64-windows.exe`; the running exe is renamed to `.heatsync-chat.old`, the new one renamed in (5 tries, 200ms apart, for antivirus), and a failed second step renames the first back. the `.sig2` check is unchanged. restart = spawn the new exe, exit. `.old` is removed at the next start.
+  - window: dark title bar, window icon through winit, focus by `focus_window` (no close-and-reopen trick: that is for wayland).
+  - the release exe is a "windows" program (no console). `--help` / `-V` re-attach to the starting terminal; stderr goes to the log file; "already open" and "can't open a window" are a message box.
+- build (from linux): this box has no `cargo-zigbuild`. what worked: zig as the C compiler and the linker through two tiny wrapper scripts (drop rustc's `--target`, map `-lgcc_eh` to `-lunwind`, drop the mingw runtime libs and `-Bstatic/-Bdynamic`), `RUSTFLAGS="-C dlltool=<wrapper for zig dlltool>"`, `cargo build --release --target x86_64-pc-windows-gnu`. the exe is ~12MB, imports only system dlls (kernel32, user32, gdi32, shell32, ole32, dwrite, winmm, ws2_32, bcrypt, crypt32, psapi, dwmapi, imm32, uxtheme, advapi32, ntdll and the `api-ms-win-*` ucrt set: windows 10 or newer). `cargo zigbuild` should do all of that itself: not tried here, phase 4.
+- tests: `cargo test --release --target x86_64-pc-windows-gnu` with `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine` (and a display: `xvfb-run`). run with `--test-threads=1`, and delete `%TEMP%\hsc-*` between runs: wine repeats process and thread ids, and the tests' scratch folders are named from them. 1527 pass, 2 fail (both draw text and need the real default font: `ui::chat_view` reply line wrap at 140px, `tests_modbar` arrow colour).
+
+## phase 3: what still differs from linux
+1. notifications: tray balloon (`Shell_NotifyIconW`, added on first use, removed ~10s after the last one). `notify::clean` needs a "no markup escaping" mode for it.
+2. `/font <name>`: still runs `fc-match`. use parley's `family_id(name)` directly on windows (no file/mmap step: `Found.file` optional). default font = Consolas through DirectWrite, unverified. colour emoji (Segoe UI Emoji) unverified.
+3. upload file picker: still zenity/kdialog. `GetOpenFileNameW`. `net/upload.rs` `parse_pick` and `expand` accept only `/`-rooted paths: use `Path::is_absolute`, and `\\server\share` + `C:\`.
+4. path completion in the input bar (`model/pathcomp.rs`) splits on `/` only.
+5. text that names folders: `--help` uses `dirs::HELP_FOLDERS` and the logs status line uses `dirs::show`; a grep for `~/.config`, `.cache`, `/proc`, `xdg` outside the unix files finds nothing else.
+6. memory: no glibc arena/trim analog. measure a 30 minute busy chat on windows (private bytes), and add `HeapCompact` / `SetProcessWorkingSetSize` after bursts only if it drifts. budget numbers need a windows baseline: bench prints working set and private bytes there, not anon/file.
+7. exe icon + version resource (needs `windres` or a prebuilt `.res`); the taskbar shows the generic icon until then.
+8. idle cpu: see the first risk below. must read 0 in task manager before anything ships.
+9. dpi, ime, vim keys, copy/paste of a screenshot (win+shift+s): hand checklist (section 6), needs a real windows session.
+10. phase 4 as planned: release.sh windows branch, zip, README line, wine gate.
+
+## what was proved under wine 11 (xvfb, scratch prefix, deleted after)
+- starts, draws (dark window, tabs, the add-channel box), stays up. `--version`, `--help` print from a terminal. `--bench` runs headless: append 0.10ms.
+- second launch: the pipe + mutex work. `wine heatsync-chat.exe xqc` against a running copy returned in 0.05s with exit 0 and the first window opened an `xqc` tab. the first copy stayed up.
+- unit tests of the windows halves pass under wine: mutex second-taker, pipe round trip with channels, idle client, junk and oversize messages, a second server on the name refused, rename-aside swap + rollback + retry, local time ticks, PATHEXT lookup, process-name match, clipboard text/png/bitmap conversion, stderr to the log file.
+- not provable under wine: the real clipboard (only the pure parts ran), PlaySound audio, ShellExecute opening a browser, the tray, real fonts, dpi, smartscreen, memory and cpu budgets, av locking the updater.
+
+## risks found while doing it
+1. **idle cpu under wine is not 0.** winit's windows loop returns from `MsgWaitForMultipleObjectsEx` at once and `about_to_wait` runs ~55,000 times a second (65% of a core), though the next deadline is seconds away and nothing redraws. linux, same app, same display: 0. almost certainly wine (winit 0.30 waits with `MWMO_INPUTAVAILABLE | QS_ALLINPUT`, which wine answers with "input available" forever), but unproven until it is measured on a real windows session. if it is real, the fix is in how the loop waits, not in the app logic.
+2. under wine, many threads building a font context at once crash inside DirectWrite (a null COM interface in `windows-core`). tests pass one at a time. the real app builds its font context once, on the ui thread.
+3. everything the clipboard, notifications and sound do on a real desktop is untested beyond compile and the pure parts.
+
+---
+
+# the plan (as first written)
+
+base: origin/main @ c4753e7, v0.3.2.
 
 ## 0. the short version
 - the app is already 90% portable: winit, softbuffer, parley/swash, tokio, reqwest+rustls(ring), image decoders, tiny-skia all build for windows. **no dep blocks the port.**
