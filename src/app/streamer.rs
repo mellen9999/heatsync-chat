@@ -74,9 +74,9 @@ impl App {
     if self.streamer.on { "" } else { body }
   }
 
-  // link previews and inline pictures follow the mode (and the media switch)
+  // link previews and inline pictures follow the mode (and the media switch); previews also follow their own switch
   pub(super) fn sync_media(&mut self) {
-    self.res.previews.hush = self.streamer.on;
+    self.res.previews.hush = self.streamer.on || !self.set.link_previews;
     self.res.media = self.set.media && !self.streamer.on;
   }
 

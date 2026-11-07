@@ -181,7 +181,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 71] = [
+pub static DEFS: [Def; 72] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -541,6 +541,18 @@ pub static DEFS: [Def; 71] = [
     ctl: pill!(media),
     fx: Fx::Media,
     wire: Wire::Bool("mediaEmbedsEnabled"),
+  },
+  Def {
+    id: "link_previews",
+    cmd: Some("/linkpreviews"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "link previews",
+    tip: "show a preview card (title and picture) under links to sites heatsync can preview",
+    alias: "linkpreviews cards og",
+    ctl: pill!(link_previews),
+    fx: Fx::Media,
+    wire: Wire::Bool("linkPreviewsEnabled"),
   },
   Def {
     id: "links",

@@ -197,6 +197,11 @@
    "26"
   ]
  },
+ "linkPreviewsEnabled": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "linksEnabled": {
   "type": "bool",
   "scope": "sync",

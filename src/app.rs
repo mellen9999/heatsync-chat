@@ -508,7 +508,7 @@ impl App {
       res.flairs.mute();
     }
     let streamer = streamer::State::boot(&set);
-    res.previews.hush = streamer.on;
+    res.previews.hush = streamer.on || !set.link_previews;
     res.media = set.media && !streamer.on;
     res.apply_look(&set);
     res.links = set.links;

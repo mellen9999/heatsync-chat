@@ -213,3 +213,25 @@ fn clicking_a_hidden_whisper_line_shows_the_whispers() {
   set(&mut a, Mode::Off);
   assert!(!a.hidden_press());
 }
+
+#[test]
+fn link_previews_switch_and_streamer_mode_both_hush_the_cards() {
+  let mut a = app();
+  assert!(!a.res.previews.hush);
+  a.set.link_previews = false;
+  a.applied(Fx::Media);
+  assert!(a.res.previews.hush && a.res.media, "pictures stay, cards go");
+  assert!(a.res.previews.get("https://a.example/x").is_none());
+  assert!(a.res.previews.take_wanted().is_empty(), "nothing is asked while off");
+  // streamer mode off must not undo the switch
+  set(&mut a, Mode::On);
+  set(&mut a, Mode::Off);
+  assert!(a.res.previews.hush);
+  a.set.link_previews = true;
+  a.applied(Fx::Media);
+  assert!(!a.res.previews.hush);
+  // and the switch on must not undo streamer mode
+  set(&mut a, Mode::On);
+  a.applied(Fx::Media);
+  assert!(a.res.previews.hush);
+}

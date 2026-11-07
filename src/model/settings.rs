@@ -228,6 +228,8 @@ pub struct Settings {
   pub whisper_toast: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
+  // a preview card under a line for a link to a site heatsync previews. default on, like the ext (linkPreviewsEnabled)
+  pub link_previews: bool,
   // urls in chat are links at all. default on, like the ext (linksEnabled)
   pub links: bool,
   // draw emotes from a heatsync inventory (the sender's) and suggest your own. default on, like the ext
@@ -321,6 +323,7 @@ impl Default for Settings {
       moments: true,
       whisper_toast: true,
       media: true,
+      link_previews: true,
       links: true,
       render_inventory: true,
       suggest_inventory: true,
@@ -729,6 +732,7 @@ mod tests {
         moments: true,
         whisper_toast: true,
         media: true,
+        link_previews: true,
         links: true,
         render_inventory: true,
         suggest_inventory: true,

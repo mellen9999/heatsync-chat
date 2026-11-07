@@ -1123,6 +1123,26 @@ mod tests {
     assert!(!text.contains("platformFilters") && !text.contains("platform_filters"), "{text}");
   }
 
+  // link previews ride the shared blob under the ext's key; the cross-follow keys have no row here (this app
+  // follows nobody on twitch or kick), so they are never read, never written
+  #[test]
+  fn link_previews_sync_and_cross_follow_does_not() {
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    assert!(s.link_previews);
+    assert_eq!(a.inbound(&one("linkPreviewsEnabled", json!(false)), &mut s, NOW).len(), 1);
+    assert!(!s.link_previews);
+    s.link_previews = true;
+    a.outbound(&s, NOW + 1000, true);
+    let p = a.outbound(&s, NOW + 1000 + DEBOUNCE_MS, true).unwrap();
+    assert_eq!(p["linkPreviewsEnabled"], json!(true));
+    assert!(keys().contains(&"linkPreviewsEnabled"));
+    for k in ["crossFollowKick", "crossFollowTwitch", "crossFollowTwitchNotify"] {
+      assert!(!keys().contains(&k), "{k}");
+      assert!(p.get(k).is_none(), "{k}");
+    }
+  }
+
   #[test]
   fn device_local_keys_have_no_row() {
     let ids: Vec<&str> = keys();

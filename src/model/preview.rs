@@ -186,7 +186,7 @@ pub struct Previews {
   slots: HashMap<Box<str>, Slot>,
   order: VecDeque<Box<str>>,
   wanted: Vec<Box<str>>,
-  // streamer mode: nothing is asked and nothing shows, whatever was already fetched
+  // streamer mode or the link previews switch off: nothing is asked and nothing shows, whatever was already fetched
   pub hush: bool,
 }
 
