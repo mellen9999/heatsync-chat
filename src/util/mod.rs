@@ -1,5 +1,6 @@
 pub mod clip;
 pub mod crash;
+pub mod font;
 pub mod mem;
 pub mod notify;
 pub mod open;

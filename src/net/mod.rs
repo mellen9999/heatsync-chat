@@ -11,6 +11,7 @@ pub mod dmdel;
 pub mod dupe;
 pub mod emote_ops;
 pub mod following;
+mod font;
 pub mod held;
 pub mod hs_ws;
 pub mod http;
@@ -154,6 +155,11 @@ pub enum NetEvent {
   Pasted {
     to_picker: bool,
     got: Result<crate::util::clip::Paste, String>,
+  },
+  // the font a family name means, or why there is none (as a sentence); `asked` is the name it answers
+  Font {
+    asked: Box<str>,
+    found: Result<crate::util::font::Found, String>,
   },
   // a second launch asked this window to come forward, with any channels it was given
   Raise(Vec<Box<str>>),
@@ -572,6 +578,8 @@ pub enum Cmd {
   // copy this to the clipboard and say `done` (empty = nothing); paste: read it, and say where for
   Copy { text: String, done: String },
   Paste { to_picker: bool },
+  // which installed font a family name means (fc-match, off the ui thread)
+  Font(Box<str>),
   Pick,
   // a chatter's picture
   Avatar(Platform, Box<str>),
@@ -1162,6 +1170,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Copy { text, done } => clip::copy(text, done, out.clone()),
       Cmd::Paste { to_picker } => clip::paste(to_picker, out.clone()),
+      Cmd::Font(name) => font::find(name, out.clone()),
       Cmd::Pick => {
         let _ = sess_tx.send(session::Cmd::Pick);
       }

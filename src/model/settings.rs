@@ -8,6 +8,8 @@ use crate::util::sound::Preset;
 
 // the longest file path a setting holds (one byte of length: 255 at most)
 pub const PATH_MAX: usize = 240;
+// the longest font family name: the ext's customFontName allows 64 too
+pub const FONT_MAX: usize = 64;
 
 pub const ZOOM_MIN: u16 = 90;
 pub const ZOOM_MAX: u16 = 300;
@@ -182,6 +184,10 @@ pub struct Settings {
   // a picture beside each name (ext avatars). default off, like the ext
   pub avatars: bool,
   pub line_height: LineHeight,
+  // the family chat is set in, an installed font by name (src/util/font.rs finds it). empty = the system
+  // monospace, today's font. the ext has fontFamily + customFontName; they stay there (a font on one computer is
+  // not on another)
+  pub font_family: Inline<FONT_MAX>,
   pub animate_emotes: Animate,
   // a timed-out or banned person's lines go dim (ext hs_dim_timeouts). default on
   pub dim_timeouts: bool,
@@ -289,6 +295,7 @@ impl Default for Settings {
       platform_tags: true,
       avatars: false,
       line_height: LineHeight::L20,
+      font_family: Inline::new(),
       animate_emotes: Animate::Always,
       dim_timeouts: true,
       first_glow: true,
@@ -694,6 +701,7 @@ mod tests {
         platform_tags: true,
         avatars: false,
         line_height: LineHeight::L20,
+        font_family: Inline::new(),
         animate_emotes: Animate::Always,
         dim_timeouts: true,
         first_glow: true,

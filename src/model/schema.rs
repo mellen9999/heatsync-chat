@@ -56,6 +56,8 @@ pub enum Fx {
   Ping,
   // the mention sound's file was set or cleared: set means custom, cleared means the ping; then heard
   PingFile,
+  // the font family changed: the new one is looked up and, once found, all text is laid out again
+  Font,
   // chat logs flipped: the writer starts or lets go
   ChatLogs,
   // a built-in tab came or went
@@ -104,6 +106,16 @@ pub struct Words {
   // whether a value can stick, in plain words if not. asked before it is kept; empty always passes
   pub check: fn(&str) -> Result<(), &'static str>,
 }
+
+static FONT: Words = Words {
+  usage: "<family|off>",
+  none: "system monospace",
+  get: |s| s.font_family.as_str(),
+  put: |s, v| s.font_family.set(v),
+  show: |v| v,
+  // the lookup is the check, and it takes a moment: it is asked off the ui thread (net/font.rs)
+  check: |_| Ok(()),
+};
 
 static PING_FILE: Words = Words {
   usage: "<path|off>",

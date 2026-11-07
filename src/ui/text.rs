@@ -1,11 +1,13 @@
 // parley layout (bidi, fallback, inline boxes) + swash raster into a bounded glyph cache
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::ops::Range;
+use std::path::Path;
 
 use parley::{
-  Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, InlineBox, Layout, LayoutContext,
-  LineHeight, OverflowWrap, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
+  Alignment, AlignmentOptions, FontContext, FontFamily, FontFamilyName, FontWeight, GenericFamily, InlineBox, Layout,
+  LayoutContext, LineHeight, OverflowWrap, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
 };
 use swash::FontRef;
 use swash::scale::image::Content;
@@ -78,6 +80,8 @@ pub struct Text {
   pub reverse: bool,
   // a span of the text being drawn that is reversed (an inline button under the pointer)
   pub lit: Option<Range<usize>>,
+  // the family all text is set in. None = the system monospace, today's font
+  family: Option<Box<str>>,
 }
 
 impl Text {
@@ -92,7 +96,35 @@ impl Text {
       stripe: false,
       reverse: false,
       lit: None,
+      family: None,
     }
+  }
+
+  // the family text is set in now; None = the system monospace
+  pub fn family(&self) -> Option<&str> {
+    self.family.as_deref()
+  }
+
+  // back to the system monospace
+  pub fn use_default(&mut self) {
+    self.family = None;
+    self.glyphs.clear();
+  }
+
+  // set all text in `family`, a name fontconfig gave with the file it lives in. the family is drawn from the
+  // system fonts when they hold it; if not, its file is added the way fontique adds any font file (mapped, not
+  // read in). false = parley cannot draw it, and nothing changed
+  pub fn use_family(&mut self, family: &str, file: &Path) -> bool {
+    let fonts = &mut self.fonts.collection;
+    if fonts.family_id(family).is_none() {
+      fonts.load_fonts_from_paths([file]);
+    }
+    if fonts.family_id(family).is_none() {
+      return false;
+    }
+    self.family = Some(family.into());
+    self.glyphs.clear();
+    true
   }
 
   pub fn set_scale(&mut self, scale: f32) {
@@ -116,8 +148,14 @@ impl Text {
     line: f32,
     emoji: (Range<usize>, u16),
   ) -> TextLayout {
+    // the picked family first, the system monospace behind it for what it has no glyph for
+    let list =
+      self.family.as_deref().map(|f| [FontFamilyName::named(f), FontFamilyName::Generic(GenericFamily::Monospace)]);
     let mut b = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
-    b.push_default(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Monospace)));
+    b.push_default(StyleProperty::FontFamily(match &list {
+      Some(l) => FontFamily::List(Cow::Borrowed(l)),
+      None => FontFamily::from(GenericFamily::Monospace),
+    }));
     b.push_default(StyleProperty::FontSize(self.font_px));
     b.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line)));
     b.push_default(StyleProperty::Brush(Ink::default()));

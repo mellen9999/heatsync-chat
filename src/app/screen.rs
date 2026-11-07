@@ -338,6 +338,7 @@ impl App {
       Fx::Tab(_) => self.fix_active(),
       Fx::Ping => self.ping_preview(),
       Fx::PingFile => self.ping_file_follow(),
+      Fx::Font => self.font_follow(true),
     }
     self.input_dirty = true;
     self.bar_dirty = true;
@@ -375,7 +376,8 @@ impl App {
     if !(w.put)(&mut next, to) {
       return self.say(format!("{} is too long or has odd characters", d.label));
     }
-    if next == self.set {
+    // a font that failed to load at start is still the saved one: typing it again tries again
+    if next == self.set && !(d.fx == Fx::Font && self.font_stale()) {
       return self.say(format!("{} is already that", d.label));
     }
     if !to.is_empty()

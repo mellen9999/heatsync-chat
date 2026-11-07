@@ -31,6 +31,11 @@ impl App {
   // frames and reload at the new height (slots key on logical height, so none are orphaned)
   pub(super) fn apply_scale(&mut self) {
     self.res.set_scale(self.scale());
+    self.relayout_all();
+  }
+
+  // every line, the tab bar and the box laid out again and repainted: the size or the font changed
+  pub(super) fn relayout_all(&mut self) {
     let w = self.body().w;
     for v in self.tabs.iter_mut().flat_map(|t| t.views()) {
       v.relayout();

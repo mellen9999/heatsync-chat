@@ -30,6 +30,7 @@ mod filters;
 mod find;
 mod follow;
 mod following;
+mod font;
 mod gifs;
 mod held;
 mod ime;
@@ -89,6 +90,8 @@ mod tests_cardclip;
 mod tests_chain;
 #[cfg(test)]
 mod tests_findbar;
+#[cfg(test)]
+mod tests_font;
 #[cfg(test)]
 mod tests_input;
 #[cfg(test)]
@@ -371,6 +374,9 @@ pub struct App {
   flash_due: Option<Instant>,
   // the taskbar was asked to light up for a mention and the window hasn't been looked at since
   attention: bool,
+  // the font family last asked of fontconfig, and whether it was typed (a failure then takes it back); the answer
+  // for any other name is stale and dropped
+  font_ask: Option<(Box<str>, bool)>,
   // desktop mention popups: one per 3s, the rest counted
   notify_pace: crate::util::notify::Coalesce,
   // the same for went-live and game-switch popups
@@ -494,7 +500,7 @@ impl App {
     res.media = set.media && !streamer.on;
     res.apply_look(&set);
     res.links = set.links;
-    Self {
+    let mut app = Self {
       gfx: None,
       canvas: Canvas::new(0, 0),
       res,
@@ -585,6 +591,7 @@ impl App {
       flash: None,
       flash_due: None,
       attention: false,
+      font_ask: None,
       notify_pace: Default::default(),
       live_pace: crate::util::notify::Coalesce::new("stream update", "stream updates"),
       dpi: 1.0,
@@ -621,7 +628,10 @@ impl App {
       pending_post: None,
       edit: None,
       pending_delete: None,
-    }
+    };
+    // the saved font family is looked up now; until it answers, the system monospace
+    app.font_follow(false);
+    app
   }
 
   fn wake(&self) {
