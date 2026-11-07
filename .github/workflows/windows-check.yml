@@ -101,6 +101,9 @@ jobs:
           $m.processes_after_second = @(Get-Process -Name heatsync-chat -ErrorAction SilentlyContinue).Count
           Start-Sleep 5
           Shot "$PWD\out\shot2-after-xqc.png"
+          # chat needs a moment to join and fill: a later look proves lines arrive
+          Start-Sleep 25
+          Shot "$PWD\out\shot3-xqc-later.png"
           $app.Refresh()
           $m.first_still_alive = -not $app.HasExited
           $log = Join-Path $env:LOCALAPPDATA 'heatsync-chat\heatsync-chat.log'
