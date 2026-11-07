@@ -127,3 +127,37 @@ fn a_bad_rule_says_why_under_the_list() {
   let tip = app.screen.as_ref().unwrap().ls.as_ref().unwrap().tip().to_owned();
   assert!(tip.starts_with("usage: /rule"), "{tip}");
 }
+
+// the hints lead with plain words; the kind words and the regex syntax wait behind ?
+#[test]
+fn list_hints_lead_with_plain_words_and_keep_the_syntax_behind_a_question_mark() {
+  let mut app = boot();
+  let tip = |app: &App| app.screen.as_ref().unwrap().ls.as_ref().unwrap().tip().to_owned();
+  app.list_open(Kind::Rules);
+  assert!(tip(&app).starts_with("type hide or highlight, then a word: hide spoilers"), "{}", tip(&app));
+  assert!(!tip(&app).contains("msgtype"));
+  press(&mut app, "?");
+  assert!(app.screen_is(Page::List), "? stays in the list");
+  assert!(tip(&app).contains("msgtype") && tip(&app).contains("regex"), "{}", tip(&app));
+  app.list_open(Kind::Alerts);
+  assert!(!tip(&app).contains("regex") && tip(&app).contains("a word or phrase"), "{}", tip(&app));
+  press(&mut app, "?");
+  assert!(tip(&app).contains("regex ^hi") && tip(&app).contains("#channel"), "{}", tip(&app));
+  // a list with nothing more to say hands ? on to the settings
+  app.list_open(Kind::Reasons);
+  press(&mut app, "?");
+  assert!(app.screen_is(Page::Settings));
+}
+
+// a word with no kind in front is a keyword; a kind word alone is not
+#[test]
+fn a_rule_typed_in_plain_words_is_a_keyword_rule() {
+  let mut app = boot();
+  app.list_open(Kind::Rules);
+  press(&mut app, "a");
+  type_in(&mut app, "hide big spoiler");
+  app.on_key(Key::Named(NamedKey::Enter), None);
+  let described = filter::with(|f| f.rules().describe());
+  assert!(described.iter().any(|d| d.contains("hide keyword big spoiler")), "{described:?}");
+  filter::edit(|f| f.rules_mut().remove("1"));
+}

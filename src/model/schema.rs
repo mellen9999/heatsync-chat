@@ -896,7 +896,7 @@ pub static DEFS: [Def; 70] = [
     cat: Cat::Filters,
     section: "rules",
     label: "filter rules",
-    tip: "rules that hide or highlight lines by word, pattern, user, badge or kind of message; the first hide wins. mute keywords, keyword highlights and hide-by-pattern are rules now. enter opens the list: a adds (hide keyword spoilers), x removes",
+    tip: "rules that hide or highlight lines, by word or by user, badge and more. the first hide wins. enter opens the list: a adds (hide spoilers), x removes",
     alias: "chatFilterRules rule keywordhighlights highlight words hidden words mute keywords automodRegex pattern regex hideword",
     ctl: Ctl::Rules,
     fx: Fx::None,

@@ -45,7 +45,9 @@ pub enum RuleCmd {
   Shift(String, bool),
 }
 
-const RULE_USAGE: &str = "usage: /rule [list] | add <hide|highlight> <keyword|regex|user|badge|msgtype|expr> <value> | del|on|off|up|down <number>";
+const RULE_TYPES: [&str; 6] = ["keyword", "regex", "user", "badge", "msgtype", "expr"];
+
+const RULE_USAGE: &str = "usage: /rule add <hide|highlight> <word>, or with a kind first: user, badge, msgtype, regex, expr \u{b7} /rule del|on|off|up|down <number> \u{b7} /rule lists them";
 
 fn rule(rest: &str) -> Cmd {
   let (verb, tail) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
@@ -56,8 +58,13 @@ fn rule(rest: &str) -> Cmd {
     "add" => {
       let mut p = tail.splitn(3, char::is_whitespace);
       match (p.next(), p.next(), p.next().map(str::trim)) {
-        (Some(a), Some(t), Some(v)) if !v.is_empty() => {
+        (Some(a), Some(t), Some(v)) if !v.is_empty() && RULE_TYPES.contains(&t.to_ascii_lowercase().as_str()) => {
           RuleCmd::Add { action: a.to_ascii_lowercase(), ty: t.to_ascii_lowercase(), value: v.to_owned() }
+        }
+        // no kind named: the words are a keyword ("hide spoilers"). a kind word alone is not a keyword
+        (Some(a), Some(t), _) if !RULE_TYPES.contains(&t.to_ascii_lowercase().as_str()) => {
+          let value = tail.split_once(char::is_whitespace).map_or("", |x| x.1).trim();
+          RuleCmd::Add { action: a.to_ascii_lowercase(), ty: "keyword".into(), value: value.to_owned() }
         }
         _ => return Cmd::Usage(RULE_USAGE),
       }
@@ -142,9 +149,14 @@ mod tests {
     assert_eq!(command("/rule on abc"), Some(Cmd::Rule(RuleCmd::Enable("abc".into(), true))));
     assert_eq!(command("/rule up 3"), Some(Cmd::Rule(RuleCmd::Shift("3".into(), true))));
     assert_eq!(command("/rule down 3"), Some(Cmd::Rule(RuleCmd::Shift("3".into(), false))));
+    // no kind named = a keyword; a kind word with nothing after it is still refused
+    assert_eq!(command("/rule add hide big spoiler"), add("hide", "keyword", "big spoiler"));
+    assert_eq!(command("/rule add highlight spoilers"), add("highlight", "keyword", "spoilers"));
     for bad in [
       "/rule add",
       "/rule add hide",
+      "/rule add hide user",
+      "/rule add hide regex",
       "/rule add hide keyword",
       "/rule del",
       "/rule del 1 2",

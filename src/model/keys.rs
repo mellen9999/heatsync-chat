@@ -312,6 +312,7 @@ pub static KEYS: [Group; 18] = [
       k("enter", "a person: their card · a mention rule: on or off · the add row: type a new entry"),
       k("x delete", "remove the picked one (unmute, unblock, unhide, delete)"),
       k("a", "add an entry: a rule, ban reason or mention rule"),
+      k("?", "filter rules and mention rules: the other kinds of rule and the syntax"),
       k("esc q", "close"),
     ],
   },

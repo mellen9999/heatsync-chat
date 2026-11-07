@@ -45,20 +45,29 @@ impl Kind {
   fn hint(self) -> &'static str {
     match self {
       Kind::People => "enter opens their card · x lets them back",
-      Kind::Rules => "type: hide or highlight, then keyword regex user badge msgtype or expr, then the value",
+      Kind::Rules => "type hide or highlight, then a word: hide spoilers \u{b7} ? more",
       Kind::Reasons => "quick reasons offered when you ban",
       Kind::Commands => "type: /name what it says. {1} {2} words · {1+} the rest · {input} all · {channel} · {user}",
-      Kind::Alerts => {
-        "the server watches every channel for these and pings you here. a word, or: phrase big news · regex ^hi · end with #channel to limit it"
-      }
+      Kind::Alerts => "the server watches every channel for a word or phrase and pings you here \u{b7} ? more",
+    }
+  }
+
+  // the advanced syntax, behind ?
+  fn more(self) -> Option<&'static str> {
+    match self {
+      Kind::Rules => Some(
+        "more kinds: put user, badge, msgtype, regex or expr before the value, like highlight user bob or hide regex ^!",
+      ),
+      Kind::Alerts => Some("more: phrase big news \u{b7} regex ^hi \u{b7} end with #channel to keep it to one channel"),
+      _ => None,
     }
   }
 
   fn adding(self) -> &'static str {
     match self {
-      Kind::Rules => "hide keyword spoilers",
+      Kind::Rules => "hide spoilers",
       Kind::Reasons => "a reason",
-      Kind::Alerts => "a word, phrase or regex",
+      Kind::Alerts => "a word or phrase",
       Kind::Commands => "/gg good game {1}",
       _ => "a word or phrase",
     }
@@ -176,7 +185,8 @@ impl Ls {
   pub(super) fn keys(&self) -> &'static str {
     match (self.adding, self.kind.addable()) {
       (true, _) => "enter adds · esc stops",
-      (_, true) if self.kind == Kind::Alerts => "j k move · a add · enter on or off · x delete · esc closes",
+      (_, true) if self.kind == Kind::Alerts => "j k move · a add · enter on or off · x delete · ? more · esc closes",
+      (_, true) if self.kind == Kind::Rules => "j k move · a add · x delete · ? more · esc closes",
       (_, true) => "j k move · a add · x delete · esc closes",
       _ => "j k move · enter opens their card · x lets them back · esc closes",
     }
@@ -374,6 +384,7 @@ impl App {
         }
       }
       Key::Character("a") if !ctrl => self.list_start_add(),
+      Key::Character("?") if l.kind.more().is_some() => l.msg = l.kind.more().unwrap_or_default().to_owned(),
       _ => return false,
     }
     true

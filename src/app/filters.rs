@@ -181,7 +181,7 @@ impl App {
       RuleCmd::List => {
         let rows = filter::with(|f| f.rules().describe());
         return self.say(if rows.is_empty() {
-          "no rules. /rule add <hide|highlight> <keyword|regex|user|badge|msgtype|expr> <value>".to_owned()
+          "no rules yet. add one: /rule add hide spoilers".to_owned()
         } else {
           rows.join(" · ")
         });
