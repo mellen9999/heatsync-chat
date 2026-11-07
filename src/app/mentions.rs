@@ -37,7 +37,9 @@ impl App {
     let muted = self.pings.muted(p, room);
     // a shared-chat line already taken in from another room: this copy is that room's to show, not a second ping
     let again = self.mentions.again(m);
-    if let Some(s) = self.line_sound(room, m).filter(|_| !muted && !again) {
+    // ...but the ping is once per line across the rooms that are not muted: a muted copy leaves it for them
+    let pinged = self.mentions.pinged(m, muted);
+    if let Some(s) = self.line_sound(room, m).filter(|_| !muted && !pinged) {
       crate::util::sound::play(s, self.set.mention_volume.percent(), now_ms());
     }
     // a blocked person never pings you
@@ -46,9 +48,21 @@ impl App {
     }
     m.flags |= flag::ALERT;
     // backlog is not a new ping, and a line a mention rule already put in the tab is one row
-    if m.has(flag::HISTORY) || again || self.mention_dup(p, room, &m.login, &m.body) {
+    if m.has(flag::HISTORY) || self.mention_dup(p, room, &m.login, &m.body) {
       return;
     }
+    if !again {
+      self.mention_row(p, room, m);
+    }
+    let title = format!("{} in #{}", notify::name(&m.nick), notify::name(room));
+    // a muted room's mention is in the tab, unread, but makes no sound, flash or popup
+    if !muted && !pinged {
+      self.mention_alert(&title, &m.nick, &m.body);
+    }
+  }
+
+  // the mentions tab's row for a live ping
+  fn mention_row(&mut self, p: Platform, room: &str, m: &Message) {
     let mut copy = m.clone();
     copy.x = Some(Box::new(Extra { chan: room.into(), ..Extra::default() }));
     copy.platform = p;
@@ -58,11 +72,6 @@ impl App {
       self.tabs[i].chat().push(copy);
       self.unseen_note(crate::model::unseen::Surface::Mentions);
       self.mentions_changed();
-    }
-    let title = format!("{} in #{}", notify::name(&m.nick), notify::name(room));
-    // a muted room's mention is in the tab, unread, but makes no sound, flash or popup
-    if !muted {
-      self.mention_alert(&title, &m.nick, &m.body);
     }
   }
 

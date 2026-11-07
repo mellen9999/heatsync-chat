@@ -22,6 +22,11 @@ impl Seen {
     Seen { set: HashSet::new(), order: VecDeque::new(), cap: cap.max(5) }
   }
 
+  // true when a (case-insensitive) name was already marked; marks nothing
+  pub fn seen(&self, name: &str) -> bool {
+    !name.is_empty() && self.set.contains(&*name.to_ascii_lowercase())
+  }
+
   // true the first time a (case-insensitive) name shows up
   pub fn first(&mut self, name: &str) -> bool {
     if name.is_empty() {

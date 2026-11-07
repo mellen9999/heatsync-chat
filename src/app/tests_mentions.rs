@@ -399,3 +399,36 @@ fn a_shared_chat_line_lands_in_mentions_once_whichever_room_it_comes_through() {
   }
   assert!(!a.mentions.again(&line("x", "src-1")), "the oldest id was forgotten, so it counts as new");
 }
+
+// shared chat with one room muted: the muted room's copy is silent and must not use up the line's one ping
+#[test]
+fn a_muted_rooms_shared_copy_does_not_swallow_the_unmuted_rooms_ping() {
+  fresh();
+  let (net, _rx) = Net::tap();
+  let mut a = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+  a.focused = false;
+  login(&mut a, "mellen");
+  let line = |id: &str, source: &str| {
+    let mut m = Message::system(now_ms(), Platform::Twitch, "");
+    (m.kind, m.id, m.login, m.nick) = (MsgKind::Chat, id.into(), "bob".into(), "bob".into());
+    m.body = format!("hey @mellen {source}").into();
+    m.extra().source = source.into();
+    m
+  };
+  let pings = |a: &mut App, room: &str, m: Message| {
+    a.flash = None;
+    a.on_chat(room, Chat::Msg(m));
+    a.flash.is_some()
+  };
+  let rows = |a: &App| a.tabs.iter().find(|t| t.kind == Kind::Mentions).unwrap().view.msgs().count();
+  a.pings.set_mute(Platform::Twitch, "forsen", true);
+  assert!(!pings(&mut a, "forsen", line("a1", "src-1")), "muted copy is silent");
+  assert!(pings(&mut a, "xqc", line("b1", "src-1")), "the unmuted room's copy still pings");
+  assert_eq!(rows(&a), 1, "one row for the line");
+  assert!(!pings(&mut a, "forsen", line("a2", "src-1")), "and only once");
+  // both unmuted: still one ping for the line
+  a.pings.set_mute(Platform::Twitch, "forsen", false);
+  assert!(pings(&mut a, "forsen", line("a3", "src-2")));
+  assert!(!pings(&mut a, "xqc", line("b3", "src-2")), "the second copy stays quiet");
+  assert_eq!(rows(&a), 2);
+}

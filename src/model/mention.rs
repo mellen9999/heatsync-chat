@@ -13,11 +13,13 @@ pub struct Mentions {
   names: Vec<Box<str>>,
   // source ids of shared-chat lines already taken in
   heard: Seen,
+  // source ids a copy of which actually alerted (an unmuted room's): a muted room's copy never uses one up
+  pinged: Seen,
 }
 
 impl Default for Mentions {
   fn default() -> Self {
-    Mentions { names: Vec::new(), heard: Seen::capped(HEARD) }
+    Mentions { names: Vec::new(), heard: Seen::capped(HEARD), pinged: Seen::capped(HEARD) }
   }
 }
 
@@ -55,6 +57,13 @@ impl Mentions {
   // true when a copy of this line was taken in before (from another room): it pings and lands once
   pub fn again(&mut self, m: &Message) -> bool {
     m.x.as_ref().is_some_and(|x| !x.source.is_empty() && !self.heard.first(&x.source))
+  }
+
+  // true when an unmuted room's copy of this shared-chat line already alerted. an unmuted copy marks the
+  // id; a muted one only looks, so the other room's copy still gets its ping
+  pub fn pinged(&mut self, m: &Message, muted: bool) -> bool {
+    let Some(x) = m.x.as_ref().filter(|x| !x.source.is_empty()) else { return false };
+    if muted { self.pinged.seen(&x.source) } else { !self.pinged.first(&x.source) }
   }
 
   pub fn is_me(&self, who: &str) -> bool {
