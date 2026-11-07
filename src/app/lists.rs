@@ -12,6 +12,7 @@ use super::screen::{Page, Target};
 use crate::model::filter;
 use crate::model::filtercmd::{self, Cmd, RuleCmd};
 use crate::model::line::Line;
+use crate::model::modcmd::Verb;
 use crate::model::mrules::{self, Rule};
 use crate::ui::sheet::L;
 use crate::util::time::now_ms;
@@ -25,6 +26,8 @@ pub(super) enum Kind {
   Alerts,
   // your own slash commands
   Commands,
+  // the mod toolbar's buttons: each one on or off
+  Buttons,
 }
 
 impl Kind {
@@ -35,11 +38,12 @@ impl Kind {
       Kind::Reasons => "ban reasons",
       Kind::Alerts => "mention rules",
       Kind::Commands => "your commands",
+      Kind::Buttons => "mod toolbar buttons",
     }
   }
 
   fn addable(self) -> bool {
-    self != Kind::People
+    !matches!(self, Kind::People | Kind::Buttons)
   }
 
   fn hint(self) -> &'static str {
@@ -47,6 +51,9 @@ impl Kind {
       Kind::People => "enter opens their card · x lets them back",
       Kind::Rules => "type hide or highlight, then a word: hide spoilers \u{b7} ? more",
       Kind::Reasons => "quick reasons offered when you ban",
+      Kind::Buttons => {
+        "enter turns a button on or off \u{b7} they show on the line under the pointer in rooms you moderate"
+      }
       Kind::Commands => "type: /name what it says. {1} {2} words · {1+} the rest · {input} all · {channel} · {user}",
       Kind::Alerts => "the server watches every channel for a word or phrase and pings you here \u{b7} ? more",
     }
@@ -94,6 +101,8 @@ enum Del {
   Alert(u64),
   // one of your commands, by name
   Command(String),
+  // a mod toolbar button, by its place in the catalog
+  Button(usize),
 }
 
 struct Item {
@@ -115,6 +124,8 @@ pub(super) struct Ls {
   mr_note: &'static str,
   // your commands as they stand
   cmds: Vec<(String, String)>,
+  // the mod toolbar's picked buttons
+  mask: u16,
 }
 
 impl Ls {
@@ -136,6 +147,21 @@ impl Ls {
         v.extend(self.hidden.iter().map(|n| item(n, "hidden in this tab", Del::Unhide(n.to_string()))));
         v
       }
+      Kind::Buttons => crate::model::modbar::CATALOG
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+          let what = match c.verb {
+            Verb::Delete => "delete the line".to_owned(),
+            Verb::Timeout(s) => format!("time out for {}", span_text(i64::from(s))),
+            Verb::Purge => "clear their lines".to_owned(),
+            Verb::Ban => "ban".to_owned(),
+            Verb::Unban => "unban".to_owned(),
+          };
+          let on = if self.mask >> i & 1 == 1 { "on" } else { "off" };
+          item(&format!("{} \u{b7} {what}", c.label), on, Del::Button(i))
+        })
+        .collect(),
       Kind::Commands => self.cmds.iter().map(|(n, e)| item(&format!("/{n}"), e, Del::Command(n.clone()))).collect(),
       Kind::Reasons => f.reasons().iter().map(|r| item(r, "", Del::Reason(r.to_string()))).collect(),
       Kind::Alerts => self
@@ -188,6 +214,7 @@ impl Ls {
       (_, true) if self.kind == Kind::Alerts => "j k move · a add · enter on or off · x delete · ? more · esc closes",
       (_, true) if self.kind == Kind::Rules => "j k move · a add · x delete · ? more · esc closes",
       (_, true) => "j k move · a add · x delete · esc closes",
+      _ if self.kind == Kind::Buttons => "j k move · enter on or off · esc closes",
       _ => "j k move · enter opens their card · x lets them back · esc closes",
     }
   }
@@ -204,8 +231,18 @@ impl App {
     self.open_screen(Page::List);
     if let Some(s) = &mut self.screen {
       let cmds = self.ucmds.iter().map(|(n, e)| (n.to_owned(), e.to_owned())).collect();
-      s.ls =
-        Some(Box::new(Ls { kind, hidden, adding: false, add: Line::default(), msg: String::new(), mr, mr_note, cmds }));
+      let mask = self.set.mod_buttons;
+      s.ls = Some(Box::new(Ls {
+        kind,
+        hidden,
+        adding: false,
+        add: Line::default(),
+        msg: String::new(),
+        mr,
+        mr_note,
+        cmds,
+        mask,
+      }));
     }
     if kind == Kind::Alerts {
       // another device may have changed them since the last read
@@ -268,6 +305,7 @@ impl App {
       Del::Reason(text) => self.list_run(Cmd::Reason { add: false, text: Some(text) }),
       Del::Rule(n) => self.list_run(Cmd::Rule(RuleCmd::Del(n.to_string()))),
       Del::Alert(id) => self.mrules_remove(id),
+      Del::Button(_) => {}
       Del::Command(n) => {
         let said = self.ucmd_remove(&n);
         self.list_cmds_sync();
@@ -315,7 +353,7 @@ impl App {
         Some(c) => c,
         None => return,
       },
-      Kind::People | Kind::Alerts | Kind::Commands => return,
+      Kind::People | Kind::Alerts | Kind::Commands | Kind::Buttons => return,
     };
     self.list_run(cmd);
     if let Some(l) = self.ls() {
@@ -343,6 +381,17 @@ impl App {
           self.ls().filter(|l| l.kind == Kind::Alerts).and_then(|l| l.items().into_iter().nth(i)).map(|x| x.del)
         {
           return self.mrules_toggle(id);
+        }
+        if let Some(Del::Button(b)) =
+          self.ls().filter(|l| l.kind == Kind::Buttons).and_then(|l| l.items().into_iter().nth(i)).map(|x| x.del)
+        {
+          self.set.mod_buttons ^= 1 << b;
+          let mask = self.set.mod_buttons;
+          self.set.save();
+          if let Some(l) = self.ls() {
+            l.mask = mask;
+          }
+          return self.wake();
         }
         let Some(l) = self.ls().filter(|l| l.kind == Kind::People) else { return };
         let Some(name) = l.items().into_iter().nth(i).map(|x| x.text) else { return };

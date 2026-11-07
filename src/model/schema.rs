@@ -824,7 +824,7 @@ pub static DEFS: [Def; 70] = [
     cat: Cat::Mod,
     section: "mod toolbar",
     label: "mod toolbar buttons",
-    tip: "pick which buttons show on a line: delete, timeouts, ban, unban",
+    tip: "pick which buttons show on a line: delete, timeouts, ban, unban. enter lets you pick",
     alias: "hs_mod_toolbar_buttons hover delete timeout purge ban unban",
     ctl: Ctl::Buttons(|s| s.mod_buttons, |s, m| s.mod_buttons = m),
     fx: Fx::None,

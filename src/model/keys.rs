@@ -309,7 +309,10 @@ pub static KEYS: [Group; 18] = [
     name: "your lists (settings → muted & blocked people, filter rules…)",
     rows: &[
       k("j k  up down", "move"),
-      k("enter", "a person: their card · a mention rule: on or off · the add row: type a new entry"),
+      k(
+        "enter",
+        "a person: their card · a mention rule or a mod toolbar button: on or off · the add row: type a new entry",
+      ),
       k("x delete", "remove the picked one (unmute, unblock, unhide, delete)"),
       k("a", "add an entry: a rule, ban reason or mention rule"),
       k("?", "filter rules and mention rules: the other kinds of rule and the syntax"),

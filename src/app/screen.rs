@@ -656,8 +656,9 @@ impl App {
         Ctl::People if adjust.is_none() => self.list_open(Kind::People),
         Ctl::Alerts if adjust.is_none() => self.list_open(Kind::Alerts),
         Ctl::Commands if adjust.is_none() => self.list_open(Kind::Commands),
-        // the toolbar's buttons and the words rows live in a slash command: leave with it ready to finish
-        Ctl::Buttons(..) | Ctl::Text(..) if adjust.is_none() => {
+        Ctl::Buttons(..) if adjust.is_none() => self.list_open(Kind::Buttons),
+        // the words rows live in a slash command: leave with it ready to finish
+        Ctl::Text(..) if adjust.is_none() => {
           self.close_screen();
           if let Some(c) = d.cmd {
             self.type_into_line(&format!("{c} "));

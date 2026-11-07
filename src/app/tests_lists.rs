@@ -161,3 +161,31 @@ fn a_rule_typed_in_plain_words_is_a_keyword_rule() {
   assert!(described.iter().any(|d| d.contains("hide keyword big spoiler")), "{described:?}");
   filter::edit(|f| f.rules_mut().remove("1"));
 }
+
+// the mod toolbar's buttons: enter on the row opens a list, enter on a button turns it on or off and saves
+#[test]
+fn the_mod_buttons_row_opens_a_list_of_buttons_to_switch() {
+  use crate::model::modbar;
+  let mut app = boot();
+  app.set.mod_buttons = 0;
+  via_settings(&mut app, "mod_buttons");
+  assert!(app.screen_is(Page::List), "the screen stays and shows the buttons");
+  let list = rows(&app);
+  assert_eq!(list.len(), modbar::CATALOG.len());
+  assert_eq!(list[0], "x \u{b7} delete the line|off");
+  assert!(list.iter().all(|r| r.ends_with("|off")));
+  // enter switches the picked one on; the next one on too
+  app.on_key(Key::Named(NamedKey::Enter), None);
+  press(&mut app, "j");
+  app.on_key(Key::Named(NamedKey::Enter), None);
+  assert_eq!(app.set.mod_buttons, 0b11);
+  assert!(rows(&app)[0].ends_with("|on") && rows(&app)[1].ends_with("|on") && rows(&app)[2].ends_with("|off"));
+  // and off again
+  app.on_key(Key::Named(NamedKey::Enter), None);
+  assert_eq!(app.set.mod_buttons, 0b01);
+  // nothing to add, nothing to delete
+  press(&mut app, "x");
+  press(&mut app, "a");
+  assert_eq!(app.set.mod_buttons, 0b01);
+  assert!(!app.screen.as_ref().unwrap().ls.as_ref().unwrap().adding);
+}
