@@ -844,3 +844,40 @@ fn headless_last_read_line() {
   say(&mut app, forsen);
   assert!(!app.tabs[forsen].view.has_read_line());
 }
+
+// with vi off, a picked line still has a way out: esc, or a click on empty chat
+#[test]
+fn headless_esc_and_empty_click_let_a_picked_line_go_without_vi() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(720, 360);
+  for t in &mut app.tabs {
+    t.view.resize(720);
+  }
+  let chat = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  app.select(chat);
+  app.set.vi = false;
+  let mut m = Message::system(now_ms(), Platform::Twitch, "hello there");
+  m.kind = crate::model::message::Kind::Chat;
+  m.id = "a1".into();
+  m.nick = "bob".into();
+  m.login = "bob".into();
+  app.on_chat("forsen", Chat::Msg(m));
+  app.redraw();
+  let area = app.chat_area();
+  // click the newest line: picked, still typing
+  (app.overlay, app.pointer) = (None, (area.x + 200, area.bottom() - 5));
+  app.click();
+  assert!(app.tabs[chat].view.selected().is_some(), "the click picks it");
+  assert_eq!(app.mode, Mode::Insert, "vi off: no mode change");
+  app.key_insert(Key::Named(NamedKey::Escape), None);
+  assert!(app.tabs[chat].view.selected().is_none(), "esc lets it go");
+  // pick again, then click the empty chat above the lines
+  app.click();
+  assert!(app.tabs[chat].view.selected().is_some());
+  app.pointer = (area.x + 200, area.y + 2);
+  app.click();
+  assert!(app.tabs[chat].view.selected().is_none(), "a click on nothing lets it go");
+}

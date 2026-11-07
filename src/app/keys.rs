@@ -58,6 +58,9 @@ impl App {
         self.reply = None;
         self.edit_end();
         self.find_clear();
+        if let Some(v) = self.view() {
+          v.deselect();
+        }
       }
       Key::Named(NamedKey::Enter) => self.send(),
       Key::Named(NamedKey::Backspace) if ctrl => l.delete_word_back(),

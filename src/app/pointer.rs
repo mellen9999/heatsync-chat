@@ -127,6 +127,10 @@ impl App {
       self.chain_close();
       return self.wake();
     }
+    // a click on nothing lets a picked line go
+    if !picked && let Some(v) = self.view() {
+      v.deselect();
+    }
     if picked && self.tabs[self.active].kind == Kind::Mentions {
       self.jump_to_mention();
     } else if picked && self.set.vi && self.mode == Mode::Insert {

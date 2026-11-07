@@ -139,7 +139,10 @@ pub static KEYS: [Group; 19] = [
       k("ctrl-w  ctrl-backspace", "delete the word before"),
       k("backspace  delete", "erase the letter before, after the cursor"),
       k("ctrl-u ctrl-k", "delete to start, to end"),
-      k("esc", "close the list, end a tab cycle, clear the search, drop the reply (vi: leave typing)"),
+      k(
+        "esc",
+        "close the list, end a tab cycle, clear the search, drop the reply, let a picked line go (vi: leave typing)",
+      ),
     ],
   },
   Group {
