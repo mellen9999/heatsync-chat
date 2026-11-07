@@ -35,7 +35,7 @@ pub(super) struct Sig {
   geo: (i32, i32, i32),
 }
 
-const FILTER_HINT: &str = "filter — /regex/ or @user";
+const FILTER_HINT: &str = "filter: a word, or @name";
 const SEARCH_HINT: &str = "search messages…";
 
 impl App {

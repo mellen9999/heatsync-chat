@@ -67,7 +67,7 @@ pub static KEYS: [Group; 19] = [
         "pick a line; a reply's ↳ line opens its thread; a went-live line opens that channel (its tab, else a temporary one)",
       ),
       k("right-click", "line menu: reply, copy, note, mute, block, mod, pin"),
-      k("click  ctrl-f", "filter this tab: type live, /regex/ or @user, enter keeps, esc clears"),
+      k("click  ctrl-f", "filter this tab: a word or @name (/pattern/ works too), enter keeps, esc clears"),
       k("ctrl-g", "next match (shift: previous)"),
       v("ctrl-d ctrl-u", "scroll half a page"),
       v("space g  space G", "oldest, newest"),

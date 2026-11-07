@@ -243,12 +243,6 @@ fn opens(summary: String) -> String {
 fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
   let mut lines = Vec::new();
   let mut targets = Vec::new();
-  if q.split_whitespace().all(|w| RESET_WORDS.contains(&w.to_lowercase())) {
-    lines.push(L::Head("reset".into()));
-    targets.push(Target::None);
-    lines.push(L::Row { a: RESET_LABEL.to_owned(), b: "enter asks first".to_owned(), pill: None });
-    targets.push(Target::Reset);
-  }
   let mut last = None;
   for d in DEFS.iter().filter(|d| d.matches(q)) {
     if last != Some((d.cat, d.section)) {
@@ -291,6 +285,13 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       L::Row { a: d.label.to_owned(), b, pill }
     });
     targets.push(Target::Def(d));
+  }
+  // last, away from the cursor's start: it touches every setting
+  if q.split_whitespace().all(|w| RESET_WORDS.contains(&w.to_lowercase())) {
+    lines.push(L::Head("reset".into()));
+    targets.push(Target::None);
+    lines.push(L::Row { a: RESET_LABEL.to_owned(), b: "enter asks first".to_owned(), pill: None });
+    targets.push(Target::Reset);
   }
   (lines, targets)
 }
@@ -852,7 +853,10 @@ mod tests {
     assert_eq!(lines.len(), targets.len());
     let rows = targets.iter().filter(|t| matches!(t, Target::Def(_))).count();
     assert_eq!(rows, DEFS.len());
-    assert!(matches!(&lines[0], L::Head(h) if h == "reset"));
+    // reset sits last, away from where the cursor starts
+    assert!(!matches!(&lines[0], L::Head(h) if h == "reset"));
+    assert!(matches!(&lines[lines.len() - 2], L::Head(h) if h == "reset"));
+    assert!(matches!(targets.last(), Some(Target::Reset)));
     assert!(lines.iter().any(|l| matches!(l, L::Head(h) if h == "filters · messages")));
     // headings never come twice in a row and never end the list
     assert!(matches!(lines.last(), Some(L::Row { .. })));
