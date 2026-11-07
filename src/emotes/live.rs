@@ -2,7 +2,7 @@
 // the body is hostile: ids are checked, lists capped, every url is built by us on the 7tv cdn
 use serde_json::Value;
 
-use super::{Emote, MAX_SET, Provider, Scope, valid_name};
+use super::{Emote, MAX_SET, Provider, Scope, Set, valid_name};
 
 const MAX_ITEMS: usize = 200;
 
@@ -36,7 +36,7 @@ fn flags_zero_width(v: &Value) -> Option<bool> {
   (f.is_some() || d.is_some()).then(|| f.unwrap_or(0) & 1 != 0 || d.unwrap_or(0) & 256 != 0)
 }
 
-fn emote_of(v: &Value) -> Option<(Box<str>, Box<str>, Emote)> {
+pub(super) fn emote_of(v: &Value) -> Option<(Box<str>, Box<str>, Emote)> {
   let id = v.get("id")?.as_str().filter(|i| valid_id(i))?;
   let name = v.get("name")?.as_str().filter(|n| valid_name(n))?;
   let file = v
@@ -88,40 +88,44 @@ pub fn parse(body: &Value) -> Option<(Box<str>, Delta)> {
   Some((set.into(), d))
 }
 
+// apply an edit to a set of at most `cap` emotes. true when anything changed
+pub fn patch_set(set: &mut Set, d: &Delta, cap: usize) -> bool {
+  let before = set.len();
+  let find = |set: &Set, id: &str| set.iter().find(|(_, e)| id_of(&e.url) == Some(id)).map(|(k, _)| k.clone());
+  let mut changed = false;
+  for id in &d.remove {
+    if let Some(k) = find(set, id) {
+      set.remove(&k);
+      changed = true;
+    }
+  }
+  for (id, name, zw) in &d.rename {
+    if let Some(k) = find(set, id)
+      && let Some(mut e) = set.remove(&k)
+    {
+      e.zero_width = zw.unwrap_or(e.zero_width);
+      set.insert(name.clone(), e);
+      changed = true;
+    }
+  }
+  for (id, name, e) in &d.add {
+    // a re-push of an emote we hold under another name is a rename
+    if let Some(k) = find(set, id) {
+      set.remove(&k);
+    }
+    if set.len() < cap || set.contains_key(name) {
+      set.insert(name.clone(), e.clone());
+      changed = true;
+    }
+  }
+  changed || set.len() != before
+}
+
 impl super::Emotes {
   // apply an edit to a channel's 7tv set. true when anything changed
   pub fn patch(&mut self, channel: &str, d: &Delta) -> bool {
     let scope: &mut Scope = self.channels.entry(channel.into()).or_default();
-    let set = scope.sets.entry(Provider::SevenTv).or_default();
-    let before = set.len();
-    let find = |set: &super::Set, id: &str| set.iter().find(|(_, e)| id_of(&e.url) == Some(id)).map(|(k, _)| k.clone());
-    let mut changed = false;
-    for id in &d.remove {
-      if let Some(k) = find(set, id) {
-        set.remove(&k);
-        changed = true;
-      }
-    }
-    for (id, name, zw) in &d.rename {
-      if let Some(k) = find(set, id)
-        && let Some(mut e) = set.remove(&k)
-      {
-        e.zero_width = zw.unwrap_or(e.zero_width);
-        set.insert(name.clone(), e);
-        changed = true;
-      }
-    }
-    for (id, name, e) in &d.add {
-      // a re-push of an emote we hold under another name is a rename
-      if let Some(k) = find(set, id) {
-        set.remove(&k);
-      }
-      if set.len() < MAX_SET || set.contains_key(name) {
-        set.insert(name.clone(), e.clone());
-        changed = true;
-      }
-    }
-    changed || set.len() != before
+    patch_set(scope.sets.entry(Provider::SevenTv).or_default(), d, MAX_SET)
   }
 }
 
