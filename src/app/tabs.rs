@@ -38,6 +38,8 @@ pub enum TabAct {
   Hide,
   // this tab's lines go, here only (/lclear)
   Lclear,
+  // show or hide one platform's lines on a merged tab (ext platformFilters)
+  Show(Platform),
   // this channel's go-live bell (default → on → off) and muted pings (model::pings)
   Bell,
   Mute,
@@ -179,6 +181,7 @@ impl App {
   // a change you made: saved, and sent to your account
   pub(super) fn save_tabs(&mut self) {
     self.store_tabs();
+    self.sync_plats();
     self.tab_sync_push();
   }
 
@@ -261,6 +264,11 @@ impl App {
     // a temp tab was never saved: dropping it changes nothing on disk or on the account
     if saved {
       self.save_tabs();
+      // a removed tab's filter goes with it: the file stays as small as the tabs
+      let keep: Vec<String> = self.tabs.iter().map(|t| spec_of(t).line()).collect();
+      if self.plats.keep_only(keep.iter().map(String::as_str)) {
+        self.plats.save();
+      }
     }
     self.fix_active();
     self.activate(self.active);
@@ -287,7 +295,7 @@ impl App {
     self.activate(self.tabs.len() - 1);
   }
 
-  fn edit_tab(&mut self, i: usize, spec: &Spec) {
+  pub(super) fn edit_tab(&mut self, i: usize, spec: &Spec) {
     let new = sources_of(spec);
     for (p, key) in &new {
       if !self.tabs[i].sources.iter().any(|s| s.0 == *p && s.1 == *key) {
@@ -296,7 +304,10 @@ impl App {
     }
     seat_hosts(&mut self.res.chatters, &new);
     self.live_soon();
+    let was = spec_of(&self.tabs[i]).line();
     let old = std::mem::replace(&mut self.tabs[i].sources, new.clone());
+    self.plats.rename(&was, &spec_of(&self.tabs[i]).line(), crate::model::platfilter::linked(&new));
+    self.plats.save();
     let w = self.body().w;
     let t = &mut self.tabs[i];
     let first = new.first().map_or(Box::from(""), |s| s.1.clone());
@@ -659,6 +670,7 @@ impl App {
       items.push((TabAct::Lclear, "clear lines".into()));
       items.push((TabAct::Bell, format!("bell: {}", self.tab_bell(i).label())));
       items.push((TabAct::Mute, if self.tab_muted(i) { "unmute pings" } else { "mute pings" }.into()));
+      items.extend(self.plat_rows(i).into_iter().map(|(p, l)| (TabAct::Show(p), l)));
       let chan = self.tabs[i].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
       if let Some(c) = chan.filter(|_| self.me.is_some()) {
         let caster = self.is_caster(&c);
@@ -722,6 +734,7 @@ impl App {
       }
       Some(TabAct::Bell) => self.cycle_tab_bell(m.tab),
       Some(TabAct::Mute) => self.toggle_tab_mute(m.tab),
+      Some(TabAct::Show(p)) => self.toggle_plat(m.tab, p),
       Some(TabAct::Announce) => {
         self.type_in_tab(m.tab, "/announce ", "type the announcement, then enter");
       }

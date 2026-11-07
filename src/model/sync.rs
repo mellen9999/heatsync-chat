@@ -1103,6 +1103,26 @@ mod tests {
     }
   }
 
+  // the server rejects a whole patch that carries platformFilters (it is device-local): a push never does,
+  // even when the account's state holds one and settings here have moved
+  #[test]
+  fn a_push_never_carries_platform_filters() {
+    let mut o = Map::new();
+    o.insert("platformFilters".into(), json!({"tab": {"kick": false}}));
+    o.insert("zebra".into(), json!(true));
+    let (inb, _) = pluck(&Value::Object(o));
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    a.inbound(&inb, &mut s, NOW);
+    s.zebra = !s.zebra;
+    s.timestamps = !s.timestamps;
+    s.hover_reply = !s.hover_reply;
+    a.outbound(&s, NOW + 1000, true);
+    let sent = a.outbound(&s, NOW + 1000 + DEBOUNCE_MS, true).expect("changes go up");
+    let text = sent.to_string();
+    assert!(!text.contains("platformFilters") && !text.contains("platform_filters"), "{text}");
+  }
+
   #[test]
   fn device_local_keys_have_no_row() {
     let ids: Vec<&str> = keys();

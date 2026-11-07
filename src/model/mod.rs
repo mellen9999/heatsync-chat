@@ -52,6 +52,7 @@ pub mod picker;
 pub mod picker_search;
 pub mod pin;
 pub mod pings;
+pub mod platfilter;
 pub mod post;
 pub mod postcmd;
 pub mod pred;

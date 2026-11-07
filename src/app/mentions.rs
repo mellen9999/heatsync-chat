@@ -34,6 +34,10 @@ impl App {
   // tint a line that pings you; a live one also lands in the mentions tab (and may notify).
   // `room` is the tab key it came from (twitch channel, kick slug, youtube handle)
   pub(super) fn scan_mention(&mut self, p: Platform, room: &str, m: &mut Message) {
+    // a platform every tab of this room hides pings nobody
+    if m.kind.said() && self.plat_silenced(p, room) {
+      return;
+    }
     let muted = self.pings.muted(p, room);
     // a shared-chat line already taken in from another room: this copy is that room's to show, not a second ping
     let again = self.mentions.again(m);

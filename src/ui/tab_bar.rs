@@ -22,6 +22,8 @@ pub struct TabLabel<'a> {
   pub temp: bool,
   // its pings are muted: a ⊘ after the name
   pub muted: bool,
+  // a platform is hidden on it (merged tabs): a ◐ after the name
+  pub filtered: bool,
 }
 
 // the buttons after the tabs: which is under the pointer (or open), and a newer version's label
@@ -88,6 +90,7 @@ pub fn draw(
     let ink = if t.unread { t.hot } else { theme::DIM };
     let count = if t.count.is_empty() { String::new() } else { format!(" {}", t.count) };
     let count = if t.muted { format!("{count} ⊘") } else { count };
+    let count = if t.filtered { format!("{count} ◐") } else { count };
     let label = if column { format!(" {}{count}", t.name) } else { format!(" {}{count} ", t.name) };
     let r = cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, rev);
     let r = if t.live && !column {

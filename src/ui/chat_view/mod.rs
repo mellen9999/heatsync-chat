@@ -17,6 +17,7 @@ use crate::model::find::Find;
 use crate::model::links::Link;
 use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Platform, flag};
+use crate::model::platfilter;
 use crate::model::seen::Seen;
 use crate::util::time::now_ms;
 
@@ -237,6 +238,8 @@ pub struct ChatView {
   pub filtered: bool,
   // people hidden in this tab only (/hide name); gone on restart, like the ext
   tab_hidden: HashSet<Box<str>>,
+  // platforms whose lines this tab hides (model::platfilter bits): a view choice, nothing is deleted
+  hide_plat: u8,
   // the text of the last line shown, for hide duplicates
   last_text: Box<str>,
   // the search typed with / or ctrl-f: only matching lines show, hits in reverse video
@@ -313,6 +316,7 @@ impl ChatView {
       empty: "".into(),
       filtered: false,
       tab_hidden: HashSet::new(),
+      hide_plat: 0,
       last_text: "".into(),
       search: None,
     }
@@ -324,6 +328,7 @@ impl ChatView {
     v.glow = false;
     (v.zebra, v.timestamps, v.tags, v.filtered) = (self.zebra, self.timestamps, self.tags, self.filtered);
     v.tab_hidden = self.tab_hidden.clone();
+    v.hide_plat = self.hide_plat;
     v.resize(self.width);
     v
   }
@@ -497,8 +502,22 @@ impl ChatView {
     if !self.filtered {
       return 0;
     }
+    let plat = self.plat_look(m);
     let (hid, last) = (&self.tab_hidden, &mut self.last_text);
-    filter::with(|f| f.judge(m, &self.channel, now_ms(), hid, last))
+    plat | filter::with(|f| f.judge(m, &self.channel, now_ms(), hid, last))
+  }
+
+  // a line of a platform this tab hides (notices and stream lines are never filtered)
+  fn plat_look(&self, m: &Message) -> u8 {
+    if self.hide_plat & platfilter::bit(m.platform) != 0 && m.kind.said() { filter::HIDDEN } else { 0 }
+  }
+
+  // the platforms this tab hides changed: every line is judged again
+  pub fn set_hidden_platforms(&mut self, bits: u8) {
+    if self.hide_plat != bits {
+      self.hide_plat = bits;
+      self.refilter();
+    }
   }
 
   // the rules changed: judge every line again, oldest first
@@ -511,7 +530,8 @@ impl ChatView {
     let mut changed = false;
     filter::with(|f| {
       for r in &mut self.rows {
-        let look = f.judge(&r.msg, &self.channel, now, &self.tab_hidden, &mut last);
+        let look = f.judge(&r.msg, &self.channel, now, &self.tab_hidden, &mut last)
+          | if self.hide_plat & platfilter::bit(r.msg.platform) != 0 && r.msg.kind.said() { filter::HIDDEN } else { 0 };
         if look != r.look {
           r.look = look;
           Self::touch(r);

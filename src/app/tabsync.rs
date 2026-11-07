@@ -173,6 +173,7 @@ impl App {
     // the account had channels: the first window no longer asks for one
     self.welcome &= want.is_empty();
     self.store_tabs();
+    self.sync_plats();
     match find(self, active) {
       Some(i) => self.active = i,
       None => self.activate(self.active.min(self.tabs.len().saturating_sub(1))),

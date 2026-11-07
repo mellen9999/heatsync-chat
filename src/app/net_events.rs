@@ -126,12 +126,19 @@ impl App {
         for m in &msgs {
           v.push(m.clone());
         }
+        // lines of a platform this tab hides still count for the stream's stats, but move nothing else
+        let mut loud = false;
         for m in &msgs {
           self.tally(i, key, m);
-          self.bump_count(i);
+          if !self.plat_quiet(i, m) {
+            loud = true;
+            self.bump_count(i);
+          }
           self.chain_live(i, m);
         }
-        self.touched(i);
+        if loud {
+          self.touched(i);
+        }
       }
     }
   }
@@ -204,7 +211,11 @@ impl App {
     match ev {
       Chat::Msg(m) => {
         let live = self.chain.is_some().then(|| m.clone());
-        tab.push(m);
+        let quiet = self.plat_quiet(i, &m);
+        self.tabs[i].chat().push(m);
+        if quiet {
+          return;
+        }
         self.bump_count(i);
         if let Some(m) = live {
           self.chain_live(i, &m);

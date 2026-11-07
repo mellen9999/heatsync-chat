@@ -62,6 +62,7 @@ mod picker;
 mod picker_search;
 mod pin;
 mod pings;
+mod platforms;
 mod pointer;
 mod pop;
 mod pred;
@@ -114,6 +115,8 @@ mod tests_pickers;
 mod tests_pin;
 #[cfg(test)]
 mod tests_pings;
+#[cfg(test)]
+mod tests_platfilter;
 #[cfg(test)]
 mod tests_pushed;
 #[cfg(test)]
@@ -307,6 +310,8 @@ pub struct App {
   notes: crate::model::notes::Notes,
   // per-channel go-live bell and muted pings (model::pings)
   pings: crate::model::pings::Pings,
+  // platforms each merged tab hides (model::platfilter): device-local, never synced
+  plats: crate::model::platfilter::PlatFilter,
   // your own slash commands
   ucmds: crate::model::usercmd::Cmds,
   occluded: bool,
@@ -552,6 +557,7 @@ impl App {
       import: Default::default(),
       notes: crate::model::notes::Notes::load(),
       pings: crate::model::pings::Pings::load(),
+      plats: crate::model::platfilter::PlatFilter::load(),
       ucmds: crate::model::usercmd::Cmds::load(),
       occluded: false,
       damage: Default::default(),
@@ -631,6 +637,7 @@ impl App {
     };
     // the saved font family is looked up now; until it answers, the system monospace
     app.font_follow(false);
+    app.sync_plats();
     app
   }
 

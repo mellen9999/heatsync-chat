@@ -172,6 +172,7 @@ impl App {
         .collect();
       self.heat_due = (mode == Counter::Heat && counts.iter().any(|c| !c.is_empty()))
         .then(|| Instant::now() + Duration::from_secs(1));
+      let filt: Vec<bool> = (0..self.tabs.len()).map(|i| self.tab_filtered(i)).collect();
       let labels: Vec<TabLabel> = shown
         .iter()
         .zip(&counts)
@@ -199,6 +200,7 @@ impl App {
             live,
             temp: t.temp,
             muted: t.sources.first().is_some_and(|(p, k)| self.pings.muted(*p, k)),
+            filtered: filt[i],
           }
         })
         .collect();
