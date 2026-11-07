@@ -305,6 +305,19 @@ pub fn height(text: &mut Text, b: &Bar, width: i32) -> i32 {
 
 // composition underline (vt320 underline attr): one row under every line the range spans
 pub fn underline(c: &mut Canvas, l: &TextLayout, range: std::ops::Range<usize>, ox: f32, oy: f32, clip: Rect) {
+  underline_in(c, l, range, ox, oy, clip, theme::WHITE)
+}
+
+// the same in `ink` (a reversed row draws black on its white)
+pub fn underline_in(
+  c: &mut Canvas,
+  l: &TextLayout,
+  range: std::ops::Range<usize>,
+  ox: f32,
+  oy: f32,
+  clip: Rect,
+  ink: u32,
+) {
   if range.is_empty() {
     return;
   }
@@ -314,7 +327,7 @@ pub fn underline(c: &mut Canvas, l: &TextLayout, range: std::ops::Range<usize>, 
   );
   for (r, _) in sel.geometry(l) {
     let u = Rect::new((ox as f64 + r.x0) as i32, (oy as f64 + r.y1) as i32 - 1, (r.x1 - r.x0).ceil() as i32, 1);
-    c.fill(u.intersect(clip), theme::WHITE);
+    c.fill(u.intersect(clip), ink);
   }
 }
 

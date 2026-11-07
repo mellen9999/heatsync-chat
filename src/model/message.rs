@@ -129,6 +129,8 @@ pub struct Extra {
   // msg-id=user-intro (someone introducing themselves: the `new here` chip) and returning-chatter=1
   pub intro: bool,
   pub returning: bool,
+  // a feed post's bold and underlined runs, in bytes of the body (model::markup)
+  pub marks: Box<[crate::model::markup::Mark]>,
 }
 
 // one picture (a video's still) and the video it plays

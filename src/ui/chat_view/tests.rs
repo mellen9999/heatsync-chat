@@ -1758,6 +1758,50 @@ fn lines_of(c: &Canvas, ink: u32) -> Vec<i32> {
   (0..c.h).filter(|&y| (0..c.w).all(|x| c.px[(y * c.w + x) as usize] == ink)).collect()
 }
 
+// a feed post's **bold** is heavier than the same word plain, and its *underline* is a rule under the run
+// (vt320 attrs: no colour, no other weight); the markers themselves are never drawn, so the words are the
+// same width, and a picked (reversed) row draws its rule black
+#[test]
+fn a_posts_bold_is_heavier_and_its_underline_is_a_rule_under_the_run() {
+  let draw = |text: &str, pick: bool| -> Canvas {
+    let mut res = Res::new(1.0);
+    let p = crate::model::post::parse(&serde_json::json!({
+      "base36_id": "00004a", "username": "bob", "user_id": "9", "content": text,
+    }))
+    .unwrap();
+    let mut v = ChatView::new(50, "c".into());
+    v.resize(400);
+    v.push(crate::model::post::message(&p, None, false));
+    if pick {
+      v.select_start(&mut res, 200);
+    }
+    let (mut c, area) = (Canvas::new(400, 200), Rect::new(0, 0, 400, 200));
+    v.take_paint(&mut res, 200);
+    v.draw(&mut c, &mut res, area, area);
+    c
+  };
+  let count = |c: &Canvas, ink: u32| c.px.iter().filter(|&&p| p == ink).count();
+  // a horizontal run of one colour this long can only be a rule: no letter of the word has one. black counts
+  // only inside the white of a picked row (the rest of the canvas is black)
+  let rule = |c: &Canvas, ink: u32| {
+    (0..c.h).any(|y| {
+      let row = &c.px[(y * c.w) as usize..((y + 1) * c.w) as usize];
+      let inside = ink == theme::WHITE || row.iter().filter(|&&p| p == theme::WHITE).count() > 300;
+      inside && row.chunk_by(|a, b| a == b).any(|run| run[0] == ink && run.len() >= 24)
+    })
+  };
+  let (plain, bold, under) = (draw("hello", false), draw("**hello**", false), draw("*hello*", false));
+  assert!(count(&bold, theme::WHITE) > count(&plain, theme::WHITE), "heavier");
+  assert!(!rule(&plain, theme::WHITE) && !rule(&bold, theme::WHITE), "no rule without the mark");
+  assert!(rule(&under, theme::WHITE), "the underline");
+  assert!(count(&under, theme::WHITE) > count(&plain, theme::WHITE) + 20, "the rule is a row of pixels");
+  // `_` inside a name is no mark
+  assert!(!rule(&draw("snake_case_name", false), theme::WHITE));
+  // a picked row is white: its rule is black on it, and a plain picked row has none
+  assert!(rule(&draw("*hello*", true), theme::BLACK));
+  assert!(!rule(&draw("hello", true), theme::BLACK));
+}
+
 fn read_view(n: usize) -> (ChatView, Res, Canvas, Rect) {
   let res = Res::new(1.0);
   let mut v = ChatView::new(50, "c".into());

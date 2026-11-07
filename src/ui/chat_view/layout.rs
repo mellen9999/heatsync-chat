@@ -7,6 +7,7 @@ use crate::heatsync::content;
 use crate::images::ImgId;
 use crate::model::find::Find;
 use crate::model::links::Link;
+use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Notice, Platform, Seg, flag};
 use crate::model::preview::{Kind as PreviewKind, Preview};
 use crate::model::video;
@@ -201,6 +202,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   let mut boxes = Vec::new();
   let mut links = Vec::new();
   let mut link_runs = Vec::new();
+  let mut unders: Vec<std::ops::Range<usize>> = Vec::new();
   let mut painted = None;
   let mut mentions = Vec::new();
   let mut embed = None;
@@ -277,7 +279,24 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     let b0 = s.len();
     if !muted {
       let giant = x.is_some_and(|x| x.giant);
-      (links, link_runs, mentions) = body(res, chan, m, fold.as_ref(), giant, &mut s, &mut ib, &mut boxes);
+      let styled;
+      (links, link_runs, mentions, styled) = body(res, chan, m, fold.as_ref(), giant, &mut s, &mut ib, &mut boxes);
+      // a feed post's bold and underlined runs. bold goes in first so a link's blue, a mention, the dim of a
+      // cleared line draw over its ink; underline is a line drawn under the run
+      for (r, st) in styled {
+        match st {
+          Style::Bold => spans.push(Span { range: r, ink: Ink(theme::WHITE), bold: true }),
+          Style::Under => unders.push(r),
+        }
+      }
+      unders.sort_by_key(|r| r.start);
+      unders.dedup_by(|b, a| {
+        let join = b.start <= a.end;
+        if join {
+          a.end = a.end.max(b.end);
+        }
+        join
+      });
       // a link's words are drawn in link blue
       for (r, _) in &link_runs {
         spans.push(Span { range: r.clone(), ink: Ink(theme::BLUE), bold: false });
@@ -445,6 +464,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     embed,
     links,
     link_runs,
+    unders,
   }
 }
 
@@ -919,7 +939,10 @@ pub(super) fn body(
   boxes: &mut Vec<EmoteBox>,
 ) -> Words {
   let links = if res.links { crate::model::links::find(&m.body) } else { Vec::new() };
+  // a feed post's bold / underlined runs, in bytes of the body
+  let marks = m.x.as_deref().map_or(&[][..], |x| &x.marks[..]);
   let mut runs = Vec::new();
+  let mut styled = Vec::new();
   let mut people = Vec::new();
   let px = res.look.emote_px();
   let h = res.images.px(px);
@@ -997,6 +1020,8 @@ pub(super) fn body(
         prev_emote = true;
       }
       None => {
+        // a run carries on over the space before this word only when that word is text too
+        let joined = !first && !prev_emote;
         if !first {
           s.push(' ');
         }
@@ -1004,6 +1029,19 @@ pub(super) fn body(
         s.push_str(word);
         if !word.is_empty() {
           emoji = text::lone_emoji(word).then_some((p0, a, b));
+          for mk in marks {
+            let (lo, hi) = (mk.range.start as usize, mk.range.end as usize);
+            if lo < b && a < hi {
+              let from = if lo > a {
+                p0 + lo - a
+              } else if joined && lo < a {
+                p0 - 1
+              } else {
+                p0
+              };
+              styled.push((from..p0 + hi.min(b) - a, mk.style));
+            }
+          }
         }
         // the words of a link answer clicks
         let mut linked = false;
@@ -1032,7 +1070,7 @@ pub(super) fn body(
   if let (true, Some((k, dims))) = (giant, last) {
     gigantify(res, k, dims, ib, boxes);
   }
-  (links, runs, people)
+  (links, runs, people, styled)
 }
 
 // the emote in box `k` drawn at the big height: its picture asked for at that size, its slot widened to

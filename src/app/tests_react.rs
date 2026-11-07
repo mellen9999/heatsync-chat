@@ -7,6 +7,7 @@ use crate::images::decode::{Decoded, Frame};
 use crate::model::post::parse;
 use crate::model::tabs::Kind;
 use crate::net::{Cmd, social};
+use crate::ui::theme;
 use serde_json::json;
 
 const KEK: &str = "https://cdn.7tv.app/emote/kek/1x.webp";
@@ -298,6 +299,33 @@ fn headless_react_thread_room() {
   assert_eq!(rooms(&mut asked), [None], "closing leaves it");
   assert!(!app.feed_back());
   assert!(rooms(&mut asked).is_empty());
+}
+
+// a feed of posts with the ext's bold and underline marks, drawn whole: the markers are gone from the words,
+// each underlined run has its rule (a long one carries it onto the wrapped line), a snake_case word keeps its
+// underscores. HSC_DUMP=$d/markup.ppm cargo test --release headless_feed_markup
+#[test]
+fn headless_feed_markup_draws_bold_and_underline() {
+  let p = |id: &str, text: &str| {
+    parse(&json!({"base36_id": id, "username": "bob", "user_id": "9", "content": text})).unwrap()
+  };
+  let long = "*a long underlined run that goes over the end of the line so the rule has to follow it down, \
+              and stops where the run does* and then plain words";
+  let (app, _asked, feed) =
+    boot(vec![p("00004a", "plain **bold** and *under* and _also_ with snake_case_x"), p("00004b", long)]);
+  dump(&app);
+  let bodies = app.tabs[feed].view.bodies();
+  assert_eq!(bodies[0], "plain bold and under and also with snake_case_x");
+  assert!(bodies[1].starts_with("a long underlined run") && !bodies[1].contains('*'));
+  let c = &app.canvas;
+  // below the tab bar (its selected tab is a white block), above the empty rest of the window
+  let rules = (24..90)
+    .filter(|&y| {
+      let row = &c.px[(y * c.w) as usize..((y + 1) * c.w) as usize];
+      row.chunk_by(|a, b| a == b).any(|run| run[0] == theme::WHITE && run.len() >= 24)
+    })
+    .count();
+  assert_eq!(rules, 3, "one rule on the first post's line, two for the wrapped run");
 }
 
 // the site's heat beat (`heat:updated`, to every client, many posts a tick): a shown post's number is kept at

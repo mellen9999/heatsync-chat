@@ -31,6 +31,7 @@ pub mod live_dots;
 pub mod livegate;
 pub mod lock;
 pub mod logs;
+pub mod markup;
 pub mod mention;
 pub mod mention_file;
 pub mod message;

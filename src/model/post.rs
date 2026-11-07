@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use super::color;
+use super::markup::{self, Mark};
 use super::message::{Extra, HsEmote, Kind, Message, Pic, Platform, Seg};
 use super::reaction::{self, Reaction};
 use crate::cosmetics::id::PaintId;
@@ -337,7 +338,12 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
   }
   m.nick = if p.anon { "Anonymous".into() } else { p.user.clone() };
   m.color = if p.anon { theme::WHITE } else { p.color };
-  m.body = if p.edited { format!("{} (edited)", p.text).into() } else { p.text.clone() };
+  // the words with their **bold** and *underline* markers cut out; the runs ride on the line (model::markup)
+  let (words, marks): (Box<str>, Vec<Mark>) = match markup::parse(&p.text) {
+    Some((w, marks)) => (w.into(), marks),
+    None => (p.text.clone(), Vec::new()),
+  };
+  m.body = if p.edited { format!("{words} (edited)").into() } else { words };
   m.hs = p.refs.clone();
   m.x = Some(Box::new(Extra {
     chan: "".into(),
@@ -349,6 +355,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     react: p.reactions.clone(),
     late: false,
     held: None,
+    marks: marks.into(),
     ..Extra::default()
   }));
   m
@@ -514,6 +521,38 @@ mod tests {
     let own = message(&p, Some("BOB"), true);
     assert!(!own.x.unwrap().tail.iter().any(|s| s.text.contains('▲')));
     assert!(!message(&p, None, false).x.unwrap().tail.iter().any(|s| s.text.contains('▲')));
+  }
+
+  // the ext's **bold** and *italic* (underlined here): the markers leave the words, the runs ride on the line,
+  // an edit still starts from what was typed, and a post without a pair is the same line it always was
+  #[test]
+  fn bold_and_underline_markers_leave_the_words_and_ride_as_runs() {
+    let mut v = sample();
+    v["content"] = json!("a **loud** and *low* one, snake_case_name, https://x.com/a_b_c");
+    let p = parse(&v).unwrap();
+    assert!(p.text.contains("**loud**"), "the post keeps what was typed (an edit starts from it)");
+    let m = message(&p, None, false);
+    assert_eq!(&*m.body, "a loud and low one, snake_case_name, https://x.com/a_b_c");
+    let runs: Vec<_> = m
+      .x
+      .as_ref()
+      .unwrap()
+      .marks
+      .iter()
+      .map(|k| (k.style, &m.body[k.range.start as usize..k.range.end as usize]))
+      .collect();
+    assert_eq!(runs, [(markup::Style::Bold, "loud"), (markup::Style::Under, "low")]);
+    // edited: the tag goes after the cut words, and the runs still land on theirs
+    let mut e = p.clone();
+    e.edited = true;
+    let m = message(&e, None, false);
+    assert!(m.body.ends_with("c (edited)") && m.body.starts_with("a loud and low"));
+    assert_eq!(m.x.as_ref().unwrap().marks.len(), 2);
+    // nothing to mark: no runs, the words as they came
+    v["content"] = json!("2 * 3 and a lone ** here");
+    let m = message(&parse(&v).unwrap(), None, false);
+    assert_eq!(&*m.body, "2 * 3 and a lone ** here");
+    assert!(m.x.as_ref().unwrap().marks.is_empty());
   }
 
   #[test]

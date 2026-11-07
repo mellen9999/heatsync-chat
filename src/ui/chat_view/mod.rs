@@ -15,6 +15,7 @@ use crate::images::ImgId;
 use crate::model::filter;
 use crate::model::find::Find;
 use crate::model::links::Link;
+use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Platform, flag};
 use crate::model::seen::Seen;
 use crate::util::time::now_ms;
@@ -77,8 +78,8 @@ struct Mention {
   art: Option<Arc<NamePaint>>,
 }
 
-// what a line's words gave: its links, where their text sits, and the people named
-type Words = (Vec<Link>, Vec<(std::ops::Range<usize>, usize)>, Vec<Mention>);
+// what a line's words gave: its links, where their text sits, the people named, and its marked runs
+type Words = (Vec<Link>, Vec<(std::ops::Range<usize>, usize)>, Vec<Mention>, Vec<(std::ops::Range<usize>, Style)>);
 
 struct Laid {
   layout: TextLayout,
@@ -116,6 +117,8 @@ struct Laid {
   // links in the words, and where each one's text sits in the laid-out text
   links: Vec<Link>,
   link_runs: Vec<(std::ops::Range<usize>, usize)>,
+  // a feed post's underlined runs (vt320 underline), merged and in text order
+  unders: Vec<std::ops::Range<usize>>,
 }
 
 #[derive(Clone, Copy)]

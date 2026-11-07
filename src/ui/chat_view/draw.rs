@@ -7,6 +7,7 @@ use crate::images::{Images, ImgId};
 use crate::model::filter;
 use crate::model::message::flag;
 use crate::ui::canvas::{Canvas, Rect};
+use crate::ui::input_bar::underline_in;
 use crate::ui::name_art::anim::AnimArt;
 use crate::ui::name_art::{ArtKey, PAINT_IMG_PX};
 use crate::ui::res::Res;
@@ -270,6 +271,11 @@ impl ChatView {
               anims.push(Anim { rect: rect.intersect(area), bg, imgs, glyph: None });
             }
           });
+          // a feed post's underlined runs: the line under the words (black on a picked row's white)
+          let rule = if picked { theme::BLACK } else { theme::WHITE };
+          for u in &laid.unders {
+            underline_in(c, &laid.layout, u.clone(), x, top as f32, clip, rule);
+          }
           for (r, g, imgs) in on_emoji {
             emoji_glyph(c, text, r, &g, clip);
             let mut flip = None;
