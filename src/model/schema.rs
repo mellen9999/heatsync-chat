@@ -38,8 +38,6 @@ pub enum Fx {
   // the last-read line switch flipped: marks drop when it goes off
   ReadLine,
   Paints,
-  // paint motion flipped: every animated name is built again
-  PaintMotion,
   Media,
   // streamer mode flipped: previews, whisper rows and the marker follow
   Streamer,
@@ -93,8 +91,6 @@ pub enum Wire {
   Bool(&'static str),
   // a named choice: the ext stores the choice's name
   Name(&'static str),
-  // a switch the ext stores as "always" / "never"
-  Anim(&'static str),
   // a volume the ext stores as 0..1
   Level(&'static str),
   // one flag of a {name: bool} map shared with other flags
@@ -107,7 +103,7 @@ impl Wire {
   pub fn key(self) -> Option<&'static str> {
     match self {
       Wire::None => None,
-      Wire::Bool(k) | Wire::Name(k) | Wire::Anim(k) | Wire::Level(k) | Wire::Flag(k, _) | Wire::Hidden(k, _) => Some(k),
+      Wire::Bool(k) | Wire::Name(k) | Wire::Level(k) | Wire::Flag(k, _) | Wire::Hidden(k, _) => Some(k),
     }
   }
 }
@@ -141,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 71] = [
+pub static DEFS: [Def; 63] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -251,30 +247,6 @@ pub static DEFS: [Def; 71] = [
     wire: Wire::Bool("avatars"),
   },
   Def {
-    id: "emote_size",
-    cmd: Some("/emotesize"),
-    cat: Cat::Display,
-    section: "chat messages",
-    label: "emote size",
-    tip: "1x default, 2x retina, 4x huge. /emotesize 2x",
-    alias: "hs_emote_size scale",
-    ctl: pick!(emote_size, EmoteSize),
-    fx: Fx::Look,
-    wire: Wire::None,
-  },
-  Def {
-    id: "emoji_size",
-    cmd: Some("/emojisize"),
-    cat: Cat::Display,
-    section: "chat messages",
-    label: "emoji size",
-    tip: "1x native, 2x default, 4x scale unicode emoji. /emojisize 2x",
-    alias: "hs_emoji_size",
-    ctl: pick!(emoji_size, EmoteSize),
-    fx: Fx::Look,
-    wire: Wire::None,
-  },
-  Def {
     id: "paints",
     cmd: Some("/paints"),
     cat: Cat::Display,
@@ -359,37 +331,13 @@ pub static DEFS: [Def; 71] = [
     wire: Wire::Bool("heatBars"),
   },
   Def {
-    id: "text_badges",
-    cmd: Some("/textbadges"),
-    cat: Cat::Display,
-    section: "chat messages",
-    label: "text badges",
-    tip: "mod, vip, sub and the rest as short text chips (mod, vip, sub) instead of pictures",
-    alias: "textBadges chips labels",
-    ctl: pill!(text_badges),
-    fx: Fx::Look,
-    wire: Wire::Bool("textBadges"),
-  },
-  Def {
-    id: "paint_motion",
-    cmd: Some("/paintmotion"),
-    cat: Cat::Display,
-    section: "cosmetics",
-    label: "animate paints",
-    tip: "name paints move. off freezes each to its first frame",
-    alias: "animatePaints motion scenes effects reduced",
-    ctl: pill!(paint_motion),
-    fx: Fx::PaintMotion,
-    wire: Wire::Anim("animatePaints"),
-  },
-  Def {
     id: "animate_emotes",
     cmd: Some("/animateemotes"),
     cat: Cat::Display,
     section: "cosmetics",
     label: "animate emotes",
-    tip: "always plays animated emotes. never holds each one on its first frame, a big cpu saver on busy channels. /animateemotes never",
-    alias: "animateEmotes gif motion static reduced",
+    tip: "always plays animated emotes and name paints. never holds each one on its first frame, a big cpu saver on busy channels. /animateemotes never",
+    alias: "animateEmotes gif motion static reduced paints animatePaints",
     ctl: pick!(animate_emotes, Animate),
     fx: Fx::Look,
     wire: Wire::Name("animateEmotes"),
@@ -719,52 +667,16 @@ pub static DEFS: [Def; 71] = [
     wire: Wire::Flag("hermesEvents", "pred"),
   },
   Def {
-    id: "stream_stats",
-    cmd: Some("/streamstats"),
-    cat: Cat::Notifs,
-    section: "stream events",
-    label: "stream stats",
-    tip: "count each channel tab's lines, chatters and emotes for /summary",
-    alias: "summary subsystems",
-    ctl: pill!(stream_stats),
-    fx: Fx::None,
-    wire: Wire::Flag("subsystems", "stream-stats"),
-  },
-  Def {
-    id: "inline_op",
-    cmd: Some("/inlineop"),
+    id: "inline_feed",
+    cmd: Some("/inlinefeed"),
     cat: Cat::Notifs,
     section: "feed in chat",
-    label: "new threads",
-    tip: "a new heatsync thread ([OP]) shows as a line in every chat tab",
-    alias: "inline op feed posts",
-    ctl: pill!(inline_op),
+    label: "feed posts",
+    tip: "new heatsync threads, op answers and replies show as a line in every chat tab",
+    alias: "inline op mop re feed posts threads replies",
+    ctl: pill!(inline_feed),
     fx: Fx::None,
-    wire: Wire::Flag("inlineNotifs", "op"),
-  },
-  Def {
-    id: "inline_mop",
-    cmd: Some("/inlinemop"),
-    cat: Cat::Notifs,
-    section: "feed in chat",
-    label: "op replies",
-    tip: "a thread's author answering in their own thread shows in every chat tab",
-    alias: "inline op reply feed",
-    ctl: pill!(inline_mop),
-    fx: Fx::None,
-    wire: Wire::Flag("inlineNotifs", "mop"),
-  },
-  Def {
-    id: "inline_re",
-    cmd: Some("/inlinere"),
-    cat: Cat::Notifs,
-    section: "feed in chat",
-    label: "replies",
-    tip: "a reply ([RE]) to a heatsync thread shows in every chat tab",
-    alias: "inline re feed replies",
-    ctl: pill!(inline_re),
-    fx: Fx::None,
-    wire: Wire::Flag("inlineNotifs", "re"),
+    wire: Wire::Bool("inlineFeed"),
   },
   Def {
     id: "moments",
@@ -777,18 +689,6 @@ pub static DEFS: [Def; 71] = [
     ctl: pill!(moments),
     fx: Fx::None,
     wire: Wire::Flag("inlineNotifs", "moment"),
-  },
-  Def {
-    id: "inline_dm",
-    cmd: Some("/inlinedm"),
-    cat: Cat::Notifs,
-    section: "inline notifications",
-    label: "[dm] whispers & dms",
-    tip: "a [dm] line in the chat you are on when a whisper or dm arrives while you are on another tab",
-    alias: "inline dm whisper",
-    ctl: pill!(inline_dm),
-    fx: Fx::None,
-    wire: Wire::Flag("inlineNotifs", "dm"),
   },
   Def {
     id: "mod_buttons",
@@ -1119,11 +1019,11 @@ mod tests {
 
   #[test]
   fn pick_rows_read_write_and_name_their_values() {
-    let d = def("emote_size").unwrap();
+    let d = def("line_height").unwrap();
     let mut s = Settings::default();
-    assert_eq!((d.picked(&s), d.at(&s)), (Some("1x"), Some(0)));
-    assert!(d.pick(&mut s, " 4x ") && d.at(&s) == Some(2));
-    assert!(!d.pick(&mut s, "3x") && !d.choose(&mut s, 3));
+    assert_eq!((d.picked(&s), d.at(&s)), (Some("20"), Some(0)));
+    assert!(d.pick(&mut s, " 26 ") && d.at(&s) == Some(2));
+    assert!(!d.pick(&mut s, "21") && !d.choose(&mut s, 3));
     assert!(d.on(&s).is_none() && !d.put(&mut s, true));
     assert!(def("zebra").unwrap().picked(&s).is_none());
     // every pick row's names are lowercase

@@ -328,7 +328,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     hits(f, &s, &name, words, &mut spans);
   }
   let line = (res.text.line_px * res.look.spacing).round();
-  let emoji = (words_at.clone(), res.look.emoji_mul);
+  let emoji = (words_at.clone(), crate::ui::res::EMOJI_MUL);
   let room = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
   // a post's reaction chips: after its last word when they fit, else one more line at most
   if let Some(x) = x.filter(|x| !x.react.is_empty() && !muted && m.kind != Kind::System) {
@@ -757,7 +757,7 @@ pub(super) fn badges(
     // kick + youtube: roles in order, each a picture (kick sub art) or its word. no per-chatter
     // twitch-id sets here: a kick id is not a twitch id
     for (role, ver) in m.badges.iter() {
-      let sub = (m.platform == Platform::Kick && !look.text_badges && &**role == "subscriber")
+      let sub = (m.platform == Platform::Kick && &**role == "subscriber")
         .then(|| ver.parse().ok().and_then(|n| res.badges.kick_sub(chan, n)))
         .flatten()
         .map(Box::<str>::from);
@@ -780,15 +780,6 @@ pub(super) fn badges(
       ib.push(gap(s.len(), res.images.px(5)));
     }
     Vec::new()
-  } else if look.text_badges {
-    // ext textBadges: twitch / kick roles become short words, no picture asked for. the per-chatter
-    // third-party sets (ffz, chatterino, 7tv) stay pictures, like the ext
-    for (role, _) in m.badges.iter() {
-      if let Some((w, ink)) = badge_text::chip(role) {
-        word(s, spans, ib, w, ink);
-      }
-    }
-    res.badges.third_party(m, look.third_badges)
   } else {
     res.badges.for_message(chan, m, look.third_badges)
   };

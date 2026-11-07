@@ -474,7 +474,7 @@ impl App {
     for t in &tabs {
       tabs::seat_hosts(&mut res.chatters, &t.sources);
     }
-    res.arts.set_motion(set.paint_motion);
+    res.arts.set_motion(set.animate_emotes == crate::model::settings::Animate::Always);
     if flood {
       crate::fake::seed_paints(&mut res.cosmetics);
       res.heats.mute();

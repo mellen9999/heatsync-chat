@@ -1,5 +1,5 @@
 // stream stats (ext stream-stats.js): each channel tab counts its live lines, chatters, mentions and
-// emotes while `stream stats` is on, from when this window first saw its chat; the channel going live
+// emotes, from when this window first saw its chat; the channel going live
 // starts the count over and going offline titles it "ended". /summary (or the tab's menu) shows it
 use super::App;
 use super::screen::Page;
@@ -18,7 +18,7 @@ pub(super) struct Count {
 impl App {
   // a live line landed in tab `i`, from room `room`
   pub(super) fn tally(&mut self, i: usize, room: &str, m: &Message) {
-    if !self.set.stream_stats || m.has(flag::HISTORY) || !m.kind.said() {
+    if m.has(flag::HISTORY) || !m.kind.said() {
       return;
     }
     let now = now_ms();
@@ -71,20 +71,17 @@ impl App {
   pub(super) fn summary_refresh(&mut self) {
     let Some(s) = self.screen.as_ref().filter(|s| s.page() == Page::Summary) else { return };
     let tab = self.tabs.iter().find(|t| t.name == s.of);
-    let (title, lines) = summary(&s.of, tab.map(|t| &t.stats), self.set.stream_stats, self.res.look.twelve);
+    let (title, lines) = summary(&s.of, tab.map(|t| &t.stats), self.res.look.twelve);
     if let Some(s) = &mut self.screen {
       (s.shown, s.title) = (lines, title);
     }
   }
 }
 
-fn summary(name: &str, c: Option<&Count>, on: bool, twelve: bool) -> (String, Vec<L>) {
+fn summary(name: &str, c: Option<&Count>, twelve: bool) -> (String, Vec<L>) {
   let row = |a: String, b: String| L::Row { a, b, pill: None };
   let ended = c.is_some_and(|c| c.ended);
   let title = format!("{name} stream {}", if ended { "ended" } else { "summary" });
-  if !on {
-    return (title, vec![row("stream stats are off: /streamstats turns them on".into(), String::new())]);
-  }
   let Some(s) = c.and_then(|c| c.stats.as_deref()).filter(|s| s.msgs > 0) else {
     return (title, vec![row("no chat counted yet: it fills in as messages arrive".into(), String::new())]);
   };
@@ -149,10 +146,6 @@ mod tests {
     app.summary_refresh();
     assert_eq!(app.screen.as_ref().unwrap().title, "forsen stream ended");
     app.stats_stream(Platform::Twitch, "forsen", true);
-    assert!(app.tabs[tab].stats.stats.is_none());
-    // off: nothing is counted
-    app.set.stream_stats = false;
-    app.tally(tab, "forsen", &line("Bob", "hi", 0));
     assert!(app.tabs[tab].stats.stats.is_none());
   }
 }

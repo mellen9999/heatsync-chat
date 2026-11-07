@@ -5,8 +5,6 @@ use std::path::Path;
 
 // what a hidden whisper row says in place of its words
 pub const HIDDEN: &str = "hidden in streamer mode · press space s to show";
-// what an inline row says (the sender stays: who is not private, what they said is)
-pub const HIDDEN_SHORT: &str = "hidden in streamer mode";
 
 // how often auto looks for obs, only while auto is the setting
 pub const CHECK_SECS: u64 = 10;

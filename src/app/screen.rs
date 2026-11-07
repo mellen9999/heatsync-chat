@@ -307,10 +307,6 @@ impl App {
         self.net.send(crate::net::Cmd::SevenTvMe(super::net_events::seventv_id(id, self.set.paints)));
         self.relayout_where(None);
       }
-      Fx::PaintMotion => {
-        self.res.arts.set_motion(self.set.paint_motion);
-        self.relayout_where(None);
-      }
       Fx::Look => {
         self.res.apply_look(&self.set);
         self.relayout_where(None);
@@ -821,8 +817,7 @@ mod tests {
     app.set.zebra = false;
     app.set.platform_tags = false;
     app.set.hs_paints = false;
-    app.set.stream_stats = false;
-    app.set.emoji_size = crate::model::settings::EmoteSize::X4;
+    app.set.inline_feed = false;
     app.set.tab_feed = false;
     app.open_screen(Page::Settings);
     app.ask_reset();
@@ -832,8 +827,7 @@ mod tests {
     assert!(!app.screen.as_ref().unwrap().ask_reset && !app.set.zebra);
     app.ask_reset();
     app.screen_key(Key::Character("y"), None);
-    assert!(app.set.zebra && app.set.platform_tags && app.set.hs_paints && app.set.stream_stats);
-    assert_eq!(app.set.emoji_size, Settings::default().emoji_size);
+    assert!(app.set.zebra && app.set.platform_tags && app.set.hs_paints && app.set.inline_feed);
     assert!(!app.set.tab_feed, "the tabs on the bar stay as they were");
     assert!(crate::model::filter::with(|f| f.blocked("troll")));
   }

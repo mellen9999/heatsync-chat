@@ -124,14 +124,7 @@ impl App {
   // a feed post as a line in every chat tab (ext injectInlineNotif): the >>id opens its thread right
   // there. `force` = your own post, shown whatever the switches say (a receipt, not news)
   fn feed_inline(&mut self, p: &Post, force: bool) {
-    let on = if p.thread_op {
-      self.set.inline_mop
-    } else if p.is_op {
-      self.set.inline_op
-    } else {
-      self.set.inline_re
-    };
-    if p.anon || !(on || force) || !self.feed.heard(p) {
+    if p.anon || !(self.set.inline_feed || force) || !self.feed.heard(p) {
       return;
     }
     let m = self.inline_line(p);

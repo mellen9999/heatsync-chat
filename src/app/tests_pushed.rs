@@ -23,7 +23,7 @@ fn boot() -> (App, Asked, usize) {
   let (net, asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into()], false);
   app.set = Settings::default();
-  app.set.inline_op = true;
+  app.set.inline_feed = true;
   app.dpi = 1.0;
   app.res.set_scale(app.scale());
   app.canvas.resize(720, 360);

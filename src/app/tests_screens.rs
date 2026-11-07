@@ -205,14 +205,12 @@ fn headless_chat_look() {
   assert!(!app.res.look.timestamps && app.res.look.zebra);
   app.local(Local::Toggle("timestamps"));
   app.local(Local::Pick("time_fmt", Some(1)));
-  app.local(Local::Pick("emote_size", Some(2)));
   app.local(Local::Pick("line_height", Some(2)));
   app.redraw();
-  assert!(app.res.look.timestamps && app.res.look.twelve && app.res.look.emote_mul == 4);
+  assert!(app.res.look.timestamps && app.res.look.twelve);
   assert!((app.res.look.spacing - 1.3).abs() < 1e-6);
   let saved = Settings::parse(&app.set.render());
   assert!(saved.timestamps && saved.time_fmt == crate::model::settings::TimeFmt::H12);
-  assert_eq!(saved.emote_size.mul(), 4);
   // a pick answers to its slash command both ways
   app.local(Local::Pick("animate_emotes", Some(1)));
   assert!(!app.res.look.animate_emotes);
@@ -768,7 +766,7 @@ fn headless_feed_engage() {
   assert!(cmds(&mut asked).is_empty(), "no [OP] in chat yet: nothing sent");
   assert_eq!(app.line.text, "", "the say line took it");
   app.on_feed_live(theirs.clone());
-  app.set.inline_op = true;
+  app.set.inline_feed = true;
   app.on_feed_live(post("00004d", "bob", now));
   app.line.insert("/re yes");
   app.send();

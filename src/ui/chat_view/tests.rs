@@ -87,38 +87,6 @@ fn bttv_badge_shows_for_its_holder_behind_its_switch() {
 }
 
 #[test]
-fn text_badges_swap_twitch_pictures_for_words_and_off_is_unchanged() {
-  use crate::badges::{Badge, key};
-  let mut res = Res::new(1.0);
-  let b = |u: &str| Badge { url: u.into(), title: "".into(), bg: None };
-  res.badges.set_twitch(
-    None,
-    [
-      (key("moderator", "1"), b("https://static-cdn.jtvnw.net/m")),
-      (key("subscriber", "0"), b("https://static-cdn.jtvnw.net/s")),
-    ]
-    .into(),
-  );
-  let mut m = Message::system(1, Platform::Twitch, "x");
-  m.kind = Kind::Chat;
-  m.nick = "bob".into();
-  m.body = "hi".into();
-  m.badges =
-    vec![("moderator".into(), "1".into()), ("subscriber".into(), "0".into()), ("first-msg".into(), "1".into())].into();
-  let at = |res: &mut Res| {
-    let l = layout_row(res, "c", &m, false, 400, NO_OPTS);
-    (l.boxes.len(), l.nick.start)
-  };
-  // off: two pictures, the name starts the text
-  assert_eq!(at(&mut res), (2, 0));
-  // on: "mod" and "sub" are boxed words before the name, no pictures, the unstyled role draws nothing
-  res.look.text_badges = true;
-  assert_eq!(at(&mut res), (0, " mod  sub ".len()));
-  res.look.text_badges = false;
-  assert_eq!(at(&mut res), (2, 0));
-}
-
-#[test]
 fn painted_name_draws_shaded_and_only_the_name() {
   use crate::cosmetics::{Cosmetic, paint::Paint as P};
   let mut res = Res::new(1.0);
@@ -1018,8 +986,6 @@ fn the_look_changes_what_a_row_is_made_of() {
   let tight = h(&mut res);
   res.look.spacing = 1.3;
   assert_eq!((tight, h(&mut res)), (20, 26));
-  // emote size multiplies the base box; badges and the rest keep theirs
-  assert_eq!([1u16, 2, 4].map(|k| Look { emote_mul: k, ..res.look }.emote_px()), [28, 56, 112]);
 }
 
 // readable names off keeps the platform's raw color; dim timeouts off leaves a timed-out line as it was
@@ -1372,11 +1338,7 @@ fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
   assert_eq!(l.boxes[0].img, res.images.id("https://files.kick.com/a/6", crate::ui::res::BADGE_PX));
   // another tab has no art: the sub falls back to its word, like the ext
   assert_eq!(at(&mut res, &m, "other"), (0, " mod  sub  og ".len()));
-  // text badges: words only, no picture
-  res.look.text_badges = true;
-  assert_eq!(at(&mut res, &m, "c"), (0, " mod  sub  og ".len()));
   // a sub below the lowest tier has no art either
-  res.look.text_badges = false;
   res.badges.set_kick("c", vec![(3, "https://files.kick.com/a/3".into())]);
   assert_eq!(at(&mut res, &relayed(Platform::Kick, &[("subscriber", "1")]), "c"), (0, " sub ".len()));
   // a twitch-id badge set never dresses a kick chatter

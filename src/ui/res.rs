@@ -17,6 +17,8 @@ use super::name_art::NameArts;
 use super::text::Text;
 
 pub const EMOTE_PX: u16 = 28;
+// unicode emoji in a line's words, times the font size
+pub const EMOJI_MUL: u16 = 2;
 pub const BADGE_PX: u16 = 18;
 // the picture beside a name (ext .hs-mc-avatar: 18px square)
 pub const AVATAR_PX: u16 = 18;
@@ -36,10 +38,6 @@ pub struct Look {
   pub zebra: bool,
   pub readable: bool,
   pub tags: bool,
-  // times the base emote size
-  pub emote_mul: u16,
-  // times the font size for unicode emoji in a line's words
-  pub emoji_mul: u16,
   // times the base line height
   pub spacing: f32,
   pub animate_emotes: bool,
@@ -50,8 +48,6 @@ pub struct Look {
   pub sub_flair: bool,
   pub flame: bool,
   pub heat_bars: bool,
-  // badges as text chips, not pictures
-  pub text_badges: bool,
   // a picture beside each name
   pub avatars: bool,
   // emotes from a heatsync inventory draw (renderInventoryEmotes)
@@ -66,8 +62,6 @@ impl Look {
       zebra: s.zebra,
       readable: s.readable,
       tags: s.platform_tags,
-      emote_mul: s.emote_size.mul(),
-      emoji_mul: s.emoji_size.mul(),
       spacing: s.line_height.ratio(),
       animate_emotes: s.animate_emotes == Animate::Always,
       dim_timeouts: s.dim_timeouts,
@@ -75,7 +69,6 @@ impl Look {
       sub_flair: s.sub_flair,
       flame: s.flame,
       heat_bars: s.heat_bars,
-      text_badges: s.text_badges,
       avatars: s.avatars,
       inventory_emotes: s.render_inventory,
     }
@@ -83,7 +76,7 @@ impl Look {
 
   // the emote box height in chat, before the display scale
   pub fn emote_px(&self) -> u16 {
-    EMOTE_PX * self.emote_mul
+    EMOTE_PX
   }
 
   // a name's color as drawn: lifted until it reads on black, or as the platform sent it
@@ -149,6 +142,8 @@ impl Res {
   // the settings that shape drawing
   pub fn apply_look(&mut self, s: &Settings) {
     self.look = Look::of(s);
+    // name paints move or hold still with the emotes
+    self.arts.set_motion(self.look.animate_emotes);
   }
 
   // what a word may become an emote from (`emotes::resolve`, the one render chokepoint)

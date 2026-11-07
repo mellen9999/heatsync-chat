@@ -1,5 +1,4 @@
-// a whisper or dm that lands while you are on another tab: a toast line with a per-sender count, and with
-// the switch on a [dm] row in the chat you are on
+// a whisper or dm that lands while you are on another tab: a toast line with a per-sender count
 
 use super::*;
 use crate::model::message::Kind as MsgKind;
@@ -29,7 +28,7 @@ fn to_whispers(a: &mut App) {
 #[test]
 fn a_whisper_on_another_tab_toasts_its_name_and_first_80_chars() {
   let mut a = app();
-  assert!(a.set.whisper_toast && !a.set.inline_dm, "the ext's defaults");
+  assert!(a.set.whisper_toast, "the ext's default");
   let before = lines(&a).len();
   a.on_whispers(vec![dm(1, "Bob", &"x".repeat(200))], true);
   let got = lines(&a);
@@ -82,9 +81,8 @@ fn nothing_shows_on_the_whispers_tab_for_history_or_with_the_switch_off() {
 }
 
 #[test]
-fn a_blocked_sender_gets_no_toast_and_no_row() {
+fn a_blocked_sender_gets_no_toast() {
   let mut a = app();
-  a.set.inline_dm = true;
   crate::model::filter::edit(|f| f.block("Bob"));
   let before = lines(&a).len();
   a.on_whispers(vec![dm(1, "Bob", "hi")], true);
@@ -92,41 +90,9 @@ fn a_blocked_sender_gets_no_toast_and_no_row() {
 }
 
 #[test]
-fn with_the_inline_switch_a_dm_row_lands_in_the_chat_you_are_on() {
-  let mut a = app();
-  a.set.inline_dm = true;
-  a.set.whisper_toast = false;
-  let before = lines(&a).len();
-  a.on_whispers(vec![dm(1, "Bob", "psst")], true);
-  assert_eq!(lines(&a).len(), before + 1);
-  let m = a.tabs[a.active].view.msgs().next_back().unwrap();
-  assert_eq!((m.kind, &*m.body, &*m.nick), (MsgKind::Chat, "psst", "Bob"));
-  let x = m.x.as_ref().unwrap();
-  assert_eq!(x.edge, theme::YELLOW);
-  assert_eq!((&*x.head[0].text, x.head[0].ink, x.head[0].bold), ("[dm] ", theme::YELLOW, true));
-  assert!(m.login.is_empty() && m.user_id.is_empty(), "a heatsync dm names no twitch login");
-}
-
-#[test]
-fn the_row_is_drawn_with_its_tag_and_edge_in_yellow() {
-  let mut a = app();
-  a.dpi = 1.0;
-  a.res.set_scale(a.scale());
-  a.resized(700, 400);
-  a.set.inline_dm = true;
-  a.set.whisper_toast = false;
-  a.redraw();
-  let before = a.canvas.inked(theme::YELLOW);
-  a.on_whispers(vec![dm(1, "Bob", "psst")], true);
-  a.redraw();
-  assert!(a.canvas.inked(theme::YELLOW) > before + 10, "the tag and the edge");
-}
-
-#[test]
-fn both_switches_are_in_the_settings_table_with_the_exts_keys() {
+fn the_switch_is_in_the_settings_table_with_the_exts_key() {
   use crate::model::schema::{DEFS, Wire};
   let d = |id: &str| DEFS.iter().find(|d| d.id == id).unwrap();
   assert_eq!(d("whisper_toast").wire, Wire::Bool("whisperToast"));
   assert_eq!(d("whisper_toast").cmd, Some("/whispertoast"));
-  assert_eq!(d("inline_dm").wire, Wire::Flag("inlineNotifs", "dm"));
 }

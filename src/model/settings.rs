@@ -107,10 +107,6 @@ choice! {
   TimeFmt { H24 = "24h", H12 = "12h" }
 }
 choice! {
-  // emote size in chat, times the base (ext hs_emote_size)
-  EmoteSize { X1 = "1x", X2 = "2x", X4 = "4x" }
-}
-choice! {
   // chat row line height in the ext's px: 20 is tight, a bigger one adds room between lines
   LineHeight { L20 = "20", L22 = "22", L26 = "26" }
 }
@@ -130,12 +126,6 @@ choice! {
 impl Volume {
   pub fn percent(self) -> u8 {
     [0, 10, 20, 30, 50, 70, 100][self as usize]
-  }
-}
-
-impl EmoteSize {
-  pub fn mul(self) -> u16 {
-    [1, 2, 4][self as usize]
   }
 }
 
@@ -167,9 +157,6 @@ pub struct Settings {
   pub platform_tags: bool,
   // a picture beside each name (ext avatars). default off, like the ext
   pub avatars: bool,
-  pub emote_size: EmoteSize,
-  // unicode emoji in chat bodies, same steps (ext hs_emoji_size). default 2x
-  pub emoji_size: EmoteSize,
   pub line_height: LineHeight,
   pub animate_emotes: Animate,
   // a timed-out or banned person's lines go dim (ext hs_dim_timeouts). default on
@@ -190,15 +177,9 @@ pub struct Settings {
   pub sub_flair: bool,
   pub flame: bool,
   pub heat_bars: bool,
-  // badges as short text chips instead of pictures (ext textBadges). default off, like the ext
-  pub text_badges: bool,
   // pronoundb pronouns beside a twitch name on the card and the name popup. default on, like the ext
   // (hs_show_pronouns). off, pronoundb is never asked
   pub pronouns: bool,
-  // count lines, chatters and emotes per channel tab for /summary (ext subsystems stream-stats)
-  pub stream_stats: bool,
-  // name paints move (scenes + effects). off freezes each to its first frame, like the ext's animatePaints
-  pub paint_motion: bool,
   // stream lines: went live (on), went offline (off), game switch (on), chat-spike line (on)
   pub ev_online: bool,
   pub ev_offline: bool,
@@ -211,15 +192,11 @@ pub struct Settings {
   // a banner under the tabs while a prediction is open or locked (ext hermesEvents pred)
   pub ev_pred: bool,
   pub moments: bool,
-  // heatsync feed posts as lines in every chat tab (ext inlineNotifs): new threads, the OP answering in
-  // their own thread, replies. all on, like the ext
-  pub inline_op: bool,
-  pub inline_mop: bool,
-  pub inline_re: bool,
-  // a whisper or dm while you are on another tab: a toast line (ext whisperToast, default on), and a [DM] row in
-  // the chat you are on (ext inlineNotifs dm, default off)
+  // heatsync feed posts as lines in every chat tab: new threads, the OP answering in their own thread,
+  // replies, one switch. default on
+  pub inline_feed: bool,
+  // a whisper or dm while you are on another tab: a toast line (ext whisperToast, default on)
   pub whisper_toast: bool,
-  pub inline_dm: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
   pub media: bool,
   // urls in chat are links at all. default on, like the ext (linksEnabled)
@@ -277,8 +254,6 @@ impl Default for Settings {
       readable: true,
       platform_tags: true,
       avatars: false,
-      emote_size: EmoteSize::X1,
-      emoji_size: EmoteSize::X2,
       line_height: LineHeight::L20,
       animate_emotes: Animate::Always,
       dim_timeouts: true,
@@ -290,10 +265,7 @@ impl Default for Settings {
       sub_flair: true,
       flame: true,
       heat_bars: true,
-      text_badges: false,
       pronouns: true,
-      stream_stats: true,
-      paint_motion: true,
       ev_online: true,
       ev_offline: false,
       ev_game: true,
@@ -302,11 +274,8 @@ impl Default for Settings {
       ev_redeem: true,
       ev_pred: true,
       moments: true,
-      inline_op: true,
-      inline_mop: true,
-      inline_re: true,
+      inline_feed: true,
       whisper_toast: true,
-      inline_dm: false,
       media: true,
       links: true,
       render_inventory: true,
@@ -401,6 +370,8 @@ impl Settings {
     let mut out = Self::default();
     // the three badge switches from before the one: on if any of them was
     let (mut old_badges, mut one_badges) = (None, false);
+    // the three feed switches from before the one: on if any was on (one not in the file was on, its default)
+    let (mut old_feed, mut one_feed) = ((0u8, false), false);
     for l in s.lines() {
       let Some((k, v)) = l.split_once('=') else { continue };
       let on = v.trim() == "true";
@@ -409,7 +380,12 @@ impl Settings {
         old_badges = Some(old_badges.unwrap_or(false) || on);
         continue;
       }
+      if matches!(k, "inline_op" | "inline_mop" | "inline_re") {
+        old_feed = (old_feed.0 + 1, old_feed.1 || on);
+        continue;
+      }
       one_badges |= k == "third_party_badges";
+      one_feed |= k == "inline_feed";
       if schema::def(k).is_some_and(|d| d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v)) {
         continue;
       }
@@ -432,6 +408,9 @@ impl Settings {
     // the one switch written by an earlier run of this version wins over the old three
     if let (false, Some(any)) = (one_badges, old_badges) {
       out.third_party_badges = any;
+    }
+    if let (false, (seen @ 1.., any)) = (one_feed, old_feed) {
+      out.inline_feed = any || seen < 3;
     }
     out
   }
@@ -474,7 +453,9 @@ impl Settings {
   fn fold_caps(s: &str) {
     let key = |l: &str| l.split_once('=').map(|(k, v)| (k.trim().to_owned(), v.trim() == "true"));
     let lines: Vec<_> = s.lines().filter_map(key).filter(|(k, _)| k == "automod_caps").collect();
-    if lines.is_empty() {
+    // retired switches are read once by `parse` (or dropped) and the file is written again without them
+    let retired = s.lines().filter_map(key).any(|(k, _)| RETIRED.contains(&k.as_str()));
+    if lines.is_empty() && !retired {
       return;
     }
     if lines.iter().any(|(_, on)| *on) {
@@ -494,7 +475,8 @@ impl Settings {
 
   // empty (a fresh start), or at least one line that is a setting we know
   fn usable(s: &str) -> bool {
-    let known = |k: &str| schema::def(k).is_some() || matches!(k, "zoom" | "tab_side" | "tab_counter");
+    let known =
+      |k: &str| schema::def(k).is_some() || matches!(k, "zoom" | "tab_side" | "tab_counter") || RETIRED.contains(&k);
     s.trim().is_empty() || s.lines().any(|l| l.split_once('=').is_some_and(|(k, _)| known(k.trim())))
   }
 
@@ -504,6 +486,20 @@ impl Settings {
     store::write_later("settings", &self.render());
   }
 }
+
+// settings that are gone: a file that still holds one is rewritten without it, and a synced value is never read.
+// the three inline_* feed switches became inline_feed (read in `parse`); the rest fall back to their defaults
+const RETIRED: [&str; 9] = [
+  "emote_size",
+  "emoji_size",
+  "text_badges",
+  "stream_stats",
+  "paint_motion",
+  "inline_dm",
+  "inline_op",
+  "inline_mop",
+  "inline_re",
+];
 
 // slash commands handled here, never sent to a platform
 #[derive(PartialEq, Eq, Debug)]
@@ -655,8 +651,6 @@ mod tests {
         readable: true,
         platform_tags: true,
         avatars: false,
-        emote_size: EmoteSize::X1,
-        emoji_size: EmoteSize::X2,
         line_height: LineHeight::L20,
         animate_emotes: Animate::Always,
         dim_timeouts: true,
@@ -668,10 +662,7 @@ mod tests {
         sub_flair: true,
         flame: true,
         heat_bars: true,
-        text_badges: false,
         pronouns: true,
-        stream_stats: true,
-        paint_motion: true,
         ev_online: true,
         ev_offline: false,
         ev_game: true,
@@ -680,11 +671,8 @@ mod tests {
         ev_redeem: true,
         ev_pred: true,
         moments: true,
-        inline_op: true,
-        inline_mop: true,
-        inline_re: true,
+        inline_feed: true,
         whisper_toast: true,
-        inline_dm: false,
         media: true,
         links: true,
         render_inventory: true,
@@ -800,6 +788,82 @@ mod tests {
     assert_eq!(crate::model::filter::Filters::load().rules().len(), 0);
   }
 
+  // six switches were cut: the three feed switches became one (on if any was on, a missing one counts as its
+  // default, on), the rest fall back to their defaults. a file from before loads, keeps everything else, and is
+  // written back without any of them
+  #[test]
+  fn the_feed_switches_merge_into_one_on_if_any_was_on() {
+    let feed = |t: &str| Settings::parse(t).inline_feed;
+    assert!(feed(""), "default on");
+    for (old, want) in [
+      ("inline_op=true\ninline_mop=true\ninline_re=true\n", true),
+      ("inline_op=false\ninline_mop=false\ninline_re=false\n", false),
+      ("inline_op=false\ninline_mop=false\ninline_re=true\n", true),
+      ("inline_op=true\ninline_mop=false\ninline_re=false\n", true),
+      ("inline_op=false\ninline_mop=true\ninline_re=false\n", true),
+      // a file that holds only some: the others were on by default
+      ("inline_op=false\n", true),
+      ("inline_op=false\ninline_re=false\n", true),
+    ] {
+      assert_eq!(feed(old), want, "{old:?}");
+    }
+    // the new key, once written, wins over leftovers
+    assert!(!feed("inline_feed=false\ninline_op=true\n"));
+    assert!(feed("inline_feed=true\ninline_op=false\ninline_mop=false\ninline_re=false\n"));
+  }
+
+  #[test]
+  fn the_cut_switches_are_ignored_and_never_written_back() {
+    let old = "vi=true\nemote_size=4x\nemoji_size=4x\ntext_badges=true\nstream_stats=false\npaint_motion=false\n\
+               inline_dm=true\ninline_op=false\ninline_mop=false\ninline_re=false\nzebra=false\n";
+    let s = Settings::parse(old);
+    // everything else kept, each cut one at today's default
+    assert_eq!(s, Settings { vi: true, zebra: false, inline_feed: false, ..Settings::default() });
+    let out = s.render();
+    for gone in RETIRED {
+      assert!(!out.lines().any(|l| l.split('=').next() == Some(gone)), "{gone}");
+    }
+    assert!(out.contains("inline_feed=false"));
+    assert_eq!(Settings::parse(&out), s, "round trip");
+    // their slash commands are no longer commands
+    for c in ["/emotesize 2x", "/emojisize 4x", "/textbadges", "/streamstats", "/paintmotion", "/inlinedm", "/inlineop"]
+    {
+      assert_eq!(local_cmd(c), None, "{c}");
+    }
+    assert_eq!(local_cmd("/inlinefeed"), Some(Local::Toggle("inline_feed")));
+    // a file of nothing else is still ours: not set aside
+    assert!(Settings::usable("text_badges=true\n"));
+  }
+
+  #[test]
+  fn each_cut_switch_on_and_off_leaves_the_defaults() {
+    for k in ["emote_size", "emoji_size", "text_badges", "stream_stats", "paint_motion", "inline_dm"] {
+      for v in ["true", "false", "1x", "4x", "junk"] {
+        assert_eq!(Settings::parse(&format!("{k}={v}\n")), Settings::default(), "{k}={v}");
+      }
+    }
+  }
+
+  // the move is done on load: the file is rewritten once, without the cut keys, and a second load changes nothing
+  #[test]
+  fn load_rewrites_the_file_without_the_cut_keys() {
+    store::write("settings", "vi=true\ntext_badges=true\ninline_op=false\ninline_mop=true\nemote_size=2x\n").unwrap();
+    let s = Settings::load();
+    assert!(s.vi && s.inline_feed);
+    let file = store::read("settings").unwrap();
+    assert!(file.contains("vi=true") && file.contains("inline_feed=true"));
+    for gone in RETIRED {
+      assert!(!file.lines().any(|l| l.split('=').next() == Some(gone)), "{gone}");
+    }
+    assert_eq!(Settings::load(), s);
+    assert_eq!(store::read("settings").unwrap(), file);
+    // a file of only cut keys is rewritten too, not set aside
+    store::write("settings", "paint_motion=false\n").unwrap();
+    assert_eq!(Settings::load(), Settings::default());
+    assert!(store::take_notes().is_empty());
+    assert!(!store::read("settings").unwrap().contains("paint_motion"));
+  }
+
   // the store's scratch folder is per test thread, so this never sees the real settings
   #[test]
   fn a_file_that_is_not_settings_is_set_aside_not_dropped() {
@@ -846,40 +910,24 @@ mod tests {
   fn chat_look_defaults_follow_the_ext() {
     let d = Settings::default();
     assert!(!d.timestamps && d.zebra && d.readable && d.platform_tags && d.dim_timeouts);
-    assert_eq!(
-      (d.time_fmt, d.emote_size, d.line_height, d.animate_emotes),
-      (TimeFmt::H24, EmoteSize::X1, LineHeight::L20, Animate::Always)
-    );
+    assert_eq!((d.time_fmt, d.line_height, d.animate_emotes), (TimeFmt::H24, LineHeight::L20, Animate::Always));
   }
 
   #[test]
   fn chat_look_switches_parse_and_save() {
     let s = Settings::parse(
       "timestamps=true\nzebra=false\nreadable=false\nplatform_tags=false\ndim_timeouts=false\n\
-       time_fmt=12h\nemote_size=4x\nline_height=26\nanimate_emotes=never\n",
+       time_fmt=12h\nline_height=26\nanimate_emotes=never\n",
     );
     assert!(s.timestamps && !s.zebra && !s.readable && !s.platform_tags && !s.dim_timeouts);
-    assert_eq!(
-      (s.time_fmt, s.emote_size, s.line_height, s.animate_emotes),
-      (TimeFmt::H12, EmoteSize::X4, LineHeight::L26, Animate::Never)
-    );
+    assert_eq!((s.time_fmt, s.line_height, s.animate_emotes), (TimeFmt::H12, LineHeight::L26, Animate::Never));
     assert_eq!(Settings::parse(&s.render()), s);
     // a value that isn't one of the names leaves the default
-    let bad = Settings::parse("time_fmt=9h\nemote_size=3x\nline_height=21\nanimate_emotes=hover");
+    let bad = Settings::parse("time_fmt=9h\nline_height=21\nanimate_emotes=hover");
     assert_eq!(bad, Settings::default());
-    assert_eq!((EmoteSize::X4.mul(), EmoteSize::X1.mul()), (4, 1));
     assert!((LineHeight::L22.ratio() - 1.1).abs() < 1e-6 && LineHeight::L20.ratio() == 1.0);
     assert_eq!(TimeFmt::CHOICE.usage, "<24h|12h>");
     assert_eq!(Animate::CHOICE.usage, "<always|never>");
-  }
-
-  #[test]
-  fn text_badges_round_trip() {
-    assert!(!Settings::default().text_badges);
-    let s = Settings::parse("text_badges=true\n");
-    assert!(s.text_badges);
-    assert_eq!(Settings::parse(&s.render()), s);
-    assert_eq!(local_cmd("/textbadges"), Some(Local::Toggle("text_badges")));
   }
 
   // two settings are gone (the emote provider pick, partial links): a file from before still loads, keeps every
@@ -903,11 +951,9 @@ mod tests {
     assert_eq!(local_cmd("/platformtags"), Some(Local::Toggle("platform_tags")));
     assert_eq!(local_cmd("/dimtimeouts"), Some(Local::Toggle("dim_timeouts")));
     assert_eq!(local_cmd("/timeformat 12h"), Some(Local::Pick("time_fmt", Some(1))));
-    assert_eq!(local_cmd("/emotesize 4X"), Some(Local::Pick("emote_size", Some(2))));
     assert_eq!(local_cmd("/lineheight 22"), Some(Local::Pick("line_height", Some(1))));
     assert_eq!(local_cmd("/animateemotes never"), Some(Local::Pick("animate_emotes", Some(1))));
     assert_eq!(local_cmd("/animateemotes hover"), Some(Local::Pick("animate_emotes", None)));
-    assert_eq!(local_cmd("/emotesize"), Some(Local::Pick("emote_size", None)));
   }
 
   #[test]

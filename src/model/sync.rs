@@ -156,14 +156,6 @@ fn decode(d: &Def, v: &Value) -> Option<Cell> {
       };
       names(d).into_iter().find(|n| *n == s).map(Cell::Is)
     }
-    // the ext also has `hover` (animate while the pointer is over it). this window has no per-emote hover
-    // state to animate by, and a name or emote that holds still until pointed at would read as broken
-    // here, so it counts as on: the account keeps `hover` until you change the switch yourself
-    Wire::Anim(_) => match v.as_str()? {
-      "always" | "hover" => Some(Cell::On(true)),
-      "never" => Some(Cell::On(false)),
-      _ => None,
-    },
     Wire::Level(_) => {
       // the ext's range is 0..1; the nearest of our steps, so 0.45 reads as 50
       let x = v.as_f64().filter(|x| x.is_finite() && (0.0..=1.0).contains(x))?;
@@ -197,7 +189,6 @@ fn put(d: &Def, c: Cell, base: Option<Value>) -> Option<Value> {
   Some(match (d.wire, c) {
     (Wire::Bool(_), Cell::On(v)) => json!(v),
     (Wire::Name(_), Cell::Is(n)) => json!(n),
-    (Wire::Anim(_), Cell::On(v)) => json!(if v { "always" } else { "never" }),
     (Wire::Level(_), Cell::Is(n)) => json!(n.parse::<f64>().ok()? / 100.0),
     (Wire::Flag(_, sub), Cell::On(v)) => {
       let mut o = match base {
@@ -500,7 +491,7 @@ mod tests {
 
   // keys this window writes that the ext's catalog does not hold yet: the name is the one the settings pass
   // agreed for the merged switch, and the ext and the site add it. drop it from here the day the fixture has it
-  const PENDING: [&str; 1] = ["thirdPartyBadges"];
+  const PENDING: [&str; 2] = ["thirdPartyBadges", "inlineFeed"];
 
   fn fixture() -> Value {
     serde_json::from_str(include_str!("sync_fixture.json")).unwrap()
@@ -530,7 +521,7 @@ mod tests {
       let ty = e["type"].as_str().unwrap();
       let want = match d.wire {
         Wire::Bool(_) => "bool",
-        Wire::Name(_) | Wire::Anim(_) => "enum",
+        Wire::Name(_) => "enum",
         Wire::Level(_) => "range",
         Wire::Flag(..) => "boolmap",
         Wire::Hidden(..) => "multiselect",
@@ -686,7 +677,6 @@ mod tests {
       let theirs = match d.wire {
         Wire::Bool(_) => want.as_bool().map(Cell::On),
         Wire::Name(_) => decode(d, want),
-        Wire::Anim(_) => decode(d, want),
         Wire::Level(_) => decode(d, want),
         Wire::Flag(_, sub) => want.get(sub).and_then(Value::as_bool).map(Cell::On),
         Wire::Hidden(_, id) => want.as_array().map(|l| Cell::On(!l.iter().any(|x| x.as_str() == Some(id)))),
@@ -731,16 +721,6 @@ mod tests {
   }
 
   #[test]
-  fn paint_motion_is_always_or_never() {
-    let d = def("paint_motion").unwrap();
-    assert_eq!(decode(d, &json!("never")), Some(Cell::On(false)));
-    assert_eq!(decode(d, &json!("always")), Some(Cell::On(true)));
-    assert_eq!(decode(d, &json!("hover")), Some(Cell::On(true)), "hover is on: no hover state here");
-    assert_eq!(decode(d, &json!("sideways")), None);
-    assert_eq!(decode(d, &json!(false)), None);
-  }
-
-  #[test]
   fn hostile_values_are_ignored_not_applied() {
     let huge = "x".repeat(100_000);
     let nested = json!({"a": {"b": {"c": [1, 2, 3]}}});
@@ -765,13 +745,15 @@ mod tests {
     o.insert("zebra".into(), json!(false));
     o.insert("platformFilters".into(), json!({"x": 1}));
     o.insert("hs_emote_size".into(), json!("4x"));
+    o.insert("textBadges".into(), json!(true));
+    o.insert("animatePaints".into(), json!("never"));
     o.insert("viewer_show_nsfw".into(), json!(true));
     let (inb, bad) = pluck(&Value::Object(o));
     assert_eq!((inb.len(), bad), (1, 0), "only zebra is ours");
     let mut s = Settings::default();
     let mut a = Acct::new(&s);
     assert_eq!(a.inbound(&inb, &mut s, NOW).len(), 1);
-    assert!(!s.zebra && s.emote_size == Settings::default().emote_size && !s.show_nsfw);
+    assert!(!s.zebra && !s.show_nsfw);
   }
 
   #[test]
@@ -789,13 +771,13 @@ mod tests {
     let mut s = Settings::default();
     let mut a = Acct::new(&s);
     // the account's map holds the ext's dm flag, a flag from a newer ext, and junk
-    let held = json!({"op": true, "dm": true, "futureFlag": false, "junk": 5, "nested": {"a": 1}});
+    let held = json!({"moment": true, "dm": true, "futureFlag": false, "junk": 5, "nested": {"a": 1}});
     a.inbound(&one("inlineNotifs", held), &mut s, NOW);
-    s.inline_re = false;
+    s.moments = false;
     let patch = a.outbound(&s, NOW, true);
     assert!(patch.is_none(), "debounced");
     let p = a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
-    assert_eq!(p["inlineNotifs"], json!({"op": true, "dm": true, "futureFlag": false, "re": false}));
+    assert_eq!(p["inlineNotifs"], json!({"moment": false, "dm": true, "futureFlag": false}));
     assert_eq!(p.as_object().unwrap().len(), 1, "only the key that changed");
   }
 
@@ -840,17 +822,17 @@ mod tests {
   fn two_quick_flips_in_one_map_do_not_undo_each_other_when_a_stale_push_lands_between() {
     let mut s = Settings::default();
     let mut a = Acct::new(&s);
-    a.inbound(&one("inlineNotifs", json!({"op": true, "mop": true})), &mut s, NOW);
-    s.inline_op = false;
+    a.inbound(&one("hermesEvents", json!({"online": true, "gameSwitch": true})), &mut s, NOW);
+    s.ev_online = false;
     a.outbound(&s, NOW, true);
     a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
-    // the echo of an earlier write still says op is on
-    a.inbound(&one("inlineNotifs", json!({"op": true, "mop": true})), &mut s, NOW + 500);
-    assert!(!s.inline_op, "the old push does not undo your flip");
-    s.inline_mop = false;
+    // the echo of an earlier write still says online is on
+    a.inbound(&one("hermesEvents", json!({"online": true, "gameSwitch": true})), &mut s, NOW + 500);
+    assert!(!s.ev_online, "the old push does not undo your flip");
+    s.ev_game = false;
     a.outbound(&s, NOW + 600, true);
     let p = a.outbound(&s, NOW + 600 + DEBOUNCE_MS, true).unwrap();
-    assert_eq!(p["inlineNotifs"], json!({"op": false, "mop": false}));
+    assert_eq!(p["hermesEvents"], json!({"online": false, "gameSwitch": false}));
   }
 
   // ---- when things travel ----
@@ -995,6 +977,60 @@ mod tests {
     assert_eq!(s.animate_emotes, crate::model::settings::Animate::Never);
     assert!(a.inbound(&one("animateEmotes", json!("hover")), &mut s, NOW + 2).len() == 1);
     assert_eq!(s.animate_emotes, crate::model::settings::Animate::Always);
+  }
+
+  // the switches that were cut: whatever the account (or an old ext) still holds for them is never read, never
+  // counted as hostile and never written back
+  #[test]
+  fn cut_switches_are_ignored_quietly_and_never_written() {
+    let old = json!({
+      "textBadges": true,
+      "animatePaints": "never",
+      "hs_emote_size": "4x",
+      "hs_emoji_size": "4x",
+      "subsystems": {"stream-stats": false},
+      "inlineNotifs": {"op": false, "mop": false, "re": false, "dm": true},
+    });
+    // only the shared map is read, and only for the entries that still have a row
+    let (inb, bad) = pluck(&old);
+    assert_eq!(bad, 0);
+    assert_eq!(inb.iter().map(|(k, _)| *k).collect::<Vec<_>>(), ["inlineNotifs"]);
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    assert!(a.inbound(&inb, &mut s, NOW).is_empty());
+    assert_eq!(s, Settings::default(), "op / mop / re / dm moved nothing");
+    assert_eq!(a.ignored, 0);
+    assert!(a.outbound(&s, NOW + 1000, true).is_none());
+    // a change of ours carries the map's other entries through, dm included
+    s.moments = false;
+    a.outbound(&s, NOW, true);
+    let p = a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
+    assert_eq!(p["inlineNotifs"]["dm"], json!(true));
+    for gone in ["textBadges", "animatePaints", "subsystems"] {
+      assert!(p.get(gone).is_none(), "{gone}");
+      assert!(!keys().contains(&gone), "{gone}");
+    }
+  }
+
+  #[test]
+  fn the_merged_feed_switch_round_trips() {
+    let d = def("inline_feed").unwrap();
+    assert_eq!(d.wire, Wire::Bool("inlineFeed"));
+    for on in [false, true] {
+      let v = put(d, Cell::On(on), None).unwrap();
+      assert_eq!(v, json!(on));
+      assert_eq!(decode(d, &v), Some(Cell::On(on)));
+    }
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    assert_eq!(a.inbound(&one("inlineFeed", json!(false)), &mut s, NOW).len(), 1);
+    assert!(!s.inline_feed);
+    s.inline_feed = true;
+    a.outbound(&s, NOW + 1, true);
+    let p = a.outbound(&s, NOW + 1 + DEBOUNCE_MS, true).unwrap();
+    assert_eq!(p["inlineFeed"], json!(true));
+    // the paint switch is the emote switch now: the emotes row alone travels
+    assert!(!mapped().any(|d| d.id == "paint_motion"));
   }
 
   #[test]

@@ -5,7 +5,7 @@ use super::*;
 use crate::model::message::{Kind as MsgKind, Message, Platform, flag};
 use crate::model::schema::Fx;
 use crate::model::settings::Streamer as Mode;
-use crate::model::streamer::{HIDDEN, HIDDEN_SHORT, fake_proc};
+use crate::model::streamer::{HIDDEN, fake_proc};
 use crate::model::whisper::{self, Whisper};
 use crate::ui::theme;
 use serde_json::json;
@@ -125,17 +125,6 @@ fn the_toast_names_the_sender_and_never_the_words() {
   assert_eq!(got.last().unwrap(), "whisper from Bob ×2");
   let m = a.tabs[a.active].view.msgs().next_back().unwrap();
   assert_eq!((m.kind, m.color), (MsgKind::System, theme::CYAN));
-}
-
-#[test]
-fn the_inline_dm_row_hides_its_words() {
-  let mut a = app();
-  a.set.inline_dm = true;
-  a.set.whisper_toast = false;
-  set(&mut a, Mode::On);
-  a.on_whispers(vec![dm(1, "Bob", "psst")], true);
-  let m = a.tabs[a.active].view.msgs().next_back().unwrap();
-  assert_eq!((&*m.body, &*m.nick), (HIDDEN_SHORT, "Bob"));
 }
 
 #[test]

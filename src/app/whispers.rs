@@ -5,7 +5,7 @@
 // it (or re-links twitch with the whispers permission when that is what is missing)
 use super::App;
 use super::card::Load;
-use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg};
+use crate::model::message::{Message, Platform};
 use crate::model::tabs::Kind;
 use crate::model::whisper::{self, Cmd as Slash, Status, Timeline, Via, Whisper, Who};
 use crate::net::{Cmd, social};
@@ -136,17 +136,13 @@ impl App {
     self.wake();
   }
 
-  // the toast and the inline row for a whisper or dm that landed off the whispers tab. a blocked person
-  // gets neither
+  // the toast for a whisper or dm that landed off the whispers tab. a blocked person gets none
   fn whisper_heard(&mut self, w: &Whisper) {
     if crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&w.who.login))) {
       return;
     }
     if self.set.whisper_toast {
       self.whisper_toast(w);
-    }
-    if self.set.inline_dm {
-      self.whisper_inline(w);
     }
   }
 
@@ -193,30 +189,6 @@ impl App {
       m.id = fresh.clone();
       t.id = fresh;
       v.push(m);
-    }
-  }
-
-  // `[dm]` row in the chat you are on (ext injectInlineNotif 'dm'): yellow edge, the sender's name in
-  // their color. a heatsync dm's sender is a heatsync name, not a twitch login, so it carries none
-  fn whisper_inline(&mut self, w: &Whisper) {
-    if self.kind() != Kind::Chat {
-      return;
-    }
-    let twitch = w.who.via == Via::Twitch;
-    let mut m = Message::system(w.ts, Platform::Twitch, "");
-    m.kind = MsgKind::Chat;
-    m.login = if twitch { w.who.login.clone() } else { "".into() };
-    m.user_id = if twitch { w.who.id.clone() } else { "".into() };
-    m.nick = w.who.name.clone();
-    m.color = w.who.color;
-    m.body = if self.streamer_hot() { crate::model::streamer::HIDDEN_SHORT.into() } else { w.text.clone() };
-    m.x = Some(Box::new(Extra {
-      head: Box::new([Seg { text: "[dm] ".into(), ink: theme::YELLOW, bold: true }]),
-      edge: theme::YELLOW,
-      ..Extra::default()
-    }));
-    if let Some(t) = self.tabs.get_mut(self.active) {
-      t.chat().push(m);
     }
   }
 
