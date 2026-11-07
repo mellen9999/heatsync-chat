@@ -218,6 +218,55 @@ fn headless_chat_look() {
   assert!(app.res.look.animate_emotes);
 }
 
+// seconds on the row clock: the switch widens every shown time, the name moves right by the new ":ss",
+// and the choice is saved. cargo test -j2 --release headless_timestamp_seconds
+#[test]
+fn headless_timestamp_seconds() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["aaa".into()], false);
+  app.set = crate::model::settings::Settings::default();
+  app.res.apply_look(&app.set);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(640, 200);
+  app.relayout_body();
+  let pos = app.tabs.iter().position(|t| &*t.name == "aaa").unwrap();
+  app.select(pos);
+  let mut m = Message::system(1_700_000_000_000, Platform::Twitch, "hi");
+  m.kind = crate::model::message::Kind::Chat;
+  (m.nick, m.login, m.color) = ("bob".into(), "bob".into(), 0x00ff00);
+  app.on_chat("aaa", Chat::Msg(m));
+  app.local(Local::Toggle("timestamps"));
+  app.local(Local::Toggle("platform_tags"));
+  app.redraw();
+  // where the name starts: the leftmost green pixel (glyph edges are blended, so "green" is a lean, not 0x00ff00)
+  let name_x = |app: &App| {
+    let w = app.canvas.w as usize;
+    let green = |p: u32| (p >> 8 & 0xff) >= 100 && (p >> 16 & 0xff) < 50 && (p & 0xff) < 50;
+    app.canvas.px.iter().enumerate().filter(|(_, p)| green(**p)).map(|(i, _)| i % w).min()
+  };
+  let before = name_x(&app).expect("the name is drawn");
+  assert!(!app.set.timestamp_seconds && !app.res.look.seconds, "off by default, like the ext");
+  app.local(Local::Toggle("timestamp_seconds"));
+  app.redraw();
+  let after = name_x(&app).expect("still drawn");
+  let em = app.res.text.layout("0", &[], &[], f32::MAX).full_width();
+  assert!(app.res.look.seconds && app.set.timestamp_seconds);
+  assert!(after as f32 - before as f32 >= 2.5 * em, "':ss' is three cells: {before} -> {after} (cell {em})");
+  // 12h widens too, and turning seconds off puts it all back
+  app.local(Local::Pick("time_fmt", Some(1)));
+  app.redraw();
+  assert!(name_x(&app).is_some_and(|x| x > before), "12h with seconds");
+  app.local(Local::Pick("time_fmt", Some(0)));
+  app.local(Local::Toggle("timestamp_seconds"));
+  app.redraw();
+  assert_eq!(name_x(&app), Some(before));
+  // it is a saved setting and answers its own slash command
+  app.local(Local::Toggle("timestamp_seconds"));
+  assert!(Settings::parse(&app.set.render()).timestamp_seconds);
+  assert_eq!(crate::model::settings::local_cmd("/timeseconds"), Some(Local::Toggle("timestamp_seconds")));
+}
+
 // the unread number after a channel's name, and tab mode: the cursor moves without switching, K
 // carries a channel up, enter opens. HSC_DUMP=$d/x.ppm ... cargo test -j2 --release headless_tab_mode
 #[test]

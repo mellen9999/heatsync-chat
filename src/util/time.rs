@@ -5,16 +5,14 @@ pub fn now_ms() -> i64 {
   SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-// the wall clock in local time: "16:05", or the ext's 12h form "4:05pm"
-pub fn clock(ms: i64, twelve: bool) -> String {
-  let t: libc::time_t = (ms / 1000) as libc::time_t;
-  // SAFETY: localtime_r writes only into the tm we hand it
-  let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-  let ok = !unsafe { libc::localtime_r(&t, &mut tm) }.is_null();
-  if !ok {
-    return "--:--".into();
+// the wall clock in local time, the one formatter for a chat row's time: "16:05", or the ext's 12h form "4:05pm";
+// `seconds` adds them: "16:05:09", "4:05:09pm"
+pub fn clock(ms: i64, twelve: bool, seconds: bool) -> String {
+  match Local::of(ms) {
+    Some(t) => face(t.h, t.mi, seconds.then_some(t.s), twelve),
+    None if seconds => "--:--:--".into(),
+    None => "--:--".into(),
   }
-  hm(tm.tm_hour, tm.tm_min, twelve)
 }
 
 // a moment broken into local calendar parts
@@ -59,17 +57,18 @@ impl Local {
   }
 }
 
-fn hm(h: i32, m: i32, twelve: bool) -> String {
+fn face(h: u32, m: u32, s: Option<u32>, twelve: bool) -> String {
+  let sec = s.map_or_else(String::new, |s| format!(":{s:02}"));
   if !twelve {
-    return format!("{h:02}:{m:02}");
+    return format!("{h:02}:{m:02}{sec}");
   }
-  let h12 = if h % 12 == 0 { 12 } else { h % 12 };
-  format!("{h12}:{m:02}{}", if h >= 12 { "pm" } else { "am" })
+  let h12 = if h.is_multiple_of(12) { 12 } else { h % 12 };
+  format!("{h12}:{m:02}{sec}{}", if h >= 12 { "pm" } else { "am" })
 }
 
 // "hh:mm" in local time
 pub fn hhmm(ms: i64) -> String {
-  clock(ms, false)
+  clock(ms, false, false)
 }
 
 // "2026-10-30T22:26:51.099Z" → unix ms (utc only; that's all the archive emits)
@@ -140,13 +139,29 @@ mod tests {
 
   #[test]
   fn twelve_hour_clock_is_the_exts() {
-    assert_eq!(hm(0, 5, true), "12:05am");
-    assert_eq!(hm(9, 30, true), "9:30am");
-    assert_eq!(hm(12, 0, true), "12:00pm");
-    assert_eq!(hm(16, 5, true), "4:05pm");
-    assert_eq!(hm(23, 59, true), "11:59pm");
-    assert_eq!(hm(16, 5, false), "16:05");
-    assert_eq!(hm(0, 5, false), "00:05");
+    assert_eq!(face(0, 5, None, true), "12:05am");
+    assert_eq!(face(9, 30, None, true), "9:30am");
+    assert_eq!(face(12, 0, None, true), "12:00pm");
+    assert_eq!(face(16, 5, None, true), "4:05pm");
+    assert_eq!(face(23, 59, None, true), "11:59pm");
+    assert_eq!(face(16, 5, None, false), "16:05");
+    assert_eq!(face(0, 5, None, false), "00:05");
+  }
+
+  #[test]
+  fn seconds_join_the_clock_in_both_forms() {
+    assert_eq!(face(16, 5, Some(9), false), "16:05:09");
+    assert_eq!(face(16, 5, Some(9), true), "4:05:09pm");
+    assert_eq!(face(0, 0, Some(0), true), "12:00:00am");
+    assert_eq!(face(0, 0, Some(0), false), "00:00:00");
+    assert_eq!(face(23, 59, Some(59), true), "11:59:59pm");
+    // end to end, whatever zone this runs in: the same moment, with and without
+    let ms = parse_iso("2026-10-30T22:26:51.099Z").unwrap();
+    let t = Local::of(ms).unwrap();
+    assert_eq!(clock(ms, false, true), t.hms());
+    assert_eq!(clock(ms, false, false), t.hms()[..5]);
+    assert_eq!(clock(ms, true, true), face(t.h, t.mi, Some(t.s), true));
+    assert!(clock(ms, true, true).ends_with(":51am") || clock(ms, true, true).ends_with(":51pm"));
   }
 
   #[test]

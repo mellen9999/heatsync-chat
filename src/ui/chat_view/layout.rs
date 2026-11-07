@@ -175,7 +175,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     s.push('\n');
   }
   if ts {
-    dim(&mut s, &mut spans, &clock(m.ts, res.look.twelve));
+    dim(&mut s, &mut spans, &clock(m.ts, res.look.twelve, res.look.seconds));
     s.push(' ');
   }
   // a line sent through heatsync.org says so even where platform tags are off (ext: [H] is never the host)
@@ -764,7 +764,8 @@ pub(super) fn card(
   };
   if c.p.kind == PreviewKind::Line {
     // ext .hs-log-embed: where and when, dim; the speaker in their color; what they said
-    let when = if c.p.ts > 0 { format!(" {}", clock(c.p.ts, res.look.twelve)) } else { String::new() };
+    let when =
+      if c.p.ts > 0 { format!(" {}", clock(c.p.ts, res.look.twelve, res.look.seconds)) } else { String::new() };
     part(s, &format!("{}{when} ", c.p.place), theme::DIM, false);
     let ink =
       if c.p.color == 0 { crate::model::color::default_for(&c.p.author.to_ascii_lowercase()) } else { c.p.color };

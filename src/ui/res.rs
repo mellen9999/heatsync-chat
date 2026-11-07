@@ -36,6 +36,7 @@ pub const CARD_PX: u16 = 64;
 pub struct Look {
   pub timestamps: bool,
   pub twelve: bool,
+  pub seconds: bool,
   pub zebra: bool,
   pub readable: bool,
   pub tags: bool,
@@ -60,6 +61,7 @@ impl Look {
     Self {
       timestamps: s.timestamps,
       twelve: s.time_fmt == TimeFmt::H12,
+      seconds: s.timestamp_seconds,
       zebra: s.zebra,
       readable: s.readable,
       tags: s.platform_tags,

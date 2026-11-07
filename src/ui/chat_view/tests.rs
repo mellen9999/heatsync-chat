@@ -1005,6 +1005,13 @@ fn the_look_changes_what_a_row_is_made_of() {
   res.look.twelve = true;
   let n = at(&mut res, on);
   assert!(n == "4:05pm ".len() || n == "12:05pm ".len(), "12h with am/pm, no leading zero: {n}");
+  // seconds widen the clock by ":ss" in both forms, and only while they are on
+  res.look.seconds = true;
+  assert_eq!(at(&mut res, on), n + ":09".len(), "12h with seconds");
+  res.look.twelve = false;
+  assert_eq!(at(&mut res, on), "00:00:00 ".len(), "24h with seconds");
+  res.look.seconds = false;
+  res.look.twelve = true;
   // line spacing: 22 and 26 are +10% and +30% of the 20px line
   let h = |res: &mut Res| layout_row(res, "c", &m, false, 600, NO_OPTS).layout.height().round() as i32;
   let tight = h(&mut res);

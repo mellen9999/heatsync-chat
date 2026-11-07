@@ -149,6 +149,8 @@ pub struct Settings {
   // a time before each chat line, and its clock. default off, like the ext
   pub timestamps: bool,
   pub time_fmt: TimeFmt,
+  // seconds on that clock: 16:05:09 for 16:05. default off, like the ext (it has none)
+  pub timestamp_seconds: bool,
   // the #444444 stripe on every other row. default on
   pub zebra: bool,
   // lift dim name colors until they read on black (ext hs_readable_names). default on
@@ -252,6 +254,7 @@ impl Default for Settings {
       auto_hide: false,
       timestamps: false,
       time_fmt: TimeFmt::H24,
+      timestamp_seconds: false,
       zebra: true,
       readable: true,
       platform_tags: true,
@@ -640,6 +643,7 @@ mod tests {
         auto_hide: false,
         timestamps: false,
         time_fmt: TimeFmt::H24,
+        timestamp_seconds: false,
         zebra: true,
         readable: true,
         platform_tags: true,

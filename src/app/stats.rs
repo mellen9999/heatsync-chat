@@ -92,7 +92,7 @@ fn summary(name: &str, c: Option<&Count>, twelve: bool) -> (String, Vec<L>) {
       String::new(),
     ),
     row(
-      format!("since {} · {}", crate::util::time::clock(s.since, twelve), stats::span(now_ms() - s.since)),
+      format!("since {} · {}", crate::util::time::clock(s.since, twelve, false), stats::span(now_ms() - s.since)),
       String::new(),
     ),
   ];

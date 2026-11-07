@@ -201,6 +201,18 @@ pub static DEFS: [Def; 64] = [
     wire: Wire::Name("timestampFormat"),
   },
   Def {
+    id: "timestamp_seconds",
+    cmd: Some("/timeseconds"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "timestamp seconds",
+    tip: "seconds on the clock: 16:05:09, or 4:05:09pm in 12h. stays on this computer. /timeseconds",
+    alias: "seconds hh:mm:ss clock time precise",
+    ctl: pill!(timestamp_seconds),
+    fx: Fx::Look,
+    wire: Wire::None,
+  },
+  Def {
     id: "zebra",
     cmd: Some("/zebra"),
     cat: Cat::Display,
