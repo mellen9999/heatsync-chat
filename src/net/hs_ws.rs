@@ -600,11 +600,9 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let f = crate::model::reaction::parse_frame(v, ty == "reaction:added")?;
       send(NetEvent::Reaction(f))
     }
-    "vote:updated" if st.thread.is_some() => {
-      let id = v.get("message_id").and_then(Value::as_str).filter(|i| crate::model::post::id_ok(i))?;
-      let heat = v.get("heat").and_then(Value::as_f64).filter(|h| h.is_finite() && *h >= 0.0)?;
-      send(NetEvent::PostHeat { id: id.to_ascii_lowercase().into(), heat: heat.min(1e9) as u32 })
-    }
+    "vote:updated" if st.thread.is_some() => post_heat(v, "message_id", "heat").and_then(send),
+    // the site's heat beat: a feed post's number moved (to every client, up to 100 posts a tick). absolute
+    "heat:updated" => post_heat(v, "messageId", "newHeat").and_then(send),
     "new-message" => {
       let p = crate::model::post::parse(v.get("data")?)?;
       send(NetEvent::FeedLive(p))
@@ -698,6 +696,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     _ => None,
   }
+}
+
+// a post's heat as a frame says it: the post (a short alphanumeric id, lowercased) and its number, absolute,
+// finite, not negative, bounded. a frame that does not say both is nothing
+fn post_heat(v: &Value, id: &str, heat: &str) -> Option<NetEvent> {
+  let id = v.get(id).and_then(Value::as_str).filter(|i| crate::model::post::id_ok(i))?;
+  let heat = v.get(heat).and_then(Value::as_f64).filter(|h| h.is_finite() && *h >= 0.0)?;
+  Some(NetEvent::PostHeat { id: id.to_ascii_lowercase().into(), heat: heat.min(1e9).round() as u32 })
 }
 
 // one frame through the same reader the socket uses, for the app's headless tests
@@ -1062,9 +1068,37 @@ mod tests {
     // emotes:refresh is a bare nudge; whatever rides along is never read
     dispatch(&json!({"type": "emotes:refresh", "junk": "x".repeat(10_000)}), &mut st, &out);
     assert!(matches!(rx.try_recv(), Ok(NetEvent::Inventory { removed: None })));
-    // settings:delete / heat:updated are the site's (setting keys, feed-post heat): nothing here uses them
+    // settings:delete is the site's (setting keys): nothing here uses it
     dispatch(&json!({"type": "settings:delete", "key": "theme", "ts": 1}), &mut st, &out);
-    dispatch(&json!({"type": "heat:updated", "messageId": "ab12", "newHeat": 9, "newMaxHeat": 9}), &mut st, &out);
+    assert!(rx.try_recv().is_err());
+  }
+
+  // the site's heat beat reaches every client; a post's number is absolute and checked
+  #[test]
+  fn the_heat_beat_becomes_a_posts_number_and_a_bad_one_is_dropped() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let beat =
+      |id: Value, heat: Value| json!({"type": "heat:updated", "messageId": id, "newHeat": heat, "newMaxHeat": 99});
+    dispatch(&beat(json!("00AB12"), json!(9.6)), &mut st, &out);
+    let Ok(NetEvent::PostHeat { id, heat }) = rx.try_recv() else { panic!("no heat") };
+    assert_eq!((&*id, heat), ("00ab12", 10), "lowercase id, the number rounded");
+    dispatch(&beat(json!("ab12"), json!(1e30)), &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::PostHeat { heat: 1_000_000_000, .. })), "bounded");
+    for bad in [
+      beat(json!("ab 12"), json!(5)),
+      beat(json!("a".repeat(9)), json!(5)),
+      beat(json!(""), json!(5)),
+      beat(json!(7), json!(5)),
+      beat(json!("ab12"), json!(-3)),
+      beat(json!("ab12"), json!("5")),
+      beat(json!("ab12"), Value::Null),
+      json!({"type": "heat:updated", "newHeat": 5}),
+      json!({"type": "heat:updated", "messageId": "ab12"}),
+    ] {
+      dispatch(&bad, &mut st, &out);
+    }
     assert!(rx.try_recv().is_err());
   }
 

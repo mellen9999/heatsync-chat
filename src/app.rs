@@ -260,6 +260,8 @@ pub struct App {
   tip_next: Option<Instant>,
   // heat counts fall with the clock: the tab bar repaints each second while one shows
   heat_due: Option<Instant>,
+  // a feed post's heat moved live: the redraw waits this long so a run of frames is one (react.rs)
+  feed_heat_due: Option<Instant>,
   // pushes that mean "ask again" (follows, blocked emotes, blocks), one request per burst (pushed.rs)
   pushed: crate::model::livegate::Gates,
   // your mention rules as the server holds them (app/mrules.rs); empty until read
@@ -513,6 +515,7 @@ impl App {
       tip: None,
       tip_next: None,
       heat_due: None,
+      feed_heat_due: None,
       pushed: Default::default(),
       mrules: Vec::new(),
       mrules_read: false,
@@ -943,6 +946,9 @@ impl ApplicationHandler<NetEvent> for App {
       self.bar_dirty = true;
       self.wake();
     }
+    if self.feed_heat_due.is_some_and(|t| t <= now) {
+      self.feed_heat_tick();
+    }
     let wake = [
       self.flood,
       anim,
@@ -954,6 +960,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.pick_due,
       self.upd.due,
       self.heat_due,
+      self.feed_heat_due,
       self.pace_due,
       self.flash_due,
       self.streamer.due,

@@ -197,11 +197,14 @@ impl Feed {
     had
   }
 
-  // a vote moved a post's heat (live)
+  // a post's heat moved (a vote, or the site's heat beat), on every copy. true = a copy here changed
   pub fn heat_set(&mut self, id: &str, heat: u32) -> bool {
-    let had = self.find(id).is_some();
-    self.each_copy(id, |x| x.heat = heat);
-    had
+    let mut moved = false;
+    self.each_copy(id, |x| {
+      moved |= x.heat != heat;
+      x.heat = heat;
+    });
+    moved
   }
 
   // a press: flip your vote now (ext feedVoteOptimistic). false = one is already out for this post,

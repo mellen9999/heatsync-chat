@@ -299,3 +299,54 @@ fn headless_react_thread_room() {
   assert!(!app.feed_back());
   assert!(rooms(&mut asked).is_empty());
 }
+
+// the site's heat beat (`heat:updated`, to every client, many posts a tick): a shown post's number is kept at
+// once and drawn one beat later, in one redraw however many frames came. frames for posts we do not hold, or
+// that change nothing, wake nothing. the number never wears a flame
+#[test]
+fn headless_feed_heat_moves_live_in_one_redraw() {
+  let (mut app, _asked, feed) = boot(vec![post("00004a", json!([])), post("00004b", json!([]))]);
+  let shown = |app: &App, id: &str| -> String {
+    let m = app.tabs[feed].view.msgs().find(|m| &*m.id == id).expect("row");
+    m.x.as_ref().unwrap().tail.iter().map(|s| s.text.to_string()).collect()
+  };
+  let beat = |app: &mut App, id: &str, heat: f64| {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let v =
+      json!({"type": "heat:updated", "messageId": id, "newHeat": heat, "newMaxHeat": heat, "delta": 1, "maxDelta": 1});
+    crate::net::hs_ws::feed_frame(&v, &crate::net::Out::Pipe(tx));
+    for ev in rx.try_iter() {
+      app.on_net(ev);
+    }
+  };
+  assert_eq!(shown(&app, "00004a"), "");
+  // a post we do not hold, and a number that is already so: nothing is scheduled
+  beat(&mut app, "00ffff", 80.0);
+  beat(&mut app, "00004a", 0.0);
+  assert!(app.feed_heat_due.is_none(), "idle stays idle");
+  // a real change: kept at once, drawn after the beat
+  beat(&mut app, "00004a", 42.0);
+  assert_eq!(app.feed.find("00004a").unwrap().heat, 42);
+  assert_eq!(shown(&app, "00004a"), "", "not drawn yet");
+  let due = app.feed_heat_due.expect("a redraw is due");
+  assert!(due <= Instant::now() + Duration::from_millis(500), "within the ext's beat");
+  // a run of frames rides the same redraw
+  beat(&mut app, "00004a", 57.4);
+  beat(&mut app, "00004b", 3.0);
+  assert_eq!(app.feed_heat_due, Some(due), "the beat is not pushed out by more frames");
+  app.feed_heat_tick();
+  assert!(app.feed_heat_due.is_none());
+  assert_eq!(shown(&app, "00004a"), " 57°");
+  assert_eq!(shown(&app, "00004b"), " 3");
+  assert!(!shown(&app, "00004a").contains('\u{1f525}'), "never a flame");
+  // the open thread's copy moves with it
+  let op = post("00004a", json!([]));
+  app.feed_open("00004a");
+  app.on_net(NetEvent::Thread { id: "00004a".into(), res: Ok((op, Vec::new())) });
+  beat(&mut app, "00004a", 300.0);
+  assert_eq!(app.feed.thread.as_ref().unwrap().op.as_ref().unwrap().heat, 300);
+  app.feed_heat_tick();
+  let tab = app.thread_tab().expect("the thread is open");
+  let tail = |m: &crate::model::message::Message| m.x.as_ref().unwrap().tail.iter().any(|s| &*s.text == " 300°");
+  assert!(app.tabs[tab].view.msgs().any(tail));
+}
