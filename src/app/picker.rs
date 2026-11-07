@@ -13,13 +13,18 @@ impl App {
     }
     let chan: Box<str> = self.tabs.get(self.active).map_or("".into(), |t| t.view.channel.clone());
     let item = |sec, name: &str, url: &str, w, h| Item { sec, name: name.into(), url: url.into(), w, h };
-    // yours: your heatsync emotes, then your twitch sub emotes
+    // yours: your heatsync emotes, your 7tv personal set, then your twitch sub emotes
     let mut mine: Vec<Item> = match self.me.as_ref().and_then(|m| m.twitch_id) {
       Some(id) => {
         self.res.senders.entries(id, now_ms()).into_iter().map(|(n, e)| item(Sec::Mine, n, &e.url, e.w, e.h)).collect()
       }
       None => Vec::new(),
     };
+    // your 7tv personal set, if 7tv says you own one
+    let personal = self.me.as_ref().and_then(|m| m.twitch_id).map_or_else(Vec::new, |id| self.res.personal.entries(id));
+    let personal = personal.into_iter().filter(|(n, _)| !mine.iter().any(|m| &*m.name == *n));
+    let personal: Vec<Item> = personal.map(|(n, e)| item(Sec::Mine, n, &e.url, e.w, e.h)).collect();
+    mine.extend(personal);
     let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, _)| !mine.iter().any(|m| &*m.name == *n));
     let subs: Vec<Item> = subs.map(|(n, e)| item(Sec::Mine, n, &e.url, e.w, e.h)).collect();
     mine.extend(subs);

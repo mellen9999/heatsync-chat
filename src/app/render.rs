@@ -344,6 +344,10 @@ impl App {
     for id in self.res.senders.take_wanted() {
       self.net.send(Cmd::Sender(id, None));
     }
+    let sets = self.res.personal.take_wanted();
+    if !sets.is_empty() {
+      self.net.send(Cmd::PersonalSets(sets));
+    }
     self.ask_people();
     for id in self.res.cosmetics.take_wanted() {
       self.net.send(Cmd::Cosmetics(id));

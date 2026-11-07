@@ -241,6 +241,7 @@ impl App {
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
           self.rooms.push((ch.into(), id.clone()));
           self.net.send(Cmd::Room(ch.into(), id));
+          self.sync_personal();
           self.held_sweep();
         }
         return;
@@ -612,6 +613,7 @@ impl App {
         self.res.cosmetics.stale(&id);
         self.wake();
       }
+      NetEvent::Personal(ev) => self.on_personal(ev),
       NetEvent::EmoteDelta(ch, d) => {
         if self.res.emotes.patch(&ch, &d) {
           self.relayout_where(Some(&ch));

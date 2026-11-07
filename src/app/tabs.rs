@@ -229,6 +229,7 @@ impl App {
         self.res.emotes.drop_channel(&key);
         self.res.badges.drop_channel(&key);
         self.rooms.retain(|r| r.0 != key);
+        self.sync_personal();
         self.mod_in.remove(&key);
         self.net.send(Cmd::Part(key));
       }

@@ -56,6 +56,7 @@ mod net_events;
 mod notes;
 mod overlay;
 mod peek;
+mod personal;
 mod picker;
 mod picker_search;
 mod pin;
@@ -478,6 +479,7 @@ impl App {
       tabs::seat_hosts(&mut res.chatters, &t.sources);
     }
     res.arts.set_motion(set.animate_emotes == crate::model::settings::Animate::Always);
+    res.personal.set_on(set.personal_emotes);
     if flood {
       crate::fake::seed_paints(&mut res.cosmetics);
       res.heats.mute();

@@ -72,11 +72,15 @@ impl App {
     let own = own.map_or_else(Vec::new, |id| self.res.senders.entries(id, now));
     let own = own.into_iter().filter(|(n, e)| !blocked(n, &e.url));
     let own = own.map(|(name, _)| Cand { name, tier: 1, what: "your inventory · heatsync only" });
+    // your own 7tv personal set, only if 7tv has said it is yours (emotes/personal.rs)
+    let mine = self.own_id().map_or_else(Vec::new, |id| self.res.personal.entries(id));
+    let mine = mine.into_iter().filter(|(n, e)| !blocked(n, &e.url));
+    let mine = mine.map(|(name, _)| Cand { name, tier: 1, what: "your personal set · 7tv users" });
     let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, e)| !blocked(n, &e.url));
     let subs: Vec<Cand> = subs.map(|(name, _)| Cand { name, tier: 1, what: "your sub emote · all twitch" }).collect();
     let global = self.res.emotes.global_names().into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
     let global = global.map(|(name, p, _)| Cand { name, tier: 2, what: what(false, p) });
-    let found = emotes(q, channel.chain(own).chain(subs).chain(global), |n| self.frecency.score(n, now));
+    let found = emotes(q, channel.chain(own).chain(mine).chain(subs).chain(global), |n| self.frecency.score(n, now));
     // a bare word: people who spoke here lately first; with no emote at all, anyone heard anywhere
     let mut out: Vec<Pick> =
       if q == word { people(q, &recent, &[], false) } else { Vec::new() }.into_iter().map(|(n, _)| chat(n)).collect();
@@ -177,6 +181,7 @@ impl App {
     let mine = |n: &str, u: &str| {
       res.emotes.channel(chan, n).is_some_and(|e| *e.url == *u)
         || own.and_then(|id| res.senders.peek(id, n, now)).is_some_and(|e| *e.url == *u)
+        || own.and_then(|id| res.personal.peek(id, n)).is_some_and(|e| *e.url == *u)
         || res.emotes.global(n).is_some_and(|e| *e.url == *u)
     };
     let step =

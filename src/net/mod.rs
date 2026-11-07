@@ -27,6 +27,7 @@ pub mod modsuite;
 pub mod modtools;
 pub mod mrules;
 pub mod mutes;
+mod personal;
 pub mod pin;
 pub mod pinact;
 pub mod pred;
@@ -172,6 +173,8 @@ pub enum NetEvent {
   CosmeticsChanged(Vec<crate::cosmetics::id::PaintId>),
   // a live edit of a channel's 7tv emote set
   EmoteDelta(Box<str>, crate::emotes::live::Delta),
+  // 7tv personal emotes: who owns which set, a set read whole, a live edit of one
+  Personal(crate::emotes::personal::Ev),
   // a channel's pinned line was set or cleared (None)
   Pin {
     platform: Platform,
@@ -580,6 +583,10 @@ pub enum Cmd {
   Mark(marks::Ask),
   // our own twitch id, for watching our own 7tv cosmetics
   SevenTvMe(Option<u64>),
+  // 7tv personal emotes: None = off, else the twitch room ids of the open channels. no id of ours goes
+  SevenTvPersonal(Option<Vec<u64>>),
+  // personal sets to read whole
+  PersonalSets(Vec<Box<str>>),
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
   // read the account again (heatsync said it changed)
   Recheck,
@@ -1006,6 +1013,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     return out.status("can't start the picture loader, restart heatsync-chat");
   };
   let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
+  let reads = Arc::new(Semaphore::new(personal::IN_FLIGHT));
   let (sendq, sendq_rx) = mpsc::unbounded_channel();
   let (irc_send, sess_send) = (irc_tx.clone(), sess_tx.clone());
   watch("sending chat", send_queue::run(sendq_rx, move |c| send_line(c, &irc_send, &sess_send)), out.clone());
@@ -1182,6 +1190,12 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::SevenTvMe(id) => {
         let _ = stv_tx.send(seventv::Cmd::Me(id));
+      }
+      Cmd::SevenTvPersonal(rooms) => {
+        let _ = stv_tx.send(seventv::Cmd::Personal(rooms));
+      }
+      Cmd::PersonalSets(sets) => {
+        watch("personal emotes", personal::read(http.clone(), reads.clone(), sets, out.clone()), out.clone());
       }
       Cmd::Room(ch, room) => {
         watch(

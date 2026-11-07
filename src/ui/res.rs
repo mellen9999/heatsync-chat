@@ -3,6 +3,7 @@ use crate::badges::Badges;
 use crate::cosmetics::Cosmetics;
 use crate::emotes::Emotes;
 use crate::emotes::block::Blocked;
+use crate::emotes::personal::Personal;
 use crate::emotes::resolve::Sources;
 use crate::heatsync::flair::Flairs;
 use crate::heatsync::heat::Heats;
@@ -97,6 +98,8 @@ pub struct Res {
   pub emotes: Emotes,
   pub badges: Badges,
   pub senders: Senders,
+  // the 7tv personal sets 7tv says each chatter owns (their own lines only, see emotes/personal.rs)
+  pub personal: Personal,
   pub heats: Heats,
   pub flairs: Flairs,
   pub cosmetics: Cosmetics,
@@ -128,6 +131,7 @@ impl Res {
       emotes: Emotes::default(),
       badges: Badges::default(),
       senders: Senders::default(),
+      personal: Personal::default(),
       heats: Heats::default(),
       flairs: Flairs::default(),
       cosmetics: Cosmetics::default(),
@@ -151,7 +155,12 @@ impl Res {
 
   // what a word may become an emote from (`emotes::resolve`, the one render chokepoint)
   pub fn sources(&mut self) -> Sources<'_> {
-    Sources { emotes: &self.emotes, senders: &mut self.senders, inventory: self.look.inventory_emotes }
+    Sources {
+      emotes: &self.emotes,
+      senders: &mut self.senders,
+      personal: &mut self.personal,
+      inventory: self.look.inventory_emotes,
+    }
   }
 
   pub fn set_scale(&mut self, scale: f32) {

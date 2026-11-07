@@ -38,6 +38,8 @@ pub enum Fx {
   // the last-read line switch flipped: marks drop when it goes off
   ReadLine,
   Paints,
+  // 7tv personal emotes flipped: what is held goes (or starts coming), lines are laid out again
+  Personal,
   Media,
   // streamer mode flipped: previews, whisper rows and the marker follow
   Streamer,
@@ -137,7 +139,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 63] = [
+pub static DEFS: [Def; 64] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -281,6 +283,18 @@ pub static DEFS: [Def; 63] = [
     ctl: pill!(render_inventory),
     fx: Fx::Look,
     wire: Wire::Bool("renderInventoryEmotes"),
+  },
+  Def {
+    id: "personal_emotes",
+    cmd: Some("/personalemotes"),
+    cat: Cat::Display,
+    section: "cosmetics",
+    label: "7tv personal emotes",
+    tip: "draw the personal emotes 7tv subscribers picked, in their own lines only. asks 7tv which chatters in your open channels have a set; nothing about you goes with it",
+    alias: "personal emote set seventv 7tv subscriber",
+    ctl: pill!(personal_emotes),
+    fx: Fx::Personal,
+    wire: Wire::None,
   },
   Def {
     id: "third_party_badges",

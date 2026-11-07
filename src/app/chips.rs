@@ -21,13 +21,14 @@ impl App {
 
   // what the name will be once sent: a catalog pick you just took (box only: nothing that draws a chat
   // line asks this; it joins your inventory on send), then render order like a line you sent: your
-  // inventory, the channel's set, globals
+  // inventory, your 7tv personal set, the channel's set, globals
   fn box_emote(&self, word: &str) -> Option<Found> {
     let chan = self.tabs.get(self.active).map_or("", |t| &*t.view.channel);
     let e = |e: &crate::emotes::Emote| (e.url.clone(), (e.w, e.h), e.zero_width);
     let found = self.catalog_reg.get(word).map(|r| (r.url.clone(), (0, 0), r.zero_width));
     let found = found
       .or_else(|| self.owned_emote(word))
+      .or_else(|| self.own_id().and_then(|id| self.res.personal.peek(id, word)).map(e))
       .or_else(|| self.res.emotes.sub(word).map(e))
       .or_else(|| self.res.emotes.channel(chan, word).map(e));
     let found =

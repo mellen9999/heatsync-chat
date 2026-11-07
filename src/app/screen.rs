@@ -307,6 +307,7 @@ impl App {
         self.net.send(crate::net::Cmd::SevenTvMe(super::net_events::seventv_id(id, self.set.paints)));
         self.relayout_where(None);
       }
+      Fx::Personal => self.personal_switched(),
       Fx::Look => {
         self.res.apply_look(&self.set);
         self.relayout_where(None);
