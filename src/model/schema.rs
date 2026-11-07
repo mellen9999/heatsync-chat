@@ -137,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 63] = [
+pub static DEFS: [Def; 62] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -665,18 +665,6 @@ pub static DEFS: [Def; 63] = [
     ctl: pill!(ev_pred),
     fx: Fx::None,
     wire: Wire::Flag("hermesEvents", "pred"),
-  },
-  Def {
-    id: "inline_feed",
-    cmd: Some("/inlinefeed"),
-    cat: Cat::Notifs,
-    section: "feed in chat",
-    label: "feed posts",
-    tip: "new heatsync threads, op answers and replies show as a line in every chat tab",
-    alias: "inline op mop re feed posts threads replies",
-    ctl: pill!(inline_feed),
-    fx: Fx::None,
-    wire: Wire::Bool("inlineFeed"),
   },
   Def {
     id: "moments",

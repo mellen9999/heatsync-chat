@@ -192,9 +192,6 @@ pub struct Settings {
   // a banner under the tabs while a prediction is open or locked (ext hermesEvents pred)
   pub ev_pred: bool,
   pub moments: bool,
-  // heatsync feed posts as lines in every chat tab: new threads, the OP answering in their own thread,
-  // replies, one switch. default on
-  pub inline_feed: bool,
   // a whisper or dm while you are on another tab: a toast line (ext whisperToast, default on)
   pub whisper_toast: bool,
   // inline pictures under chat lines. default on, like the ext (mediaEmbedsEnabled)
@@ -274,7 +271,6 @@ impl Default for Settings {
       ev_redeem: true,
       ev_pred: true,
       moments: true,
-      inline_feed: true,
       whisper_toast: true,
       media: true,
       links: true,
@@ -370,8 +366,6 @@ impl Settings {
     let mut out = Self::default();
     // the three badge switches from before the one: on if any of them was
     let (mut old_badges, mut one_badges) = (None, false);
-    // the three feed switches from before the one: on if any was on (one not in the file was on, its default)
-    let (mut old_feed, mut one_feed) = ((0u8, false), false);
     for l in s.lines() {
       let Some((k, v)) = l.split_once('=') else { continue };
       let on = v.trim() == "true";
@@ -380,12 +374,7 @@ impl Settings {
         old_badges = Some(old_badges.unwrap_or(false) || on);
         continue;
       }
-      if matches!(k, "inline_op" | "inline_mop" | "inline_re") {
-        old_feed = (old_feed.0 + 1, old_feed.1 || on);
-        continue;
-      }
       one_badges |= k == "third_party_badges";
-      one_feed |= k == "inline_feed";
       if schema::def(k).is_some_and(|d| d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v)) {
         continue;
       }
@@ -408,9 +397,6 @@ impl Settings {
     // the one switch written by an earlier run of this version wins over the old three
     if let (false, Some(any)) = (one_badges, old_badges) {
       out.third_party_badges = any;
-    }
-    if let (false, (seen @ 1.., any)) = (one_feed, old_feed) {
-      out.inline_feed = any || seen < 3;
     }
     out
   }
@@ -488,7 +474,7 @@ impl Settings {
 }
 
 // settings that are gone: a file that still holds one is rewritten without it, and a synced value is never read.
-// the three inline_* feed switches became inline_feed (read in `parse`); the rest fall back to their defaults
+// the feed tags in chat are always shown now. no cut key is ever read back
 const RETIRED: [&str; 9] = [
   "emote_size",
   "emoji_size",
@@ -671,7 +657,6 @@ mod tests {
         ev_redeem: true,
         ev_pred: true,
         moments: true,
-        inline_feed: true,
         whisper_toast: true,
         media: true,
         links: true,
@@ -788,56 +773,50 @@ mod tests {
     assert_eq!(crate::model::filter::Filters::load().rules().len(), 0);
   }
 
-  // six switches were cut: the three feed switches became one (on if any was on, a missing one counts as its
-  // default, on), the rest fall back to their defaults. a file from before loads, keeps everything else, and is
-  // written back without any of them
-  #[test]
-  fn the_feed_switches_merge_into_one_on_if_any_was_on() {
-    let feed = |t: &str| Settings::parse(t).inline_feed;
-    assert!(feed(""), "default on");
-    for (old, want) in [
-      ("inline_op=true\ninline_mop=true\ninline_re=true\n", true),
-      ("inline_op=false\ninline_mop=false\ninline_re=false\n", false),
-      ("inline_op=false\ninline_mop=false\ninline_re=true\n", true),
-      ("inline_op=true\ninline_mop=false\ninline_re=false\n", true),
-      ("inline_op=false\ninline_mop=true\ninline_re=false\n", true),
-      // a file that holds only some: the others were on by default
-      ("inline_op=false\n", true),
-      ("inline_op=false\ninline_re=false\n", true),
-    ] {
-      assert_eq!(feed(old), want, "{old:?}");
-    }
-    // the new key, once written, wins over leftovers
-    assert!(!feed("inline_feed=false\ninline_op=true\n"));
-    assert!(feed("inline_feed=true\ninline_op=false\ninline_mop=false\ninline_re=false\n"));
-  }
-
   #[test]
   fn the_cut_switches_are_ignored_and_never_written_back() {
     let old = "vi=true\nemote_size=4x\nemoji_size=4x\ntext_badges=true\nstream_stats=false\npaint_motion=false\n\
                inline_dm=true\ninline_op=false\ninline_mop=false\ninline_re=false\nzebra=false\n";
     let s = Settings::parse(old);
     // everything else kept, each cut one at today's default
-    assert_eq!(s, Settings { vi: true, zebra: false, inline_feed: false, ..Settings::default() });
+    assert_eq!(s, Settings { vi: true, zebra: false, ..Settings::default() });
     let out = s.render();
     for gone in RETIRED {
       assert!(!out.lines().any(|l| l.split('=').next() == Some(gone)), "{gone}");
     }
-    assert!(out.contains("inline_feed=false"));
     assert_eq!(Settings::parse(&out), s, "round trip");
     // their slash commands are no longer commands
-    for c in ["/emotesize 2x", "/emojisize 4x", "/textbadges", "/streamstats", "/paintmotion", "/inlinedm", "/inlineop"]
-    {
+    for c in [
+      "/emotesize 2x",
+      "/emojisize 4x",
+      "/textbadges",
+      "/streamstats",
+      "/paintmotion",
+      "/inlinedm",
+      "/inlineop",
+      "/inlinemop",
+      "/inlinere",
+      "/inlinefeed",
+    ] {
       assert_eq!(local_cmd(c), None, "{c}");
     }
-    assert_eq!(local_cmd("/inlinefeed"), Some(Local::Toggle("inline_feed")));
     // a file of nothing else is still ours: not set aside
     assert!(Settings::usable("text_badges=true\n"));
   }
 
   #[test]
   fn each_cut_switch_on_and_off_leaves_the_defaults() {
-    for k in ["emote_size", "emoji_size", "text_badges", "stream_stats", "paint_motion", "inline_dm"] {
+    for k in [
+      "emote_size",
+      "emoji_size",
+      "text_badges",
+      "stream_stats",
+      "paint_motion",
+      "inline_dm",
+      "inline_op",
+      "inline_mop",
+      "inline_re",
+    ] {
       for v in ["true", "false", "1x", "4x", "junk"] {
         assert_eq!(Settings::parse(&format!("{k}={v}\n")), Settings::default(), "{k}={v}");
       }
@@ -849,9 +828,9 @@ mod tests {
   fn load_rewrites_the_file_without_the_cut_keys() {
     store::write("settings", "vi=true\ntext_badges=true\ninline_op=false\ninline_mop=true\nemote_size=2x\n").unwrap();
     let s = Settings::load();
-    assert!(s.vi && s.inline_feed);
+    assert!(s.vi);
     let file = store::read("settings").unwrap();
-    assert!(file.contains("vi=true") && file.contains("inline_feed=true"));
+    assert!(file.contains("vi=true"));
     for gone in RETIRED {
       assert!(!file.lines().any(|l| l.split('=').next() == Some(gone)), "{gone}");
     }

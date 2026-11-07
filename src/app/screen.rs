@@ -817,7 +817,7 @@ mod tests {
     app.set.zebra = false;
     app.set.platform_tags = false;
     app.set.hs_paints = false;
-    app.set.inline_feed = false;
+    app.set.dim_timeouts = false;
     app.set.tab_feed = false;
     app.open_screen(Page::Settings);
     app.ask_reset();
@@ -827,7 +827,7 @@ mod tests {
     assert!(!app.screen.as_ref().unwrap().ask_reset && !app.set.zebra);
     app.ask_reset();
     app.screen_key(Key::Character("y"), None);
-    assert!(app.set.zebra && app.set.platform_tags && app.set.hs_paints && app.set.inline_feed);
+    assert!(app.set.zebra && app.set.platform_tags && app.set.hs_paints && app.set.dim_timeouts);
     assert!(!app.set.tab_feed, "the tabs on the bar stay as they were");
     assert!(crate::model::filter::with(|f| f.blocked("troll")));
   }

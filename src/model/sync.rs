@@ -491,7 +491,7 @@ mod tests {
 
   // keys this window writes that the ext's catalog does not hold yet: the name is the one the settings pass
   // agreed for the merged switch, and the ext and the site add it. drop it from here the day the fixture has it
-  const PENDING: [&str; 2] = ["thirdPartyBadges", "inlineFeed"];
+  const PENDING: [&str; 1] = ["thirdPartyBadges"];
 
   fn fixture() -> Value {
     serde_json::from_str(include_str!("sync_fixture.json")).unwrap()
@@ -1012,25 +1012,37 @@ mod tests {
     }
   }
 
+  // every key of a cut switch, as the ext or the site spells it. the site still bridges textBadges: a stale value
+  // from here would be wrong, so none of them may ever be written
+  const CUT: [&str; 7] =
+    ["textBadges", "subsystems", "animatePaints", "hs_emote_size", "hs_emoji_size", "inlineFeed", "paintMotion"];
+
   #[test]
-  fn the_merged_feed_switch_round_trips() {
-    let d = def("inline_feed").unwrap();
-    assert_eq!(d.wire, Wire::Bool("inlineFeed"));
-    for on in [false, true] {
-      let v = put(d, Cell::On(on), None).unwrap();
-      assert_eq!(v, json!(on));
-      assert_eq!(decode(d, &v), Some(Cell::On(on)));
-    }
+  fn a_sync_write_holds_none_of_the_cut_keys() {
+    // every value the window can write, and a full push of every row flipped from its default
+    assert!(emitted().iter().all(|(k, _)| !CUT.contains(k)));
+    assert!(CUT.iter().all(|k| !keys().contains(k)));
     let mut s = Settings::default();
     let mut a = Acct::new(&s);
-    assert_eq!(a.inbound(&one("inlineFeed", json!(false)), &mut s, NOW).len(), 1);
-    assert!(!s.inline_feed);
-    s.inline_feed = true;
-    a.outbound(&s, NOW + 1, true);
-    let p = a.outbound(&s, NOW + 1 + DEBOUNCE_MS, true).unwrap();
-    assert_eq!(p["inlineFeed"], json!(true));
-    // the paint switch is the emote switch now: the emotes row alone travels
-    assert!(!mapped().any(|d| d.id == "paint_motion"));
+    a.inbound(&one("inlineNotifs", json!({"op": true, "mop": true, "re": true, "dm": true})), &mut s, NOW);
+    for d in mapped() {
+      let cell = match get_cell(d, &s) {
+        Some(Cell::On(v)) => Cell::On(!v),
+        Some(Cell::Is(n)) => Cell::Is(names(d).into_iter().find(|x| *x != n).unwrap_or(n)),
+        None => continue,
+      };
+      set_cell(d, &mut s, cell);
+    }
+    a.outbound(&s, NOW, true);
+    let p = a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
+    for k in CUT {
+      assert!(p.get(k).is_none(), "{k}");
+    }
+    // the map keeps the ext's op / mop / re / dm entries as they were, and adds none of its own
+    let m = p["inlineNotifs"].as_object().unwrap();
+    for k in ["op", "mop", "re", "dm"] {
+      assert_eq!(m.get(k), Some(&json!(true)), "{k}");
+    }
   }
 
   #[test]

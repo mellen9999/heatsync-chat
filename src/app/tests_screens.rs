@@ -766,7 +766,6 @@ fn headless_feed_engage() {
   assert!(cmds(&mut asked).is_empty(), "no [OP] in chat yet: nothing sent");
   assert_eq!(app.line.text, "", "the say line took it");
   app.on_feed_live(theirs.clone());
-  app.set.inline_feed = true;
   app.on_feed_live(post("00004d", "bob", now));
   app.line.insert("/re yes");
   app.send();
