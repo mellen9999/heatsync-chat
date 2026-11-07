@@ -551,8 +551,9 @@ fn the_counter_wakes_near_the_cap_yellow_then_red() {
   crate::bench::dump(&app.canvas);
   typed(&mut app, "a".repeat(501));
   assert!(inked(&app, RED) > 20, "past the cap: red");
-  // characters, not bytes: 300 emoji are 1200 bytes and nowhere near the cap
-  typed(&mut app, "😂".repeat(300));
+  // characters, not bytes: 300 euro signs are 900 bytes and nowhere near the cap. (not emoji: a colour-emoji
+  // font draws its own yellow, which the counter's yellow would be mistaken for)
+  typed(&mut app, "€".repeat(300));
   assert_eq!((inked(&app, YELLOW), inked(&app, RED)), (0, 0));
   // a merged tab that sends to youtube too counts against its 200
   let merged = app.tabs.iter().position(|t| t.name.as_ref() != "forsen" && !t.sources.is_empty()).unwrap();
