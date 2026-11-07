@@ -1,6 +1,6 @@
 # heatsync-chat
 
-the heatsync browser extension's multichat overlay, as a standalone pure-rust window. **the ext (`~/projects/heatsync-extension`) is the spec** — not chatterino. roadmap + rationale: `docs/PLAN.md`. heatsync api/ws contract + hostile-input bounds: `docs/contract.md`.
+the heatsync browser extension's multichat overlay, as a standalone pure-rust window. **the ext (`~/projects/heatsync-extension`) is the spec** — not chatterino. heatsync api/ws contract + hostile-input bounds: `docs/contract.md`.
 
 ## run / test
 - `cargo build --release`, `cargo test --release`, `cargo clippy --release --all-targets -- -D warnings`, `cargo fmt`

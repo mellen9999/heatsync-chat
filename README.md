@@ -1,6 +1,6 @@
 # heatsync-chat
 
-twitch, kick and youtube chat in one native window, with [heatsync](https://heatsync.org) emotes, paints and badges. it's the heatsync browser extension's multichat as its own app: same tabs, same keys, same look, no browser. pure rust, drawn on the cpu, around 25MB of its own memory on a busy channel, zero cpu when chat is quiet.
+twitch, kick and youtube chat in one native window, with [heatsync](https://heatsync.org) emotes, paints and badges. it's the heatsync browser extension's multichat as its own app: same tabs, same keys, same look, no browser. pure rust, drawn on the cpu, about 25MB resident (`--bench` prints yours), zero cpu when chat is quiet.
 
 linux (wayland or x11) and windows 10 or newer. MIT.
 
@@ -106,4 +106,4 @@ cargo build --release
 - `--flood`: a window of fake busy chat
 - `git config core.hooksPath .githooks`: the pre-commit checks (secrets scan, fmt, clippy, tests)
 
-[docs/PLAN.md](docs/PLAN.md) explains how it's built and why, [docs/contract.md](docs/contract.md) has the heatsync api it speaks.
+[docs/contract.md](docs/contract.md) has the heatsync api it speaks.
