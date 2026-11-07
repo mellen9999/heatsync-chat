@@ -273,6 +273,7 @@ impl App {
       let text = crate::model::emoji::convert(&text).into_owned();
       let picks = self.auto_add(&text);
       self.fan_out(&open, &text, reply);
+      self.tell_origin(&open, &text, &picks);
       self.vouch(&open, picks);
       if let Some(v) = self.view() {
         v.scroll_to_bottom();

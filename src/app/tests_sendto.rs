@@ -282,3 +282,33 @@ fn a_youtube_feed_that_isnt_live_is_left_out_of_a_merged_send_quietly() {
   type_and_send(&mut app, "yo");
   assert_eq!(sent(&mut rx).iter().map(|s| s.0).collect::<Vec<_>>(), [Platform::Youtube]);
 }
+
+// what was told to heatsync as `chat:origin_tag`: (room, text, send id)
+fn origins(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<(String, String, String)> {
+  std::iter::from_fn(|| rx.try_recv().ok())
+    .filter_map(|c| match c {
+      Cmd::Hs(crate::net::hs_ws::Cmd::Origin(c, t, id, _)) => Some((c.to_string(), t.to_string(), id.to_string())),
+      _ => None,
+    })
+    .collect()
+}
+
+// the site tells heatsync once per send, not once per feed; the twitch room is the one named, else kick, else youtube
+#[test]
+fn a_send_is_told_to_heatsync_once_whatever_the_feeds() {
+  let (mut app, mut rx) = boot();
+  type_and_send(&mut app, "hello");
+  let got = origins(&mut rx);
+  assert_eq!(got.len(), 1, "{got:?}");
+  assert_eq!((got[0].0.as_str(), got[0].1.as_str()), ("forsen", "hello"));
+  assert!(got[0].2.starts_with("hsc-"));
+  type_and_send(&mut app, "/me waves");
+  assert_eq!(origins(&mut rx)[0].1, "waves", "the platforms echo a /me line bare");
+  // one feed at a time: twitch, then kick, then youtube
+  for room in ["forsen", "xqc", "@abc"] {
+    app.cycle_send();
+    type_and_send(&mut app, "solo");
+    let got = origins(&mut rx);
+    assert_eq!(got.iter().map(|o| o.0.as_str()).collect::<Vec<_>>(), [room]);
+  }
+}

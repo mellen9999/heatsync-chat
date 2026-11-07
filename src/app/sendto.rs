@@ -126,6 +126,21 @@ impl App {
     }
   }
 
+  // the line you just sent, told to heatsync once (`chat:origin_tag`, as the site does): it wears `[H]` for your
+  // other devices and keeps your picks on it. the room named is the twitch one, else kick, else youtube
+  pub(super) fn tell_origin(&mut self, legs: &[(Platform, Box<str>)], text: &str, picks: &[crate::net::hs_ws::Vouch]) {
+    let chan = [Platform::Twitch, Platform::Kick, Platform::Youtube]
+      .iter()
+      .find_map(|want| legs.iter().find(|(p, _)| p == want).map(|(_, c)| c.clone()));
+    let Some(chan) = chan else { return };
+    // the words the platform echoes: a /me line is its bare body
+    let bare = text.strip_prefix("/me ").unwrap_or(text);
+    let each =
+      picks.iter().map(|v| crate::net::hs_ws::Vouch { name: v.name.clone(), url: v.url.clone(), provider: v.provider });
+    let id: Box<str> = format!("hsc-{}", now_ms()).into();
+    self.net.send(Cmd::Hs(crate::net::hs_ws::Cmd::Origin(chan, bare.into(), id, each.collect())));
+  }
+
   // the picks in a line you just sent, told to each room it went to
   pub(super) fn vouch(&mut self, legs: &[(Platform, Box<str>)], picks: Vec<crate::net::hs_ws::Vouch>) {
     if picks.is_empty() {

@@ -49,6 +49,9 @@ pub enum Cmd {
   // the emotes a line you just sent names that you picked on purpose (Tab, the picker), so the room draws
   // them from your word while they join your inventory (`emotes:used`). rule 7: a send never waits on that
   Used(Platform, Box<str>, Vec<Vouch>),
+  // a line you just sent, told once (not per room) as heatsync.org does: `[H]` on its echo for your other
+  // devices, and your picks stored on the line (`chat:origin_tag`). (room, text, send id, picks)
+  Origin(Box<str>, Box<str>, Box<str>, Vec<Vouch>),
 }
 
 // one picked emote: name, image, provider label
@@ -215,6 +218,10 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
     Cmd::TabPull => vec![json!({"type": "multichat:pull"})],
     // only a room we are in (the server refuses the rest)
     Cmd::Used(p, ch, v) if st.rooms.contains(&(plat(p), ch.clone())) => vouch_frame(p, &ch, &v).into_iter().collect(),
+    // the server only reads it from a signed-in socket
+    Cmd::Origin(ch, text, sid, v) if st.token.is_some() => {
+      super::origin::frame(&ch, &text, &sid, &v).into_iter().collect()
+    }
     Cmd::Thread(id) => {
       let id: Option<Box<str>> = id
         .filter(|i| (1..=8).contains(&i.len()) && i.bytes().all(|b| b.is_ascii_alphanumeric()))

@@ -28,6 +28,7 @@ pub mod modsuite;
 pub mod modtools;
 pub mod mrules;
 pub mod mutes;
+mod origin;
 mod personal;
 pub mod pin;
 pub mod pinact;

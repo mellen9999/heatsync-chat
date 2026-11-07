@@ -526,7 +526,10 @@ mod tests {
     app.line.insert("zzcatLol");
     app.send();
     let again = asked(&mut rx);
-    assert!(again.iter().all(|c| !matches!(c, Cmd::Emote(_) | Cmd::Hs(_))), "added once, vouched once");
+    assert!(
+      again.iter().all(|c| !matches!(c, Cmd::Emote(_) | Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)))),
+      "added once, vouched once"
+    );
   }
 
   // a name you own, block or get as a global is never added; logged out adds nothing; blocked names
@@ -672,10 +675,11 @@ mod tests {
         Cmd::Emote(EmoteCmd::Swap { .. }) => "swap",
         Cmd::Send { .. } => "send",
         Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)) => "vouch",
+        Cmd::Hs(crate::net::hs_ws::Cmd::Origin(..)) => "origin",
         _ => "other",
       })
       .collect();
-    assert_eq!(kinds, ["add", "send", "vouch"]);
+    assert_eq!(kinds, ["add", "send", "origin", "vouch"]);
     // a different W of mine: the pick replaces it on purpose, in one swap
     w_everywhere(&mut app, true);
     app.catalog_reg.track(&hit("W", "PICK"));
@@ -686,6 +690,9 @@ mod tests {
     app.line.insert("W");
     app.send();
     let again = asked(&mut rx);
-    assert!(again.iter().all(|c| matches!(c, Cmd::Send { .. })), "just the line");
+    assert!(
+      again.iter().all(|c| matches!(c, Cmd::Send { .. } | Cmd::Hs(crate::net::hs_ws::Cmd::Origin(..)))),
+      "just the line, and the word to heatsync that it went"
+    );
   }
 }
