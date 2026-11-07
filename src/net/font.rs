@@ -10,11 +10,13 @@ pub fn find(name: Box<str>, out: Out) {
   });
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
   use super::*;
 
-  // a name nobody has comes back as a plain sentence naming it, tagged with what was asked
+  // a name nobody has comes back as a plain sentence naming it, tagged with what was asked. unix only (the
+  // module): on windows this step only checks the name, and the text engine answers whether it's installed
+  // (app/font.rs)
   #[tokio::test]
   async fn a_missing_family_comes_back_as_a_sentence() {
     let (tx, rx) = std::sync::mpsc::channel();

@@ -91,7 +91,9 @@ mod tests {
     std::fs::write(d.join("cat2.png"), b"x").unwrap();
     std::fs::write(d.join(".hidden"), b"x").unwrap();
     let base = format!("{}/", d.display());
-    assert_eq!(complete(&format!("{base}pi"), None).0, format!("{base}pics/"));
+    // a finished folder ends in the platform's separator
+    let slash = if cfg!(windows) { '\\' } else { '/' };
+    assert_eq!(complete(&format!("{base}pi"), None).0, format!("{base}pics{slash}"));
     let (t, many) = complete(&format!("{base}c"), None);
     assert_eq!(t, format!("{base}cat"));
     assert_eq!(many, ["cat1.png", "cat2.png"]);

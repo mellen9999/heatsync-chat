@@ -439,7 +439,13 @@ mod tests {
 
   #[test]
   fn dialog_output() {
-    assert_eq!(parse_pick("/tmp/a.png\n"), Some(PathBuf::from("/tmp/a.png")));
+    // an absolute path names its root: `/` on unix, a drive on windows
+    if cfg!(windows) {
+      assert_eq!(parse_pick("C:\\pics\\a.png\r\n"), Some(PathBuf::from("C:\\pics\\a.png")));
+      assert_eq!(parse_pick("/tmp/a.png\n"), None);
+    } else {
+      assert_eq!(parse_pick("/tmp/a.png\n"), Some(PathBuf::from("/tmp/a.png")));
+    }
     assert_eq!(parse_pick("rel.png\n"), None);
     assert_eq!(parse_pick(""), None);
   }
