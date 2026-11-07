@@ -1092,6 +1092,11 @@ impl Def {
     }
   }
 
+  // a row that does nothing right now, so the screen draws it dim (the sound file while the sound isn't custom)
+  pub fn idle(&self, s: &Settings) -> bool {
+    self.id == "ping_file" && s.ping_sound != crate::model::settings::PingSound::Custom
+  }
+
   // a Pick row's value name now
   pub fn picked(&self, s: &Settings) -> Option<&'static str> {
     match self.ctl {

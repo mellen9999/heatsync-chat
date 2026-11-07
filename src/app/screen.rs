@@ -278,7 +278,12 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
         (if v.is_empty() { w.none.to_owned() } else { (w.show)(v).to_owned() }, None)
       }
     };
-    lines.push(L::Row { a: d.label.to_owned(), b, pill });
+    // a row with nothing to do yet reads dim, and says when it will
+    lines.push(if d.idle(set) {
+      L::Tint { a: d.label.to_owned(), b: format!("{b} \u{b7} custom only"), ink: theme::DIM }
+    } else {
+      L::Row { a: d.label.to_owned(), b, pill }
+    });
     targets.push(Target::Def(d));
   }
   (lines, targets)
@@ -854,9 +859,15 @@ mod tests {
     let mut set = Settings::default();
     let value = |q: &str, set: &Settings| {
       let (lines, _) = settings_lines(q, set);
-      lines.iter().find_map(|l| if let L::Row { b, .. } = l { Some(b.clone()) } else { None }).unwrap()
+      lines
+        .iter()
+        .find_map(|l| if let L::Row { b, .. } | L::Tint { b, .. } = l { Some(b.clone()) } else { None })
+        .unwrap()
     };
     assert_eq!(value("ping_sound", &set), "ping");
+    // the file only matters once the sound is custom: until then the row reads dim and says so
+    assert_eq!(value("ping_file", &set), "none \u{b7} custom only");
+    set.ping_sound = crate::model::settings::PingSound::Custom;
     assert_eq!(value("ping_file", &set), "none");
     assert!(set.ping_file.set("/home/me/Sounds/Ding.wav"));
     assert_eq!(value("ping_file", &set), "Ding.wav");
@@ -878,6 +889,23 @@ mod tests {
     let before = app.set;
     app.screen_pick(Some(true));
     assert!(app.screen.is_some() && app.set == before);
+  }
+
+  #[test]
+  fn the_sound_file_row_is_dim_until_the_sound_is_custom() {
+    use crate::model::settings::PingSound;
+    let mut set = Settings::default();
+    let dim = |set: &Settings| {
+      let (lines, targets) = settings_lines("custom sound file", set);
+      let at = targets.iter().position(|t| matches!(t, Target::Def(d) if d.id == "ping_file")).unwrap();
+      matches!(&lines[at], L::Tint { ink, .. } if *ink == theme::DIM)
+    };
+    assert!(dim(&set), "the ping is picked: the file does nothing yet");
+    set.ping_sound = PingSound::Custom;
+    assert!(!dim(&set));
+    // every other row stays a normal row
+    let (lines, _) = settings_lines("", &Settings::default());
+    assert_eq!(lines.iter().filter(|l| matches!(l, L::Tint { .. })).count(), 1);
   }
 
   #[test]
