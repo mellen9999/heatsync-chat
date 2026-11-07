@@ -179,7 +179,10 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   }
   // a line sent through heatsync.org says so even where platform tags are off (ext: [H] is never the host)
   let hs = x.is_some_and(|x| x.origin);
-  if tags || hs {
+  // so does a stream line of kick or youtube (went live, switched game…), whatever the tab: the ext tags
+  // them unless the platform is the host's, and twitch is the host here
+  let off_host = m.kind == Kind::Event && !m.login.is_empty() && m.platform != Platform::Twitch;
+  if tags || hs || off_host {
     let (t, c) = match m.platform {
       _ if hs => ("[H]", theme::HEATSYNC),
       Platform::Twitch => ("[T]", theme::TWITCH),

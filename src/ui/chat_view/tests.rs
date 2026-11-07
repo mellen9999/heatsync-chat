@@ -963,6 +963,30 @@ fn links_off_leaves_urls_plain() {
   assert!(layout_row(&mut res, "c", &m, false, 600, NO_OPTS).links.is_empty());
 }
 
+// the ext tags every stream line with its platform unless that is the host's (`platformBadgesEnabled ||
+// platform !== hostPlatform`). twitch is the host here, so a kick or youtube went-live wears [K] / [Y] even in a
+// tab that shows no tags and with the platform-tags switch off; a twitch one and a chat line stay as they were
+#[test]
+fn a_stream_line_of_another_platform_wears_its_tag_off_a_merged_tab() {
+  let mut res = Res::new(1.0);
+  let live = |p: Platform| {
+    let mut m = Message::system(1, p, "");
+    m.kind = Kind::Event;
+    m.login = "xqc".into();
+    m.nick = "xqc".into();
+    m
+  };
+  let start = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 600, NO_OPTS).nick.start;
+  assert_eq!(start(&mut res, &live(Platform::Twitch)), 0, "the host's own platform is the unmarked one");
+  assert_eq!(start(&mut res, &live(Platform::Kick)), 3, "[K]");
+  assert_eq!(start(&mut res, &live(Platform::Youtube)), 3, "[Y]");
+  res.look.tags = false;
+  assert_eq!(start(&mut res, &live(Platform::Kick)), 3, "the switch governs the tab's tags, not this one");
+  let mut chat = live(Platform::Kick);
+  chat.kind = Kind::Chat;
+  assert_eq!(start(&mut res, &chat), 0, "a chat line still follows its tab and the switch");
+}
+
 // the chat look: the clock before a line, its format, platform tags, line spacing, emote size
 #[test]
 fn the_look_changes_what_a_row_is_made_of() {
