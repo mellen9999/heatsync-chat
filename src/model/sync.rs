@@ -496,9 +496,9 @@ mod tests {
     out
   }
 
-  // keys this window writes that the ext's catalog does not hold yet: the name is the one agreed with the ext
-  // and the site, who add it. drop it from here the day the fixture has it
-  const PENDING: [&str; 2] = ["thirdPartyBadges", "hoverReply"];
+  // keys the server keeps per device and refuses in a ui-state:sync patch: it rejects the WHOLE patch if one
+  // is in it. mirrors UI_STATE_DEVICE_LOCAL_KEYS in heatsync server/services/ws-handlers.ts; keep in step
+  const DEVICE_LOCAL: [&str; 1] = ["platformFilters"];
 
   fn fixture() -> Value {
     serde_json::from_str(include_str!("sync_fixture.json")).unwrap()
@@ -521,7 +521,7 @@ mod tests {
   #[test]
   fn every_mapped_key_is_in_the_ext_catalog_with_the_shape_we_write() {
     let fx = fixture();
-    for d in mapped().filter(|d| !PENDING.contains(&d.wire.key().unwrap_or_default())) {
+    for d in mapped() {
       let key = d.wire.key().unwrap();
       let e = &fx[key];
       assert!(e.is_object(), "{key} is not in the ext's catalog");
@@ -543,7 +543,7 @@ mod tests {
     let fx = fixture();
     let all = emitted();
     assert!(all.len() > 60);
-    for (key, v) in all.into_iter().filter(|(k, _)| !PENDING.contains(k)) {
+    for (key, v) in all {
       let e = &fx[key];
       let ok = match e["type"].as_str().unwrap() {
         "bool" => v.is_boolean(),
@@ -677,7 +677,7 @@ mod tests {
   fn defaults_match_the_ext() {
     let fx = fixture();
     let s = Settings::default();
-    for d in mapped().filter(|d| !PENDING.contains(&d.wire.key().unwrap_or_default())) {
+    for d in mapped() {
       let key = d.wire.key().unwrap();
       let want = &fx[key]["default"];
       let ours = get_cell(d, &s).unwrap();
@@ -786,6 +786,35 @@ mod tests {
     let p = a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
     assert_eq!(p["inlineNotifs"], json!({"moment": false, "dm": true, "futureFlag": false}));
     assert_eq!(p.as_object().unwrap().len(), 1, "only the key that changed");
+  }
+
+  // the server throws out a whole patch that holds a device-local key, so one stray key would lose every
+  // other change in it
+  #[test]
+  fn a_push_never_holds_a_device_local_key() {
+    assert!(emitted().iter().all(|(k, _)| !DEVICE_LOCAL.contains(k)));
+    assert!(DEVICE_LOCAL.iter().all(|k| !keys().contains(k)));
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    for d in mapped() {
+      let cell = match get_cell(d, &s) {
+        Some(Cell::On(v)) => Cell::On(!v),
+        Some(Cell::Is(n)) => Cell::Is(names(d).into_iter().find(|x| *x != n).unwrap_or(n)),
+        None => continue,
+      };
+      set_cell(d, &mut s, cell);
+    }
+    // the server's own copy holds the device-local key too: it must not ride along
+    a.inbound(&one("inlineNotifs", json!({"op": true})), &mut s, NOW);
+    for (k, _) in TEXTS {
+      a.text_queue(k, if k == PAINTS { "[]".to_owned() } else { "x".to_owned() }, NOW);
+    }
+    a.outbound(&s, NOW, true);
+    let p = a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
+    assert!(p.as_object().unwrap().len() > 20, "a full push");
+    for k in DEVICE_LOCAL {
+      assert!(p.get(k).is_none(), "{k}");
+    }
   }
 
   #[test]
