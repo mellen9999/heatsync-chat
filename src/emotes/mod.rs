@@ -15,7 +15,7 @@ pub enum Provider {
   SevenTv,
   Bttv,
   Ffz,
-  // twitch's own globals. never in the order: other people's lines get twitch emotes from the
+  // twitch's own globals. always last in a walk: other people's lines get twitch emotes from the
   // irc `emotes` tag (only what they can actually use); this set is for our own echo + completion
   Twitch,
 }
@@ -44,8 +44,9 @@ struct Scope {
 }
 
 impl Scope {
+  // the three third-party sets in `order`, then twitch's own last (the same walk as `provided`)
   fn get(&self, order: &[Provider; 3], word: &str) -> Option<&Emote> {
-    order.iter().find_map(|p| self.sets.get(p)?.get(word))
+    order.iter().chain(std::iter::once(&Provider::Twitch)).find_map(|p| self.sets.get(p)?.get(word))
   }
 
   // every name once, with the provider that wins it
@@ -68,23 +69,19 @@ impl Scope {
   }
 }
 
-// which provider wins a name two of them define: ffz, then 7tv, then bttv (the ext's emoteProviderPriority
-// default). only ever among the third-party sets: heatsync inventory emotes never come through here
-const ORDER: [Provider; 3] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv];
+// which provider wins a name two of them define (emote rule 3). a channel's sets: ffz, 7tv, bttv. the
+// globals: 7tv, bttv, ffz. twitch's own set is always last. only ever among the third-party sets:
+// heatsync inventory emotes never come through here
+const CHANNEL_ORDER: [Provider; 3] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv];
+const GLOBAL_ORDER: [Provider; 3] = [Provider::SevenTv, Provider::Bttv, Provider::Ffz];
 
+#[derive(Default)]
 pub struct Emotes {
   global: Scope,
   channels: HashMap<Box<str>, Scope>,
-  order: [Provider; 3],
   // twitch emotes you may send anywhere (your subs'), as heatsync reads them off your twitch account.
   // yours only: tab, the picker, the box and your own lines, never someone else's line
   subs: Set,
-}
-
-impl Default for Emotes {
-  fn default() -> Self {
-    Emotes { global: Scope::default(), channels: HashMap::new(), order: ORDER, subs: Set::new() }
-  }
 }
 
 impl Emotes {
@@ -102,11 +99,11 @@ impl Emotes {
 
   // within a scope, the provider order decides. callers check the channel before globals
   pub fn channel(&self, channel: &str, word: &str) -> Option<&Emote> {
-    self.channels.get(channel)?.get(&self.order, word)
+    self.channels.get(channel)?.get(&CHANNEL_ORDER, word)
   }
 
   pub fn global(&self, word: &str) -> Option<&Emote> {
-    self.global.get(&self.order, word)
+    self.global.get(&GLOBAL_ORDER, word)
   }
 
   pub fn set_subs(&mut self, subs: Set) {
@@ -128,19 +125,19 @@ impl Emotes {
   }
 
   pub fn channel_names(&self, channel: &str) -> Vec<(&str, Provider, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, |c| c.names(&self.order))
+    self.channels.get(channel).map_or_else(Vec::new, |c| c.names(&CHANNEL_ORDER))
   }
 
   pub fn channel_entries(&self, channel: &str) -> Vec<(&str, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, |c| c.entries(&self.order))
+    self.channels.get(channel).map_or_else(Vec::new, |c| c.entries(&CHANNEL_ORDER))
   }
 
   pub fn global_entries(&self) -> Vec<(&str, &Emote)> {
-    self.global.entries(&self.order)
+    self.global.entries(&GLOBAL_ORDER)
   }
 
   pub fn global_names(&self) -> Vec<(&str, Provider, &Emote)> {
-    self.global.names(&self.order)
+    self.global.names(&GLOBAL_ORDER)
   }
 }
 
@@ -168,20 +165,38 @@ mod tests {
     assert!(find("c", "lul").is_none());
   }
 
+  // rule 3: a channel walks ffz, 7tv, bttv; the globals walk 7tv, bttv, ffz, twitch. the two orders differ
+  // on purpose, so the same three-way collision gives a different picture in each scope
   #[test]
-  fn ffz_wins_a_shared_name_then_7tv_then_bttv_in_every_view() {
+  fn channel_walks_ffz_7tv_bttv_and_globals_walk_7tv_bttv_ffz_twitch() {
+    let mut em = Emotes::default();
+    for (p, tag) in [(Provider::SevenTv, "7tv"), (Provider::Bttv, "bttv"), (Provider::Ffz, "ffz")] {
+      em.set(Some("c"), p, [("Same".into(), e(&format!("c-{tag}")))].into());
+      em.set(None, p, [("Same".into(), e(&format!("g-{tag}")))].into());
+    }
+    em.set(None, Provider::Twitch, [("Same".into(), e("g-twitch")), ("Only".into(), e("g-twitch-only"))].into());
+    assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-ffz");
+    assert_eq!(&*em.global("Same").unwrap().url, "g-7tv");
+    assert_eq!(&*em.global("Only").unwrap().url, "g-twitch-only", "twitch last, but reached");
+    let mut em = Emotes::default();
+    em.set(None, Provider::Ffz, [("G".into(), e("g-ffz"))].into());
+    em.set(None, Provider::Bttv, [("G".into(), e("g-bttv"))].into());
+    assert_eq!(&*em.global("G").unwrap().url, "g-bttv", "bttv before ffz");
+    assert_eq!(&*em.global_entries()[0].1.url, "g-bttv");
+    em.set(None, Provider::SevenTv, [("G".into(), e("g-7tv"))].into());
+    assert_eq!(em.global_names()[0].1, Provider::SevenTv);
+  }
+
+  #[test]
+  fn ffz_wins_a_shared_name_in_a_channel_then_7tv_then_bttv_in_every_view() {
     let mut em = Emotes::default();
     em.set(Some("c"), Provider::SevenTv, [("Same".into(), e("c-7tv"))].into());
     em.set(Some("c"), Provider::Bttv, [("Same".into(), e("c-bttv"))].into());
-    em.set(None, Provider::Ffz, [("G".into(), e("g-ffz"))].into());
-    em.set(None, Provider::Bttv, [("G".into(), e("g-bttv"))].into());
     assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv", "7tv before bttv");
-    assert_eq!(&*em.global("G").unwrap().url, "g-ffz", "ffz before bttv");
     em.set(Some("c"), Provider::Ffz, [("Same".into(), e("c-ffz"))].into());
     assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-ffz", "ffz before 7tv");
     let names = em.channel_names("c");
     assert_eq!(names.len(), 1);
     assert_eq!(names[0].1, Provider::Ffz);
-    assert_eq!(&*em.global_entries()[0].1.url, "g-ffz");
   }
 }
