@@ -25,8 +25,13 @@ pub struct Notes {
   by: BTreeMap<String, Note>,
 }
 
+// the one spelling of a login in the file: key() writes it and parse() only accepts it
+fn norm(login: &str) -> String {
+  login.trim().to_lowercase()
+}
+
 pub fn key(p: Platform, login: &str) -> String {
-  format!("{}:{}", p.name(), login.trim().to_ascii_lowercase())
+  format!("{}:{}", p.name(), norm(login))
 }
 
 // one line of one note: no control chars (a pasted newline would break the file), cut to the cap
@@ -120,7 +125,8 @@ impl Notes {
       let ok = matches!(plat, "twitch" | "kick" | "youtube")
         && !login.is_empty()
         && login.len() <= 64
-        && login.chars().all(|c| !c.is_control() && !c.is_uppercase());
+        && norm(login) == login
+        && login.chars().all(|c| !c.is_control());
       let text = clean(text);
       if !ok || text.is_empty() || by.len() >= MAX_NOTES {
         continue;
@@ -207,6 +213,14 @@ mod tests {
   fn the_cap_counts_like_the_server() {
     assert_eq!(clean(&"😀".repeat(MAX_CHARS)).chars().count(), MAX_CHARS / 2);
     assert_eq!(clean(&"a".repeat(MAX_CHARS + 5)).len(), MAX_CHARS);
+  }
+
+  #[test]
+  fn a_unicode_login_survives_a_save_and_reload() {
+    let mut n = Notes::default();
+    n.set(Platform::Youtube, "Émile", "hi", None);
+    let back = Notes::parse(&n.render());
+    assert_eq!(back.text(Platform::Youtube, "ÉMILE"), "hi");
   }
 
   #[test]

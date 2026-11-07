@@ -49,8 +49,13 @@ pub struct Pings {
   by: BTreeMap<String, Rule>,
 }
 
+// the one spelling of a channel in the file: key() writes it and parse() only accepts it
+fn norm(chan: &str) -> String {
+  chan.trim().trim_start_matches('@').to_lowercase()
+}
+
 fn key(p: Platform, chan: &str) -> String {
-  format!("{}:{}", p.name(), chan.trim().trim_start_matches('@').to_ascii_lowercase())
+  format!("{}:{}", p.name(), norm(chan))
 }
 
 impl Pings {
@@ -105,7 +110,8 @@ impl Pings {
       let ok = matches!(plat, "twitch" | "kick" | "youtube")
         && !chan.is_empty()
         && chan.len() <= NAME_MAX
-        && chan.chars().all(|c| !c.is_control() && !c.is_uppercase() && !c.is_whitespace());
+        && norm(chan) == chan
+        && chan.chars().all(|c| !c.is_control() && !c.is_whitespace());
       let bell = match bell {
         "on" => Bell::On,
         "off" => Bell::Off,
@@ -141,6 +147,16 @@ mod tests {
     let mut p = Pings::default();
     assert!(p.set_mute(Platform::Youtube, "@Tim", true));
     assert!(p.muted(Platform::Youtube, "tim") && !p.muted(Platform::Twitch, "tim"));
+  }
+
+  #[test]
+  fn a_unicode_name_survives_a_save_and_reload() {
+    let mut p = Pings::default();
+    p.set_mute(Platform::Youtube, "@Émile", true);
+    p.set_bell(Platform::Kick, "ÅSA", Bell::On);
+    let back = Pings::parse(&p.render());
+    assert!(back.muted(Platform::Youtube, "@émile") && back.muted(Platform::Youtube, "ÉMILE"));
+    assert_eq!(back.bell(Platform::Kick, "åsa"), Bell::On);
   }
 
   #[test]
