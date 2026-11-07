@@ -93,6 +93,13 @@ impl App {
         (None, false) => typed.char_indices().nth(crate::model::sendto::limit(&legs)).map_or(typed.len(), |(i, _)| i),
         _ => usize::MAX,
       };
+      // near the cap, a n/limit counter (ext #hs-mc-charcount): yellow close to it, red past it
+      let count = match (prompt, legs.is_empty()) {
+        (None, false) => crate::model::sendto::count(typed, crate::model::sendto::limit(&legs)),
+        _ => None,
+      };
+      let count_ink =
+        |f| if f == crate::model::sendto::Fill::Over { crate::ui::theme::RED } else { crate::ui::theme::YELLOW };
       let bar = input_bar::Bar {
         line: prompt.unwrap_or(&self.line),
         mode: if prompt.is_some() { Mode::Insert } else { self.mode },
@@ -100,6 +107,7 @@ impl App {
         hint: &hint,
         hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
         over,
+        count: count.as_ref().map(|(t, f)| (t.as_str(), count_ink(*f))),
         link: if prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) { LOGIN_HINT.len() } else { 0 },
         link_on: self.hover.link,
         reply,

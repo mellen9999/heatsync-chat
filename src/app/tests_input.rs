@@ -511,6 +511,59 @@ fn words_past_the_limit_draw_red() {
   assert!(red(&app) > 20, "the 10 past it are red");
 }
 
+// near the cap the box shows n/limit at its right end, like the ext: quiet until the last tenth, yellow
+// there, red past it; the line keeps clear of it; youtube's tighter cap counts on a tab that sends there
+#[test]
+fn the_counter_wakes_near_the_cap_yellow_then_red() {
+  use crate::ui::theme::{RED, YELLOW};
+  let (net, _rx) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into(), "kick:xqc yt:@kripparrian".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(520, 300);
+  let first = app.tabs.iter().position(|t| t.name.as_ref() == "forsen").unwrap();
+  app.active = first;
+  let typed = |app: &mut App, t: String| {
+    app.line.set_text(t);
+    app.line.cursor = app.line.text.len();
+    app.input_dirty = true;
+    app.redraw();
+  };
+  // only the strip right of the text counts: the first row, left of the buttons
+  let strip = |app: &App| {
+    let r = app.input_area();
+    let line = app.res.text.line_px as i32;
+    Rect::new(r.right() - line * 3 - 70, r.y, 70, line)
+  };
+  let inked = |app: &App, ink: u32| {
+    let s = strip(app);
+    (s.y..s.bottom())
+      .flat_map(|y| (s.x..s.right()).map(move |x| (x, y)))
+      .filter(|&(x, y)| crate::ui::canvas::Canvas::shade(app.canvas.px[(y * app.canvas.w + x) as usize], ink))
+      .count()
+  };
+  typed(&mut app, "a".repeat(100));
+  assert_eq!((inked(&app, YELLOW), inked(&app, RED)), (0, 0), "far from the cap: nothing");
+  typed(&mut app, "a ".repeat(225));
+  assert_eq!((inked(&app, YELLOW), inked(&app, RED)), (0, 0), "nine tenths exactly is quiet");
+  typed(&mut app, "a".repeat(460));
+  assert!(inked(&app, YELLOW) > 20 && inked(&app, RED) == 0, "close to the cap: yellow");
+  crate::bench::dump(&app.canvas);
+  typed(&mut app, "a".repeat(501));
+  assert!(inked(&app, RED) > 20, "past the cap: red");
+  // characters, not bytes: 300 emoji are 1200 bytes and nowhere near the cap
+  typed(&mut app, "😂".repeat(300));
+  assert_eq!((inked(&app, YELLOW), inked(&app, RED)), (0, 0));
+  // a merged tab that sends to youtube too counts against its 200
+  let merged = app.tabs.iter().position(|t| t.name.as_ref() != "forsen" && !t.sources.is_empty()).unwrap();
+  app.active = merged;
+  typed(&mut app, "a".repeat(190));
+  assert!(inked(&app, YELLOW) > 20, "190 of youtube's 200");
+  // the path prompt and an empty box are no place for it
+  typed(&mut app, String::new());
+  assert_eq!(inked(&app, YELLOW), 0);
+}
+
 // one word longer than the box wraps inside itself, so its end (and the red past the limit) is on screen
 #[test]
 fn one_long_word_wraps_and_its_end_shows() {

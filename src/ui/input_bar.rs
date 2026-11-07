@@ -63,6 +63,8 @@ pub struct Bar<'a> {
   // byte in the line where the text grows past what the platform takes: from there on it draws red (ext
   // .hl-over). the line's length when it fits
   pub over: usize,
+  // the n/limit counter near the cap: its words and ink (yellow close to it, red past it)
+  pub count: Option<(&'a str, u32)>,
 }
 
 // the left gutter: wide enough for the widest short label, so the typed text never moves
@@ -74,6 +76,11 @@ fn gutter(text: &mut Text, b: &Bar) -> f32 {
   // a long label (select hint) only shows over an empty box, so it may outgrow the gutter
   let long = text.layout(&mode_label::text(b.label), &[], &[], f32::MAX).full_width();
   (if b.line.text.is_empty() { long.max(w) } else { w }) + text.line_px * 0.5
+}
+
+// the counter's width and the gap after it, 0 when there is none: the text keeps clear of it
+fn count_w(text: &mut Text, b: &Bar) -> f32 {
+  b.count.map_or(0.0, |(t, _)| text.layout(t, &[], &[], f32::MAX).full_width() + theme::PAD_X)
 }
 
 // the heatsync logo button at the right end of the first row
@@ -202,7 +209,7 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
     }
   }
   let cmd = if b.label.is_empty() { 0.0 } else { text.layout("00000", &[], &[], f32::MAX).full_width() };
-  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd;
+  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd - count_w(text, b);
   Laid { l: text.layout(&s, &spans, &boxes, room), at, pre, runs }
 }
 
@@ -375,10 +382,17 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
     let ll = text.layout(&s, &mode_label::spans(b.label), &[], f32::MAX);
     text.draw(&ll, c, area.x as f32 + theme::PAD_X, area.y as f32, area, |_, _| {});
   }
+  // the counter sits just left of the buttons (ext #hs-mc-charcount), the half-typed command left of it
+  let cw = count_w(text, b);
+  if let Some((t, ink)) = b.count {
+    let cl = text.layout(t, &[Span { range: 0..t.len(), ink: Ink(ink), bold: false }], &[], f32::MAX);
+    let x = upload_button(area, text.line_px as i32).x as f32 - cw;
+    text.draw(&cl, c, x, area.y as f32, area, |_, _| {});
+  }
   if !b.showcmd.is_empty() {
     let sl =
       text.layout(b.showcmd, &[Span { range: 0..b.showcmd.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
-    let x = upload_button(area, text.line_px as i32).x as f32 - sl.full_width() - theme::PAD_X;
+    let x = upload_button(area, text.line_px as i32).x as f32 - sl.full_width() - theme::PAD_X - cw;
     text.draw(&sl, c, x, area.y as f32, area, |_, _| {});
   }
   underline(c, l, g.pre.clone(), ox, oy, area);
@@ -435,4 +449,82 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
   let chips = b.chips.iter().map(|c| c.range.clone()).collect();
   let hit = Hit { link, l: g.l, ox, oy, at: g.at, runs: g.runs, chips, len: b.line.text.len() };
   (Rect::new(x, y, CURSOR_W, h), next, hit)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn bar<'a>(line: &'a Line, logo: &'a Logo, count: Option<(&'a str, u32)>) -> Bar<'a> {
+    Bar {
+      line,
+      mode: Mode::Insert,
+      target: &[],
+      hint: "",
+      hint_ink: theme::DIM,
+      link: 0,
+      link_on: false,
+      reply: None,
+      edit: false,
+      blur: false,
+      preedit: "",
+      preedit_caret: 0,
+      picker_on: false,
+      upload_on: false,
+      logo,
+      label: &[],
+      showcmd: "",
+      chips: &[],
+      over: usize::MAX,
+      count,
+    }
+  }
+
+  fn typed(n: usize) -> Line {
+    let mut l = Line::default();
+    l.set_text("w".repeat(n));
+    l.cursor = l.text.len();
+    l
+  }
+
+  fn inked(c: &Canvas, r: Rect, ink: u32) -> usize {
+    (r.y..r.bottom())
+      .flat_map(|y| (r.x..r.right()).map(move |x| (x, y)))
+      .filter(|&(x, y)| Canvas::shade(c.px[(y * c.w + x) as usize], ink))
+      .count()
+  }
+
+  #[test]
+  fn the_counter_is_drawn_left_of_the_buttons_in_its_ink() {
+    let mut t = Text::new(1.0);
+    let logo = Logo::new(0);
+    let area = Rect::new(0, 0, 400, 40);
+    let line = typed(3);
+    let mut imgs = Images::new(1.0);
+    for ink in [theme::YELLOW, theme::RED] {
+      let mut c = Canvas::new(400, 40);
+      draw(&mut c, &mut t, &mut imgs, area, &bar(&line, &logo, Some(("460/500", ink))));
+      let lp = t.line_px as i32;
+      let strip = Rect::new(upload_button(area, lp).x - 80, 0, 80, lp);
+      assert!(inked(&c, strip, ink) > 20, "{ink:06x} sits just left of the upload button");
+      assert_eq!(inked(&c, Rect::new(0, 0, 40, lp), ink), 0, "and nowhere near the typed text");
+    }
+    let mut c = Canvas::new(400, 40);
+    draw(&mut c, &mut t, &mut imgs, area, &bar(&line, &logo, None));
+    assert_eq!(c.inked(theme::YELLOW) + c.inked(theme::RED), 0, "no counter, none drawn");
+  }
+
+  #[test]
+  fn the_typed_line_wraps_before_it_reaches_the_counter() {
+    let mut t = Text::new(1.0);
+    let logo = Logo::new(0);
+    let one_row = t.line_px.ceil() as i32;
+    // the longest line that still fits one row with no counter
+    let mut fits = |count: Option<(&str, u32)>, n: usize| {
+      let line = typed(n);
+      height(&mut t, &bar(&line, &logo, count), 300) <= one_row
+    };
+    let n = (1..200).take_while(|&n| fits(None, n)).last().expect("some fit");
+    assert!(fits(None, n) && !fits(Some(("460/500", theme::YELLOW)), n), "the counter's room is kept clear");
+  }
 }

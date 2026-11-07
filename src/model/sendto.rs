@@ -89,6 +89,26 @@ pub fn limit(legs: &[Platform]) -> usize {
   legs.iter().map(|p| p.max_chars()).min().unwrap_or(500)
 }
 
+// where a line stands against the cap once the counter shows: close to it, or past it
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fill {
+  Near,
+  Over,
+}
+
+// the "n/limit" counter (ext charCountLabel): silent until the line is within a tenth of the cap, then
+// the count of what goes on the wire (trimmed, as sent) in characters, not bytes: an é or an emoji is one.
+// `Near` up to the cap, `Over` past it
+pub fn count(text: &str, limit: usize) -> Option<(String, Fill)> {
+  let text = text.trim();
+  // bytes only ever overcount characters: a short line is settled without counting
+  if limit == 0 || text.len() * 10 <= limit * 9 {
+    return None;
+  }
+  let n = text.chars().count();
+  (n * 10 > limit * 9).then(|| (format!("{n}/{limit}"), if n > limit { Fill::Over } else { Fill::Near }))
+}
+
 // youtube has no reply threading, so the youtube feed's copy of a reply opens with `@author` (ext ytReplyText):
 // left alone when it already does, and when the mention would push it past what youtube takes
 pub fn yt_reply_text(text: &str, author: &str) -> String {
@@ -112,6 +132,25 @@ mod tests {
 
   const TK: [Platform; 2] = [Twitch, Kick];
   const TKY: [Platform; 3] = [Twitch, Kick, Youtube];
+
+  #[test]
+  fn the_counter_wakes_within_a_tenth_of_the_cap_and_counts_characters_trimmed() {
+    let n = |len: usize, limit| count(&"a".repeat(len), limit);
+    assert_eq!(n(450, 500), None, "exactly nine tenths is still quiet");
+    assert_eq!(n(451, 500), Some(("451/500".into(), Fill::Near)));
+    assert_eq!(n(500, 500), Some(("500/500".into(), Fill::Near)), "at the cap is not over");
+    assert_eq!(n(501, 500), Some(("501/500".into(), Fill::Over)));
+    assert_eq!(n(181, 200), Some(("181/200".into(), Fill::Near)), "youtube's cap");
+    assert_eq!(n(180, 200), None);
+    assert_eq!(n(0, 500), None);
+    // what is sent is trimmed: the spaces around it are not counted
+    assert_eq!(count(&format!("  {}  ", "a".repeat(451)), 500).unwrap().0, "451/500");
+    assert_eq!(count(&format!("  {}  ", "a".repeat(400)), 500), None);
+    // characters, not bytes: 451 two-byte letters and 451 emoji are each 451
+    assert_eq!(count(&"é".repeat(451), 500).unwrap().0, "451/500");
+    assert_eq!(count(&"😂".repeat(451), 500).unwrap().0, "451/500");
+    assert_eq!(count(&"😂".repeat(300), 500), None, "1200 bytes, 300 characters");
+  }
 
   #[test]
   fn nothing_said_means_every_linked_feed() {
