@@ -115,6 +115,7 @@ impl App {
     self.sync_media();
     self.relayout_where(None);
     self.whispers_rebuild();
+    self.toasts_rebuild();
     self.hide_media_peek();
     self.bar_dirty = true;
     self.wake();

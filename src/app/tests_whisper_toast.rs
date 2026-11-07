@@ -96,3 +96,36 @@ fn the_switch_is_in_the_settings_table_with_the_exts_key() {
   assert_eq!(d("whisper_toast").wire, Wire::Bool("whisperToast"));
   assert_eq!(d("whisper_toast").cmd, Some("/whispertoast"));
 }
+
+fn every_line(a: &App) -> String {
+  let mut all = String::new();
+  for t in &a.tabs {
+    for m in t.view.msgs() {
+      all.push_str(&m.body);
+      all.push('\n');
+    }
+  }
+  all
+}
+
+#[test]
+fn streamer_mode_hides_the_toast_words_in_every_tab_and_off_brings_them_back() {
+  use crate::model::schema::Fx;
+  use crate::model::settings::Streamer as Mode;
+  let mut a = app();
+  a.on_whispers(vec![dm(1, "Bob", "secretwords")], true);
+  // the first toast stays behind in its tab while you move on and get another in a second one
+  let first = a.active;
+  let other = (0..a.tabs.len()).find(|&i| i != first && a.tabs[i].kind != Kind::Whispers).unwrap();
+  a.select(other);
+  a.on_whispers(vec![dm(2, "Amy", "moresecret")], true);
+  assert!(every_line(&a).contains("secretwords") && every_line(&a).contains("moresecret"));
+  a.set.streamer = Mode::On;
+  a.applied(Fx::Streamer);
+  let hidden = every_line(&a);
+  assert!(!hidden.contains("secretwords") && !hidden.contains("moresecret"), "{hidden}");
+  assert!(hidden.contains("whisper from Bob") && hidden.contains("whisper from Amy"));
+  a.set.streamer = Mode::Off;
+  a.applied(Fx::Streamer);
+  assert!(every_line(&a).contains("Bob whispered: secretwords"));
+}

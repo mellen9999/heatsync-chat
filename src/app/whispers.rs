@@ -24,7 +24,37 @@ pub(super) struct Whispers {
   // the toasts still showing, for the per-sender count
   toasts: Vec<Toast>,
   toast_seq: u64,
+  // every toast line still in some tab's scrollback, so streamer mode can redo it in all of them
+  lines: Vec<ToastLine>,
 }
+
+// what a toast line says, kept apart from the line so a flip of streamer mode can rewrite it anywhere
+struct ToastLine {
+  id: Box<str>,
+  ts: i64,
+  name: Box<str>,
+  snippet: Box<str>,
+  n: u32,
+}
+
+impl ToastLine {
+  fn message(&self, hide: bool) -> Message {
+    let more = if self.n > 1 { format!(" ×{}", self.n) } else { String::new() };
+    // streamer mode: who, never what
+    let line = if hide {
+      format!("whisper from {}{more}", self.name)
+    } else {
+      format!("{} whispered: {}{more}", self.name, self.snippet)
+    };
+    let mut m = Message::system(self.ts, Platform::Twitch, line);
+    m.color = theme::CYAN;
+    m.id = self.id.clone();
+    m
+  }
+}
+
+// a toast line is never remembered past this many
+const LINES_MAX: usize = 64;
 
 // one sender's toast: how many whispers it stands for, when the last landed, and the row that says it
 struct Toast {
@@ -171,28 +201,42 @@ impl App {
     };
     let t = &mut ws.toasts[at];
     (t.n, t.at) = (t.n + 1, now);
-    let more = if t.n > 1 { format!(" ×{}", t.n) } else { String::new() };
-    // streamer mode: who, never what
-    let line = if hot {
-      format!("whisper from {}{more}", w.who.name)
-    } else {
-      let snippet: String = w.text.chars().take(TOAST_CHARS).collect();
-      format!("{} whispered: {snippet}{more}", w.who.name)
-    };
-    let mut m = Message::system(now, Platform::Twitch, line);
-    m.color = theme::CYAN;
+    let n = t.n;
     let old = t.id.clone();
     let Some(tab) = self.tabs.get_mut(self.active) else { return };
     let v = tab.chat();
+    let snippet: Box<str> = w.text.chars().take(TOAST_CHARS).collect::<String>().into();
+    let mut line = ToastLine { id: fresh.clone(), ts: now, name: w.who.name.clone(), snippet, n };
     // the toast still last in the chat counts up in place; one with lines after it starts a new line
     if *old != *fresh && v.msgs().next_back().is_some_and(|l| *l.id == *old) {
-      m.id = old.clone();
-      v.replace(&old, m);
+      line.id = old.clone();
+      v.replace(&old, line.message(hot));
+      if let Some(l) = ws.lines.iter_mut().find(|l| *l.id == *old) {
+        *l = line;
+      }
     } else {
-      m.id = fresh.clone();
       t.id = fresh;
-      v.push(m);
+      v.push(line.message(hot));
+      if ws.lines.len() >= LINES_MAX {
+        ws.lines.remove(0);
+      }
+      ws.lines.push(line);
     }
+  }
+
+  // streamer mode flipped: every toast line in every tab says (or stops hiding) its words
+  pub(super) fn toasts_rebuild(&mut self) {
+    let hide = self.streamer_hot();
+    let lines = std::mem::take(&mut self.whisper.lines);
+    for tab in &mut self.tabs {
+      for v in tab.views() {
+        for l in &lines {
+          v.replace(&l.id, l.message(hide));
+        }
+      }
+    }
+    self.whisper.lines = lines;
+    self.wake();
   }
 
   pub(super) fn on_whisper_sent(&mut self, key: u64, res: Result<Who, whisper::Fail>) {
