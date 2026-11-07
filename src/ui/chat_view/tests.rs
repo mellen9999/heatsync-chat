@@ -1872,3 +1872,53 @@ fn a_shared_chat_line_wears_a_cyan_chip_that_names_its_room_once_known() {
   assert_eq!(plain_c.inked(theme::CYAN), 0);
   crate::bench::dump(&c);
 }
+
+// the first pixel of the row at height `y`: the colored edge down its left, when it has one
+fn edge_at(c: &Canvas, y: i32) -> u32 {
+  c.px[(y * c.w) as usize]
+}
+
+#[test]
+fn a_message_effect_wears_a_magenta_chip_naming_it_and_a_magenta_edge() {
+  let (plain, _) = painted(vec![said("bob", "hello")], 30);
+  assert_eq!((plain.inked(theme::MAGENTA), edge_at(&plain, 10)), (0, theme::BLACK));
+  let fx = |name: &str| tagged(|x| x.fx = name.into());
+  let (c, mut res) = painted(vec![fx("rainbow-eclipse")], 30);
+  assert!(c.inked(theme::MAGENTA) > 40, "chip words and box");
+  assert_eq!(edge_at(&c, 10), theme::MAGENTA, "the row's edge");
+  assert!(matches!(lay(&mut res, &fx("simmer")).frames[0].1, Frame::Chip(ink) if ink == theme::MAGENTA));
+  // the chip carries the effect's name, so a longer name makes a wider chip
+  let w = |res: &mut Res, name: &str| lay(res, &fx(name)).layout.full_width();
+  assert!(w(&mut res, "cosmic-abyss") > w(&mut res, "simmer"));
+  crate::bench::dump(&c);
+}
+
+// a gigantified message draws its last emote at 56px, asked for at that size through the usual image path
+#[test]
+fn a_gigantified_message_draws_only_its_last_emote_big() {
+  let (a, b): (Box<str>, Box<str>) = (crate::emotes::twitch_url("25").into(), crate::emotes::twitch_url("1902").into());
+  let mut m = said("bob", "Kappa hi Keepo");
+  m.emotes = vec![(0..5, a), (9..14, b)].into();
+  let mut giant = m.clone();
+  giant.extra().giant = true;
+  // the heights the pictures are asked for at, in the row's order
+  let ask = |scale: f32, m: &Message| -> (Vec<u32>, f32) {
+    let mut res = Res::new(scale);
+    let l = lay(&mut res, m);
+    for b in &l.boxes {
+      res.images.want(b.img);
+    }
+    (res.images.take_wanted().into_iter().map(|w| w.2 & 0xffff).collect(), l.layout.height())
+  };
+  let (plain, plain_h) = ask(1.0, &m);
+  assert_eq!(plain, [28, 28], "ordinarily every emote is the usual height");
+  let (big, big_h) = ask(1.0, &giant);
+  assert_eq!(big, [28, 56], "only the last is asked for at 56");
+  assert!(big_h >= 56.0 && plain_h < 56.0, "the row makes room: {plain_h} vs {big_h}");
+  // the display scale applies to the big height like to every picture
+  assert_eq!(ask(2.0, &giant).0, [56, 112]);
+  // nothing to enlarge is no problem
+  let mut none = said("bob", "no emotes here");
+  none.extra().giant = true;
+  assert!(lay(&mut Res::new(1.0), &none).boxes.is_empty());
+}

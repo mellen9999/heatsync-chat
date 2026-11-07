@@ -123,6 +123,9 @@ pub struct Extra {
   // and the line's id there. every room in a session gets the same line under the same source id
   pub shared: Box<str>,
   pub source: Box<str>,
+  // a power-up: the message effect's name (`simmer`), and a gigantified last emote
+  pub fx: Box<str>,
+  pub giant: bool,
 }
 
 // one picture (a video's still) and the video it plays

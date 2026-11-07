@@ -103,13 +103,16 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     frames.push((a..s.len(), Frame::Announce));
     s.push(' ');
   }
-  // the twitch tags the row wears as chips before everything else (ext ::before): `shared` / `shared:name`
-  // for a line said in a partner's room
-  if let Some(x) = x
-    && !x.shared.is_empty()
-  {
-    let named = res.rooms.login(&x.shared).map(|n| format!("shared:{n}"));
-    chip(&mut s, &mut spans, &mut frames, named.as_deref().unwrap_or("shared"), theme::CYAN, false);
+  // the twitch tags the row wears as chips before everything else (ext ::before): `fx:name` for a message
+  // effect, `shared` / `shared:name` for a line said in a partner's room
+  if let Some(x) = x {
+    if !x.fx.is_empty() {
+      chip(&mut s, &mut spans, &mut frames, &format!("fx:{}", x.fx), theme::MAGENTA, false);
+    }
+    if !x.shared.is_empty() {
+      let named = res.rooms.login(&x.shared).map(|n| format!("shared:{n}"));
+      chip(&mut s, &mut spans, &mut frames, named.as_deref().unwrap_or("shared"), theme::CYAN, false);
+    }
   }
   if let Some(sys) = &m.system {
     match event {
@@ -257,7 +260,8 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     let (pic, fold, preview) = if muted { (None, None, None) } else { picture(res, m, width, &mut plays) };
     let b0 = s.len();
     if !muted {
-      (links, link_runs, mentions) = body(res, chan, m, fold.as_ref(), &mut s, &mut ib, &mut boxes);
+      let giant = x.is_some_and(|x| x.giant);
+      (links, link_runs, mentions) = body(res, chan, m, fold.as_ref(), giant, &mut s, &mut ib, &mut boxes);
       // a link's words are drawn in link blue
       for (r, _) in &link_runs {
         spans.push(Span { range: r.clone(), ink: Ink(theme::BLUE), bold: false });
@@ -882,12 +886,18 @@ pub(super) fn gap(index: usize, w: u32) -> InlineBox {
   InlineBox { id: u64::MAX, ..inline(0, index, w, 1) }
 }
 
-// words become text or emote boxes. twitch's own emotes come by position, the rest by name
+// a gigantified emote's height before the display scale (ext .hs-mc-gigantified: 56px, twice the usual box)
+const GIANT_PX: u16 = 56;
+
+// words become text or emote boxes. twitch's own emotes come by position, the rest by name. `giant`: the
+// last emote is drawn big, decoded at that height through the same picture path (the cache's cap holds)
+#[allow(clippy::too_many_arguments)]
 pub(super) fn body(
   res: &mut Res,
   chan: &str,
   m: &Message,
   fold: Option<&std::ops::Range<usize>>,
+  giant: bool,
   s: &mut String,
   ib: &mut Vec<InlineBox>,
   boxes: &mut Vec<EmoteBox>,
@@ -903,6 +913,8 @@ pub(super) fn body(
   let mut emoji: Option<(usize, usize, usize)> = None;
   let mut first = true;
   let mut at = 0usize;
+  // the last emote drawn as a base: its box and its native size
+  let mut last: Option<(usize, (u16, u16))> = None;
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
@@ -955,6 +967,7 @@ pub(super) fn body(
         let w = res.images.width(img, dims);
         emoji = None;
         ib.push(inline(boxes.len(), s.len(), w, h));
+        last = Some((boxes.len(), dims));
         boxes.push(EmoteBox {
           img,
           zw: Vec::new(),
@@ -1000,5 +1013,23 @@ pub(super) fn body(
     }
     first = false;
   }
+  if let (true, Some((k, dims))) = (giant, last) {
+    gigantify(res, k, dims, ib, boxes);
+  }
   (links, runs, people)
+}
+
+// the emote in box `k` drawn at the big height: its picture asked for at that size, its slot widened to
+// match. one with overlays stacked on it, or a blocked one, stays as it was
+fn gigantify(res: &mut Res, k: usize, dims: (u16, u16), ib: &mut [InlineBox], boxes: &mut [EmoteBox]) {
+  let Some(b) = boxes.get_mut(k).filter(|b| b.zw.is_empty() && !b.blocked) else { return };
+  let Some(url) = res.images.url(b.img).map(Box::<str>::from) else { return };
+  let big = res.look.emote_px().max(GIANT_PX);
+  let img = res.images.id(&url, big);
+  let (w, h) = (res.images.width(img, dims), res.images.px(big));
+  b.img = img;
+  if let Some(slot) = ib.iter_mut().rev().find(|i| i.id == k as u64) {
+    slot.width = w as f32;
+    slot.height = h as f32;
+  }
 }

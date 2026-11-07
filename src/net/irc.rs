@@ -28,6 +28,8 @@ const MAX_NAME: usize = 100;
 const MAX_ID: usize = 128;
 // a twitch room id is a number of a dozen digits or so
 const MAX_ROOM_ID: usize = 20;
+// a message effect's name is a few words
+const MAX_FX: usize = 32;
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(30);
 // one irc line is ≤ ~8KiB with tags; twitch may batch several lines in a frame
 const MAX_FRAME: usize = 256 << 10;
@@ -259,18 +261,30 @@ fn room_id(v: &str) -> Option<&str> {
   (!v.is_empty() && v.len() <= MAX_ROOM_ID && v.bytes().all(|b| b.is_ascii_digit())).then_some(v)
 }
 
+// an effect's name (`rainbow-eclipse`): lowercase letters, digits, - and _, cut short. else none
+fn effect_name(v: &str) -> Option<&str> {
+  (!v.is_empty() && v.len() <= MAX_FX && v.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_')))
+    .then_some(v)
+}
+
 // the tags that mark a line as more than plain chat (ext irc.js); a line without any adds nothing to it
 fn marks(l: &Line, m: &mut Message) {
   // a line from the partner's room names it; the same line in its own room only carries the source id
   let shared =
     l.tag("source-room-id").filter(|f| room_id(f).is_some() && l.tag("room-id").as_deref() != Some(f.as_str()));
   let source = l.tag("source-id").and_then(|s| chain::clean_id(&s));
-  if shared.is_none() && source.is_none() {
+  let msg_id = l.tag("msg-id");
+  let fx = (msg_id.as_deref() == Some("animated-message"))
+    .then(|| l.tag("animation-id").and_then(|a| effect_name(&a).map(str::to_owned)).unwrap_or_else(|| "effect".into()));
+  let giant = msg_id.as_deref() == Some("gigantified-emote-message");
+  if shared.is_none() && source.is_none() && fx.is_none() && !giant {
     return;
   }
   let x = m.extra();
   x.shared = shared.unwrap_or_default().into();
   x.source = source.unwrap_or_default();
+  x.fx = fx.unwrap_or_default().into();
+  x.giant = giant;
 }
 
 // USERSTATE after our PRIVMSG: twitch's id/color/badges for the line, our own text
@@ -714,6 +728,24 @@ mod tests {
     // a shared-chat sub rides the same tags
     let raw = "@room-id=111;source-room-id=222;msg-id=sharedchatnotice;source-msg-id=resub;system-msg=x\\sresubbed :tmi.twitch.tv USERNOTICE #forsen";
     assert_eq!(&*extra(&msg_of(raw)).shared, "222");
+  }
+
+  // power-ups: a gigantified last emote, and a message effect named by animation-id
+  #[test]
+  fn power_ups_are_read_from_the_tags_and_bounded() {
+    let giant = extra(&msg_of(&format!("@msg-id=gigantified-emote-message {HEAD}")));
+    assert!(giant.giant && giant.fx.is_empty());
+    let fx = |tags: &str| extra(&msg_of(&format!("@{tags} {HEAD}"))).fx;
+    assert_eq!(&*fx("msg-id=animated-message;animation-id=rainbow-eclipse"), "rainbow-eclipse");
+    assert_eq!(&*fx("msg-id=animated-message;animation-id=cosmic-abyss"), "cosmic-abyss");
+    assert_eq!(&*fx("msg-id=animated-message"), "effect", "the ext's name for an effect with none");
+    // an effect's name is a few lowercase words: anything else is just `effect`
+    for bad in ["Simmer", "has\\sspace", "a\\:b", "../x", "🔥", &"a".repeat(33)] {
+      assert_eq!(&*fx(&format!("msg-id=animated-message;animation-id={bad}")), "effect", "{bad:?}");
+    }
+    // the effect needs its msg-id; the tag alone is nothing
+    assert_eq!(&*fx("animation-id=simmer"), "");
+    assert!(!extra(&msg_of(&format!("@msg-id=highlighted-message {HEAD}"))).giant);
   }
 
   #[test]

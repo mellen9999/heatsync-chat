@@ -176,6 +176,9 @@ impl ChatView {
         } else if let Some(ink) = notice_ink(r.msg.notice()) {
           // an event's ring outranks the session-first glow (ext: declared after it)
           Some(ink)
+        } else if r.msg.x.as_ref().is_some_and(|x| !x.fx.is_empty()) {
+          // a message effect rings in magenta (ext --hs-row-ring on .hs-mc-animated)
+          Some(theme::MAGENTA)
         } else if r.msg.has(flag::NEW) && self.glow {
           Some(theme::YELLOW)
         } else {
