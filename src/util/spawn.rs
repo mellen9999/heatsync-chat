@@ -107,7 +107,8 @@ pub fn run(
   }
 }
 
-#[cfg(test)]
+// the tools these run (cat, yes, sh) are unix
+#[cfg(all(test, unix))]
 mod tests {
   use super::*;
 

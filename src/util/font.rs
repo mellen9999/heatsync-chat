@@ -125,8 +125,10 @@ mod tests {
     assert_eq!(t.args.len(), 3);
   }
 
+  #[cfg(unix)]
   const OUT: &str = "/usr/share/fonts/TTF/DejaVuSansMono.ttf\t0\tDejaVu Sans Mono\tDejaVu Sans Mono\n";
 
+  #[cfg(unix)]
   #[test]
   fn the_font_asked_for_is_found_whatever_the_case() {
     let want = Found { family: "DejaVu Sans Mono".into(), file: "/usr/share/fonts/TTF/DejaVuSansMono.ttf".into() };
@@ -135,6 +137,7 @@ mod tests {
     assert_eq!(parse(OUT, "  DEJAVU SANS MONO "), Ok(want));
   }
 
+  #[cfg(unix)]
   #[test]
   fn any_of_a_fonts_names_finds_it_under_its_first() {
     let out = "/usr/share/fonts/a.ttc\t2\tNoto Sans Mono CJK JP\tNoto Sans Mono CJK JP,Noto Sans Mono CJK JP Regular\n";
@@ -142,6 +145,7 @@ mod tests {
     assert_eq!(found.family, "Noto Sans Mono CJK JP", "named the way the font files name it");
   }
 
+  #[cfg(unix)]
   #[test]
   fn another_font_handed_back_is_a_miss_that_names_it() {
     // fc-match for a name it hasn't got: its default
@@ -173,6 +177,7 @@ mod tests {
     }
   }
 
+  #[cfg(unix)]
   #[test]
   fn a_hostile_nearest_name_is_cleaned_and_cut() {
     let out = format!("/f.ttf\t0\t{}\tz\n", "A\u{1b}[31m".repeat(100));
@@ -180,6 +185,7 @@ mod tests {
     assert!(n.chars().count() <= MAX_NAME && !n.chars().any(char::is_control), "{n:?}");
   }
 
+  #[cfg(unix)]
   #[test]
   fn a_name_that_could_not_be_kept_is_no_answer() {
     assert_eq!(parse("/f.ttf\t0\tX\u{1b}[0m\tX\u{1b}[0m\n", "x\u{1b}[0m"), Err(Miss::Odd));

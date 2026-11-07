@@ -122,7 +122,7 @@ static PING_FILE: Words = Words {
   none: "none",
   get: |s| s.ping_file.as_str(),
   put: |s, v| s.ping_file.set(v),
-  show: |v| v.rsplit('/').next().unwrap_or(v),
+  show: |v| v.rsplit(std::path::is_separator).next().unwrap_or(v),
   check: |p| crate::util::wav::read(p).map(drop).map_err(|b| b.said()),
 };
 

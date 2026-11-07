@@ -58,3 +58,26 @@ pub fn alert(title: &str, text: &str) {
   // SAFETY: null-terminated strings that outlive the call, no parent window
   unsafe { MessageBoxW(null_mut(), b.as_ptr(), t.as_ptr(), MB_OK | MB_ICONINFORMATION) };
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::io::Write;
+
+  // a windows-subsystem exe starts with no stderr: what it says must still land somewhere readable
+  #[test]
+  fn stderr_with_nowhere_to_go_lands_in_the_log() {
+    let d = std::env::temp_dir().join(format!("hsc-stdio-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    // SAFETY: the one test that sets this variable; the std handle is put back empty, as a gui exe starts
+    unsafe {
+      std::env::set_var("LOCALAPPDATA", &d);
+      SetStdHandle(STD_ERROR_HANDLE, null_mut());
+    }
+    log_stderr();
+    std::io::stderr().write_all(b"hello from the log test\n").unwrap();
+    let log = std::fs::read_to_string(d.join("heatsync-chat").join("heatsync-chat.log")).unwrap();
+    assert!(log.contains("hello from the log test"), "{log}");
+    let _ = std::fs::remove_dir_all(&d);
+  }
+}

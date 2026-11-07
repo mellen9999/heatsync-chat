@@ -351,6 +351,7 @@ mod tests {
     assert_eq!(read(big.to_str().unwrap()), Err(Bad::TooBig));
     assert_eq!(read(dir.to_str().unwrap()), Err(Bad::Unreadable), "a folder");
     assert_eq!(read(dir.join("none.wav").to_str().unwrap()), Err(Bad::Unreadable));
+    #[cfg(unix)]
     assert_eq!(read("/dev/zero"), Err(Bad::Unreadable), "a device is not a file");
     assert_eq!(read(""), Err(Bad::Unreadable));
     let _ = std::fs::remove_dir_all(&dir);

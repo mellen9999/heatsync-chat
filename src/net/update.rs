@@ -364,6 +364,7 @@ mod tests {
     let d = std::env::temp_dir().join(format!("hsc-off-{}", std::process::id()));
     std::fs::create_dir_all(&d).unwrap();
     let exe: &'static Path = Box::leak(d.join("app").into_boxed_path());
+    std::fs::write(exe, b"old bytes").unwrap();
     off_thread(move || replace(exe, b"new bytes")).await.unwrap().unwrap();
     assert_eq!(std::fs::read(exe).unwrap(), b"new bytes");
     let _ = std::fs::remove_dir_all(&d);

@@ -1412,6 +1412,7 @@ mod image_io {
   }
 
   // a cache file that blocks on read (a fifo) may hold up only its own picture, not the net thread
+  #[cfg(unix)]
   #[test]
   fn the_disk_read_does_not_stall_the_network_thread() {
     use std::sync::atomic::{AtomicBool, Ordering};
