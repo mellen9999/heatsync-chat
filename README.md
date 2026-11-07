@@ -6,9 +6,9 @@ linux (wayland or x11) and windows 10 or newer. MIT.
 
 ## install
 
-**from a release** (x86_64, no root needed):
+**linux, from a release** (x86_64 or aarch64, no root needed):
 
-1. download `heatsync-chat-x86_64-linux.tar.gz` from the [latest release](https://github.com/mellen9999/heatsync-chat/releases/latest)
+1. download `heatsync-chat-x86_64-linux.tar.gz` (`aarch64` on arm) from the [latest release](https://github.com/mellen9999/heatsync-chat/releases/latest)
 2. in the folder you downloaded it to, run:
 
 ```sh
@@ -20,12 +20,18 @@ it lands in `~/.local/bin` with a menu entry and icon. to take it out again: `./
 **on windows** (10 or newer, 64-bit):
 
 1. download `heatsync-chat-x86_64-windows.exe` from the [latest release](https://github.com/mellen9999/heatsync-chat/releases/latest) and put it in a folder of your own (not Program Files: it updates itself in place)
-2. double-click it. windows may say "windows protected your pc": that's only because the app is new and not signed yet. click **more info**, then **run anyway**. it won't ask again
+2. double-click it. windows may say "windows protected your pc": that's because the exe isn't code-signed. click **more info**, then **run anyway**. it won't ask again
 3. want proof it's the real file? its sha256 is in `SHA256SUMS` on the release page
 
 your settings and tabs live in `%APPDATA%\heatsync-chat`; the picture cache, chat logs and `heatsync-chat.log` (where its errors go, since it has no console) in `%LOCALAPPDATA%\heatsync-chat`. to remove it, delete the exe and those two folders. notifications show as a tray balloon, the file picker is windows' own, and paste, links and sounds use windows' own too. optional: `mpv` on your PATH plays video links.
 
-**on arch, from this repo** (builds the committed code, adds the menu entry and icon):
+**on arch** (prebuilt release):
+
+```sh
+paru -S heatsync-chat-bin
+```
+
+or build this repo's committed code:
 
 ```sh
 git clone https://github.com/mellen9999/heatsync-chat && cd heatsync-chat/packaging/arch && paru -Bi .
