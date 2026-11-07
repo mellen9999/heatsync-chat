@@ -5,8 +5,10 @@
 # the app only installs updates signed by it or by the spare key kept offline (src/net/update.rs KEYS).
 # every build ships two signatures:
 #   <asset>.sig2  what the app checks: covers the version, the asset name and the binary's sha256
-#   <asset>.sig   the binary bytes alone: only copies installed before 0.3.0 read it (x86_64 only; drop it
+#   <asset>.sig   the binary bytes alone: only copies installed before 0.3.0 read it (x86_64 linux only; drop it
 #                 once nobody runs those)
+# windows ships as one bare exe, heatsync-chat-x86_64-windows.exe, plus its .sig2: no zip, no installer
+# (the landing page links the exe; the in-app updater takes the same file)
 # when it's out and looks right, the arch package follows:  sh packaging/aur.sh   (see that file)
 set -eu
 cd "$(git rev-parse --show-toplevel)"
@@ -31,6 +33,12 @@ arches="x86_64 aarch64"
 for arch in $arches; do
   [ -d "$(rustc --print target-libdir --target "$arch-unknown-linux-gnu")" ] || { echo "needs the $arch rust target: paru -S rust-$arch-gnu"; exit 1; }
 done
+
+# the windows exe: x86_64-pc-windows-gnu, zig as the linker (packaging/windows.sh: cargo-zigbuild if present, else
+# its own wrappers). needs: zig, and rustup target add x86_64-pc-windows-gnu
+win=x86_64-pc-windows-gnu
+command -v zig >/dev/null || { echo "needs zig: paru -S zig"; exit 1; }
+[ -d "$(rustc --print target-libdir --target "$win")" ] || { echo "needs the windows rust target: rustup target add $win"; exit 1; }
 
 cargo test --release
 out=$(mktemp -d)
@@ -70,6 +78,18 @@ for arch in $arches; do
   files="$files $name $name.sig2 $name.tar.gz"
   sums="$sums $name $name.tar.gz"
 done
+# the windows exe, after the linux ones. checked before it ships: a real PE file, with the icon and version block
+# build.rs puts in (a build without a resource compiler would have neither)
+name="heatsync-chat-x86_64-windows.exe"
+sh packaging/windows.sh build --release
+built="${CARGO_TARGET_DIR:-target}/$win/release/heatsync-chat.exe"
+[ "$(head -c2 "$built")" = MZ ] || { echo "the windows build isn't an exe"; exit 1; }
+LC_ALL=C grep -aqP 'F\x00i\x00l\x00e\x00D\x00e\x00s\x00c\x00r\x00i\x00p\x00t\x00i\x00o\x00n' "$built" ||
+  { echo "the windows exe has no version block: build.rs found no resource compiler (zig rc or windres)"; exit 1; }
+cp "$built" "$out/$name"
+sign2 "$out/$name" "$name" "$out/$name.sig2"
+files="$files $name $name.sig2"
+sums="$sums $name"
 # shellcheck disable=SC2086 # file names this script made, no spaces
 (cd "$out" && sha256sum $sums > SHA256SUMS)
 
@@ -83,6 +103,8 @@ tar xf heatsync-chat-x86_64-linux.tar.gz && ./heatsync-chat/install.sh
 tar xf heatsync-chat-aarch64-linux.tar.gz && ./heatsync-chat/install.sh
 \`\`\`
 (the first line for x86_64 machines, the second for aarch64)
+
+install (windows): download heatsync-chat-x86_64-windows.exe and run it. windows may say \"protected your pc\": click more info, then run anyway. the file's sha256 is in SHA256SUMS.
 already installed? the ↑ button on the tab bar updates in one click." \
   $upload
 echo "released $tag"
