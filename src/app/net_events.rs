@@ -346,6 +346,9 @@ impl App {
         }
       }
       NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
+      NetEvent::DmStored { key, id } => self.on_dm_stored(key, &id),
+      NetEvent::DmDeleted { id, res } => self.on_dm_deleted(&id, res),
+      NetEvent::DmGone(key) => self.on_dm_gone(&key),
       NetEvent::Feed(p) => self.on_feed(p),
       NetEvent::FeedFailed { status } => self.on_feed_failed(status),
       NetEvent::Thread { id, res } => self.on_thread(id, res),

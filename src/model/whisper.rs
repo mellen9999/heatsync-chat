@@ -68,6 +68,16 @@ pub struct Whisper {
   pub status: Status,
 }
 
+impl Whisper {
+  // the id heatsync gave a dm of yours (digits), the one it can take back. a twitch whisper, a dm from them and
+  // a send heatsync has not answered yet have none
+  pub fn dm_id(&self) -> Option<&str> {
+    let id =
+      self.ext.strip_prefix("dm").filter(|d| (1..=20).contains(&d.len()) && d.bytes().all(|b| b.is_ascii_digit()))?;
+    (self.out && self.who.via == Via::Heatsync).then_some(id)
+  }
+}
+
 #[derive(Default)]
 pub struct Timeline {
   list: VecDeque<Whisper>,
@@ -82,7 +92,7 @@ fn clean(s: &str, max: usize) -> String {
   s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().to_string()
 }
 
-fn digits(v: Option<&Value>) -> Option<Box<str>> {
+pub fn digits(v: Option<&Value>) -> Option<Box<str>> {
   let s = match v? {
     Value::String(s) => s.clone(),
     Value::Number(n) => n.to_string(),
@@ -145,6 +155,16 @@ pub fn user_id(v: Option<&Value>) -> Option<Box<str>> {
   ident::slug(&s, 64).then(|| s.into())
 }
 
+// a dm's key in the list: the server's id marked as a dm (a twitch whisper's id can be the same digits)
+pub fn dm_key(id: &str) -> Box<str> {
+  format!("dm{id}").into()
+}
+
+// the key of the dm a frame names by `id`
+pub fn dm_ext(id: Option<&Value>) -> Option<Box<str>> {
+  user_id(id).map(|d| dm_key(&d))
+}
+
 // a `dm:new` frame (`other` None: from them, to us) or one row of GET /api/dm/:userId, where `other`
 // is the person the conversation is with: a row they sent is theirs, anything else we sent
 pub fn parse_dm(v: &Value, other: Option<&Who>) -> Option<Whisper> {
@@ -167,7 +187,7 @@ pub fn parse_dm(v: &Value, other: Option<&Who>) -> Option<Whisper> {
       }
     }
   };
-  let ext: Box<str> = user_id(v.get("id")).map_or_else(Default::default, |d| format!("dm{d}").into());
+  let ext = dm_ext(v.get("id")).unwrap_or_default();
   let ts = v.get("created_at").and_then(Value::as_str).and_then(parse_iso).unwrap_or_else(now_ms);
   Some(Whisper { key: 0, ext, ts, out, who, text: text.into(), status: Status::Sent })
 }
@@ -250,6 +270,24 @@ impl Timeline {
       return at.checked_sub(1).and_then(|i| self.list.get(i));
     }
     self.list.get(at)
+  }
+
+  // heatsync answered a send of ours with its id: the row keeps it (once), and the server's own copy of the
+  // send, in a later history read, is then a repeat. true = the row took it
+  pub fn stamp(&mut self, key: u64, ext: Box<str>) -> bool {
+    let Some(w) = self.list.iter_mut().find(|w| w.key == key && w.ext.is_empty()) else { return false };
+    w.ext = ext.clone();
+    self.mark(ext);
+    true
+  }
+
+  // a dm heatsync took down (by either of you, on any client): its row leaves. the id stays seen, so a late
+  // copy of it never brings it back. true = a row went
+  pub fn drop_ext(&mut self, ext: &str) -> bool {
+    let before = self.list.len();
+    self.list.retain(|w| !(w.who.via == Via::Heatsync && *w.ext == *ext));
+    self.mark(ext.into());
+    self.list.len() != before
   }
 
   // a name's heatsync colour changed (`profile:color`): their rows wear it. the keys of the rows that changed
@@ -613,6 +651,59 @@ mod tests {
     let x = m.x.unwrap();
     assert_eq!((&*x.head[0].text, x.head[0].ink), ("[H] ", theme::HEATSYNC));
     assert!(m.body.contains("/follow amy"));
+  }
+
+  fn dm_of(key: u64, ext: &str, out: bool) -> Whisper {
+    Whisper { key, ext: ext.into(), ts: 1, out, who: hs_who(), text: "hi".into(), status: Status::Sent }
+  }
+
+  #[test]
+  fn only_your_own_dm_with_its_server_id_can_be_taken_back() {
+    assert_eq!(dm_of(1, "dm42", true).dm_id(), Some("42"));
+    // theirs, not yet stamped, a twitch whisper's id, or an id that is not digits
+    assert_eq!(dm_of(1, "dm42", false).dm_id(), None);
+    assert_eq!(dm_of(1, "", true).dm_id(), None);
+    assert_eq!(dm_of(1, "db42", true).dm_id(), None);
+    assert_eq!(dm_of(1, "dm../x", true).dm_id(), None);
+    let mut twitch = dm_of(1, "dm42", true);
+    twitch.who.via = Via::Twitch;
+    assert_eq!(twitch.dm_id(), None);
+    assert_eq!(dm_key("42"), "dm42".into());
+  }
+
+  #[test]
+  fn a_dm_the_server_took_down_leaves_the_list_and_stays_gone() {
+    let mut t = Timeline::default();
+    t.add(dm_of(0, "dm1", false)).unwrap();
+    t.add(dm_of(0, "dm2", true)).unwrap();
+    assert!(!t.drop_ext("dm9"), "nothing by that id");
+    assert!(t.drop_ext("dm2"));
+    assert_eq!(t.len(), 1);
+    assert!(!t.drop_ext("dm2"), "already gone");
+    // a late copy of it (a replay, an older history read) does not bring it back
+    assert!(t.add(dm_of(0, "dm2", true)).is_none());
+    assert_eq!(t.len(), 1);
+    // a twitch whisper that happens to carry such an id is not a dm
+    let mut whisper = dm_of(0, "dm5", false);
+    whisper.who.via = Via::Twitch;
+    t.add(whisper).unwrap();
+    assert!(!t.drop_ext("dm5"));
+    assert_eq!(t.len(), 2);
+  }
+
+  #[test]
+  fn a_send_learns_its_server_id_and_its_history_copy_is_no_second_row() {
+    let mut t = Timeline::default();
+    let key = t.push_out(hs_who(), "hi").key;
+    assert!(t.stamp(key, dm_key("7")));
+    assert_eq!(t.get(key).unwrap().ext, dm_key("7"));
+    assert!(!t.stamp(key, dm_key("8")), "the first id stays");
+    assert!(!t.stamp(key + 99, dm_key("9")), "no such row");
+    // the server's copy comes back in history: the same row
+    let mut copy = dm_of(0, "dm7", true);
+    copy.who = hs_who();
+    assert!(t.add(copy).is_none());
+    assert_eq!(t.len(), 1);
   }
 
   #[test]

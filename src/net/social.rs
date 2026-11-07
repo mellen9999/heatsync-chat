@@ -51,6 +51,8 @@ pub enum Cmd {
   // a heatsync dm. `id` is their heatsync user id when known, else it is looked up from the login
   // on `platform` (the card's lookup)
   DmSend { key: u64, platform: Platform, login: Box<str>, id: Option<Box<str>>, text: String },
+  // take back a dm of yours: `with` is their heatsync id, `id` the dm's (digits)
+  DmDelete { with: Box<str>, id: Box<str> },
   // the user card's facts: who, on which platform, and the channel it was opened from
   Card { platform: Platform, login: Box<str>, channel: Option<Box<str>> },
   // follow (want) or unfollow someone on heatsync; their account is looked up when its id isn't known
@@ -151,8 +153,16 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         Some(t) => send_dm(&http, &t, platform, &login, id, &text).await,
         None => Err(Fail::Auth),
       };
+      // heatsync's id for it first, so the row can be taken back as soon as it shows as sent
+      let res = res.map(|(who, stored)| {
+        if let Some(id) = stored {
+          out.send(NetEvent::DmStored { key, id });
+        }
+        who
+      });
       out.send(NetEvent::WhisperSent { key, res });
     }
+    Cmd::DmDelete { with, id } => super::dmdel::run(http, token, with, id, out).await,
     Cmd::WhisperSend { key, login, id, text } => {
       let res = match token {
         Some(t) => send(&http, &t, &login, id, &text).await,
@@ -636,7 +646,8 @@ pub(super) async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, 
   }
 }
 
-// POST /api/dm { toUserId, content }. their heatsync id comes from the card when it isn't known
+// POST /api/dm { toUserId, content }. their heatsync id comes from the card when it isn't known. the person,
+// and the id heatsync gave the dm (digits) when its answer said
 async fn send_dm(
   http: &reqwest::Client,
   token: &str,
@@ -644,7 +655,7 @@ async fn send_dm(
   login: &str,
   id: Option<Box<str>>,
   text: &str,
-) -> Result<Who, Fail> {
+) -> Result<(Who, Option<Box<str>>), Fail> {
   let who = match id {
     Some(id) => Who { via: Via::Heatsync, id, login: login.into(), name: login.into(), color: theme::WHITE },
     None => {
@@ -661,7 +672,11 @@ async fn send_dm(
   };
   let body = json!({ "toUserId": &*who.id, "content": text }).to_string();
   let (status, v) = call(authed(http, token, "/api/dm", body)).await;
-  if (200..300).contains(&status) && v.get("error").is_none() { Ok(who) } else { Err(classify_dm(status, &v, login)) }
+  if (200..300).contains(&status) && v.get("error").is_none() {
+    Ok((who, whisper::digits(v.get("dm").and_then(|d| d.get("id")))))
+  } else {
+    Err(classify_dm(status, &v, login))
+  }
 }
 
 fn fail_text(f: &Fail) -> String {

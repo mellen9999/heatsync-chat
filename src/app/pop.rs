@@ -90,6 +90,8 @@ pub enum Act {
   Delete,
   DeletePost,
   OpToFeed,
+  // "yes" to the whispers tab's "delete dm?": one of your own heatsync dms, gone for both of you
+  DeleteDm,
 }
 
 // the person a line menu acts on, from the line it was opened on
@@ -358,6 +360,7 @@ impl App {
       (Act::Edit, ..) => self.edit_begin(),
       (Act::Delete, ..) => self.delete_ask(),
       (Act::DeletePost, ..) => self.delete_go(),
+      (Act::DeleteDm, ..) => self.dm_delete_go(),
       (Act::OpToFeed, ..) => self.op_to_feed(),
       (Act::CopyName, ..) => self.copy_name(),
       (Act::CopyMessage, ..) => self.copy_selected(),

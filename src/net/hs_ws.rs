@@ -694,6 +694,10 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let w = crate::model::whisper::parse_dm(v, None)?;
       send(NetEvent::Whispers { items: vec![w], live: true, epoch: None })
     }
+    // a dm taken down by either of its two people, on any client: its row leaves this list too
+    "dm:message-deleted" => {
+      crate::model::whisper::dm_ext(v.get("messageId")).and_then(|key| send(NetEvent::DmGone(key)))
+    }
     _ => None,
   }
 }
@@ -1096,6 +1100,31 @@ mod tests {
       beat(json!("ab12"), Value::Null),
       json!({"type": "heat:updated", "newHeat": 5}),
       json!({"type": "heat:updated", "messageId": "ab12"}),
+    ] {
+      dispatch(&bad, &mut st, &out);
+    }
+    assert!(rx.try_recv().is_err());
+  }
+
+  // a dm taken down by either of its people: the frame names it by id, flat like `dm:new`
+  #[test]
+  fn a_deleted_dm_names_its_row_and_a_bad_frame_is_dropped() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let mut st = State::default();
+    let gone = |id: Value| json!({"type": "dm:message-deleted", "threadId": "3", "messageId": id});
+    dispatch(&gone(json!("42")), &mut st, &out);
+    let Ok(NetEvent::DmGone(key)) = rx.try_recv() else { panic!("no dm gone") };
+    assert_eq!(&*key, "dm42");
+    dispatch(&gone(json!(43)), &mut st, &out);
+    assert!(matches!(rx.try_recv(), Ok(NetEvent::DmGone(k)) if &*k == "dm43"), "a number reads the same");
+    for bad in [
+      gone(json!("")),
+      gone(json!("../x")),
+      gone(json!("x".repeat(70))),
+      gone(json!({"a": 1})),
+      gone(Value::Null),
+      json!({"type": "dm:message-deleted", "threadId": "3"}),
     ] {
       dispatch(&bad, &mut st, &out);
     }

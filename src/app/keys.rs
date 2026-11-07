@@ -347,6 +347,7 @@ impl App {
         if !ctrl && self.feed_back() => {}
       Key::Named(NamedKey::Enter) if self.kind() == Kind::Whispers => self.whisper_activate(),
       Key::Character("r") if !ctrl && self.kind() == Kind::Whispers => self.whisper_reply_selected(),
+      Key::Character("x") if !ctrl && self.kind() == Kind::Whispers => self.dm_delete_ask(),
       Key::Character("t") if self.chain_wanted(&key) => self.chain_key(),
       Key::Character("r") if !ctrl => self.reply_selected(),
       Key::Character("m") if !ctrl => self.line_menu_key(),

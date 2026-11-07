@@ -95,6 +95,7 @@ pub static KEYS: [Group; 18] = [
       v("ctrl-c", "copy the line"),
       v("enter", "open it (mentions, feed); in whispers: answer that person, or retry a failed send"),
       v("u", "upvote (feed)"),
+      v("x", "delete your own dm (whispers; it asks first, and the other person loses it too)"),
       v("h backspace", "back out of a thread, like the ← back tab"),
       v("v esc", "let go"),
     ],

@@ -19,6 +19,8 @@ pub(super) struct Whispers {
   pub(super) timeline: Timeline,
   pub(super) loaded: bool,
   pub(super) epoch: u32,
+  // the dm (by its row's key) waiting on "yes, delete for both"
+  pub(super) pending_delete: Option<u64>,
   // the toasts still showing, for the per-sender count
   toasts: Vec<Toast>,
   toast_seq: u64,
@@ -70,6 +72,7 @@ impl App {
   // a different login (or none): the old person's whispers must not stay on screen
   pub(super) fn whispers_reset(&mut self) {
     self.whisper.timeline = Default::default();
+    self.whisper.pending_delete = None;
     self.whisper.loaded = false;
     self.whisper.epoch = self.whisper.epoch.wrapping_add(1);
     if let Some(i) = self.tab_of(Kind::Whispers) {
@@ -322,7 +325,7 @@ impl App {
     }));
   }
 
-  fn selected_whisper(&self) -> Option<Whisper> {
+  pub(super) fn selected_whisper(&self) -> Option<Whisper> {
     let t = self.tabs.get(self.active).filter(|t| t.kind == Kind::Whispers)?;
     self.whisper.timeline.get(whisper::key_of(&t.view.selected()?.id)?).cloned()
   }

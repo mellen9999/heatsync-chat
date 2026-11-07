@@ -22,6 +22,7 @@ mod chantools;
 mod chips;
 mod clip;
 mod complete;
+mod dmdel;
 mod emote;
 mod engage;
 mod feed;

@@ -7,6 +7,7 @@ mod catalog;
 pub mod chantools;
 mod clip;
 mod cosmetics;
+pub mod dmdel;
 pub mod dupe;
 pub mod emote_ops;
 pub mod following;
@@ -432,6 +433,18 @@ pub enum NetEvent {
     key: u64,
     res: Result<crate::model::whisper::Who, crate::model::whisper::Fail>,
   },
+  // heatsync stored a dm of ours: the row `key` is that dm (digits), so it can be taken back
+  DmStored {
+    key: u64,
+    id: Box<str>,
+  },
+  // our delete of a dm (digits) settled
+  DmDeleted {
+    id: Box<str>,
+    res: Result<(), dmdel::Fail>,
+  },
+  // a dm was taken down by one of its two people, on any client (`dm:message-deleted`): its key in the list
+  DmGone(Box<str>),
 }
 
 // event sink back to the ui. false = the ui is gone
