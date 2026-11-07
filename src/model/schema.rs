@@ -181,7 +181,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 70] = [
+pub static DEFS: [Def; 71] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -505,6 +505,18 @@ pub static DEFS: [Def; 70] = [
     ctl: pill!(suggest_inventory),
     fx: Fx::None,
     wire: Wire::Bool("suggestInventoryEmotes"),
+  },
+  Def {
+    id: "right_click",
+    cmd: Some("/rightclick"),
+    cat: Cat::Chat,
+    section: "input",
+    label: "right-click an emote",
+    tip: "menu = a small menu names what happens. instant = right-click just does it: yours is removed, anyone else's is blocked, a blocked one is unblocked. off = nothing. /rightclick instant",
+    alias: "rightClickBlockMode block unblock remove emote",
+    ctl: pick!(right_click, RightClick),
+    fx: Fx::None,
+    wire: Wire::None,
   },
   Def {
     id: "my_commands",

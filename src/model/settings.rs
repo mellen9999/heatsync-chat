@@ -130,6 +130,11 @@ choice! {
   Streamer { Off = "off", On = "on", Auto = "auto" }
 }
 choice! {
+  // what a right-click on an emote does (site + ext rightClickBlockMode): `menu` names the action and waits for
+  // a click, `instant` just does it, `off` leaves the emote alone. the action is always the exact emote's
+  RightClick { Menu = "menu", Instant = "instant", Off = "off" }
+}
+choice! {
   // animated emotes: play, or hold their first frame (ext animateEmotes, minus its `hover`)
   Animate { Always = "always", Never = "never" }
 }
@@ -183,6 +188,7 @@ pub struct Settings {
   // not on another)
   pub font_family: Inline<FONT_MAX>,
   pub animate_emotes: Animate,
+  pub right_click: RightClick,
   // a timed-out or banned person's lines go dim (ext hs_dim_timeouts). default on
   pub dim_timeouts: bool,
   // a run of timeouts and bans folds into one line, "5 people timed out" (chatterino's combine). default on
@@ -293,6 +299,7 @@ impl Default for Settings {
       line_height: LineHeight::L20,
       font_family: Inline::new(),
       animate_emotes: Animate::Always,
+      right_click: RightClick::Menu,
       dim_timeouts: true,
       collapse_timeouts: true,
       first_glow: true,
@@ -700,6 +707,7 @@ mod tests {
         line_height: LineHeight::L20,
         font_family: Inline::new(),
         animate_emotes: Animate::Always,
+        right_click: RightClick::Menu,
         dim_timeouts: true,
         collapse_timeouts: true,
         first_glow: true,
