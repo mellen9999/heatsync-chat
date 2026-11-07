@@ -4,6 +4,7 @@ pub mod mem;
 pub mod notify;
 pub mod open;
 pub mod sound;
+pub mod spawn;
 pub mod time;
 pub mod wav;
 

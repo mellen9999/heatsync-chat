@@ -2,17 +2,15 @@
 // wayland, xclip on x11. each runs with an argument list (never a shell), a deadline and a size cap,
 // and every call blocks, so callers run it off the ui thread (see net/clip.rs). what is asked for is
 // always one of our own mime names picked from the owner's list, never a string the owner sent
-use std::io::{Read, Write};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use super::spawn::{self, Tool, run};
 
 // what one paste or copy may carry
 pub const MAX_TEXT: usize = 1 << 20;
 pub const MAX_IMAGE: usize = 20 << 20;
-// the owner's list of what it offers, and a tool's error line: a few lines each
+// the owner's list of what it offers: a few lines
 const MAX_LIST: usize = 16 << 10;
-const MAX_ERR: usize = 512;
 
 const LIST_WAIT: Duration = Duration::from_secs(2);
 const TEXT_WAIT: Duration = Duration::from_secs(3);
@@ -55,6 +53,17 @@ pub enum Act {
   Paste,
 }
 
+impl From<spawn::Fail> for Fail {
+  fn from(f: spawn::Fail) -> Fail {
+    match f {
+      spawn::Fail::Missing(pkg) => Fail::Missing(pkg),
+      spawn::Fail::Timeout => Fail::Timeout,
+      spawn::Fail::TooBig(n) => Fail::TooBig(n),
+      spawn::Fail::Tool(prog) => Fail::Tool(prog),
+    }
+  }
+}
+
 impl Fail {
   // one plain status line: what went wrong and, if it is a missing tool, the command that fixes it
   pub fn said(&self, act: Act) -> String {
@@ -70,13 +79,6 @@ impl Fail {
       Fail::Tool(prog) => format!("couldn't {verb}: {prog} failed"),
     }
   }
-}
-
-// a program and its arguments, as a list
-#[derive(Debug, PartialEq)]
-struct Tool {
-  prog: &'static str,
-  args: Vec<&'static str>,
 }
 
 impl Backend {
@@ -108,24 +110,24 @@ impl Backend {
   // text in on stdin; the tool forks and keeps serving it until something else is copied
   fn copy(self) -> Tool {
     match self {
-      Backend::Wayland => Tool { prog: "wl-copy", args: vec!["--type", "text/plain;charset=utf-8"] },
-      Backend::X11 => Tool { prog: "xclip", args: vec!["-selection", "clipboard", "-target", "UTF8_STRING", "-in"] },
+      Backend::Wayland => Tool::new("wl-copy", &["--type", "text/plain;charset=utf-8"]),
+      Backend::X11 => Tool::new("xclip", &["-selection", "clipboard", "-target", "UTF8_STRING", "-in"]),
     }
   }
 
   // what the clipboard offers, one name per line
   fn offered(self) -> Tool {
     match self {
-      Backend::Wayland => Tool { prog: "wl-paste", args: vec!["--list-types"] },
-      Backend::X11 => Tool { prog: "xclip", args: vec!["-selection", "clipboard", "-target", "TARGETS", "-out"] },
+      Backend::Wayland => Tool::new("wl-paste", &["--list-types"]),
+      Backend::X11 => Tool::new("xclip", &["-selection", "clipboard", "-target", "TARGETS", "-out"]),
     }
   }
 
   // the clipboard as that one type, raw
   fn read(self, ty: &'static str) -> Tool {
     match self {
-      Backend::Wayland => Tool { prog: "wl-paste", args: vec!["--no-newline", "--type", ty] },
-      Backend::X11 => Tool { prog: "xclip", args: vec!["-selection", "clipboard", "-target", ty, "-out"] },
+      Backend::Wayland => Tool::new("wl-paste", &["--no-newline", "--type", ty]),
+      Backend::X11 => Tool::new("xclip", &["-selection", "clipboard", "-target", ty, "-out"]),
     }
   }
 }
@@ -139,73 +141,6 @@ fn pick(list: &str, ours: &[&'static str]) -> Option<&'static str> {
 fn empty(err: &str) -> bool {
   let e = err.to_ascii_lowercase();
   e.contains("nothing is copied") || e.contains("no selection") || e.contains("not available")
-}
-
-struct Ran {
-  out: Vec<u8>,
-  err: Vec<u8>,
-  ok: bool,
-}
-
-// at most `cap` + 1 bytes: one more than allowed says it went over
-fn take(r: impl Read, cap: usize) -> Vec<u8> {
-  let mut buf = Vec::new();
-  let _ = r.take(cap as u64 + 1).read_to_end(&mut buf);
-  buf
-}
-
-fn reap(child: &mut Child) {
-  let _ = child.kill();
-  let _ = child.wait();
-}
-
-// run a program with a list of arguments, feed it `input`, and read its stdout (at most `cap` bytes)
-// and a line of stderr, all before `wait` is up. `cap` None = it forks to serve a copy and keeps its
-// pipes, so none are read. a program that is too slow or too chatty is killed
-fn run(tool: &Tool, input: Option<&[u8]>, cap: Option<usize>, wait: Duration, pkg: &'static str) -> Result<Ran, Fail> {
-  let piped = |on: bool| if on { Stdio::piped() } else { Stdio::null() };
-  let mut child = Command::new(tool.prog)
-    .args(&tool.args)
-    .stdin(piped(input.is_some()))
-    .stdout(piped(cap.is_some()))
-    .stderr(piped(cap.is_some()))
-    .spawn()
-    .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { Fail::Missing(pkg) } else { Fail::Tool(tool.prog) })?;
-  let deadline = Instant::now() + wait;
-  let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
-  let input = input.map(<[u8]>::to_vec);
-  let (tx, rx) = mpsc::channel();
-  std::thread::spawn(move || {
-    if let (Some(mut w), Some(b)) = (stdin, input) {
-      // a tool that quit early closes the pipe: its exit says so
-      let _ = w.write_all(&b);
-    }
-    let max = cap.unwrap_or(0);
-    let out = stdout.map(|r| take(r, max)).unwrap_or_default();
-    // past the cap the tool is about to be killed: nothing more is waited for
-    let err = if out.len() > max { Vec::new() } else { stderr.map(|r| take(r, MAX_ERR)).unwrap_or_default() };
-    let _ = tx.send((out, err));
-  });
-  let left = |d: Instant| d.saturating_duration_since(Instant::now());
-  let Ok((out, err)) = rx.recv_timeout(left(deadline)) else {
-    reap(&mut child);
-    return Err(Fail::Timeout);
-  };
-  if let Some(c) = cap.filter(|c| out.len() > *c) {
-    reap(&mut child);
-    return Err(Fail::TooBig(c));
-  }
-  loop {
-    match child.try_wait() {
-      Ok(Some(s)) => return Ok(Ran { out, err, ok: s.success() }),
-      Ok(None) if !left(deadline).is_zero() => std::thread::sleep(Duration::from_millis(3)),
-      Ok(None) => {
-        reap(&mut child);
-        return Err(Fail::Timeout);
-      }
-      Err(_) => return Err(Fail::Tool(tool.prog)),
-    }
-  }
 }
 
 // put text on the clipboard
@@ -253,12 +188,11 @@ pub fn paste() -> Result<Paste, Fail> {
 mod tests {
   use super::*;
 
-  fn tool(prog: &'static str, args: &[&'static str]) -> Tool {
-    Tool { prog, args: args.to_vec() }
-  }
+  use std::io::Write;
+  use std::process::{Command, Stdio};
 
-  fn go(t: &Tool, input: Option<&[u8]>, cap: Option<usize>, wait: Duration) -> Result<Ran, Fail> {
-    run(t, input, cap, wait, "coreutils")
+  fn tool(prog: &'static str, args: &[&str]) -> Tool {
+    Tool::new(prog, args)
   }
 
   #[test]
@@ -323,7 +257,7 @@ mod tests {
   #[test]
   fn a_missing_tool_names_its_package() {
     let e = run(&tool("hsc-no-such-tool", &[]), None, Some(8), Duration::from_secs(1), "wl-clipboard").err();
-    assert_eq!(e, Some(Fail::Missing("wl-clipboard")));
+    assert_eq!(e.map(Fail::from), Some(Fail::Missing("wl-clipboard")));
     assert_eq!(Fail::Missing("wl-clipboard").said(Act::Copy), "copying needs wl-clipboard: paru -S wl-clipboard");
     assert_eq!(Fail::Missing("xclip").said(Act::Paste), "pasting needs xclip: paru -S xclip");
   }
@@ -335,43 +269,6 @@ mod tests {
     assert_eq!(Fail::TooBig(MAX_IMAGE).said(Act::Paste), "couldn't paste: too big (20MB max)");
     assert_eq!(Fail::TooBig(MAX_TEXT).said(Act::Copy), "couldn't copy: too big (1MB max)");
     assert!(Fail::NoDisplay.said(Act::Copy).starts_with("couldn't copy"));
-  }
-
-  #[test]
-  fn input_goes_in_and_output_comes_back_whole() {
-    let r = go(&tool("cat", &[]), Some("héllo\nwörld".as_bytes()), Some(MAX_TEXT), Duration::from_secs(5)).ok();
-    let r = r.expect("cat ran");
-    assert!(r.ok);
-    assert_eq!(String::from_utf8_lossy(&r.out), "héllo\nwörld");
-  }
-
-  #[test]
-  fn a_tool_that_says_no_is_not_ok_and_its_error_line_is_kept() {
-    let r = go(&tool("cat", &["/hsc/no/such/file"]), None, Some(MAX_LIST), Duration::from_secs(5)).ok();
-    let r = r.expect("cat ran");
-    assert!(!r.ok);
-    assert!(!r.err.is_empty() && r.out.is_empty());
-  }
-
-  #[test]
-  fn output_past_the_cap_is_cut_off_and_refused() {
-    let t = tool("yes", &[]);
-    assert_eq!(go(&t, None, Some(100), Duration::from_secs(5)).err(), Some(Fail::TooBig(100)));
-  }
-
-  #[test]
-  fn a_tool_that_never_answers_is_killed_at_the_deadline() {
-    let t = tool("sleep", &["30"]);
-    let start = Instant::now();
-    assert_eq!(go(&t, None, Some(8), Duration::from_millis(200)).err(), Some(Fail::Timeout));
-    assert!(start.elapsed() < Duration::from_secs(5));
-  }
-
-  #[test]
-  fn a_copy_that_never_finishes_is_killed_too() {
-    // cap None = nothing is read; the exit is what is waited for
-    let t = tool("sleep", &["30"]);
-    assert_eq!(go(&t, None, None, Duration::from_millis(200)).err(), Some(Fail::Timeout));
   }
 
   #[test]
