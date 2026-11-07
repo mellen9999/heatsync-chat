@@ -277,14 +277,16 @@ fn marks(l: &Line, m: &mut Message) {
   let fx = (msg_id.as_deref() == Some("animated-message"))
     .then(|| l.tag("animation-id").and_then(|a| effect_name(&a).map(str::to_owned)).unwrap_or_else(|| "effect".into()));
   let giant = msg_id.as_deref() == Some("gigantified-emote-message");
-  if shared.is_none() && source.is_none() && fx.is_none() && !giant {
+  let intro = msg_id.as_deref() == Some("user-intro");
+  let returning = l.tag("returning-chatter").as_deref() == Some("1");
+  if shared.is_none() && source.is_none() && fx.is_none() && !giant && !intro && !returning {
     return;
   }
   let x = m.extra();
   x.shared = shared.unwrap_or_default().into();
   x.source = source.unwrap_or_default();
   x.fx = fx.unwrap_or_default().into();
-  x.giant = giant;
+  (x.giant, x.intro, x.returning) = (giant, intro, returning);
 }
 
 // USERSTATE after our PRIVMSG: twitch's id/color/badges for the line, our own text
@@ -746,6 +748,17 @@ mod tests {
     // the effect needs its msg-id; the tag alone is nothing
     assert_eq!(&*fx("animation-id=simmer"), "");
     assert!(!extra(&msg_of(&format!("@msg-id=highlighted-message {HEAD}"))).giant);
+  }
+
+  #[test]
+  fn an_intro_and_a_returning_chatter_are_marked() {
+    let x = extra(&msg_of(&format!("@msg-id=user-intro {HEAD}")));
+    assert!(x.intro && !x.returning);
+    let x = extra(&msg_of(&format!("@returning-chatter=1 {HEAD}")));
+    assert!(x.returning && !x.intro);
+    assert!(msg_of(&format!("@returning-chatter=0 {HEAD}")).x.is_none());
+    // first-msg stays the flag the edge and the label hang on
+    assert!(msg_of(&format!("@first-msg=1 {HEAD}")).has(flag::FIRST));
   }
 
   #[test]

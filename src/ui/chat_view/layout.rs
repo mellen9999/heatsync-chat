@@ -56,6 +56,9 @@ pub(super) fn notice_ink(n: Notice) -> Option<u32> {
   })
 }
 
+// the ext's words over a first message
+const FIRST_LABEL: &str = "\u{25c7} first message in this channel";
+
 // a small word in a 1px box of its own color, a space after it (ext's ::before chips)
 fn chip(
   s: &mut String,
@@ -103,9 +106,12 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     frames.push((a..s.len(), Frame::Announce));
     s.push(' ');
   }
-  // the twitch tags the row wears as chips before everything else (ext ::before): `fx:name` for a message
-  // effect, `shared` / `shared:name` for a line said in a partner's room
+  // the twitch tags the row wears as chips before everything else (ext ::before): `new here` for an intro,
+  // `fx:name` for a message effect, `shared` / `shared:name` for a line said in a partner's room
   if let Some(x) = x {
+    if x.intro {
+      chip(&mut s, &mut spans, &mut frames, "new here", theme::MAGENTA, true);
+    }
     if !x.fx.is_empty() {
       chip(&mut s, &mut spans, &mut frames, &format!("fx:{}", x.fx), theme::MAGENTA, false);
     }
@@ -158,6 +164,13 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
       sp.ink.0 |= Ink::LIFT;
     }
     hdr = r0..s.len();
+    s.push('\n');
+  }
+  // twitch's first message in this channel says so in its ring's color (ext .hs-mc-first-label)
+  if m.has(flag::FIRST) && m.kind.said() {
+    let a = s.len();
+    s.push_str(FIRST_LABEL);
+    spans.push(Span { range: a..s.len(), ink: Ink(theme::MAGENTA), bold: true });
     s.push('\n');
   }
   if ts {

@@ -126,6 +126,9 @@ pub struct Extra {
   // a power-up: the message effect's name (`simmer`), and a gigantified last emote
   pub fx: Box<str>,
   pub giant: bool,
+  // msg-id=user-intro (someone introducing themselves: the `new here` chip) and returning-chatter=1
+  pub intro: bool,
+  pub returning: bool,
 }
 
 // one picture (a video's still) and the video it plays

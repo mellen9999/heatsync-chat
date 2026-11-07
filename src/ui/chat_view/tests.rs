@@ -1893,6 +1893,60 @@ fn a_message_effect_wears_a_magenta_chip_naming_it_and_a_magenta_edge() {
   crate::bench::dump(&c);
 }
 
+#[test]
+fn an_intro_wears_a_new_here_chip_and_a_magenta_edge() {
+  let intro = tagged(|x| x.intro = true);
+  let (c, mut res) = painted(vec![intro.clone()], 30);
+  assert!(c.inked(theme::MAGENTA) > 40, "chip words and box");
+  assert_eq!(edge_at(&c, 10), theme::MAGENTA, "the row's edge");
+  let laid = lay(&mut res, &intro);
+  assert!(matches!(laid.frames[0].1, Frame::Chip(ink) if ink == theme::MAGENTA));
+  assert!(laid.layout.full_width() > lay(&mut res, &said("bob", "hello world")).layout.full_width() + 40.0);
+}
+
+#[test]
+fn a_returning_chatter_gets_a_white_edge_that_a_ring_still_outranks() {
+  // rows sit at the bottom of the canvas: look a few pixels up from it
+  let edge = |c: &Canvas| {
+    let row = (c.h - 6) as usize * c.w as usize;
+    (c.px[row], c.px[row + 1], c.px[row + MARK_W as usize])
+  };
+  let (c, _) = painted(vec![tagged(|x| x.returning = true)], 30);
+  assert_eq!(edge(&c), (theme::WHITE, theme::WHITE, theme::BLACK), "MARK_W wide");
+  let (c, _) = painted(vec![said("bob", "hello")], 30);
+  assert_eq!(edge(&c).0, theme::BLACK);
+  // a first message is the magenta ring, whatever else it is
+  let mut both = tagged(|x| x.returning = true);
+  both.flags |= flag::FIRST;
+  let (c, _) = painted(vec![both], 60);
+  assert_eq!(edge(&c).0, theme::MAGENTA);
+  // over the session-first glow, as in the ext
+  let mut v = ChatView::new(50, "c".into());
+  v.resize(400);
+  v.glow = true;
+  v.push(tagged(|x| x.returning = true));
+  let (mut c, mut res, area) = (Canvas::new(400, 30), Res::new(1.0), Rect::new(0, 0, 400, 30));
+  v.draw(&mut c, &mut res, area, area);
+  assert!(v.rows[0].msg.has(flag::NEW));
+  assert_eq!(edge(&c).0, theme::WHITE);
+}
+
+#[test]
+fn a_first_message_says_so_above_the_line_in_the_exts_words() {
+  let mut res = Res::new(1.0);
+  let mut first = said("bob", "hello");
+  first.flags |= flag::FIRST;
+  let (a, b) = (lay(&mut res, &said("bob", "hello")), lay(&mut res, &first));
+  assert!(b.layout.height() > a.layout.height() + res.text.line_px / 2.0, "a line of its own");
+  let (c, _) = painted(vec![first.clone()], 60);
+  assert!(c.inked(theme::MAGENTA) > 200, "the label's words, and the edge");
+  // a notice or a stream line is nobody's first message
+  let mut notice = Message::system(1, Platform::Twitch, "x");
+  notice.flags |= flag::FIRST;
+  assert!(lay(&mut res, &notice).layout.height() < b.layout.height());
+  crate::bench::dump(&c);
+}
+
 // a gigantified message draws its last emote at 56px, asked for at that size through the usual image path
 #[test]
 fn a_gigantified_message_draws_only_its_last_emote_big() {
