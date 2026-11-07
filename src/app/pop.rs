@@ -325,11 +325,11 @@ impl App {
         self.net.send(Cmd::Link(provider));
       }
       (Act::AllowYoutubePosting, ..) => {
-        self.say("finish allowing youtube posting in your browser…");
+        self.say(format!("youtube posting needs a permission: {}", super::feed::ALLOW_IT));
         self.net.send(Cmd::AllowYoutubePosting);
       }
       (Act::AllowAutomod, ..) => {
-        self.say("finish allowing automod holds in your browser…");
+        self.say(super::feed::needs_twitch("automod holds"));
         self.net.send(Cmd::Relink("automod"));
       }
       (Act::BlockedTerms, Some(who), _) => self.blocked_open(who.chan),

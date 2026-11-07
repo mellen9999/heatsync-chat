@@ -286,7 +286,11 @@ impl App {
 
   // `r` on the selected line: reply to it on its own platform
   pub(super) fn reply_selected(&mut self) {
-    self.reply_to(None)
+    self.reply_to(None);
+    // the hover button is off until asked for: said once per run, after a reply from the menu or the key
+    if self.reply.is_some() && !self.set.hover_reply && !std::mem::replace(&mut self.reply_nudged, true) {
+      self.say("replying \u{b7} want a reply button on hover? /hoverreply turns it on");
+    }
   }
 
   // reply to the line `seq` (None: the picked one) on its own platform: the line menu's reply, and the

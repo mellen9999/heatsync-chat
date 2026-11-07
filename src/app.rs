@@ -90,6 +90,8 @@ mod tests_cardclip;
 #[cfg(test)]
 mod tests_chain;
 #[cfg(test)]
+mod tests_copy;
+#[cfg(test)]
 mod tests_findbar;
 #[cfg(test)]
 mod tests_font;
@@ -335,6 +337,8 @@ pub struct App {
   pointer: (i32, i32),
   input_h: i32,
   input_dirty: bool,
+  // the hover reply button was mentioned once already this run
+  reply_nudged: bool,
   me: Option<Me>,
   // settings that follow the heatsync account: what it holds, whether the heatsync socket is signed in, and
   // when the settings were last asked for
@@ -574,6 +578,7 @@ impl App {
       pointer: (0, 0),
       input_h: 0,
       input_dirty: true,
+      reply_nudged: false,
       me: None,
       acct,
       hs_authed: false,

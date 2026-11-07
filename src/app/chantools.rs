@@ -69,7 +69,7 @@ impl App {
       (Err(Oops(Fail::Auth, _)), _) => "log in first (ctrl-l)".into(),
       (Err(Oops(Fail::Relink, _)), _) => {
         self.net.send(NetCmd::Relink(cmd.pack()));
-        format!("{what} needs a twitch permission. finish allowing it in your browser, then try again")
+        super::feed::needs_twitch(what)
       }
       (Err(Oops(Fail::NotMod, _)), Cmd::Announce { .. }) => format!("you are not a moderator of {chan}"),
       (Err(Oops(Fail::NotMod, _)), _) => "only the broadcaster can do this".into(),

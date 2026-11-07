@@ -17,6 +17,14 @@ use crate::util::time::now_ms;
 const THREAD_ROWS: usize = 1000;
 
 pub(super) const LOGIN_FIRST: &str = "log in at heatsync.org first";
+
+// the one way every "twitch has to allow this first" line ends
+pub(super) const ALLOW_IT: &str = "allow it in your browser, then try again";
+
+// "moderating needs a twitch permission: allow it in your browser, then try again"
+pub(super) fn needs_twitch(what: &str) -> String {
+  format!("{what} needs a twitch permission: {ALLOW_IT}")
+}
 pub(super) const TRY_AGAIN: &str = "that didn't work — try again";
 
 impl App {

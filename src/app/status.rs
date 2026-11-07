@@ -199,7 +199,7 @@ impl App {
       }
       Err(Fail::Auth) => self.say("log in first (ctrl-l)"),
       Err(Fail::Relink) => {
-        self.say("chat modes need a twitch permission. finish allowing it in your browser…");
+        self.say(super::feed::needs_twitch("chat modes"));
         self.net.send(Cmd::Relink("mod"));
       }
       Err(Fail::Other(e)) => self.say(format!("couldn't change {}: {e}", set.mode.label())),

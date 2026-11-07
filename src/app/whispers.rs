@@ -322,7 +322,7 @@ impl App {
         // instead of failing the send first
         Some(m) if !m.packs.is_empty() && !m.has_pack("whispers") => {
           self.net.send(Cmd::Relink("whispers"));
-          return self.say("whispers need a twitch permission. finish allowing it in your browser…");
+          return self.say(super::feed::needs_twitch("whispers"));
         }
         Some(_) => {}
       }

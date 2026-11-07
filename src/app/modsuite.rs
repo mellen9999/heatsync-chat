@@ -41,7 +41,7 @@ impl App {
       (Err(Fail::Auth), _) => "log in first (ctrl-l)".into(),
       (Err(Fail::Relink), _) => {
         self.net.send(NetCmd::Relink("modsuite"));
-        format!("{what} needs a twitch permission. finish allowing it in your browser, then try again")
+        super::feed::needs_twitch(what)
       }
       (Err(Fail::NotMod), _) => format!("you are not a moderator of {chan}"),
       (Err(Fail::Gone), Cmd::Warn { user, .. } | Cmd::Shoutout(user)) => format!("no twitch user named {user}"),

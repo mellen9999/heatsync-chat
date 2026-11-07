@@ -185,7 +185,7 @@ impl App {
       Ok(()) => return self.held_end(&id, if allow { End::Allowed(None) } else { End::Denied(None) }),
       Err(Fail::Gone) => return self.held_end(&id, End::Expired),
       Err(Fail::Relink) => {
-        self.say("automod holds need a twitch permission. finish allowing it in your browser…");
+        self.say(super::feed::needs_twitch("automod holds"));
         self.net.send(Cmd::Relink("automod"));
         "needs a twitch permission"
       }

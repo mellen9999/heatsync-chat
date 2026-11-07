@@ -53,7 +53,7 @@ fn custom_without_a_file_says_what_is_missing_and_plays_nothing_odd() {
   let mut a = app();
   a.local(Local::Pick("ping_sound", Some(4)));
   assert_eq!(a.set.ping_sound, PingSound::Custom);
-  assert!(said(&a).starts_with("custom plays a wav file of yours: /pingfile"), "{}", said(&a));
+  assert!(said(&a).starts_with("custom plays a wav file of yours: pick it in settings"), "{}", said(&a));
   assert_eq!(a.ping_voice(), Voice::File(String::new()), "the player falls back to the ping when it finds no file");
 }
 

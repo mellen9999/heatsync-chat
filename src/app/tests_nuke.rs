@@ -82,9 +82,9 @@ fn it_picks_recent_standing_lines_with_the_term_from_both_platforms_once_each() 
   twitch(&mut app, line(Platform::Twitch, "t4", "buy gone", 2));
   app.tabs[app.active].chat().clear_msg("t4");
   typed(&mut app, "/nuke buy");
-  assert_eq!(head(&app).as_deref(), Some("nuke 2 messages matching \"buy\" in #forsen?"));
+  assert_eq!(head(&app).as_deref(), Some("delete 2 messages matching \"buy\" in #forsen?"));
   let rows: Vec<String> = app.pop().unwrap().menu.items.iter().map(|r| r.1.clone()).collect();
-  assert_eq!(rows, ["nuke", "cancel"]);
+  assert_eq!(rows, ["delete", "cancel"]);
   // enter on "nuke": one paced job with a delete for each of the two lines, in the right rooms
   app.pop_key(Key::Named(NamedKey::Enter));
   let got = nukes(&mut rx);
@@ -95,7 +95,7 @@ fn it_picks_recent_standing_lines_with_the_term_from_both_platforms_once_each() 
     reqs.iter().map(|r| (r.platform, r.chan.to_string(), r.msg_id.as_deref().unwrap_or("").to_string())).collect();
   assert_eq!(rooms, [(Platform::Twitch, "forsen".into(), "t1".into()), (Platform::Kick, "xqc".into(), "k1".into())]);
   assert!(reqs.iter().all(|r| r.verb == crate::model::modcmd::Verb::Delete));
-  assert_eq!(said(&app), "nuking 2 messages\u{2026}");
+  assert_eq!(said(&app), "deleting 2 messages\u{2026}");
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn a_longer_window_reaches_further_back_and_one_line_reads_singular() {
   assert_eq!(said(&app), "/nuke: no messages matching \"buy\" in the last 30s");
   assert!(app.pop().is_none() && nukes(&mut rx).is_empty());
   typed(&mut app, "/nuke BUY 200");
-  assert_eq!(head(&app).as_deref(), Some("nuke 1 message matching \"BUY\" in #forsen?"));
+  assert_eq!(head(&app).as_deref(), Some("delete 1 message matching \"BUY\" in #forsen?"));
   // esc: nothing goes
   app.pop_key(Key::Named(NamedKey::Escape));
   assert!(nukes(&mut rx).is_empty());
@@ -119,7 +119,7 @@ fn more_than_a_hundred_keeps_the_oldest_hundred_and_says_so() {
     twitch(&mut app, line(Platform::Twitch, &format!("m{i}"), "spam spam", 10));
   }
   typed(&mut app, "/nuke spam");
-  assert_eq!(head(&app).as_deref(), Some("nuke 100+ (capped from 130) messages matching \"spam\" in #forsen?"));
+  assert_eq!(head(&app).as_deref(), Some("delete 100+ (capped from 130) messages matching \"spam\" in #forsen?"));
   app.pop_key(Key::Named(NamedKey::Enter));
   let (reqs, _) = nukes(&mut rx).remove(0);
   assert_eq!(reqs.len(), 100);
@@ -169,12 +169,12 @@ fn the_summary_counts_what_landed_and_kick_lines_go_grey() {
   app.on_nuke_done(done(vec![(Platform::Kick, "xqc".into(), "k1".into())], Some(Fail::Other("rate".into()))));
   assert_eq!(said(&app), "delete failed: rate");
   let all: Vec<String> = app.tabs[app.active].view.msgs().map(|m| m.body.to_string()).collect();
-  assert!(all.iter().any(|b| b == "nuked 1/3 matching \"buy\""), "{all:?}");
+  assert!(all.iter().any(|b| b == "deleted 1/3 matching \"buy\""), "{all:?}");
   let k = app.tabs[app.active].view.msgs().find(|m| &*m.id == "k1").unwrap();
   assert!(k.flags & flag::CLEARED != 0, "kick echoes nothing: cleared here");
   // all landed: just the count
   app.on_nuke_done(done(vec![], None));
-  assert_eq!(said(&app), "nuked 0/3 matching \"buy\"");
+  assert_eq!(said(&app), "deleted 0/3 matching \"buy\"");
   // a login that is out says so, a missing permission starts the relink
   app.on_nuke_done(done(vec![], Some(Fail::Auth)));
   assert_eq!(said(&app), "log in first (ctrl-l)");

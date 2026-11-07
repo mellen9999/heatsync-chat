@@ -180,7 +180,7 @@ impl App {
   pub(super) fn blocked_pick(&mut self, t: Target) {
     match t {
       Target::Allow => {
-        self.say("finish allowing blocked terms in your browser, then retry");
+        self.say(super::feed::needs_twitch("blocked terms"));
         self.net.send(Cmd::Relink("blockedterms"));
       }
       Target::Retry => self.blocked_load(),

@@ -243,10 +243,10 @@ impl App {
     let shown: String = term.chars().take(NUKE_TERM_SHOWN).collect();
     let shown = if shown.len() < term.len() { format!("{shown}\u{2026}") } else { shown };
     let head =
-      format!("nuke {n}{capped} message{} matching \"{shown}\" in #{}?", if n == 1 { "" } else { "s" }, srcs[0].1);
+      format!("delete {n}{capped} message{} matching \"{shown}\" in #{}?", if n == 1 { "" } else { "s" }, srcs[0].1);
     let at = (self.pointer.0.min(self.canvas.w - 160), self.pointer.1.min(self.canvas.h - 80));
     let todo = Todo { verb: Verb::Delete, who, reason: Some(term), reasons: Vec::new() };
-    self.overlay = Some(Overlay::Pop(Pop::confirm_as(head, at, (Act::NukeYes, "nuke".to_owned()), todo)));
+    self.overlay = Some(Overlay::Pop(Pop::confirm_as(head, at, (Act::NukeYes, "delete".to_owned()), todo)));
     self.pop_changed();
   }
 
@@ -256,7 +256,7 @@ impl App {
       return;
     }
     let reqs: Vec<Req> = who.iter().map(|w| self.req(w, Verb::Delete, None)).collect();
-    self.say(format!("nuking {} message{}\u{2026}", reqs.len(), if reqs.len() == 1 { "" } else { "s" }));
+    self.say(format!("deleting {} message{}\u{2026}", reqs.len(), if reqs.len() == 1 { "" } else { "s" }));
     self.net.send(Cmd::Nuke(reqs, term));
   }
 
@@ -272,12 +272,12 @@ impl App {
     match fail {
       Some(Fail::Auth) => self.say("log in first (ctrl-l)"),
       Some(Fail::Relink) => {
-        self.say("moderating needs a twitch permission. finish allowing it in your browser\u{2026}");
+        self.say(super::feed::needs_twitch("moderating"));
         self.net.send(Cmd::Relink("mod"));
       }
       _ => {
         let n = ok.len();
-        self.say(format!("nuked {n}/{total} matching \"{term}\""));
+        self.say(format!("deleted {n}/{total} matching \"{term}\""));
         if let Some(Fail::Other(e)) = fail
           && n < total
         {
@@ -326,7 +326,7 @@ impl App {
       }
       Err(Fail::Auth) => self.say("log in first (ctrl-l)"),
       Err(Fail::Relink) => {
-        self.say("moderating needs a twitch permission. finish allowing it in your browser…");
+        self.say(super::feed::needs_twitch("moderating"));
         self.net.send(Cmd::Relink("mod"));
       }
       Err(Fail::Other(e)) => self.say(format!("{} failed: {e}", verb.name())),

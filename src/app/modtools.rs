@@ -205,7 +205,7 @@ impl App {
     let Some(mt) = self.mt() else { return };
     let op = match (t, adjust) {
       (Target::Allow, None) => {
-        self.say("finish allowing mod tools in your browser, then retry");
+        self.say(super::feed::needs_twitch("mod tools"));
         return self.net.send(Cmd::Relink("modsuite"));
       }
       (Target::Retry, None) => return self.tools_load(),

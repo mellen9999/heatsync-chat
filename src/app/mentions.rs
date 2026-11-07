@@ -231,7 +231,7 @@ impl App {
   // custom with no file picked yet says what is missing instead
   pub(super) fn ping_preview(&mut self) {
     if self.set.ping_sound == PingSound::Custom && self.set.ping_file.is_empty() {
-      return self.say("custom plays a wav file of yours: /pingfile ~/sounds/ding.wav");
+      return self.say("custom plays a wav file of yours: pick it in settings \u{203a} custom sound file");
     }
     if !self.sound_muted() {
       crate::util::sound::preview(self.ping_voice(), self.set.mention_volume.percent());

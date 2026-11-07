@@ -284,6 +284,17 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
   (lines, targets)
 }
 
+// the status line when chat logs start: the folder, with the home folder as ~
+pub(super) fn logs_said(dir: Option<std::path::PathBuf>) -> String {
+  let Some(dir) = dir else { return "saving chat logs on this computer".to_owned() };
+  let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+  let shown = match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
+    Some(rest) => format!("~/{}", rest.display()),
+    None => dir.display().to_string(),
+  };
+  format!("saving chat logs to {shown}")
+}
+
 impl App {
   // ---- changing a setting: the one path for slash commands and the screen ----
 
@@ -325,7 +336,13 @@ impl App {
         self.relayout_where(None);
       }
       Fx::Streamer => self.streamer_follow(),
-      Fx::ChatLogs => self.chatlog.set(self.set.chat_logs),
+      Fx::ChatLogs => {
+        self.chatlog.set(self.set.chat_logs);
+        // where they go is said once, as it starts, and never while streamer mode is up
+        if self.set.chat_logs && !self.streamer_hot() {
+          self.say(logs_said(crate::store::logs_dir()));
+        }
+      }
       Fx::Filters => {
         self.push_flags();
         self.refilter_all();

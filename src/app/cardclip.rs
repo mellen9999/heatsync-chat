@@ -91,7 +91,7 @@ impl App {
         match f {
           Fail::Auth => self.say("log in first (ctrl-l)"),
           Fail::Relink => {
-            self.say("clipping needs a twitch permission. finish allowing it in your browser\u{2026}");
+            self.say(super::feed::needs_twitch("clipping"));
             self.net.send(Cmd::Relink("clips"));
           }
           Fail::Other(e) => self.say(format!("clip failed: {e}")),
