@@ -1,0 +1,120 @@
+# manual pre-release check for windows only. never runs on push or pr (no ci by default).
+# job tests: the unit tests on real windows. job exe: runs the exact exe from the draft
+# release `windows-check` (idle cpu, memory, second launch, screenshots, log).
+name: windows-check
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 5
+      - name: rust toolchain
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - name: cargo test --release
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cargo test --release 2>&1 | Tee-Object -FilePath test.log
+          $code = $LASTEXITCODE
+          $r = Select-String -Path test.log -Pattern '^test result:' | ForEach-Object { $_.Line }
+          $p = 0; $f = 0; $i = 0
+          foreach ($l in $r) { if ($l -match '(\d+) passed; (\d+) failed; (\d+) ignored') { $p += [int]$Matches[1]; $f += [int]$Matches[2]; $i += [int]$Matches[3] } }
+          "passed=$p failed=$f ignored=$i exit=$code" | Tee-Object -FilePath test-summary.txt
+          "### tests: passed=$p failed=$f ignored=$i" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          exit $code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        timeout-minutes: 5
+        with:
+          name: tests
+          path: |
+            test.log
+            test-summary.txt
+  exe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: download the draft exe
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $id = gh api "repos/${{ github.repository }}/releases" --jq '.[] | select(.name=="windows-check" and .draft) | .assets[] | select(.name=="heatsync-chat.exe") | .id' | Select-Object -First 1
+          if (-not $id) { throw 'no draft asset' }
+          gh api -H 'Accept: application/octet-stream' "repos/${{ github.repository }}/releases/assets/$id" > heatsync-chat.exe
+          if ($LASTEXITCODE -ne 0) { throw 'download failed' }
+          Get-Item heatsync-chat.exe | Select-Object Length
+          (Get-FileHash heatsync-chat.exe).Hash
+      - name: run and measure
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force out | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Shot($path) {
+            $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+            $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose(); $bmp.Dispose()
+          }
+          $exe = (Resolve-Path heatsync-chat.exe).Path
+          $m = [ordered]@{}
+          $app = Start-Process $exe -PassThru
+          Start-Sleep 20
+          $app.Refresh()
+          $m.alive_after_20s = -not $app.HasExited
+          Shot "$PWD\out\shot1-first-launch.png"
+          $t0 = $app.TotalProcessorTime.TotalSeconds
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          Start-Sleep 30
+          $app.Refresh()
+          $dt = $sw.Elapsed.TotalSeconds
+          $m.idle_window_s = [math]::Round($dt, 2)
+          $m.idle_cpu_seconds = [math]::Round($app.TotalProcessorTime.TotalSeconds - $t0, 3)
+          $m.idle_cpu_pct_of_one_core = [math]::Round(100 * ($app.TotalProcessorTime.TotalSeconds - $t0) / $dt, 2)
+          $m.working_set_mb = [math]::Round($app.WorkingSet64 / 1MB, 1)
+          $m.private_mb = [math]::Round($app.PrivateMemorySize64 / 1MB, 1)
+          $m.threads = $app.Threads.Count
+          $m.handles = $app.HandleCount
+          $second = Start-Process $exe -ArgumentList 'xqc' -PassThru
+          $sw2 = [Diagnostics.Stopwatch]::StartNew()
+          $exited = $second.WaitForExit(10000)
+          $m.second_exited = $exited
+          $m.second_exit_seconds = [math]::Round($sw2.Elapsed.TotalSeconds, 2)
+          if ($exited) { $m.second_exit_code = $second.ExitCode }
+          $m.processes_after_second = @(Get-Process -Name heatsync-chat -ErrorAction SilentlyContinue).Count
+          Start-Sleep 5
+          Shot "$PWD\out\shot2-after-xqc.png"
+          $app.Refresh()
+          $m.first_still_alive = -not $app.HasExited
+          $log = Join-Path $env:LOCALAPPDATA 'heatsync-chat\heatsync-chat.log'
+          if (Test-Path $log) {
+            Copy-Item $log out\heatsync-chat.log
+            $m.log_lines = @(Get-Content $log).Count
+            $m.log_error_lines = @(Select-String -Path $log -Pattern 'error|panic|fail').Count
+          } else {
+            $m.log_present = $false
+            'no log file' | Out-File out\heatsync-chat.log
+          }
+          Get-Process -Name heatsync-chat -ErrorAction SilentlyContinue | Stop-Process -Force
+          $m | ConvertTo-Json | Tee-Object -FilePath out\metrics.json
+          "### exe metrics`n``````n$($m | ConvertTo-Json)`n``````" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        timeout-minutes: 5
+        with:
+          name: exe
+          path: out
