@@ -101,6 +101,8 @@ pub struct Res {
   pub flairs: Flairs,
   pub cosmetics: Cosmetics,
   pub avatars: crate::avatars::Avatars,
+  // shared chat's partner rooms by number
+  pub rooms: crate::model::rooms::Rooms,
   pub arts: NameArts,
   pub blocked: Blocked,
   // who the names in message text mean (their color, paint)
@@ -130,6 +132,7 @@ impl Res {
       flairs: Flairs::default(),
       cosmetics: Cosmetics::default(),
       avatars: Default::default(),
+      rooms: Default::default(),
       arts: NameArts::default(),
       blocked: Blocked::load(),
       chatters: Chatters::default(),

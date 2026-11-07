@@ -58,6 +58,7 @@ pub mod pronouns;
 pub mod quick;
 pub mod reaction;
 pub mod reasons;
+pub mod rooms;
 pub mod rules;
 pub mod schema;
 pub mod seen;

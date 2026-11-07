@@ -119,6 +119,10 @@ pub struct Extra {
   pub root: Box<str>,
   // a went-live line: a click or enter on it opens its channel (its tab, else the temp tab)
   pub opens: bool,
+  // twitch shared chat: the room the line was said in when that is not this one (its numeric room id),
+  // and the line's id there. every room in a session gets the same line under the same source id
+  pub shared: Box<str>,
+  pub source: Box<str>,
 }
 
 // one picture (a video's still) and the video it plays

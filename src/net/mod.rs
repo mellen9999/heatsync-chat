@@ -33,6 +33,7 @@ pub mod pushed;
 mod recent;
 pub mod relay;
 mod retry;
+mod roomname;
 mod send_queue;
 mod senders;
 mod session;
@@ -156,6 +157,8 @@ pub enum NetEvent {
   Raise(Vec<Box<str>>),
   // a chatter's picture url (None = none found)
   Avatar(Platform, Box<str>, Option<Box<str>>),
+  // a shared-chat room's channel name by its number (None = twitch knows no such room)
+  RoomLogin(Box<str>, Option<Box<str>>),
   // 7tv paints + badges for twitch ids (None = wears nothing)
   Cosmetics(Vec<(crate::cosmetics::id::PaintId, Option<crate::cosmetics::Cosmetic>)>),
   // 7tv says this twitch user's cosmetics changed: ask again
@@ -556,6 +559,8 @@ pub enum Cmd {
   Pick,
   // a chatter's picture
   Avatar(Platform, Box<str>),
+  // a shared-chat room's channel name, by its number
+  RoomLogin(Box<str>),
   // chatters' 7tv paints + badges
   Cosmetics(crate::cosmetics::id::PaintId),
   // a chatter's heat bar or sub flair
@@ -977,6 +982,8 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   watch("marks", marks::run(http.clone(), mk_rx, out.clone()), out.clone());
   let (av_tx, av_rx) = mpsc::unbounded_channel();
   watch("avatars", avatars::run(http.clone(), av_rx, out.clone()), out.clone());
+  let (rl_tx, rl_rx) = mpsc::unbounded_channel();
+  watch("rooms", roomname::run(http.clone(), rl_rx, out.clone()), out.clone());
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
   watch("7tv", seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()), out.clone());
   let Some(dec) = spawn_decoder(out.clone()) else {
@@ -1150,6 +1157,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       }
       Cmd::Avatar(p, login) => {
         let _ = av_tx.send((p, login));
+      }
+      Cmd::RoomLogin(id) => {
+        let _ = rl_tx.send(id);
       }
       Cmd::Cosmetics(id) => {
         let _ = cos_tx.send(id);

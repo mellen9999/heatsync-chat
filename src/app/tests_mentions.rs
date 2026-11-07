@@ -354,3 +354,48 @@ fn a_highlight_rules_sound_plays_for_a_live_line_in_its_channel() {
   crate::model::filter::edit(|f| f.block("bob"));
   assert_eq!(a.line_sound("forsen", &say("bob", "gg")), None, "a blocked person never sounds");
 }
+
+// twitch shared chat sends one line to every room of the session. you hear it from the first, and the
+// mentions tab holds it once; each room's own tab still shows its copy (it is that room's chat)
+#[test]
+fn a_shared_chat_line_lands_in_mentions_once_whichever_room_it_comes_through() {
+  fresh();
+  let (net, _rx) = Net::tap();
+  let mut a = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+  a.focused = true;
+  login(&mut a, "mellen");
+  let line = |id: &str, source: &str| {
+    let mut m = Message::system(now_ms(), Platform::Twitch, "");
+    (m.kind, m.id, m.login, m.nick) = (MsgKind::Chat, id.into(), "bob".into(), "bob".into());
+    m.body = format!("hey @mellen {source}").into();
+    if source != "-" {
+      m.extra().source = source.into();
+    }
+    m
+  };
+  let in_room = |a: &App, name: &str| {
+    let t = a.tabs.iter().find(|t| &*t.name == name).unwrap();
+    t.view.msgs().filter(|m| m.kind == MsgKind::Chat).map(|m| m.flags & flag::ALERT != 0).collect::<Vec<_>>()
+  };
+  // the same line in both rooms: one mention row, but both rooms show it, red-edged
+  a.on_chat("forsen", Chat::Msg(line("a1", "src-1")));
+  a.on_chat("xqc", Chat::Msg(line("b1", "src-1")));
+  assert_eq!(rows(&a).len(), 1, "the mentions tab holds it once");
+  assert_eq!(in_room(&a, "forsen"), [true]);
+  assert_eq!(in_room(&a, "xqc"), [true], "the other room's copy is still that room's line");
+  // another line is another source id: its own row
+  a.on_chat("xqc", Chat::Msg(line("b2", "src-2")));
+  a.on_chat("forsen", Chat::Msg(line("a2", "src-2")));
+  assert_eq!(rows(&a).len(), 2);
+  // lines with no source id are never merged: two people can say the same thing
+  a.on_chat("forsen", Chat::Msg(line("a3", "-")));
+  a.on_chat("xqc", Chat::Msg(line("b3", "-")));
+  assert_eq!(rows(&a).len(), 4);
+  // memory is bounded: a long session forgets the oldest ids instead of growing
+  for i in 0..2000 {
+    let mut m = Message::system(now_ms(), Platform::Twitch, "");
+    m.extra().source = format!("flood-{i}").into();
+    a.mentions.again(&m);
+  }
+  assert!(!a.mentions.again(&line("x", "src-1")), "the oldest id was forgotten, so it counts as new");
+}

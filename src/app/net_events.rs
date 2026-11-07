@@ -233,6 +233,11 @@ impl App {
       }
       Chat::Room { id, modes } => {
         self.modes_seen(ch, modes);
+        if self.res.rooms.seat(&id, ch) {
+          for v in self.tabs.iter_mut().flat_map(Tab::views) {
+            v.touch_shared(&id);
+          }
+        }
         if !self.rooms.iter().any(|r| *r.0 == *ch) {
           self.rooms.push((ch.into(), id.clone()));
           self.net.send(Cmd::Room(ch.into(), id));
@@ -580,6 +585,14 @@ impl App {
         if self.res.avatars.put(p, &login, url) {
           for v in self.tabs.iter_mut().flat_map(Tab::views) {
             v.touch_chatter(p, &login);
+          }
+          self.wake();
+        }
+      }
+      NetEvent::RoomLogin(id, login) => {
+        if self.res.rooms.put(&id, login.as_deref()) {
+          for v in self.tabs.iter_mut().flat_map(Tab::views) {
+            v.touch_shared(&id);
           }
           self.wake();
         }

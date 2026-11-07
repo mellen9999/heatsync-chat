@@ -357,6 +357,9 @@ impl App {
     for (p, login) in self.res.avatars.take_wanted() {
       self.net.send(Cmd::Avatar(p, login));
     }
+    for id in self.res.rooms.take_wanted() {
+      self.net.send(Cmd::RoomLogin(id));
+    }
     self.present(dirty);
   }
 

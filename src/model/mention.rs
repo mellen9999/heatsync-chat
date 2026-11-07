@@ -2,12 +2,23 @@
 // you, a reply to your line, `@name` anywhere, or `name` as a whole word, case-insensitive.
 // names are your heatsync name plus the twitch / kick / youtube names linked to it
 use super::ident;
+use super::seen::Seen;
 use crate::model::message::Message;
 
-#[derive(Default)]
+// shared chat: how many source ids of lines already taken in are kept (a session's lines come back this soon)
+const HEARD: usize = 400;
+
 pub struct Mentions {
   // lowercase, unique, word characters only (a name with anything else could not be matched safely)
   names: Vec<Box<str>>,
+  // source ids of shared-chat lines already taken in
+  heard: Seen,
+}
+
+impl Default for Mentions {
+  fn default() -> Self {
+    Mentions { names: Vec::new(), heard: Seen::capped(HEARD) }
+  }
 }
 
 // `\bname\b`, ascii case-insensitive
@@ -38,6 +49,12 @@ impl Mentions {
         self.names.push(n.into());
       }
     }
+  }
+
+  // twitch shared chat sends one line to every room in the session, each copy under the same source id.
+  // true when a copy of this line was taken in before (from another room): it pings and lands once
+  pub fn again(&mut self, m: &Message) -> bool {
+    m.x.as_ref().is_some_and(|x| !x.source.is_empty() && !self.heard.first(&x.source))
   }
 
   pub fn is_me(&self, who: &str) -> bool {

@@ -32,7 +32,9 @@ impl App {
   // `room` is the tab key it came from (twitch channel, kick slug, youtube handle)
   pub(super) fn scan_mention(&mut self, p: Platform, room: &str, m: &mut Message) {
     let muted = self.pings.muted(p, room);
-    if let Some(s) = self.line_sound(room, m).filter(|_| !muted) {
+    // a shared-chat line already taken in from another room: this copy is that room's to show, not a second ping
+    let again = self.mentions.again(m);
+    if let Some(s) = self.line_sound(room, m).filter(|_| !muted && !again) {
       crate::util::sound::play(s, self.set.mention_volume.percent(), now_ms());
     }
     // a blocked person never pings you
@@ -41,7 +43,7 @@ impl App {
     }
     m.flags |= flag::ALERT;
     // backlog is not a new ping, and a line a mention rule already put in the tab is one row
-    if m.has(flag::HISTORY) || self.mention_dup(p, room, &m.login, &m.body) {
+    if m.has(flag::HISTORY) || again || self.mention_dup(p, room, &m.login, &m.body) {
       return;
     }
     let mut copy = m.clone();

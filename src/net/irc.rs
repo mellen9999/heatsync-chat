@@ -26,6 +26,8 @@ const MAX_BODY: usize = 2000;
 // a display name (contract.md); a message id is a uuid, so this is generous
 const MAX_NAME: usize = 100;
 const MAX_ID: usize = 128;
+// a twitch room id is a number of a dozen digits or so
+const MAX_ROOM_ID: usize = 20;
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(30);
 // one irc line is ≤ ~8KiB with tags; twitch may batch several lines in a frame
 const MAX_FRAME: usize = 256 << 10;
@@ -252,6 +254,25 @@ fn bits_of(l: &Line) -> u32 {
   l.tag("bits").and_then(|b| b.parse::<u32>().ok()).filter(|&n| n <= 10_000_000).unwrap_or(0)
 }
 
+// a numeric room id off the wire: digits only, short
+fn room_id(v: &str) -> Option<&str> {
+  (!v.is_empty() && v.len() <= MAX_ROOM_ID && v.bytes().all(|b| b.is_ascii_digit())).then_some(v)
+}
+
+// the tags that mark a line as more than plain chat (ext irc.js); a line without any adds nothing to it
+fn marks(l: &Line, m: &mut Message) {
+  // a line from the partner's room names it; the same line in its own room only carries the source id
+  let shared =
+    l.tag("source-room-id").filter(|f| room_id(f).is_some() && l.tag("room-id").as_deref() != Some(f.as_str()));
+  let source = l.tag("source-id").and_then(|s| chain::clean_id(&s));
+  if shared.is_none() && source.is_none() {
+    return;
+  }
+  let x = m.extra();
+  x.shared = shared.unwrap_or_default().into();
+  x.source = source.unwrap_or_default();
+}
+
 // USERSTATE after our PRIVMSG: twitch's id/color/badges for the line, our own text
 fn own_message(l: &Line, nick: &str, me_id: &str, text: &str) -> Message {
   let (body, kind) = match text.strip_prefix("/me ") {
@@ -278,6 +299,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
         None => (text, Kind::Chat),
       };
       let mut m = user_message(l, body, kind);
+      marks(l, &mut m);
       let bits = bits_of(l);
       if bits > 0 {
         m.extra().bits = bits;
@@ -292,6 +314,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
     }
     "USERNOTICE" => {
       let mut m = user_message(l, l.trailing().unwrap_or(""), Kind::Chat);
+      marks(l, &mut m);
       m.system = l.tag("system-msg").map(|t| clamp(&t, MAX_BODY).into());
       let notice = notice_of(l);
       if notice != Notice::Plain {
@@ -658,6 +681,39 @@ mod tests {
     assert!(m.nick.len() <= 100 && !m.nick.is_empty(), "{}", m.nick.len());
     assert!(m.id.len() <= 128 && !m.id.is_empty(), "{}", m.id.len());
     assert!(m.reply_to.as_ref().is_some_and(|n| n.len() <= 100));
+  }
+
+  fn msg_of(raw: &str) -> Message {
+    let l = parse(raw).unwrap();
+    let (_, Chat::Msg(m)) = to_chat(&l).unwrap() else { panic!("not a message") };
+    m
+  }
+
+  fn extra(m: &Message) -> Extra {
+    m.x.as_deref().cloned().unwrap_or_default()
+  }
+
+  const HEAD: &str = ":bob!bob@bob.tmi.twitch.tv PRIVMSG #forsen :hello";
+
+  // shared chat: a line from the partner's room names it; the same line in its own room only carries its id
+  #[test]
+  fn shared_chat_names_the_partner_room_and_keeps_the_source_id() {
+    let x = extra(&msg_of(&format!("@room-id=111;source-room-id=222;source-id=abc-123;id=m1 {HEAD}")));
+    assert_eq!((&*x.shared, &*x.source), ("222", "abc-123"));
+    let own = extra(&msg_of(&format!("@room-id=222;source-room-id=222;source-id=abc-123 {HEAD}")));
+    assert_eq!((&*own.shared, &*own.source), ("", "abc-123"), "its own room: no chip, but the same id to dedupe on");
+    // a plain line carries nothing at all
+    assert!(msg_of(&format!("@room-id=111;id=m1 {HEAD}")).x.is_none());
+    // hostile: a room id that is not a number, a huge one, an id with control characters
+    for room in ["x7", "", "12\\s3", &"9".repeat(21), "../../etc"] {
+      let m = msg_of(&format!("@room-id=111;source-room-id={room};source-id=ok {HEAD}"));
+      assert_eq!(&*extra(&m).shared, "", "{room:?}");
+    }
+    let m = msg_of(&format!("@room-id=1;source-room-id=2;source-id={} {HEAD}", "a".repeat(129)));
+    assert_eq!(&*extra(&m).source, "", "a source id is a uuid, not a page");
+    // a shared-chat sub rides the same tags
+    let raw = "@room-id=111;source-room-id=222;msg-id=sharedchatnotice;source-msg-id=resub;system-msg=x\\sresubbed :tmi.twitch.tv USERNOTICE #forsen";
+    assert_eq!(&*extra(&msg_of(raw)).shared, "222");
   }
 
   #[test]

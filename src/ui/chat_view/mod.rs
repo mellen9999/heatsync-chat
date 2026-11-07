@@ -746,6 +746,14 @@ impl ChatView {
     }
   }
 
+  // a shared-chat room's channel name arrived: its lines' chips are laid out again
+  pub fn touch_shared(&mut self, id: &str) {
+    for r in self.rows.iter_mut().filter(|r| r.msg.x.as_ref().is_some_and(|x| *x.shared == *id)) {
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
   // a lookup learned someone's color or id: lines on screen that name them are laid out again
   pub fn touch_person(&mut self, p: Platform, login: &str) {
     for r in self

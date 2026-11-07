@@ -3,15 +3,25 @@
 use std::collections::{HashSet, VecDeque};
 
 const CAP: usize = 5000;
-const DROP: usize = 1000;
 
-#[derive(Default)]
 pub struct Seen {
   set: HashSet<Box<str>>,
   order: VecDeque<Box<str>>,
+  // past this many the oldest fifth drop
+  cap: usize,
+}
+
+impl Default for Seen {
+  fn default() -> Self {
+    Self::capped(CAP)
+  }
 }
 
 impl Seen {
+  pub fn capped(cap: usize) -> Self {
+    Seen { set: HashSet::new(), order: VecDeque::new(), cap: cap.max(5) }
+  }
+
   // true the first time a (case-insensitive) name shows up
   pub fn first(&mut self, name: &str) -> bool {
     if name.is_empty() {
@@ -23,8 +33,8 @@ impl Seen {
     }
     self.order.push_back(key.clone());
     self.set.insert(key);
-    if self.set.len() > CAP {
-      for old in self.order.drain(..DROP) {
+    if self.set.len() > self.cap {
+      for old in self.order.drain(..self.cap / 5) {
         self.set.remove(&old);
       }
     }
@@ -51,8 +61,18 @@ mod tests {
     for i in 0..=CAP {
       s.first(&format!("u{i}"));
     }
-    assert_eq!(s.set.len(), CAP + 1 - DROP);
+    assert_eq!(s.set.len(), CAP + 1 - CAP / 5);
     assert!(s.first("u0"));
     assert!(!s.first(&format!("u{CAP}")));
+  }
+
+  #[test]
+  fn a_smaller_cap_is_a_smaller_set() {
+    let mut s = Seen::capped(10);
+    for i in 0..11 {
+      s.first(&format!("id{i}"));
+    }
+    assert_eq!(s.set.len(), 9, "past ten the oldest two drop");
+    assert!(s.first("id0") && !s.first("id10"));
   }
 }

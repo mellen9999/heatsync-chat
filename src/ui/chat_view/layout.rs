@@ -56,6 +56,24 @@ pub(super) fn notice_ink(n: Notice) -> Option<u32> {
   })
 }
 
+// a small word in a 1px box of its own color, a space after it (ext's ::before chips)
+fn chip(
+  s: &mut String,
+  spans: &mut Vec<Span>,
+  frames: &mut Vec<(std::ops::Range<usize>, Frame)>,
+  word: &str,
+  ink: u32,
+  bold: bool,
+) {
+  let a = s.len();
+  s.push(' ');
+  s.push_str(word);
+  s.push(' ');
+  spans.push(Span { range: a..s.len(), ink: Ink(ink), bold });
+  frames.push((a..s.len(), Frame::Chip(ink)));
+  s.push(' ');
+}
+
 pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o: Opts) -> Laid {
   let Opts { ts, tags, find } = o;
   let (ts, tags) = (ts && res.look.timestamps, tags && res.look.tags);
@@ -84,6 +102,14 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
     spans.push(Span { range: a..s.len(), ink: Ink(theme::YELLOW), bold: true });
     frames.push((a..s.len(), Frame::Announce));
     s.push(' ');
+  }
+  // the twitch tags the row wears as chips before everything else (ext ::before): `shared` / `shared:name`
+  // for a line said in a partner's room
+  if let Some(x) = x
+    && !x.shared.is_empty()
+  {
+    let named = res.rooms.login(&x.shared).map(|n| format!("shared:{n}"));
+    chip(&mut s, &mut spans, &mut frames, named.as_deref().unwrap_or("shared"), theme::CYAN, false);
   }
   if let Some(sys) = &m.system {
     match event {

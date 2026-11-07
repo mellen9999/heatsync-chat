@@ -1822,3 +1822,53 @@ fn jumping_to_the_last_read_line_shows_it() {
   v.clear_read();
   assert!(!v.jump_read(&mut res));
 }
+
+// ---- twitch tags a row wears: shared chat, power-ups, first / intro / returning ----
+
+fn tagged(f: impl FnOnce(&mut crate::model::message::Extra)) -> Message {
+  let mut m = said("bob", "hello world");
+  f(m.extra());
+  m
+}
+
+// the rows drawn on a 400px-wide canvas `h` tall (the newest sits at the bottom), session glow off
+fn painted(rows: Vec<Message>, h: i32) -> (Canvas, Res) {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(50, "c".into());
+  v.resize(400);
+  v.glow = false;
+  for m in rows {
+    v.push(m);
+  }
+  let (mut c, area) = (Canvas::new(400, h), Rect::new(0, 0, 400, h));
+  v.draw(&mut c, &mut res, area, area);
+  (c, res)
+}
+
+fn lay(res: &mut Res, m: &Message) -> Laid {
+  layout_row(res, "c", m, false, 400, NO_OPTS)
+}
+
+#[test]
+fn a_shared_chat_line_wears_a_cyan_chip_that_names_its_room_once_known() {
+  let mut res = Res::new(1.0);
+  let plain = lay(&mut res, &said("bob", "hi"));
+  assert!(plain.frames.is_empty() && res.rooms.take_wanted().is_empty());
+  let m = tagged(|x| x.shared = "222".into());
+  let bare = lay(&mut res, &m);
+  assert_eq!(bare.frames.len(), 1);
+  assert!(matches!(bare.frames[0].1, Frame::Chip(ink) if ink == theme::CYAN));
+  assert_eq!(res.rooms.take_wanted(), vec![Box::<str>::from("222")], "the room's name is asked for, once");
+  lay(&mut res, &m);
+  assert!(res.rooms.take_wanted().is_empty());
+  // the name arrives: the chip is wider by `:partner`
+  res.rooms.put("222", Some("partner"));
+  let named = lay(&mut res, &m);
+  assert!(named.layout.full_width() > bare.layout.full_width() + 40.0);
+  // drawn: cyan words and box on the shared line, none on another
+  let (c, _) = painted(vec![m.clone()], 30);
+  assert!(c.inked(theme::CYAN) > 40);
+  let (plain_c, _) = painted(vec![said("amy", "hi")], 30);
+  assert_eq!(plain_c.inked(theme::CYAN), 0);
+  crate::bench::dump(&c);
+}
