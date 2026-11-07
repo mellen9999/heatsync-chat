@@ -67,6 +67,18 @@ struct Glyph {
 const GLYPH_CACHE_MAX: usize = 4096;
 const SUBPIXEL_STEPS: f32 = 4.0;
 
+// symbols the monospace may lack: the families tried behind it (none on unix)
+#[cfg_attr(unix, path = "symbols_unix.rs")]
+#[cfg_attr(windows, path = "symbols_windows.rs")]
+mod symbols;
+
+// the families a line is set in, in order: the picked family, the system monospace, then `symbols::BEHIND`
+fn chain(family: Option<&str>) -> Vec<FontFamilyName<'static>> {
+  let first = family.map(|f| FontFamilyName::Named(Cow::Owned(f.to_owned())));
+  let behind = symbols::BEHIND.iter().map(|n| FontFamilyName::named(n));
+  first.into_iter().chain([FontFamilyName::Generic(GenericFamily::Monospace)]).chain(behind).collect()
+}
+
 pub struct Text {
   fonts: FontContext,
   layouts: LayoutContext<Ink>,
@@ -82,6 +94,8 @@ pub struct Text {
   pub lit: Option<Range<usize>>,
   // the family all text is set in. None = the system monospace, today's font
   family: Option<Box<str>>,
+  // the families to set text in (see `chain`), kept so a layout allocates nothing for it
+  families: Vec<FontFamilyName<'static>>,
 }
 
 impl Text {
@@ -97,6 +111,7 @@ impl Text {
       reverse: false,
       lit: None,
       family: None,
+      families: chain(None),
     }
   }
 
@@ -108,6 +123,7 @@ impl Text {
   // back to the system monospace
   pub fn use_default(&mut self) {
     self.family = None;
+    self.families = chain(None);
     self.glyphs.clear();
   }
 
@@ -132,6 +148,7 @@ impl Text {
       return false;
     }
     self.family = Some(family.into());
+    self.families = chain(Some(family));
     self.glyphs.clear();
     true
   }
@@ -157,13 +174,11 @@ impl Text {
     line: f32,
     emoji: (Range<usize>, u16),
   ) -> TextLayout {
-    // the picked family first, the system monospace behind it for what it has no glyph for
-    let list =
-      self.family.as_deref().map(|f| [FontFamilyName::named(f), FontFamilyName::Generic(GenericFamily::Monospace)]);
+    // the picked family first, the system monospace behind it for what it has no glyph for, then the symbol fonts
     let mut b = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
-    b.push_default(StyleProperty::FontFamily(match &list {
-      Some(l) => FontFamily::List(Cow::Borrowed(l)),
-      None => FontFamily::from(GenericFamily::Monospace),
+    b.push_default(StyleProperty::FontFamily(match self.families.as_slice() {
+      [only] => FontFamily::Single(only.clone()),
+      l => FontFamily::List(Cow::Borrowed(l)),
     }));
     b.push_default(StyleProperty::FontSize(self.font_px));
     b.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line)));
@@ -435,6 +450,26 @@ fn emoji_runs(text: &str) -> Vec<Range<usize>> {
 
 #[cfg(test)]
 mod tests {
+  #[test]
+  fn text_is_set_in_the_family_then_the_monospace_then_the_symbol_fonts() {
+    use super::{Cow, FontFamilyName, GenericFamily, chain, symbols};
+    let mono = FontFamilyName::Generic(GenericFamily::Monospace);
+    let c = chain(None);
+    assert_eq!(c.len(), 1 + symbols::BEHIND.len());
+    assert_eq!(c[0], mono);
+    let c = chain(Some("Fira Code"));
+    assert_eq!((&c[0], &c[1]), (&FontFamilyName::Named(Cow::Borrowed("Fira Code")), &mono));
+    let behind: Vec<_> = c[2..].iter().map(|f| format!("{f:?}")).collect();
+    assert_eq!(behind.len(), symbols::BEHIND.len());
+    for (got, want) in behind.iter().zip(symbols::BEHIND) {
+      assert!(got.contains(want), "{got} {want}");
+    }
+    // windows: the gear and friends have somewhere to land that ships with windows
+    if cfg!(windows) {
+      assert_eq!(symbols::BEHIND[0], "Segoe UI Symbol");
+    }
+  }
+
   use super::{Text, emoji_forced, emoji_runs};
 
   #[test]
