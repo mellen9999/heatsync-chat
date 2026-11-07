@@ -126,7 +126,8 @@ pub fn read(path: &str) -> Result<Pcm, Bad> {
 }
 
 fn home(path: &str) -> std::path::PathBuf {
-  match (path.strip_prefix("~/"), super::dirs::home()) {
+  let rest = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\").filter(|_| cfg!(windows)));
+  match (rest, super::dirs::home()) {
     (Some(rest), Some(h)) => h.join(rest),
     _ => path.into(),
   }

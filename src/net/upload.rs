@@ -2,7 +2,6 @@
 // bytes, post it with the session token, hand back the absolute url. runs on the net thread
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -24,7 +23,7 @@ pub enum Upload {
   Failed(String),
   // the file dialog was closed
   Cancelled,
-  // no zenity/kdialog: the app asks for a path in the input bar instead
+  // no zenity/kdialog (or the windows box would not open): the app asks for a path in the input bar instead
   NoChooser,
   // a tab-completion answered: for what was typed (`input`) and the ask it belongs to (`seq`)
   Completed { seq: u64, input: String, text: String, many: Vec<String> },
@@ -114,10 +113,28 @@ pub fn too_big(m: &Media, len: u64) -> Option<String> {
 
 // a file the user can name: ~/ expanded, quotes from a drag or paste stripped
 pub fn expand(s: &str, home: Option<&str>) -> PathBuf {
+  expand_as(s, home, cfg!(windows))
+}
+
+// `win`: windows paths. a `file:///C:/x` link loses its slash before the drive, `file://server/share` is a share,
+// `~\` is home as well as `~/`, and home is joined with a backslash
+pub fn expand_as(s: &str, home: Option<&str>, win: bool) -> PathBuf {
   let s = s.trim();
+  let link = s.starts_with("file://");
   let s = s.strip_prefix("file://").unwrap_or(s);
+  let share;
+  let s = match s.strip_prefix('/') {
+    Some(drive) if win && link && rooted(drive, true) => drive,
+    None if win && link && !s.is_empty() && !rooted(s, true) && !s.starts_with(['"', '\'']) => {
+      share = format!("//{s}");
+      share.as_str()
+    }
+    _ => s,
+  };
   let s = ["\"", "'"].iter().find_map(|q| s.strip_prefix(q)?.strip_suffix(q)).unwrap_or(s);
-  match (s.strip_prefix("~/"), home) {
+  let rest = s.strip_prefix("~/").or_else(|| s.strip_prefix("~\\").filter(|_| win));
+  match (rest, home) {
+    (Some(rest), Some(h)) if win => PathBuf::from(format!("{}\\{rest}", h.trim_end_matches(['\\', '/']))),
     (Some(rest), Some(h)) => Path::new(h).join(rest),
     _ => PathBuf::from(s),
   }
@@ -255,43 +272,34 @@ pub async fn run(http: reqwest::Client, token: String, path: PathBuf, out: Out) 
   out.send(NetEvent::Upload(ev));
 }
 
-// first line of a dialog's stdout, if it is an absolute path
+// the file dialog itself: zenity/kdialog on unix, GetOpenFileNameW on windows. blocks until it closes
+#[cfg_attr(unix, path = "upload/choose_unix.rs")]
+#[cfg_attr(windows, path = "upload/choose_windows.rs")]
+mod choose;
+
+pub use choose::choose;
+
+// a path a person typed or a dialog handed back is absolute when it names its root: `/…` on unix, a drive
+// (`C:\…`, `C:/…`) or a share (`\\server\…`) on windows. text alone decides, so both are testable anywhere
+pub fn rooted(s: &str, win: bool) -> bool {
+  let b = s.as_bytes();
+  if !win {
+    return b.first() == Some(&b'/');
+  }
+  let sep = |c: u8| c == b'\\' || c == b'/';
+  let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && sep(b[2]);
+  let share = b.len() >= 3 && sep(b[0]) && sep(b[1]) && !sep(b[2]);
+  drive || share
+}
+
+// first line of a dialog's output, if it is an absolute path
 pub fn parse_pick(stdout: &str) -> Option<PathBuf> {
+  parse_pick_as(stdout, cfg!(windows))
+}
+
+fn parse_pick_as(stdout: &str, win: bool) -> Option<PathBuf> {
   let l = stdout.lines().next()?.trim();
-  (l.starts_with('/') && !l.contains('\0')).then(|| PathBuf::from(l))
-}
-
-enum Ran {
-  Picked(PathBuf),
-  Closed,
-  Missing,
-}
-
-fn run_chooser(prog: &str, args: &[&str]) -> Ran {
-  let child = Command::new(prog).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).output();
-  match child {
-    Err(_) => Ran::Missing,
-    Ok(o) if o.status.success() => parse_pick(&String::from_utf8_lossy(&o.stdout)).map_or(Ran::Closed, Ran::Picked),
-    // 1 = the user closed it; anything else = it couldn't open (no display, broken): try the next
-    Ok(o) if o.status.code() == Some(1) => Ran::Closed,
-    Ok(_) => Ran::Missing,
-  }
-}
-
-// zenity, then kdialog. blocks until the dialog closes
-pub fn choose() -> Upload {
-  let tries: [(&str, &[&str]); 2] = [
-    ("zenity", &["--file-selection", "--title=upload a picture or video"]),
-    ("kdialog", &["--getopenfilename", ".", "--title", "upload a picture or video"]),
-  ];
-  for (p, a) in tries {
-    match run_chooser(p, a) {
-      Ran::Picked(path) => return Upload::Url(path.to_string_lossy().into_owned()),
-      Ran::Closed => return Upload::Cancelled,
-      Ran::Missing => {}
-    }
-  }
-  Upload::NoChooser
+  (rooted(l, win) && !l.contains('\0')).then(|| PathBuf::from(l))
 }
 
 #[cfg(test)]
@@ -374,6 +382,39 @@ mod tests {
     assert_eq!(expand("'/tmp/a.png'", None), PathBuf::from("/tmp/a.png"));
     assert_eq!(expand("file:///tmp/a.png", None), PathBuf::from("/tmp/a.png"));
     assert_eq!(expand("~/a", None), PathBuf::from("~/a"));
+  }
+
+  #[test]
+  fn windows_paths_are_roots_too() {
+    for ok in ["C:\\a.png", "c:/a.png", "Z:\\My Pics\\a b.png", "\\\\nas\\pics\\a.png", "//nas/pics/a.png"] {
+      assert!(rooted(ok, true), "{ok}");
+    }
+    for no in ["", "C:", "C:a.png", "a.png", "pics\\a.png", "/tmp/a.png", "\\a.png", "\\\\\\x", "1:\\a"] {
+      assert!(!rooted(no, true), "{no}");
+    }
+    assert!(rooted("/tmp/a.png", false) && !rooted("C:\\a.png", false) && !rooted("\\\\nas\\x", false));
+    assert_eq!(parse_pick_as("C:\\Users\\me\\a.png\r\n", true), Some(PathBuf::from("C:\\Users\\me\\a.png")));
+    assert_eq!(parse_pick_as("\\\\nas\\p\\a.png\n", true), Some(PathBuf::from("\\\\nas\\p\\a.png")));
+    assert_eq!(parse_pick_as("rel.png", true), None);
+    assert_eq!(parse_pick_as("/tmp/a.png", true), None, "no drive, not a root on windows");
+    assert_eq!(parse_pick_as("C:\\a.png", false), None, "unix wants a slash");
+  }
+
+  #[test]
+  fn windows_paths_are_cleaned_too() {
+    let home = Some("C:\\Users\\me");
+    let w = |s| expand_as(s, home, true);
+    assert_eq!(w("  ~\\Pictures\\a b.png "), PathBuf::from("C:\\Users\\me\\Pictures\\a b.png"));
+    assert_eq!(w("~/a.png"), PathBuf::from("C:\\Users\\me\\a.png"));
+    assert_eq!(expand_as("~/a.png", Some("C:\\Users\\me\\"), true), PathBuf::from("C:\\Users\\me\\a.png"));
+    assert_eq!(w("\"C:\\Users\\me\\a.png\""), PathBuf::from("C:\\Users\\me\\a.png"));
+    assert_eq!(w("file:///C:/Users/me/a.png"), PathBuf::from("C:/Users/me/a.png"));
+    assert_eq!(w("file://nas/pics/a.png"), PathBuf::from("//nas/pics/a.png"));
+    assert_eq!(w("D:\\x.png"), PathBuf::from("D:\\x.png"));
+    assert_eq!(w("~x\\a"), PathBuf::from("~x\\a"));
+    assert_eq!(expand_as("~\\a", Some("/home/x"), false), PathBuf::from("~\\a"), "a backslash is a letter on unix");
+    assert_eq!(expand_as("file:///tmp/a.png", None, false), PathBuf::from("/tmp/a.png"));
+    assert_eq!(expand_as("file:///tmp/a.png", None, true), PathBuf::from("/tmp/a.png"));
   }
 
   #[test]

@@ -1,17 +1,32 @@
 // tab-completion for the built-in path prompt: filesystem paths, dirs get a trailing /
 use std::path::Path;
 
-use crate::net::upload::expand;
+use crate::net::upload::expand_as;
 
 const MAX_ENTRIES: usize = 4000;
 
 // (the completed text, the candidates when there are several)
 pub fn complete(input: &str, home: Option<&str>) -> (String, Vec<String>) {
-  let (dir_part, prefix) = match input.rfind('/') {
+  complete_as(input, home, cfg!(windows))
+}
+
+// the folder part (up to and with its last separator) and the name being typed. on windows `\` separates too
+fn split(input: &str, win: bool) -> (&str, &str) {
+  match input.rfind(|c| c == '/' || (win && c == '\\')) {
     Some(i) => (&input[..=i], &input[i + 1..]),
     None => ("", input),
-  };
-  let dir = if dir_part.is_empty() { Path::new(".").to_path_buf() } else { expand(dir_part, home) };
+  }
+}
+
+// a folder is shown with the separator the person is typing: a backslash path keeps its backslashes
+fn sep(dir_part: &str, win: bool) -> char {
+  if win && (dir_part.contains('\\') || !dir_part.contains('/')) { '\\' } else { '/' }
+}
+
+fn complete_as(input: &str, home: Option<&str>, win: bool) -> (String, Vec<String>) {
+  let (dir_part, prefix) = split(input, win);
+  let dir = if dir_part.is_empty() { Path::new(".").to_path_buf() } else { expand_as(dir_part, home, win) };
+  let end = sep(dir_part, win);
   let Ok(rd) = std::fs::read_dir(&dir) else { return (input.to_owned(), Vec::new()) };
   let mut names: Vec<String> = rd
     .take(MAX_ENTRIES)
@@ -22,7 +37,7 @@ pub fn complete(input: &str, home: Option<&str>) -> (String, Vec<String>) {
         return None;
       }
       let dir = e.path().is_dir();
-      Some(if dir { format!("{n}/") } else { n })
+      Some(if dir { format!("{n}{end}") } else { n })
     })
     .collect();
   names.sort();
@@ -45,6 +60,28 @@ fn common(names: &[String]) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_windows_path_splits_at_either_slash() {
+    assert_eq!(split("C:\\Users\\me\\pi", true), ("C:\\Users\\me\\", "pi"));
+    assert_eq!(split("C:/Users\\me/pi", true), ("C:/Users\\me/", "pi"));
+    assert_eq!(split("C:\\", true), ("C:\\", ""));
+    assert_eq!(split("pi", true), ("", "pi"));
+    assert_eq!(split("\\\\nas\\pics\\a", true), ("\\\\nas\\pics\\", "a"));
+    // on unix a backslash is part of a name
+    assert_eq!(split("/tmp/a\\b", false), ("/tmp/", "a\\b"));
+    assert_eq!(split("a\\b", false), ("", "a\\b"));
+  }
+
+  #[test]
+  fn a_folder_keeps_the_separator_being_typed() {
+    assert_eq!(sep("C:\\Users\\", true), '\\');
+    assert_eq!(sep("C:/Users/", true), '/');
+    assert_eq!(sep("", true), '\\');
+    assert_eq!(sep("C:/a\\b/", true), '\\');
+    assert_eq!(sep("/tmp/", false), '/');
+    assert_eq!(sep("C:\\x\\", false), '/', "unix always");
+  }
 
   #[test]
   fn completes_paths() {
