@@ -1,7 +1,8 @@
-// locally blocked emotes. identity matches the ext/server: a block is filed under a hash — the
-// provider's own emote id for 7tv/bttv/ffz/twitch urls, else base64 of the url — and hides the
-// emote wherever its NAME or hash shows up. logged out it lives only in the `blocked` store file
-use std::collections::HashSet;
+// locally blocked emotes (emote rule 9). identity matches the ext/server: a block is filed under the
+// EXACT emote's key: the provider's own emote id for 7tv/bttv/ffz/twitch urls, else the server's hash
+// of the url. it hides only that emote, wherever it shows up. never by name, never by cdn. logged
+// out it lives only in the `blocked` store file (`name<tab>key` per line)
+use std::collections::{HashMap, HashSet};
 
 use crate::store;
 
@@ -136,10 +137,13 @@ fn any_form(url: &str, mut f: impl FnMut(&str) -> bool) -> bool {
 
 #[derive(Default)]
 pub struct Blocked {
-  // locally blocked names (the render gate, like the ext's blockedEmoteNames)
-  names: HashSet<Box<str>>,
-  // hashes of our own blocks
-  hashes: HashSet<Box<str>>,
+  // our own blocks, one per EXACT emote (rule 9): its key -> the name it was blocked under. a key is
+  // the emote's own id or hash, never a name and never a whole cdn, so blocking 7tv W hides neither
+  // bttv W nor a friend's W
+  keys: HashMap<Box<str>, Box<str>>,
+  // blocks an older build filed by name alone (it never kept the key). the only name-wide blocks left:
+  // unblocking that name clears them, and nothing new is ever added here
+  legacy: HashSet<Box<str>>,
   // the logged-in account's server list (other devices): replaced on every fetch, dropped on logout
   server: HashSet<Box<str>>,
 }
@@ -148,43 +152,45 @@ impl Blocked {
   pub fn load() -> Self {
     let mut b = Self::default();
     for l in store::read(FILE).unwrap_or_default().lines().take(MAX_BLOCKED) {
-      let (name, hash) = l.split_once('\t').unwrap_or((l, ""));
-      if crate::heatsync::valid_name(name) {
-        b.names.insert(name.into());
+      let (name, key) = l.split_once('\t').unwrap_or((l, ""));
+      if !crate::heatsync::valid_name(name) {
+        continue;
       }
-      if valid_hash(hash) {
-        b.hashes.insert(hash.into());
+      if valid_hash(key) {
+        b.keys.insert(key.into(), name.into());
+      } else if key.is_empty() {
+        b.legacy.insert(name.into());
       }
     }
     b
   }
 
+  // is THIS emote blocked: its own key is on a list. the name alone never is (rule 9), bar a legacy
+  // name-only block from before keys were kept
   pub fn contains(&self, name: &str, url: &str) -> bool {
-    if self.names.contains(name) {
+    if self.legacy.contains(name) {
       return true;
     }
-    if self.hashes.is_empty() && self.server.is_empty() {
+    if self.keys.is_empty() && self.server.is_empty() {
       return false;
     }
-    any_form(url, |h| self.hashes.contains(h) || self.server.contains(h))
+    any_form(url, |h| self.keys.contains_key(h) || self.server.contains(h))
   }
 
-  // true when this changed anything. `hash` is what to file it under (see `emote_hash`)
+  // true when this changed anything. the key is what to file it under (see `emote_hash`)
   pub fn block(&mut self, name: &str, url: &str, scope: Scope) -> bool {
-    if self.names.len() >= MAX_BLOCKED || !crate::heatsync::valid_name(name) {
+    if self.keys.len() >= MAX_BLOCKED || !crate::heatsync::valid_name(name) {
       return false;
     }
-    let a = self.names.insert(name.into());
-    let b = self.hashes.insert(emote_hash(url, scope).into());
-    a || b
+    self.keys.insert(emote_hash(url, scope).into(), name.into()).is_none()
   }
 
-  // every hash this emote was filed under, now forgotten (for the server to forget too)
+  // every key this exact emote was filed under, now forgotten (for the server to forget too)
   pub fn unblock(&mut self, name: &str, url: &str, scope: Scope) -> Vec<String> {
     let mut gone = Vec::new();
-    self.names.remove(name);
+    self.legacy.remove(name);
     any_form(url, |h| {
-      let a = self.hashes.remove(h);
+      let a = self.keys.remove(h).is_some();
       let b = self.server.remove(h);
       if a || b {
         gone.push(h.to_owned());
@@ -197,7 +203,7 @@ impl Blocked {
     gone
   }
 
-  // the server's list replaces what an earlier fetch said; local names stay
+  // the server's list replaces what an earlier fetch said; local blocks stay
   pub fn set_server(&mut self, hashes: Vec<Box<str>>) {
     self.server = hashes.into_iter().filter(|h| valid_hash(h)).take(MAX_BLOCKED).collect();
   }
@@ -209,7 +215,10 @@ impl Blocked {
 
   pub fn save(&self) {
     let mut s = String::new();
-    for n in &self.names {
+    for (key, name) in &self.keys {
+      s.push_str(&format!("{name}\t{key}\n"));
+    }
+    for n in &self.legacy {
       s.push_str(n);
       s.push('\n');
     }
@@ -219,8 +228,8 @@ impl Blocked {
   }
 }
 
-// what a right-click does, given what the emote is to you. precedence (mellen's call): an emote in
-// your own heatsync inventory is removed from it — never blocked; anything else toggles its block
+// what a right-click does, given what the emote is to you (rule 10, the site's and the ext's order):
+// blocked unblocks, else yours is removed from your heatsync emotes, else it is blocked
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Click {
   Remove,
@@ -229,9 +238,9 @@ pub enum Click {
 }
 
 pub fn right_click(owned: bool, blocked: bool) -> Click {
-  match (owned, blocked) {
-    (true, _) => Click::Remove,
-    (false, true) => Click::Unblock,
+  match (blocked, owned) {
+    (true, _) => Click::Unblock,
+    (false, true) => Click::Remove,
     (false, false) => Click::Block,
   }
 }
@@ -243,8 +252,8 @@ mod tests {
   #[test]
   fn right_click_precedence() {
     assert_eq!(right_click(true, false), Click::Remove);
-    // owned wins even when blocked: removal, not unblock
-    assert_eq!(right_click(true, true), Click::Remove);
+    // blocked wins even when owned: the site and the ext unblock first
+    assert_eq!(right_click(true, true), Click::Unblock);
     assert_eq!(right_click(false, false), Click::Block);
     assert_eq!(right_click(false, true), Click::Unblock);
   }
@@ -324,25 +333,53 @@ mod tests {
     assert!(!b.contains("x", SEVENTV));
     b.block("Mine", "https://cdn.7tv.app/emote/ZZZ/1x.webp", Scope::Channel);
     b.clear_server();
-    assert!(b.contains("Mine", ""));
+    assert!(b.contains("Mine", "https://cdn.7tv.app/emote/ZZZ/1x.webp"));
   }
 
+  // rule 9: a block is that exact emote. 7tv W blocked leaves bttv W, another 7tv W, a friend's W (an
+  // inventory copy of another picture) and the same name everywhere else showing; the same picture is
+  // hidden under any name and from any source that carries it
   #[test]
-  fn block_by_name_or_hash() {
+  fn a_block_hits_the_exact_emote_never_the_name_or_the_cdn() {
     let mut b = Blocked::default();
-    assert!(!b.contains("KEKW", SEVENTV));
-    assert!(b.block("KEKW", SEVENTV, Scope::Channel));
-    assert!(!b.block("KEKW", SEVENTV, Scope::Channel));
-    // same name from another provider, and same emote under another name, are both hidden
-    assert!(b.contains("KEKW", "https://cdn.betterttv.net/emote/zz/1x.webp"));
-    assert!(b.contains("Other", SEVENTV));
-    // unblocking forgets every form that was held, so the server can forget them too
+    let bttv = "https://cdn.betterttv.net/emote/zz/1x.webp";
+    let other7tv = "https://cdn.7tv.app/emote/OTHER/1x.webp";
+    let friends = "https://heatsync.org/uploads/friends-w.webp";
+    assert!(!b.contains("W", SEVENTV));
+    assert!(b.block("W", SEVENTV, Scope::Channel));
+    assert!(!b.block("W", SEVENTV, Scope::Channel), "already blocked");
+    assert!(b.contains("W", SEVENTV));
+    for (what, url) in [("bttv W", bttv), ("another 7tv W: same cdn", other7tv), ("a friend's W", friends)] {
+      assert!(!b.contains("W", url), "{what}");
+    }
+    // the very picture, under another name or at another size
+    assert!(b.contains("Renamed", SEVENTV));
+    assert!(b.contains("W", "https://cdn.7tv.app/emote/01ABC/2x.webp"));
+    // blocked as an inventory/global copy (sha key), only that picture is hidden
+    let mut c = Blocked::default();
+    c.block("W", SEVENTV, Scope::Hs);
+    assert!(c.contains("W", SEVENTV) && !c.contains("W", other7tv));
+    // unblocking forgets every form held, for the server to forget too, and frees only that emote
+    b.block("W", bttv, Scope::Channel);
     b.set_server(vec![SEVENTV_SHA.into()]);
-    let gone = b.unblock("KEKW", SEVENTV, Scope::Channel);
+    let gone = b.unblock("W", SEVENTV, Scope::Channel);
     assert_eq!(gone, vec!["01ABC".to_owned(), SEVENTV_SHA.to_owned()]);
-    assert!(!b.contains("KEKW", SEVENTV) && !b.contains("Other", SEVENTV));
-    // nothing held: still names the scope's hash so a stale server entry can go
-    assert_eq!(b.unblock("KEKW", SEVENTV, Scope::Hs), vec![SEVENTV_SHA.to_owned()]);
+    assert!(!b.contains("W", SEVENTV) && b.contains("W", bttv), "bttv W stays blocked");
+    // nothing held: still names the scope's key so a stale server entry can go
+    assert_eq!(b.unblock("W", SEVENTV, Scope::Hs), vec![SEVENTV_SHA.to_owned()]);
+  }
+
+  // blocks an older build wrote by name alone stay name-wide until that name is unblocked; every new
+  // block carries its key
+  #[test]
+  fn a_name_only_block_from_an_older_build_is_the_only_name_wide_one() {
+    let mut b = Blocked::default();
+    b.legacy.insert("Old".into());
+    assert!(b.contains("Old", SEVENTV) && b.contains("Old", "") && !b.contains("New", SEVENTV));
+    b.unblock("Old", SEVENTV, Scope::Channel);
+    assert!(!b.contains("Old", SEVENTV));
+    b.block("New", SEVENTV, Scope::Channel);
+    assert!(b.legacy.is_empty() && b.keys.len() == 1);
   }
 
   #[test]
