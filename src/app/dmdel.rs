@@ -23,7 +23,8 @@ impl App {
       "you can only delete your own dms"
     } else if matches!(w.status, Status::Failed(_)) {
       "that dm never sent, so there's nothing to delete"
-    } else if w.dm_id().is_none() {
+    } else if w.status != Status::Sent || w.dm_id().is_none() || w.who.id.is_empty() {
+      // heatsync's id for the dm lands just before its answer: until the answer, who it went to is not settled
       "that dm isn't on heatsync yet: try again in a moment"
     } else {
       self.whisper.pending_delete = Some(w.key);
@@ -186,7 +187,10 @@ mod tests {
     let pending = app.whisper.timeline.push_out(amy(Via::Heatsync), "on its way").key;
     let failed = app.whisper.timeline.push_out(amy(Via::Heatsync), "never sent").key;
     app.whisper.timeline.settle(failed, Status::Failed(SendFail::Server), None);
-    for k in [pending, failed] {
+    // its id has come but the answer has not: still waiting on who it went to
+    let stamped = app.whisper.timeline.push_out(amy(Via::Heatsync), "id first").key;
+    app.whisper.timeline.stamp(stamped, whisper::dm_key("5"));
+    for k in [pending, failed, stamped] {
       let w = app.whisper.timeline.get(k).unwrap().clone();
       app.put_row(&w);
     }
@@ -194,6 +198,7 @@ mod tests {
       (whisper, "twitch whispers can't be deleted"),
       (theirs, "you can only delete your own dms"),
       (pending, "isn't on heatsync yet"),
+      (stamped, "isn't on heatsync yet"),
       (failed, "never sent"),
     ] {
       pick(&mut app, key);
