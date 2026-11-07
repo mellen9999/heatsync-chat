@@ -210,6 +210,10 @@ impl App {
   pub(super) fn activate(&mut self, i: usize) {
     self.find_clear();
     self.active = i;
+    // the "add your first channel" box has done its job once any channel is open, by whatever route
+    if self.form.as_ref().is_some_and(|f| f.welcome) {
+      self.close_form();
+    }
     if let Some(t) = self.tabs.get_mut(i) {
       t.unread = false;
       t.event = false;

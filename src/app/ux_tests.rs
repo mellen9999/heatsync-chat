@@ -194,6 +194,30 @@ fn a_first_run_opens_the_add_channel_form_once() {
 }
 
 #[test]
+fn opening_a_channel_by_any_route_closes_the_first_run_box() {
+  use crate::model::chan::Spec;
+  // a second launch with a channel (the raise), a click on a live dot, a typed command: all end in a tab
+  for how in 0..2 {
+    let (mut app, _rx) = boot(&[], 420, 800);
+    app.first_run();
+    assert!(app.form.is_some());
+    let spec = Spec::from_line("xqc").unwrap();
+    if how == 0 {
+      app.open_look(&spec);
+    } else {
+      app.add_tab(&spec);
+    }
+    assert!(app.form.is_none(), "route {how}: the box is gone");
+    assert_eq!(&*app.tabs[app.active].name, "xqc");
+  }
+  // a form someone opened on purpose (add channel, edit tab) stays while a tab is picked behind it
+  let (mut app, _rx) = boot(&["forsen", "xqc"], 420, 800);
+  app.open_form(None);
+  app.activate(0);
+  assert!(app.form.is_some());
+}
+
+#[test]
 fn login_logout_and_account_by_name() {
   let (mut app, mut rx) = boot(&["forsen"], 420, 800);
   let tab = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
