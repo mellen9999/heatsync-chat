@@ -1,11 +1,7 @@
-// the self-update's platform half on unix: the asset name, what counts as a package manager's copy, the
+// the self-update's platform half on unix: what counts as a package manager's copy, the
 // swap (one rename over the running file) and the restart (exec in place)
 use super::exe;
 use std::path::Path;
-
-pub fn asset_name() -> String {
-  format!("heatsync-chat-{}-linux", std::env::consts::ARCH)
-}
 
 // the folder belongs to a package manager (/usr/bin), not to us
 pub fn managed(dir: &Path) -> bool {

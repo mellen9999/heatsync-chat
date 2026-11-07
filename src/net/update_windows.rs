@@ -1,4 +1,4 @@
-// the self-update's platform half on windows: the asset name, the swap and the restart. a running exe can't
+// the self-update's platform half on windows: the swap and the restart. a running exe can't
 // be written over, but it can be renamed: the running file is moved aside, the new one renamed into its
 // place, and the new copy started. if the second rename fails the first is undone, so the app is never missing
 use super::exe;
@@ -6,10 +6,6 @@ use crate::util::win::RESTART_VAR;
 use std::io::{Error, Result, Write};
 use std::path::Path;
 use std::time::Duration;
-
-pub fn asset_name() -> String {
-  format!("heatsync-chat-{}-windows.exe", std::env::consts::ARCH)
-}
 
 // there is no package manager's copy to leave alone: if the folder isn't ours to write (Program Files),
 // the write probe in `self_updates` already says so
@@ -109,7 +105,7 @@ mod tests {
 
   #[test]
   fn the_asset_is_the_windows_exe() {
-    assert_eq!(asset_name(), "heatsync-chat-x86_64-windows.exe");
+    assert_eq!(crate::net::update::asset_name(), "heatsync-chat-x86_64-windows.exe");
   }
 
   #[test]

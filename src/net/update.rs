@@ -69,11 +69,28 @@ pub fn newer(tag: &str, than: &str) -> bool {
 #[cfg_attr(unix, path = "update_unix.rs")]
 #[cfg_attr(windows, path = "update_windows.rs")]
 mod os;
-use os::{asset_name, managed, replace};
+use os::{managed, replace};
 pub use os::{restart, tidy};
+
+// the release file for a machine: `heatsync-chat-<arch>-linux`, or `heatsync-chat-<arch>-windows.exe`. the name is
+// inside the signed message, so a build for one system can't be passed off as another's
+fn asset(os: &str, arch: &str) -> String {
+  match os {
+    "windows" => format!("heatsync-chat-{arch}-windows.exe"),
+    os => format!("heatsync-chat-{arch}-{os}"),
+  }
+}
+
+fn asset_name() -> String {
+  asset(std::env::consts::OS, std::env::consts::ARCH)
+}
 
 // github's answer: the tag and this machine's two files. urls must be github's own, https
 pub fn parse(v: &Value) -> Option<Release> {
+  parse_for(v, &asset_name())
+}
+
+fn parse_for(v: &Value, name: &str) -> Option<Release> {
   let tag = v.get("tag_name")?.as_str()?;
   let version = tag.strip_prefix('v').unwrap_or(tag);
   // digits and dots only: it goes into the signed message as written
@@ -87,8 +104,7 @@ pub fn parse(v: &Value) -> Option<Release> {
         .filter(|u| u.len() < 512 && u.starts_with("https://github.com/mellen9999/heatsync-chat/releases/download/"))
     })
   };
-  let name = asset_name();
-  let bin = url_of(&name).zip(url_of(&format!("{name}.sig2"))).map(|(b, s)| (b.into(), s.into()));
+  let bin = url_of(name).zip(url_of(&format!("{name}.sig2"))).map(|(b, s)| (b.into(), s.into()));
   Some(Release { version: version.into(), bin })
 }
 
@@ -244,6 +260,45 @@ mod tests {
     );
     assert_eq!(parse(&evil).unwrap().bin, None);
     assert!(parse(&json!({"tag_name": "nightly"})).is_none());
+  }
+
+  // the files a real release carries: both linux builds, the windows exe, and each one's signatures
+  fn full_release() -> Value {
+    let base = "https://github.com/mellen9999/heatsync-chat/releases/download/v0.4.0/";
+    let files: Vec<(String, String)> =
+      ["heatsync-chat-x86_64-linux", "heatsync-chat-aarch64-linux", "heatsync-chat-x86_64-windows.exe"]
+        .iter()
+        .flat_map(|n| [n.to_string(), format!("{n}.sig2"), format!("{n}.sig")])
+        .map(|n| (n.clone(), format!("{base}{n}")))
+        .collect();
+    release("v0.4.0", &files)
+  }
+
+  #[test]
+  fn each_system_takes_its_own_file_from_one_release() {
+    assert_eq!(asset("linux", "x86_64"), "heatsync-chat-x86_64-linux");
+    assert_eq!(asset("linux", "aarch64"), "heatsync-chat-aarch64-linux");
+    assert_eq!(asset("windows", "x86_64"), "heatsync-chat-x86_64-windows.exe");
+    let rel = full_release();
+    let want = [
+      ("linux", "x86_64", "heatsync-chat-x86_64-linux"),
+      ("linux", "aarch64", "heatsync-chat-aarch64-linux"),
+      ("windows", "x86_64", "heatsync-chat-x86_64-windows.exe"),
+    ];
+    for (os, arch, file) in want {
+      let (bin, sig) = parse_for(&rel, &asset(os, arch)).unwrap().bin.expect(file);
+      assert!(
+        bin.ends_with(&format!("/{file}")) && sig.ends_with(&format!("/{file}.sig2")),
+        "{os} {arch}: {bin} {sig}"
+      );
+    }
+    // no build for this machine in the release: nothing offered (windows on arm, macos)
+    assert_eq!(parse_for(&rel, &asset("windows", "aarch64")).unwrap().bin, None);
+    assert_eq!(parse_for(&rel, &asset("macos", "x86_64")).unwrap().bin, None);
+    // the running system's own pick is one of those
+    if cfg!(all(target_arch = "x86_64", any(target_os = "linux", target_os = "windows"))) {
+      assert!(parse(&rel).unwrap().bin.is_some());
+    }
   }
 
   #[test]
