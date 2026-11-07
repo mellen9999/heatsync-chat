@@ -24,7 +24,6 @@ ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-libc = "0.2"
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "perf-dfa", "perf-onepass"] }
 image-webp = "0.2"
 gif = "0.14"
@@ -36,6 +35,32 @@ tiny-skia = { version = "0.11", default-features = false, features = ["std", "si
 # libfontconfig when the app starts (no fonts, not a crash, where it's missing). x86_64 is untouched
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
+
+# unix glue: flock, localtime, mallopt
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# windows glue (src/**/*_windows.rs): raw bindings, nothing at runtime beyond the calls we make
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", default-features = false, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Console",
+  "Win32_System_DataExchange",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_IO",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_Pipes",
+  "Win32_System_ProcessStatus",
+  "Win32_System_SystemServices",
+  "Win32_System_Threading",
+  "Win32_System_Time",
+  "Win32_Media_Audio",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [profile.release]
 lto = "fat"
