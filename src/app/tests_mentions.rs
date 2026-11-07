@@ -72,8 +72,8 @@ fn a_mention_is_written_once_soon_and_comes_back_for_the_same_account_as_history
   assert!(!exists(file::FILE), "not yet: the burst is one write");
   a.mentions_flush();
   assert!(a.mentions_save.is_none());
-  let mode = std::fs::metadata(store::path_of(file::FILE).unwrap()).unwrap().permissions();
-  assert_eq!(std::os::unix::fs::PermissionsExt::mode(&mode) & 0o777, 0o600);
+  #[cfg(unix)]
+  assert_eq!(crate::util::owner::mode(&store::path_of(file::FILE).unwrap()), 0o600);
   // the next run
   let mut b = app();
   assert!(rows(&b).is_empty());

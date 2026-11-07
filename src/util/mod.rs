@@ -1,13 +1,28 @@
 pub mod clip;
 pub mod crash;
+// one file per platform, same functions in each: the app never asks which os it is on
+#[cfg_attr(unix, path = "dirs_unix.rs")]
+#[cfg_attr(windows, path = "dirs_windows.rs")]
+pub mod dirs;
 pub mod font;
 pub mod mem;
 pub mod notify;
 pub mod open;
+#[cfg_attr(unix, path = "owner_unix.rs")]
+#[cfg_attr(windows, path = "owner_windows.rs")]
+pub mod owner;
+#[cfg_attr(unix, path = "rss_unix.rs")]
+#[cfg_attr(windows, path = "rss_windows.rs")]
+pub mod rss;
 pub mod sound;
 pub mod spawn;
+#[cfg_attr(unix, path = "stdio_unix.rs")]
+#[cfg_attr(windows, path = "stdio_windows.rs")]
+pub mod stdio;
 pub mod time;
 pub mod wav;
+#[cfg(windows)]
+pub mod win;
 
 // at most `max` bytes of `s`, cut on a char boundary
 pub fn clamp(s: &str, max: usize) -> &str {

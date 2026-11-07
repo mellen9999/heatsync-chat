@@ -1,9 +1,12 @@
 // desktop notifications (ext fireNotification): notify-send with an argument list, never a shell. text
 // is untrusted (chat lines, channel names), so it is escaped for the daemon's markup, stripped of
-// control bytes and capped. best effort: no notify-send is said once on stderr
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+// control bytes and capped. best effort: no notify-send is said once on stderr (windows: none yet)
 use std::time::{Duration, Instant};
+
+// the popup itself: notify-send on unix; windows has none yet (see notify_windows.rs)
+#[cfg_attr(unix, path = "notify_unix.rs")]
+#[cfg_attr(windows, path = "notify_windows.rs")]
+mod os;
 
 // body cap (ext: 200 chars then "...")
 pub const BODY_MAX: usize = 200;
@@ -36,28 +39,7 @@ pub fn name(s: &str) -> String {
 // show one notification. `title` is built from `name()` parts; the body is cleaned here.
 // `what` names the feature for the "missing notify-send" hint
 pub fn send(what: &str, title: &str, body: &str) {
-  static MISSING: AtomicBool = AtomicBool::new(false);
-  let spawned = Command::new("notify-send")
-    .args(["-a", "heatsync", "-t", "8000", "--"])
-    .arg(title)
-    .arg(clean(body, BODY_MAX))
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .spawn();
-  match spawned {
-    // reap it so a long session leaves no zombies
-    Ok(mut child) => {
-      std::thread::spawn(move || {
-        let _ = child.wait();
-      });
-    }
-    Err(e) => {
-      if !MISSING.swap(true, Ordering::Relaxed) {
-        eprintln!("{what} notifications need notify-send: {e}");
-      }
-    }
-  }
+  os::show(what, title, &clean(body, BODY_MAX));
 }
 
 // at most one notification per GAP: a raid of mentions is one popup now and one "N more" when the

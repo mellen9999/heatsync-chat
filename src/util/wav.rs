@@ -126,8 +126,8 @@ pub fn read(path: &str) -> Result<Pcm, Bad> {
 }
 
 fn home(path: &str) -> std::path::PathBuf {
-  match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
-    (Some(rest), Some(h)) if !h.is_empty() => std::path::Path::new(&h).join(rest),
+  match (path.strip_prefix("~/"), super::dirs::home()) {
+    (Some(rest), Some(h)) => h.join(rest),
     _ => path.into(),
   }
 }
@@ -360,8 +360,8 @@ mod tests {
   fn tilde_is_home_and_nothing_else_is() {
     assert_eq!(home("/a/b.wav"), std::path::PathBuf::from("/a/b.wav"));
     assert_eq!(home("~x/b.wav"), std::path::PathBuf::from("~x/b.wav"));
-    if let Some(h) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
-      assert_eq!(home("~/s/b.wav"), std::path::Path::new(&h).join("s/b.wav"));
+    if let Some(h) = crate::util::dirs::home() {
+      assert_eq!(home("~/s/b.wav"), h.join("s/b.wav"));
     }
   }
 

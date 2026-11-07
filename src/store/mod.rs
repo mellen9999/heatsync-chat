@@ -1,37 +1,33 @@
-// small persisted state under $XDG_CONFIG_HOME/heatsync-chat, written atomically (tmp + rename).
-// the folder is owner-only (0700) and so is every file in it (0600): the login token, notes and
-// reading habits stay yours. nothing here fails quietly: a save that fails and a file that can't be
+// small persisted state in the config folder (util::dirs), written atomically (tmp + rename).
+// the folder and every file in it are owner-only (util::owner: 0700/0600; on windows the profile's own
+// access list): the login token, notes and reading habits stay yours. nothing here fails quietly: a save that fails and a file that can't be
 // read are both kept as a plain note for the ui to say once (`take_notes`)
 mod later;
+#[cfg_attr(unix, path = "wake_unix.rs")]
+#[cfg_attr(windows, path = "wake_windows.rs")]
+mod link;
+#[cfg_attr(unix, path = "lock_unix.rs")]
+#[cfg_attr(windows, path = "lock_windows.rs")]
 mod lock;
 mod wake;
 
 pub use later::{flush, put as write_later};
+pub use link::{bind as bind_wake, ping as wake_running, serve as serve_wake};
 pub use lock::lock_instance;
-pub use wake::{bind as bind_wake, ping as wake_running, serve as serve_wake};
 
+use crate::util::owner;
 use std::io::{Error, ErrorKind, Result, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-
-// an xdg base folder: the variable when it is an absolute path, else the home fallback
-#[cfg(not(test))]
-fn xdg(var: &str, home_rel: &str) -> Option<PathBuf> {
-  std::env::var_os(var)
-    .map(PathBuf::from)
-    .filter(|p| p.is_absolute())
-    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_rel)))
-}
 
 #[cfg(not(test))]
 fn dir() -> Option<PathBuf> {
-  Some(xdg("XDG_CONFIG_HOME", ".config")?.join("heatsync-chat"))
+  crate::util::dirs::config()
 }
 
-// where chat logs go: $XDG_DATA_HOME/heatsync-chat/logs (data, not config: it grows and is yours to keep)
+// where chat logs go (data, not config: it grows and is yours to keep)
 #[cfg(not(test))]
 pub fn logs_dir() -> Option<PathBuf> {
-  Some(xdg("XDG_DATA_HOME", ".local/share")?.join("heatsync-chat").join("logs"))
+  crate::util::dirs::logs()
 }
 
 #[cfg(test)]
@@ -129,12 +125,7 @@ fn ensure_dir() -> Result<PathBuf> {
 }
 
 fn ensure(d: PathBuf) -> Result<PathBuf> {
-  match std::fs::metadata(&d) {
-    Ok(m) if !m.is_dir() => return Err(Error::new(ErrorKind::NotADirectory, "not a folder")),
-    Ok(m) if m.permissions().mode() & 0o077 != 0 => std::fs::set_permissions(&d, PermissionsExt::from_mode(0o700))?,
-    Ok(_) => {}
-    Err(_) => std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&d)?,
-  }
+  owner::dir(&d)?;
   Ok(d)
 }
 
@@ -143,9 +134,8 @@ pub fn init() {
   let Ok(d) = ensure_dir() else { return };
   let Ok(rd) = std::fs::read_dir(d) else { return };
   for e in rd.filter_map(std::result::Result::ok) {
-    let Ok(m) = e.metadata() else { continue };
-    if m.is_file() && m.permissions().mode() & 0o077 != 0 {
-      let _ = std::fs::set_permissions(e.path(), PermissionsExt::from_mode(0o600));
+    if let Ok(m) = e.metadata() {
+      owner::tighten(&e.path(), &m);
     }
   }
 }
@@ -238,7 +228,7 @@ fn write_job(dir: &Path, name: &str, data: &str) {
 fn write_to(d: &Path, name: &str, data: &str) -> Result<()> {
   let tmp = d.join(format!(".{name}.tmp"));
   let _ = std::fs::remove_file(&tmp);
-  let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+  let mut f = owner::file(std::fs::OpenOptions::new().write(true).create_new(true)).open(&tmp)?;
   f.write_all(data.as_bytes())?;
   f.sync_all()?;
   std::fs::rename(tmp, d.join(name))
@@ -249,7 +239,7 @@ pub fn append(name: &str, line: &str, max: u64) -> Result<()> {
   let d = ensure_dir()?;
   let p = d.join(name);
   let full = std::fs::metadata(&p).is_ok_and(|m| m.len() > max);
-  let mut f = std::fs::OpenOptions::new().create(true).append(!full).write(true).truncate(full).mode(0o600).open(p)?;
+  let mut f = owner::file(std::fs::OpenOptions::new().create(true).append(!full).write(true).truncate(full)).open(p)?;
   f.write_all(line.as_bytes())
 }
 
@@ -290,16 +280,18 @@ fn write_tabs(tabs: &[Box<str>]) {
 mod tests {
   use super::*;
 
-  fn mode(p: &std::path::Path) -> u32 {
-    std::fs::metadata(p).unwrap().permissions().mode() & 0o777
-  }
-
   fn fresh() -> PathBuf {
     let d = dir().unwrap();
     let _ = std::fs::remove_dir_all(d.parent().unwrap());
     d
   }
 
+  #[cfg(unix)]
+  use crate::util::owner::mode;
+  #[cfg(unix)]
+  use std::os::unix::fs::PermissionsExt;
+
+  #[cfg(unix)]
   #[test]
   fn the_folder_and_its_files_are_owner_only() {
     let d = fresh();
@@ -313,6 +305,7 @@ mod tests {
     assert!(!d.join(".settings.tmp").exists());
   }
 
+  #[cfg(unix)]
   #[test]
   fn init_tightens_what_an_older_version_left_open() {
     let d = fresh();

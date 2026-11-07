@@ -6,18 +6,6 @@ use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::chat_view::{ChatView, Paint};
 use crate::ui::res::Res;
 
-pub fn rss_kb() -> (u64, u64, u64, u64) {
-  let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-  let field = |k: &str| {
-    s.lines()
-      .find(|l| l.starts_with(k))
-      .and_then(|l| l.split_whitespace().nth(1))
-      .and_then(|v| v.parse().ok())
-      .unwrap_or(0)
-  };
-  (field("VmRSS:"), field("VmHWM:"), field("RssAnon:"), field("RssFile:"))
-}
-
 pub fn run(total: usize) {
   // HSC_BENCH_H: a shorter pane shows fewer rows (and so fewer painted names)
   let h = std::env::var("HSC_BENCH_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
@@ -76,7 +64,7 @@ pub fn run(total: usize) {
     println!("animated names on screen {names}  tick {tick:.3}ms  => ~{:.2}% cpu at 30fps", tick * 30.0 / 10.0);
   }
 
-  let (rss, hwm, anon, file) = rss_kb();
+  let (rss, hwm, anon, file) = crate::util::rss::kb();
   println!(
     "frames {frames} rows {}  append avg {append_avg:.3}ms worst {worst:.3}ms  full {full_avg:.3}ms",
     chat.len()

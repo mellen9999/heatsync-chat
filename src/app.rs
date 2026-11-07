@@ -7,8 +7,6 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::ModifiersState;
-use winit::platform::wayland::WindowAttributesExtWayland;
-use winit::platform::x11::WindowAttributesExtX11;
 use winit::window::{Window, WindowId};
 
 mod account;
@@ -153,6 +151,9 @@ mod usercmd;
 #[cfg(test)]
 mod ux_tests;
 mod whispers;
+#[cfg_attr(unix, path = "app/winsys_unix.rs")]
+#[cfg_attr(windows, path = "app/winsys_windows.rs")]
+mod winsys;
 mod zoom;
 
 use crate::cosmetics::id::PaintId;
@@ -758,9 +759,7 @@ impl App {
     // x11 shows it; wayland compositors take their icon from the .desktop file instead
     let icon = crate::ui::logo::window_rgba().and_then(|(px, w)| winit::window::Icon::from_rgba(px, w, w).ok());
     let attrs = Window::default_attributes().with_title(mentions::TITLE).with_window_icon(icon).with_inner_size(size);
-    // the app id (wayland) and WM_CLASS (x11): what the .desktop file's icon is matched on
-    let attrs = WindowAttributesExtWayland::with_name(attrs, APP_ID, APP_ID);
-    let attrs = WindowAttributesExtX11::with_name(attrs, APP_ID, APP_ID);
+    let attrs = winsys::named(attrs, APP_ID);
     let window = match el.create_window(attrs) {
       Ok(w) => Rc::new(w),
       Err(e) => {

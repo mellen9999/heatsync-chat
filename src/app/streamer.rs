@@ -9,12 +9,12 @@ use std::time::{Duration, Instant};
 
 use super::App;
 use crate::model::settings::{Settings, Streamer as Mode};
-use crate::model::streamer::{CHECK_SECS, obs_running};
+use crate::model::streamer::{CHECK_SECS, obs_running, proc_root};
 use crate::model::tabs::Kind;
 use crate::model::whisper;
 
 pub(super) struct State {
-  // where processes are listed: /proc, or a fake one in tests
+  // where processes are listed (unix: /proc, or a fake one in tests)
   pub(super) root: PathBuf,
   pub(super) obs: bool,
   // when auto looks again (none unless auto)
@@ -27,7 +27,7 @@ pub(super) struct State {
 
 impl State {
   pub(super) fn boot(set: &Settings) -> State {
-    let mut s = State { root: "/proc".into(), obs: false, due: None, on: false, shown: false };
+    let mut s = State { root: proc_root(), obs: false, due: None, on: false, shown: false };
     s.look(set.streamer, Instant::now());
     s.on = s.hot(set.streamer);
     s

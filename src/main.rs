@@ -1,3 +1,6 @@
+// the release exe on windows has no console window; stdio.rs gives its words somewhere to go
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod avatars;
 mod badges;
@@ -16,7 +19,9 @@ mod util;
 
 use winit::event_loop::EventLoop;
 
-const HELP: &str = "heatsync-chat: the heatsync multichat overlay as its own window
+fn help() -> String {
+  format!(
+    "heatsync-chat: the heatsync multichat overlay as its own window
 
 usage: heatsync-chat [channel ...]
 
@@ -30,9 +35,11 @@ usage: heatsync-chat [channel ...]
   --flood        a window of fake busy chat, for testing
 
 one window at a time: opening a second one brings the first forward (and opens the channel you gave it).
-your settings and tabs are in ~/.config/heatsync-chat, the picture cache in
-~/.cache/heatsync-chat. both are private to you.
-";
+{}
+",
+    util::dirs::HELP_FOLDERS
+  )
+}
 
 // the second launch's one plain sentence, for when the running window can't be reached (an older
 // version, no socket): said to the terminal and as a desktop notification, since a launcher shows neither
@@ -45,6 +52,7 @@ fn already_open(given: &[Box<str>]) {
   }
   util::notify::send("heatsync-chat", "heatsync-chat is already open", "look for its window");
   println!("{RUNNING}");
+  util::stdio::alert("heatsync-chat", RUNNING);
 }
 
 // the saved tabs; lines that aren't channels are kept in tabs.bak and said so in chat
@@ -59,11 +67,15 @@ fn saved_tabs() -> Vec<Box<str>> {
 
 fn main() {
   util::mem::limit_arenas();
-  util::crash::install();
   let args: Vec<String> = std::env::args().skip(1).collect();
+  if args.iter().any(|a| a.starts_with('-')) {
+    util::stdio::attach_terminal();
+  }
+  util::stdio::log_stderr();
+  util::crash::install();
   if let Some(bad) = args.iter().find(|a| a.starts_with('-') && !matches!(a.as_str(), "--flood" | "--bench")) {
     match bad.as_str() {
-      "-h" | "--help" => return print!("{HELP}"),
+      "-h" | "--help" => return print!("{}", help()),
       "-V" | "--version" => return println!("heatsync-chat {}", env!("CARGO_PKG_VERSION")),
       _ => {
         eprintln!("heatsync-chat: no such option {bad} (heatsync-chat --help lists them)");
@@ -83,6 +95,7 @@ fn main() {
     .collect();
 
   store::init();
+  net::update::tidy();
   images::cache::init();
   // the test window (--flood) may sit beside a real one; a real one may not
   let _lock = if flood {
@@ -110,6 +123,7 @@ fn main() {
     Ok(el) => el,
     Err(e) => {
       eprintln!("event loop: {e}");
+      util::stdio::alert("heatsync-chat", "couldn't open a window on this computer");
       std::process::exit(1);
     }
   };

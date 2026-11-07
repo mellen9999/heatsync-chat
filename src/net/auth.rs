@@ -241,16 +241,7 @@ pub fn valid_token(t: &str) -> bool {
 }
 
 fn open_browser(url: &str) -> Result<(), String> {
-  std::process::Command::new("xdg-open")
-    .arg(url)
-    .stdout(std::process::Stdio::null())
-    .stderr(std::process::Stdio::null())
-    .spawn()
-    .map(drop)
-    .map_err(|e| {
-      eprintln!("login browser: {e}");
-      "couldn't open your browser, install xdg-utils (paru -S xdg-utils)".to_string()
-    })
+  crate::util::open::browse(url)
 }
 
 pub struct Me {

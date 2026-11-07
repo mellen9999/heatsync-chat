@@ -34,6 +34,8 @@ impl Tool {
 
 pub struct Ran {
   pub out: Vec<u8>,
+  // read by the clipboard tools on unix (to tell "empty" from "failed")
+  #[cfg_attr(windows, allow(dead_code))]
   pub err: Vec<u8>,
   pub ok: bool,
 }

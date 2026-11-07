@@ -1,5 +1,9 @@
-// wall clock helpers; local time via libc so dst/tz follow the system
+// wall clock helpers; local time from the system (libc, or win32 on windows) so dst/tz follow it
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg_attr(unix, path = "local_unix.rs")]
+#[cfg_attr(windows, path = "local_windows.rs")]
+mod local;
 
 pub fn now_ms() -> i64 {
   SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
@@ -29,21 +33,7 @@ pub struct Local {
 impl Local {
   // None when the system can't say (a time out of range)
   pub fn of(ms: i64) -> Option<Local> {
-    let t: libc::time_t = ms.div_euclid(1000) as libc::time_t;
-    // SAFETY: localtime_r writes only into the tm we hand it
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
-      return None;
-    }
-    let u = |v: i32| v.max(0) as u32;
-    Some(Local {
-      y: tm.tm_year + 1900,
-      mo: u(tm.tm_mon + 1),
-      d: u(tm.tm_mday),
-      h: u(tm.tm_hour),
-      mi: u(tm.tm_min),
-      s: u(tm.tm_sec),
-    })
+    local::of(ms)
   }
 
   // "2026-11-06"

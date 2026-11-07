@@ -299,12 +299,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
 // the status line when chat logs start: the folder, with the home folder as ~
 pub(super) fn logs_said(dir: Option<std::path::PathBuf>) -> String {
   let Some(dir) = dir else { return "saving chat logs on this computer".to_owned() };
-  let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-  let shown = match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
-    Some(rest) => format!("~/{}", rest.display()),
-    None => dir.display().to_string(),
-  };
-  format!("saving chat logs to {shown}")
+  format!("saving chat logs to {}", crate::util::dirs::show(&dir))
 }
 
 impl App {

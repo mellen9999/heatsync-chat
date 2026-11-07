@@ -34,6 +34,7 @@ fn turning_chat_logs_on_says_where_they_go_unless_streamer_mode_is_up() {
   assert_eq!(said(&a), before);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_home_folder_reads_as_a_tilde() {
   let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap();

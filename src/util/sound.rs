@@ -1,21 +1,23 @@
 // the sounds (ext mentions.js): the mention ping, and the four a highlight rule can pick (playFilterRuleSound).
 // each is a few sine tones, (hz, start, length), 10ms up to full then falling away to silence at its end. made
-// here, no sound file shipped, and played by the first of pw-play, paplay, aplay on PATH, fed a wav on stdin.
+// here, no sound file shipped, and played by the first of pw-play, paplay, aplay on PATH, fed a wav on stdin
+// (windows: PlaySound, from the same bytes in memory; sound_unix.rs and sound_windows.rs).
 // the mention ping can be any of the four, or a wav file of your own (util::wav reads it: plain pcm, 2MB, 3
 // seconds); a file that has gone bad since it was picked is said once on stderr and the ping plays instead.
 // best effort: no player is said once on stderr. a burst sounds once per 1.2s, so a raid of @s can't
 // machine-gun
 use std::f32::consts::TAU;
-use std::io::Write;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
-use super::open::installed;
 use super::wav;
+
+// handing a wav to the platform's player
+#[cfg_attr(unix, path = "sound_unix.rs")]
+#[cfg_attr(windows, path = "sound_windows.rs")]
+mod os;
 
 const RATE: u32 = 48_000;
 const GAP_MS: i64 = 1200;
-const PLAYERS: [(&str, &[&str]); 3] = [("pw-play", &["-"]), ("paplay", &[]), ("aplay", &["-q", "-"])];
 
 // the ext's FILTER_SOUND_PRESETS names; anything else is silent
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -110,7 +112,6 @@ pub fn preview(voice: Voice, percent: u8) {
 // `pace` = when it is, for the one-per-1.2s limit; None = not limited
 fn start(voice: Voice, percent: u8, pace: Option<i64>) {
   static LAST: AtomicI64 = AtomicI64::new(i64::MIN / 2);
-  static MISSING: AtomicBool = AtomicBool::new(false);
   static FILE_SAID: AtomicBool = AtomicBool::new(false);
   if percent == 0 {
     return;
@@ -121,31 +122,17 @@ fn start(voice: Voice, percent: u8, pace: Option<i64>) {
     }
     LAST.store(now, Ordering::Relaxed);
   }
-  let Some((bin, args)) = PLAYERS.iter().find(|(b, _)| installed(b)) else {
-    if !MISSING.swap(true, Ordering::Relaxed) {
-      eprintln!("the mention sound needs pw-play, paplay or aplay");
-    }
-    return;
-  };
-  let spawned = Command::new(bin).args(*args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
-  let Ok(mut child) = spawned else { return };
   let volume = f32::from(percent.min(100)) / 100.0;
-  // made, fed and reaped off the ui thread: a stuck player or a slow disk never stalls a frame or leaves a zombie
-  std::thread::spawn(move || {
-    let bytes = match voice {
-      Voice::Preset(p) => synth(p, volume),
-      Voice::File(path) => {
-        let (bytes, bad) = from_file(&path, volume);
-        if let Some(bad) = bad.filter(|_| !FILE_SAID.swap(true, Ordering::Relaxed)) {
-          eprintln!("your mention sound file didn't play ({}): the ping plays instead", bad.said());
-        }
-        bytes
+  // made off the ui thread by the player: a slow disk or a stuck player never stalls a frame
+  os::play(move || match voice {
+    Voice::Preset(p) => synth(p, volume),
+    Voice::File(path) => {
+      let (bytes, bad) = from_file(&path, volume);
+      if let Some(bad) = bad.filter(|_| !FILE_SAID.swap(true, Ordering::Relaxed)) {
+        eprintln!("your mention sound file didn't play ({}): the ping plays instead", bad.said());
       }
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-      let _ = stdin.write_all(&bytes);
+      bytes
     }
-    let _ = child.wait();
   });
 }
 

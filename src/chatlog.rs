@@ -9,10 +9,10 @@
 mod line;
 
 use crate::model::message::{Message, Platform};
+use crate::util::owner;
 use crate::util::time::now_ms;
 use line::Entry;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
@@ -176,13 +176,8 @@ impl Sink {
       let k = (all[i].platform, &all[i].chan, &all[i].day);
       let n = all[i..].iter().take_while(|e| (e.platform, &e.chan, &e.day) == k).count();
       let dir = root.join(k.0).join(k.1);
-      std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-      let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(dir.join(format!("{}.log", k.2)))?;
+      owner::dir(&dir)?;
+      let mut f = owner::log(&dir.join(format!("{}.log", k.2)))?;
       let mut buf = String::with_capacity(all[i..i + n].iter().map(|e| e.line.len()).sum());
       for e in &all[i..i + n] {
         buf.push_str(&e.line);
@@ -197,7 +192,6 @@ impl Sink {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use std::os::unix::fs::PermissionsExt;
   use std::sync::{Arc, Mutex};
 
   fn root(name: &str) -> PathBuf {
@@ -208,10 +202,6 @@ mod tests {
 
   fn e(chan: &str, day: &str, line: &str) -> Entry {
     Entry { platform: "twitch", chan: chan.into(), day: day.into(), line: format!("{line}\n") }
-  }
-
-  fn mode(p: &std::path::Path) -> u32 {
-    std::fs::metadata(p).unwrap().permissions().mode() & 0o777
   }
 
   #[test]
@@ -231,10 +221,14 @@ mod tests {
     s.push(e("a", "2026-11-06", "[23:59:59] x: four"));
     s.flush().unwrap();
     assert!(day("a", "2026-11-06").ends_with("three\n[23:59:59] x: four\n"));
-    assert_eq!(mode(&r), 0o700);
-    assert_eq!(mode(&r.join("twitch")), 0o700);
-    assert_eq!(mode(&r.join("twitch/a")), 0o700);
-    assert_eq!(mode(&r.join("twitch/a/2026-11-06.log")), 0o600);
+    #[cfg(unix)]
+    {
+      use crate::util::owner::mode;
+      assert_eq!(mode(&r), 0o700);
+      assert_eq!(mode(&r.join("twitch")), 0o700);
+      assert_eq!(mode(&r.join("twitch/a")), 0o700);
+      assert_eq!(mode(&r.join("twitch/a/2026-11-06.log")), 0o600);
+    }
   }
 
   #[test]

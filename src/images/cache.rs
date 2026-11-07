@@ -1,17 +1,13 @@
-// raw image bytes on disk under $XDG_CACHE_HOME/heatsync-chat/img, keyed by the sha256 of the url.
+// raw image bytes on disk under the cache folder (util::dirs) / img, keyed by the sha256 of the url.
 // decoded frames are cheap to rebuild from here, so memory can evict freely. what you looked at is
-// yours: the folders are owner-only (0700) and so is every file (0600)
+// yours: the folders and files are owner-only (util::owner)
+use crate::util::owner;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 #[cfg(not(test))]
 fn dir() -> Option<PathBuf> {
-  let base = std::env::var_os("XDG_CACHE_HOME")
-    .map(PathBuf::from)
-    .filter(|p| p.is_absolute())
-    .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
-  Some(base.join("heatsync-chat").join("img"))
+  Some(crate::util::dirs::cache()?.join("img"))
 }
 
 // tests never touch the real cache: each test thread gets its own scratch folder
@@ -37,16 +33,9 @@ fn legacy(name: &str) -> bool {
   name.len() == 16 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-// a folder that exists and is ours alone: made 0700 when missing, tightened when an older version left it open
+// a folder that exists and is ours alone
 fn private(d: &Path) -> bool {
-  match std::fs::metadata(d) {
-    Ok(m) if !m.is_dir() => false,
-    Ok(m) if m.permissions().mode() & 0o077 != 0 => {
-      std::fs::set_permissions(d, PermissionsExt::from_mode(0o700)).is_ok()
-    }
-    Ok(_) => true,
-    Err(_) => std::fs::DirBuilder::new().recursive(true).mode(0o700).create(d).is_ok(),
-  }
+  owner::dir(d).is_ok()
 }
 
 // at start: both folders owner-only (the files are tightened as `prune` walks them)
@@ -89,7 +78,7 @@ pub fn write(url: &str, bytes: &[u8]) {
   let k = key(url);
   let tmp = d.join(format!(".{k}.tmp"));
   let _ = std::fs::remove_file(&tmp);
-  let put = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp);
+  let put = owner::file(std::fs::OpenOptions::new().write(true).create_new(true)).open(&tmp);
   if put.and_then(|mut f| f.write_all(bytes)).is_ok() && std::fs::rename(&tmp, d.join(k)).is_ok() {
     return;
   }
@@ -111,9 +100,7 @@ pub fn prune(max: u64) {
       let _ = std::fs::remove_file(e.path());
       continue;
     }
-    if m.permissions().mode() & 0o077 != 0 {
-      let _ = std::fs::set_permissions(e.path(), PermissionsExt::from_mode(0o600));
-    }
+    owner::tighten(&e.path(), &m);
     files.push((m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()));
   }
   let mut total: u64 = files.iter().map(|f| f.1).sum();
@@ -134,10 +121,6 @@ pub fn prune(max: u64) {
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  fn mode(p: &Path) -> u32 {
-    std::fs::metadata(p).unwrap().permissions().mode() & 0o777
-  }
 
   fn fresh() -> PathBuf {
     let d = dir().unwrap();
@@ -161,14 +144,21 @@ mod tests {
     assert_eq!(read("https://a/b").as_deref(), Some(&b"bytes"[..]));
     write("https://a/b", b"newer");
     assert_eq!(read("https://a/b").as_deref(), Some(&b"newer"[..]));
-    assert_eq!(mode(&d), 0o700);
-    assert_eq!(mode(d.parent().unwrap()), 0o700);
-    assert_eq!(mode(&d.join(key("https://a/b"))), 0o600);
+    #[cfg(unix)]
+    {
+      use crate::util::owner::mode;
+      assert_eq!(mode(&d), 0o700);
+      assert_eq!(mode(d.parent().unwrap()), 0o700);
+      assert_eq!(mode(&d.join(key("https://a/b"))), 0o600);
+    }
     assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1, "no temp file left behind");
   }
 
+  #[cfg(unix)]
   #[test]
   fn init_and_prune_tighten_an_older_cache_and_drop_its_old_keys() {
+    use crate::util::owner::mode;
+    use std::os::unix::fs::PermissionsExt;
     let d = fresh();
     std::fs::create_dir_all(&d).unwrap();
     std::fs::set_permissions(&d, PermissionsExt::from_mode(0o755)).unwrap();

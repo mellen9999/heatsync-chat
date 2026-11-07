@@ -5,10 +5,13 @@ use super::*;
 use crate::model::message::{Kind as MsgKind, Message, Platform, flag};
 use crate::model::schema::Fx;
 use crate::model::settings::Streamer as Mode;
-use crate::model::streamer::{HIDDEN, fake_proc};
+use crate::model::streamer::HIDDEN;
+#[cfg(unix)]
+use crate::model::streamer::fake_proc;
 use crate::model::whisper::{self, Whisper};
 use crate::ui::theme;
 use serde_json::json;
+#[cfg(unix)]
 use std::time::Duration;
 
 fn app() -> App {
@@ -46,6 +49,7 @@ fn off_by_default_and_on_means_on() {
   assert!(!a.streamer_hot() && a.streamer_mark().is_none());
 }
 
+#[cfg(unix)]
 #[test]
 fn auto_follows_obs_and_only_ticks_while_auto() {
   let mut a = app();

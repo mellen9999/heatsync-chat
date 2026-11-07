@@ -13,7 +13,7 @@ use crate::ui::input_bar;
 use crate::util::time::now_ms;
 
 fn home() -> Option<String> {
-  std::env::var("HOME").ok().filter(|h| h.starts_with('/'))
+  crate::util::dirs::home().and_then(|h| h.into_os_string().into_string().ok())
 }
 
 impl App {

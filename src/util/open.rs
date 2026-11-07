@@ -1,10 +1,16 @@
 // open a link from chat in the default browser, or play a video or a stream in mpv. the text is hostile:
 // only http(s), no spaces or control characters, bounded, and never through a shell (the url is one
 // argument, after mpv's `--`). mpv gets only https, and none of the user's mpv config or scripts
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::model::video;
+
+// finding programs, hiding their console, and the browser itself differ by platform
+#[cfg_attr(unix, path = "open_unix.rs")]
+#[cfg_attr(windows, path = "open_windows.rs")]
+mod os;
+pub use os::browse;
+use os::{quiet, which};
 
 fn check(url: &str) -> Result<(), String> {
   let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
@@ -14,13 +20,9 @@ fn check(url: &str) -> Result<(), String> {
   if ok { Ok(()) } else { Err("not a link i can open".into()) }
 }
 
-// an executable of that name on PATH (looked up each time: installing mpv works without a restart)
+// is a program of that name on PATH (looked up each time: installing mpv works without a restart)
 pub fn installed(bin: &str) -> bool {
-  use std::os::unix::fs::PermissionsExt;
-  std::env::var_os("PATH").is_some_and(|p| {
-    std::env::split_paths(&p)
-      .any(|d| Path::new(&d).join(bin).metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
-  })
+  which(bin).is_some()
 }
 
 // what mpv is started with. `--no-config` and `--load-scripts=no`: a link from chat never runs with the
@@ -41,16 +43,12 @@ pub fn play(url: &str, status: impl FnOnce(String) + Send + 'static) -> Result<(
   check(url)?;
   let ytdl = installed("yt-dlp") || installed("youtube-dl");
   // plain http stays in the browser: nothing unencrypted is fed to a player
-  if !https(url) || !installed("mpv") || !(ytdl || video::file(url)) {
-    return open_url(url);
-  }
-  let mut child = Command::new("mpv")
-    .args(mpv_args(url))
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .spawn()
-    .map_err(|e| {
+  let mpv = which("mpv").filter(|_| https(url) && (ytdl || video::file(url)));
+  let Some(mpv) = mpv else { return open_url(url) };
+  let mut cmd = Command::new(mpv);
+  quiet(&mut cmd);
+  let mut child =
+    cmd.args(mpv_args(url)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e| {
       eprintln!("mpv: {e}");
       "couldn't start mpv".to_string()
     })?;
@@ -69,19 +67,7 @@ pub fn play(url: &str, status: impl FnOnce(String) + Send + 'static) -> Result<(
 
 pub fn open_url(url: &str) -> Result<(), String> {
   check(url)?;
-  let mut child = Command::new("xdg-open")
-    .arg(url)
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .spawn()
-    .map_err(|e| {
-      eprintln!("xdg-open: {e}");
-      "can't open links yet, install xdg-utils (paru -S xdg-utils)".to_string()
-    })?;
-  // reap it so it never lingers as a zombie
-  std::thread::spawn(move || _ = child.wait());
-  Ok(())
+  browse(url)
 }
 
 #[cfg(test)]

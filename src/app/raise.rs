@@ -2,15 +2,14 @@
 // focus request does nothing and an urgency mark is invisible behind a fullscreen game, so a window
 // you aren't looking at is closed and made again, and the compositor puts the new one where you are
 // (dwl: the tag you're on, focused). a channel it was given opens as the temp tab, like a click on one
-use super::App;
+use super::{App, winsys};
 use crate::model::chan::Spec;
 use winit::event_loop::ActiveEventLoop;
-use winit::platform::wayland::ActiveEventLoopExtWayland;
 use winit::window::UserAttentionType;
 
 impl App {
   pub(super) fn raise(&mut self, el: &ActiveEventLoop, open: &[Box<str>]) {
-    if el.is_wayland() && !self.focused {
+    if winsys::focus_by_reopening(el) && !self.focused {
       let size = self.gfx.take().map(|g| g.window.inner_size());
       if let Some(size) = size {
         self.open_window(el, size.into());
