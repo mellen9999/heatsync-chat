@@ -22,7 +22,13 @@ pub struct HsEmote {
   from: i64,
   until: i64,
   removed: i64,
+  // the picture this name was before it became this one (a swap, or a remove then an add of another
+  // emote): lines sent while it was theirs keep it (emote rule 8). newest first, a few deep
+  prior: Option<Box<HsEmote>>,
 }
+
+// how many earlier pictures of one name a sender keeps
+const MAX_PRIOR: usize = 3;
 
 pub type Set = HashMap<Box<str>, HsEmote>;
 
@@ -45,6 +51,24 @@ impl HsEmote {
   // the ext's _sGate: was it theirs at `ts`? `skew` pads the start only
   fn at(&self, ts: i64, skew: i64) -> bool {
     ts >= self.from.saturating_sub(skew) && ts < self.removed && ts < self.until.saturating_add(SKEW_MS)
+  }
+
+  // the emote this name was at `ts`: the current one, else the picture it replaced
+  fn picture(&self, ts: i64, skew: i64) -> Option<&HsEmote> {
+    if self.at(ts, skew) { Some(self) } else { self.prior.as_deref()?.picture(ts, skew) }
+  }
+
+  fn depth(&self) -> usize {
+    1 + self.prior.as_ref().map_or(0, |p| p.depth())
+  }
+
+  // the chain with at most `n` pictures
+  fn cut(&mut self, n: usize) {
+    match (n, &mut self.prior) {
+      (0 | 1, p) => *p = None,
+      (_, Some(p)) => p.cut(n - 1),
+      _ => {}
+    }
   }
 
   // theirs right now (no slack past a bound: a past pairing or a removal is not theirs any more)
@@ -86,7 +110,7 @@ impl Senders {
       self.wanted.push(id);
     }
     let skew = if self.me == Some(id) { OWN_SKEW_MS } else { SKEW_MS };
-    self.map.get(&id)?.set.get(word).filter(|x| x.at(ts, skew))
+    self.map.get(&id)?.set.get(word)?.picture(ts, skew)
   }
 
   // we have seen heatsync content from `id` (a set with a row in it): a heatsync user. never asks, so a
@@ -158,12 +182,27 @@ fn merge(set: &mut Set, mut fresh: Set, now: i64) -> bool {
     x.from != i64::MIN
   });
   for (name, mut x) in fresh.drain() {
-    if let Some(old) = set.get(&name) {
-      if old.from != i64::MIN && x.from != i64::MIN {
-        x.from = x.from.min(old.from);
-      }
-      if *old == x {
-        continue;
+    if let Some(mut old) = set.remove(&name) {
+      if old.url != x.url && old.from != i64::MIN {
+        // another emote under the same name: the old picture stays on the lines it was drawn on, closed
+        // the moment the new one started
+        let end = if x.from == i64::MIN { now } else { x.from };
+        old.removed = old.removed.min(end);
+        x.prior = Some(Box::new(old));
+        if x.depth() > MAX_PRIOR + 1 {
+          x.cut(MAX_PRIOR + 1);
+        }
+      } else {
+        if old.from != i64::MIN && x.from != i64::MIN {
+          x.from = x.from.min(old.from);
+        }
+        let prior = old.prior.take();
+        if old == x {
+          old.prior = prior;
+          set.insert(name, old);
+          continue;
+        }
+        x.prior = prior;
       }
     }
     set.insert(name, x);
@@ -205,6 +244,7 @@ pub fn parse_set(v: &Value) -> Set {
         from: s("added_at").and_then(parse_iso).unwrap_or(i64::MIN),
         until: s("until").and_then(parse_iso).unwrap_or(i64::MAX),
         removed: i64::MAX,
+        prior: None,
       },
     );
   }
@@ -369,5 +409,33 @@ mod tests {
     assert!(s.lookup(2, "ok", T - SKEW_MS - 1).is_none());
     assert!(s.lookup(2, "ok", until + SKEW_MS - 1).is_some(), "a past pairing's until gets the pad");
     assert!(s.lookup(2, "ok", until + SKEW_MS).is_none());
+  }
+
+  // rule 8: swapping W for another emote leaves the lines sent before the swap with the picture they drew
+  #[test]
+  fn a_swap_keeps_the_old_picture_on_lines_sent_before_it() {
+    let at = |d: u32, h: u32| parse_iso(&format!("2026-11-{d:02}T{h:02}:00:00.000Z")).unwrap();
+    let mut s = Senders::default();
+    s.lookup(1, "W", at(1, 0));
+    let mut old = row("W");
+    old["added_at"] = json!("2026-11-01T00:00:00.000Z");
+    s.put(1, parse_set(&json!([old])));
+    let mut new = row("W");
+    new["url"] = json!("https://cdn.7tv.app/emote/NEW/1x.webp");
+    new["added_at"] = json!("2026-11-02T00:00:00.000Z");
+    s.put(1, parse_set(&json!([new])));
+    let url = |s: &mut Senders, ts| s.lookup(1, "W", ts).map(|e| e.url.to_string());
+    assert_eq!(url(&mut s, at(1, 12)).as_deref(), Some("https://cdn.7tv.app/emote/x/1x.webp"), "before the swap");
+    assert_eq!(url(&mut s, at(2, 1)).as_deref(), Some("https://cdn.7tv.app/emote/NEW/1x.webp"), "after it");
+    // more swaps still give every line its own picture, and the chain stays bounded
+    for d in 3..10 {
+      let mut r = row("W");
+      r["url"] = json!(format!("https://cdn.7tv.app/emote/S{d}/1x.webp"));
+      r["added_at"] = json!(format!("2026-11-{d:02}T00:00:00.000Z"));
+      s.put(1, parse_set(&json!([r])));
+    }
+    assert!(s.map[&1].set["W"].depth() <= MAX_PRIOR + 1);
+    assert_eq!(url(&mut s, at(9, 1)).as_deref(), Some("https://cdn.7tv.app/emote/S9/1x.webp"));
+    assert_eq!(url(&mut s, at(7, 1)).as_deref(), Some("https://cdn.7tv.app/emote/S7/1x.webp"));
   }
 }
