@@ -90,6 +90,8 @@ pub enum Act {
   Delete,
   DeletePost,
   OpToFeed,
+  // the whispers line menu's "delete dm": asks first
+  DmAsk,
   // "yes" to the whispers tab's "delete dm?": one of your own heatsync dms, gone for both of you
   DeleteDm,
 }
@@ -360,6 +362,7 @@ impl App {
       (Act::Edit, ..) => self.edit_begin(),
       (Act::Delete, ..) => self.delete_ask(),
       (Act::DeletePost, ..) => self.delete_go(),
+      (Act::DmAsk, ..) => self.dm_delete_ask(),
       (Act::DeleteDm, ..) => self.dm_delete_go(),
       (Act::OpToFeed, ..) => self.op_to_feed(),
       (Act::CopyName, ..) => self.copy_name(),
@@ -478,6 +481,9 @@ impl App {
     // a line in the chat logs has no reply and no mod rows: they would act on an old line
     if self.logs_shown().is_some() {
       return;
+    }
+    if self.kind() == Kind::Whispers {
+      return self.dm_line_menu(at);
     }
     let Some(t) = self.tabs.get(self.active).filter(|t| matches!(t.kind, Kind::Chat | Kind::Mentions | Kind::Feed))
     else {

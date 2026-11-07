@@ -39,6 +39,17 @@ impl App {
     self.say(refuse);
   }
 
+  // `m` / right-click on a whispers row: "delete dm" for your own heatsync dm whose id is known. any other row
+  // has nothing to offer, so no menu opens
+  pub(super) fn dm_line_menu(&mut self, at: (i32, i32)) {
+    if self.selected_whisper().is_none_or(|w| w.dm_id().is_none()) {
+      return;
+    }
+    let rows = vec![(Act::DmAsk, "delete dm".to_owned())];
+    self.overlay = Some(Overlay::Pop(Pop::ask("dm".to_owned(), at, rows)));
+    self.pop_changed();
+  }
+
   // "yes, delete for both"
   pub(super) fn dm_delete_go(&mut self) {
     let Some(key) = self.whisper.pending_delete.take() else { return };
@@ -208,6 +219,28 @@ mod tests {
     }
     assert!(deletes(&mut asked).is_empty());
     assert_eq!(app.whisper.pending_delete, None);
+  }
+
+  #[test]
+  fn the_line_menu_offers_delete_dm_on_your_own_dm_only_and_it_opens_the_same_confirm() {
+    let (mut app, mut asked) = boot();
+    let mine = put(&mut app, "dm2", true, Via::Heatsync, "mine");
+    let theirs = put(&mut app, "dm1", false, Via::Heatsync, "their dm");
+    let whisper = put(&mut app, "a1", true, Via::Twitch, "a whisper");
+    for key in [theirs, whisper] {
+      pick(&mut app, key);
+      app.open_line_menu((10, 10));
+      assert!(asking(&app).is_none(), "no menu, so no delete row");
+    }
+    pick(&mut app, mine);
+    app.open_line_menu((10, 10));
+    assert_eq!(asking(&app).map(|a| a.1), Some(vec!["delete dm".to_owned()]));
+    app.pop_key(Key::Named(winit::keyboard::NamedKey::Enter));
+    let (head, rows) = asking(&app).expect("the confirm");
+    assert_eq!(head, "delete dm to amy?");
+    assert_eq!(rows, ["yes, delete for both", "cancel"]);
+    assert!(deletes(&mut asked).is_empty(), "nothing goes before the yes");
+    assert_eq!(app.whisper.pending_delete, Some(mine));
   }
 
   #[test]
