@@ -1,8 +1,13 @@
 // user prefs, persisted as `settings` (key=value lines). vi + auto_hide default off: a plain chat box
 use crate::heatsync::content::Cat;
+use crate::model::inline::Inline;
 use crate::model::schema::{self, Ctl};
 use crate::model::tabs::Kind;
 use crate::store;
+use crate::util::sound::Preset;
+
+// the longest file path a setting holds (one byte of length: 255 at most)
+pub const PATH_MAX: usize = 240;
 
 pub const ZOOM_MIN: u16 = 90;
 pub const ZOOM_MAX: u16 = 300;
@@ -115,6 +120,10 @@ choice! {
   Volume { V0 = "0", V10 = "10", V20 = "20", V30 = "30", V50 = "50", V70 = "70", V100 = "100" }
 }
 choice! {
+  // the sound a mention plays: the ext's four (src/util/sound.rs), or a wav file of yours (`ping_file`)
+  PingSound { Ping = "ping", Blip = "blip", Knock = "knock", Chime = "chime", Custom = "custom" }
+}
+choice! {
   // streamer mode: hide what must not show on a stream. `auto` = while obs is running
   Streamer { Off = "off", On = "on", Auto = "auto" }
 }
@@ -126,6 +135,19 @@ choice! {
 impl Volume {
   pub fn percent(self) -> u8 {
     [0, 10, 20, 30, 50, 70, 100][self as usize]
+  }
+}
+
+impl PingSound {
+  // the synthesized sound, or None for the file
+  pub fn preset(self) -> Option<Preset> {
+    [Some(Preset::Ping), Some(Preset::Blip), Some(Preset::Knock), Some(Preset::Chime), None][self as usize]
+  }
+}
+
+impl EmoteSize {
+  pub fn mul(self) -> u16 {
+    [1, 2, 4][self as usize]
   }
 }
 
@@ -221,6 +243,10 @@ pub struct Settings {
   // on; the ext, a web page, has no taskbar to light
   pub taskbar_flash: bool,
   pub mention_volume: Volume,
+  // which sound a mention plays, and the wav file behind `custom`. the ext has one fixed ping and a volume, so
+  // neither has a key there
+  pub ping_sound: PingSound,
+  pub ping_file: Inline<PATH_MAX>,
   // streamer mode (src/app/streamer.rs): whisper text, link previews, popup text and sounds are held back
   pub streamer: Streamer,
   // ...and the mention ping and rule sounds still play while it is on
@@ -296,6 +322,8 @@ impl Default for Settings {
       title_flash: true,
       taskbar_flash: true,
       mention_volume: Volume::V30,
+      ping_sound: PingSound::Ping,
+      ping_file: Inline::new(),
       streamer: Streamer::Off,
       streamer_sounds: false,
       updates: true,
@@ -389,7 +417,9 @@ impl Settings {
         continue;
       }
       one_badges |= k == "third_party_badges";
-      if schema::def(k).is_some_and(|d| d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v)) {
+      if schema::def(k).is_some_and(|d| {
+        d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v) || d.text_put(&mut out, v)
+      }) {
         continue;
       }
       if k == "zoom"
@@ -424,6 +454,8 @@ impl Settings {
         out.push_str(&format!("{}={name}\n", d.id));
       } else if let Some(ids) = d.listed(self) {
         out.push_str(&format!("{}={ids}\n", d.id));
+      } else if let Some(words) = d.texted(self) {
+        out.push_str(&format!("{}={words}\n", d.id));
       }
     }
     out.push_str(&format!(
@@ -516,6 +548,8 @@ pub enum Local {
   Pick(&'static str, Option<usize>),
   // `/modbuttons x 1m ban`: a button row by id and what was typed after it
   Buttons(&'static str, String),
+  // `/pingfile ~/Sounds/Ding.wav`: a words row by id and what was typed after it, case and spaces kept
+  Text(&'static str, String),
   // `/hide feed`, `/show mentions`; None = no such tab
   Tab(Option<Kind>, bool),
   // the settings screen, the key map
@@ -584,6 +618,13 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     && matches!(d.ctl, Ctl::Buttons(..))
   {
     return Some(Local::Buttons(d.id, arg.trim().to_owned()));
+  }
+  if let Some(d) = schema::by_cmd(word)
+    && matches!(d.ctl, Ctl::Text(..))
+  {
+    // the words keep their case: `low` is only for finding the command
+    let arg = text.trim().split_once(char::is_whitespace).map_or("", |(_, a)| a.trim());
+    return Some(Local::Text(d.id, arg.to_owned()));
   }
   for (word, on) in [("/hide", false), ("/show", true)] {
     if let Some(rest) = low.strip_prefix(word)
@@ -686,6 +727,8 @@ mod tests {
         title_flash: true,
         taskbar_flash: true,
         mention_volume: Volume::V30,
+        ping_sound: PingSound::Ping,
+        ping_file: Inline::new(),
         streamer: Streamer::Off,
         streamer_sounds: false,
         updates: true,
@@ -722,6 +765,7 @@ mod tests {
           set(&mut s, v)
         }
         Ctl::Buttons(_, set) => set(&mut s, 0b101),
+        Ctl::Text(w) => assert!((w.put)(&mut s, "Some Words.wav")),
         _ => {}
       }
     }
@@ -951,6 +995,40 @@ mod tests {
     assert_eq!(local_cmd("/lineheight 22"), Some(Local::Pick("line_height", Some(1))));
     assert_eq!(local_cmd("/animateemotes never"), Some(Local::Pick("animate_emotes", Some(1))));
     assert_eq!(local_cmd("/animateemotes hover"), Some(Local::Pick("animate_emotes", None)));
+    assert_eq!(local_cmd("/emotesize"), Some(Local::Pick("emote_size", None)));
+    assert_eq!(local_cmd("/pingsound chime"), Some(Local::Pick("ping_sound", Some(3))));
+    assert_eq!(local_cmd("/pingsound custom"), Some(Local::Pick("ping_sound", Some(4))));
+    assert_eq!(local_cmd("/pingsound bell"), Some(Local::Pick("ping_sound", None)));
+  }
+
+  // words rows keep what was typed: case, spaces, and nothing typed asks what it is now
+  #[test]
+  fn words_rows_keep_their_case_and_spaces() {
+    let text = |id: &str, s: &str| Some(Local::Text(schema::def(id).unwrap().id, s.to_owned()));
+    assert_eq!(local_cmd("/pingfile ~/My Sounds/Ding.WAV"), text("ping_file", "~/My Sounds/Ding.WAV"));
+    assert_eq!(local_cmd("  /PINGFILE   /a/B c.wav  "), text("ping_file", "/a/B c.wav"));
+    assert_eq!(local_cmd("/pingfile"), text("ping_file", ""));
+    assert_eq!(local_cmd("/pingfile off"), text("ping_file", "off"));
+  }
+
+  // a words row is read from and written to the file as typed; a value that doesn't fit is left out
+  #[test]
+  fn words_rows_survive_the_file_and_a_hostile_one() {
+    let mut s = Settings::default();
+    let d = schema::def("ping_file").unwrap();
+    assert!(d.text_put(&mut s, "/Some Dir/Ding=1.WAV"), "an equals sign is just a letter");
+    assert!(s.render().contains("ping_file=/Some Dir/Ding=1.WAV\n"));
+    assert_eq!(Settings::parse(&s.render()), s);
+    // too long for the room, or a control character: the line is ignored, the default stays
+    let long = format!("vi=true\nping_file={}\n", "x".repeat(PATH_MAX + 1));
+    let got = Settings::parse(&long);
+    assert!(got.vi && got.ping_file.is_empty());
+    assert!(Settings::parse("ping_file=a\u{7}b\n").ping_file.is_empty());
+    assert_eq!(Settings::parse("ping_file=\n").ping_file.as_str(), "");
+    assert_eq!(Settings::parse("ping_sound=custom\n").ping_sound, PingSound::Custom);
+    assert_eq!(Settings::parse("ping_sound=bell\n").ping_sound, PingSound::Ping);
+    assert_eq!(PingSound::Chime.preset(), Some(Preset::Chime));
+    assert_eq!(PingSound::Custom.preset(), None);
   }
 
   #[test]

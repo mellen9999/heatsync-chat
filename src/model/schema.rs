@@ -52,6 +52,10 @@ pub enum Fx {
   Filters,
   // a content switch flipped: what flagged pictures and emotes show
   Content,
+  // the mention sound was picked: it is heard once
+  Ping,
+  // the mention sound's file was set or cleared: set means custom, cleared means the ping; then heard
+  PingFile,
   // chat logs flipped: the writer starts or lets go
   ChatLogs,
   // a built-in tab came or went
@@ -82,7 +86,33 @@ pub enum Ctl {
   Commands,
   // the mod toolbar's picked buttons (a mask over model::modbar::CATALOG), typed as `/cmd x 1m ban`
   Buttons(fn(&Settings) -> u16, fn(&mut Settings, u16)),
+  // a few words typed as `/cmd words` (a font family, a file path): kept as typed, `off` clears them
+  Text(&'static Words),
 }
+
+// how a words row reads and writes its value
+pub struct Words {
+  // `/cmd <usage>`
+  pub usage: &'static str,
+  // what an empty value means, for the settings screen
+  pub none: &'static str,
+  pub get: fn(&Settings) -> &str,
+  // false = refused: too long, or holds a control character
+  pub put: fn(&mut Settings, &str) -> bool,
+  // the value as the screen and status lines show it (a path shows only its file name)
+  pub show: fn(&str) -> &str,
+  // whether a value can stick, in plain words if not. asked before it is kept; empty always passes
+  pub check: fn(&str) -> Result<(), &'static str>,
+}
+
+static PING_FILE: Words = Words {
+  usage: "<path|off>",
+  none: "none",
+  get: |s| s.ping_file.as_str(),
+  put: |s, v| s.ping_file.set(v),
+  show: |v| v.rsplit('/').next().unwrap_or(v),
+  check: |p| crate::util::wav::read(p).map(drop).map_err(|b| b.said()),
+};
 
 // how a row travels to and from the account's ui-state (model/sync.rs holds the codecs). the ext's key
 // names are its storage names, never renamed; rows with none stay on this device
@@ -561,6 +591,30 @@ pub static DEFS: [Def; 64] = [
     wire: Wire::Level("mentionSoundVolume"),
   },
   Def {
+    id: "ping_sound",
+    cmd: Some("/pingsound"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "mention sound",
+    tip: "which sound plays when someone @s you: ping, blip, knock or chime, or custom for a wav file of your own (/pingfile). you hear it as you pick. stays on this computer. /pingsound chime",
+    alias: "ping audio tone sound chime blip knock wav custom",
+    ctl: pick!(ping_sound, PingSound),
+    fx: Fx::Ping,
+    wire: Wire::None,
+  },
+  Def {
+    id: "ping_file",
+    cmd: Some("/pingfile"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "custom sound file",
+    tip: "a wav file for the mention sound: plain pcm (8 or 16 bit, mono or stereo), 2mb and 3 seconds at most. setting one picks custom, off goes back to the ping. /pingfile ~/sounds/ding.wav",
+    alias: "ping audio sound wav file path custom",
+    ctl: Ctl::Text(&PING_FILE),
+    fx: Fx::PingFile,
+    wire: Wire::None,
+  },
+  Def {
     id: "streamer",
     cmd: Some("/streamer"),
     cat: Cat::Notifs,
@@ -986,6 +1040,22 @@ impl Def {
     }
   }
 
+  // a words row's value now; None when it isn't one
+  pub fn texted<'a>(&self, s: &'a Settings) -> Option<&'a str> {
+    match self.ctl {
+      Ctl::Text(w) => Some((w.get)(s)),
+      _ => None,
+    }
+  }
+
+  // set a words row from the file or a command; false when it isn't one or the words don't fit
+  pub fn text_put(&self, s: &mut Settings, words: &str) -> bool {
+    match self.ctl {
+      Ctl::Text(w) => (w.put)(s, words),
+      _ => false,
+    }
+  }
+
   // a Pick row's value name now
   pub fn picked(&self, s: &Settings) -> Option<&'static str> {
     match self.ctl {
@@ -1069,6 +1139,44 @@ mod tests {
       assert!(d.picked(&s).is_some_and(|n| n == n.to_lowercase()), "{}", d.id);
     }
     assert_eq!(def("mention_volume").unwrap().picked(&Settings::default()), Some("30"), "the ext's 0.3");
+  }
+
+  #[test]
+  fn words_rows_read_write_and_refuse_what_does_not_fit() {
+    let d = def("ping_file").unwrap();
+    let mut s = Settings::default();
+    assert_eq!(d.texted(&s), Some(""));
+    assert!(d.text_put(&mut s, "  ~/s/Ding.wav "));
+    assert_eq!(d.texted(&s), Some("~/s/Ding.wav"), "trimmed, case kept");
+    assert!(!d.text_put(&mut s, &"x".repeat(300)), "too long");
+    assert!(!d.text_put(&mut s, "a\nb"), "a line break would split the file");
+    assert_eq!(d.texted(&s), Some("~/s/Ding.wav"), "a refusal changes nothing");
+    assert!(d.text_put(&mut s, ""));
+    assert_eq!(d.texted(&s), Some(""));
+    // only a words row answers
+    let z = def("zebra").unwrap();
+    assert!(z.texted(&s).is_none() && !z.text_put(&mut s, "x"));
+    assert!(d.on(&s).is_none() && d.picked(&s).is_none() && !d.put(&mut s, true) && !d.pick(&mut s, "x"));
+    // the screen shows a path as its file name only
+    let Ctl::Text(w) = d.ctl else { panic!("a words row") };
+    assert_eq!((w.show)("/home/me/Sounds/Ding.wav"), "Ding.wav");
+    assert_eq!((w.show)("Ding.wav"), "Ding.wav");
+  }
+
+  // a file that isn't a wav is refused before it is kept, in plain words
+  #[test]
+  fn the_sound_file_row_checks_the_file_first() {
+    let Ctl::Text(w) = def("ping_file").unwrap().ctl else { panic!("a words row") };
+    assert_eq!((w.check)("/hsc/no/such.wav"), Err("can't open that file"));
+    let dir = std::env::temp_dir().join(format!("hsc-schema-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let junk = dir.join("junk.wav");
+    std::fs::write(&junk, b"not a wav").unwrap();
+    assert_eq!((w.check)(junk.to_str().unwrap()), Err("that isn't a wav file"));
+    let good = dir.join("good.wav");
+    std::fs::write(&good, crate::util::wav::encode(8000, 1, &[1, 2, 3])).unwrap();
+    assert_eq!((w.check)(good.to_str().unwrap()), Ok(()));
+    let _ = std::fs::remove_dir_all(&dir);
   }
 
   #[test]

@@ -48,7 +48,14 @@ fn get_cell(d: &Def, s: &Settings) -> Option<Cell> {
     Ctl::Pick(c, get, _) => Some(Cell::Is(c.names[get(s)])),
     Ctl::Side => Some(Cell::Is(s.tab_side.name())),
     Ctl::Counter => Some(Cell::Is(s.tab_counter.name())),
-    Ctl::Zoom | Ctl::People | Ctl::Alerts | Ctl::Commands | Ctl::Rules | Ctl::Reasons | Ctl::Buttons(..) => None,
+    Ctl::Zoom
+    | Ctl::People
+    | Ctl::Alerts
+    | Ctl::Commands
+    | Ctl::Rules
+    | Ctl::Reasons
+    | Ctl::Buttons(..)
+    | Ctl::Text(..) => None,
   }
 }
 

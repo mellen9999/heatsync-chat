@@ -273,6 +273,10 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
         let n = crate::model::filter::with(|f| f.reasons().len());
         (if n == 0 { "none".to_owned() } else { format!("{n} · enter opens") }, None)
       }
+      Ctl::Text(w) => {
+        let v = (w.get)(set);
+        (if v.is_empty() { w.none.to_owned() } else { (w.show)(v).to_owned() }, None)
+      }
     };
     lines.push(L::Row { a: d.label.to_owned(), b, pill });
     targets.push(Target::Def(d));
@@ -332,6 +336,8 @@ impl App {
         self.feed_show();
       }
       Fx::Tab(_) => self.fix_active(),
+      Fx::Ping => self.ping_preview(),
+      Fx::PingFile => self.ping_file_follow(),
     }
     self.input_dirty = true;
     self.bar_dirty = true;
@@ -352,6 +358,34 @@ impl App {
       self.applied(d.fx);
       self.set.save();
     }
+  }
+
+  // /pingfile <path>: a words row set as typed, case and spaces kept. nothing typed says what it is now; `off`
+  // clears it. a value that is too long, or that the row's own check refuses, changes nothing
+  pub(super) fn text_to(&mut self, d: &'static Def, arg: &str) {
+    let Ctl::Text(w) = d.ctl else { return };
+    let cmd = d.cmd.unwrap_or("/set");
+    let now = (w.get)(&self.set);
+    if arg.is_empty() {
+      let shown = if now.is_empty() { w.none } else { (w.show)(now) };
+      return self.say(format!("{}: {shown} \u{b7} {cmd} {}", d.label, w.usage));
+    }
+    let to = if matches!(arg.to_lowercase().as_str(), "off" | "none") { "" } else { arg };
+    let mut next = self.set;
+    if !(w.put)(&mut next, to) {
+      return self.say(format!("{} is too long or has odd characters", d.label));
+    }
+    if next == self.set {
+      return self.say(format!("{} is already that", d.label));
+    }
+    if !to.is_empty()
+      && let Err(why) = (w.check)(to)
+    {
+      return self.say(why);
+    }
+    self.set = next;
+    self.applied(d.fx);
+    self.set.save();
   }
 
   // /modbuttons <names>: the toolbar's buttons, replaced as typed; nothing typed says what is picked
@@ -390,7 +424,8 @@ impl App {
     self.set = old.reset();
     let mut fx = Vec::new();
     for d in DEFS.iter() {
-      let moved = d.on(&old) != d.on(&self.set) || d.picked(&old) != d.picked(&self.set);
+      let moved =
+        d.on(&old) != d.on(&self.set) || d.picked(&old) != d.picked(&self.set) || d.texted(&old) != d.texted(&self.set);
       if moved && d.fx != Fx::None && !fx.contains(&d.fx) {
         fx.push(d.fx);
       }
@@ -591,14 +626,14 @@ impl App {
         Ctl::People if adjust.is_none() => self.list_open(Kind::People),
         Ctl::Alerts if adjust.is_none() => self.list_open(Kind::Alerts),
         Ctl::Commands if adjust.is_none() => self.list_open(Kind::Commands),
-        // the toolbar's buttons live in a slash command: leave with it ready to finish
-        Ctl::Buttons(..) if adjust.is_none() => {
+        // the toolbar's buttons and the words rows live in a slash command: leave with it ready to finish
+        Ctl::Buttons(..) | Ctl::Text(..) if adjust.is_none() => {
           self.close_screen();
           if let Some(c) = d.cmd {
             self.type_into_line(&format!("{c} "));
           }
         }
-        Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Commands | Ctl::Buttons(..) => {}
+        Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Commands | Ctl::Buttons(..) | Ctl::Text(..) => {}
       },
       (Some(Target::Reset), None) => self.ask_reset(),
       (Some(Target::Account(step)), None) => self.account_step(step),
@@ -791,6 +826,39 @@ mod tests {
     // headings never come twice in a row and never end the list
     assert!(matches!(lines.last(), Some(L::Row { .. })));
     assert!(lines.windows(2).all(|w| !(matches!(w[0], L::Head(_)) && matches!(w[1], L::Head(_)))));
+  }
+
+  // the sound rows: the pick shows by name, the file by its file name (never the folders), and enter on the
+  // file row leaves with its command typed, ready for the path
+  #[test]
+  fn the_sound_rows_show_a_name_and_enter_on_the_file_row_types_its_command() {
+    let mut set = Settings::default();
+    let value = |q: &str, set: &Settings| {
+      let (lines, _) = settings_lines(q, set);
+      lines.iter().find_map(|l| if let L::Row { b, .. } = l { Some(b.clone()) } else { None }).unwrap()
+    };
+    assert_eq!(value("ping_sound", &set), "ping");
+    assert_eq!(value("ping_file", &set), "none");
+    assert!(set.ping_file.set("/home/me/Sounds/Ding.wav"));
+    assert_eq!(value("ping_file", &set), "Ding.wav");
+    let (net, _asked) = crate::net::Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.set = Settings::default();
+    app.open_screen(Page::Settings);
+    let at = {
+      let (_, targets) = app.screen.as_ref().unwrap().lines(&app.set);
+      targets.iter().position(|t| matches!(t, Target::Def(d) if d.id == "ping_file")).unwrap()
+    };
+    app.screen.as_mut().unwrap().st.at = at;
+    app.screen_pick(None);
+    assert!(app.screen.is_none(), "the screen steps aside");
+    assert_eq!(app.line.text, "/pingfile ");
+    // h and l on a words row change nothing
+    app.open_screen(Page::Settings);
+    app.screen.as_mut().unwrap().st.at = at;
+    let before = app.set;
+    app.screen_pick(Some(true));
+    assert!(app.screen.is_some() && app.set == before);
   }
 
   #[test]

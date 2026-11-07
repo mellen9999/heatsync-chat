@@ -108,6 +108,11 @@ impl App {
           self.buttons_to(d, &arg);
         }
       }
+      Local::Text(id, arg) => {
+        if let Some(d) = crate::model::schema::def(id) {
+          self.text_to(d, &arg);
+        }
+      }
       Local::Tab(Some(k), shown) => self.set_shown(k, shown),
       Local::Tab(None, shown) => {
         self.say(format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }))

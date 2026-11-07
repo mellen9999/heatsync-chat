@@ -22,6 +22,7 @@ pub mod ident;
 pub mod ime;
 pub mod import;
 pub mod inbox;
+pub mod inline;
 pub mod inventory;
 pub mod keys;
 pub mod layout_link;

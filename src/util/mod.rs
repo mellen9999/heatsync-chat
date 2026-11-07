@@ -5,6 +5,7 @@ pub mod notify;
 pub mod open;
 pub mod sound;
 pub mod time;
+pub mod wav;
 
 // at most `max` bytes of `s`, cut on a char boundary
 pub fn clamp(s: &str, max: usize) -> &str {

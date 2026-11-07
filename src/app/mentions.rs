@@ -10,12 +10,13 @@ use crate::model::filter;
 use crate::model::inbox::{self, Item};
 use crate::model::mention_file::{self as file, Read};
 use crate::model::message::{Extra, Message, Platform, flag};
+use crate::model::settings::PingSound;
 use crate::model::tabs::Kind;
 use crate::model::unseen::Surface;
 use crate::net::{Cmd, social};
 use crate::store;
 use crate::util::notify;
-use crate::util::sound::Preset;
+use crate::util::sound::{Preset, Voice};
 use crate::util::time::now_ms;
 use winit::window::UserAttentionType;
 
@@ -88,7 +89,7 @@ impl App {
       notify::send("mention", title, self.popup_body(body));
     }
     if !self.sound_muted() {
-      crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
+      crate::util::sound::mention(self.ping_voice(), self.set.mention_volume.percent(), now_ms());
       if self.set.taskbar_flash {
         self.light_taskbar();
       }
@@ -203,6 +204,35 @@ impl App {
     if let Some(text) = self.notify_pace.tick(now) {
       notify::send("mention", "heatsync", &text);
     }
+  }
+
+  // the sound a mention plays: the one picked, or your wav file when the pick is custom
+  pub(super) fn ping_voice(&self) -> Voice {
+    match self.set.ping_sound.preset() {
+      Some(p) => Voice::Preset(p),
+      None => Voice::File(self.set.ping_file.as_str().to_owned()),
+    }
+  }
+
+  // the mention sound as it would play now, heard when you pick it (not while streamer mode holds sounds back).
+  // custom with no file picked yet says what is missing instead
+  pub(super) fn ping_preview(&mut self) {
+    if self.set.ping_sound == PingSound::Custom && self.set.ping_file.is_empty() {
+      return self.say("custom plays a wav file of yours: /pingfile ~/sounds/ding.wav");
+    }
+    if !self.sound_muted() {
+      crate::util::sound::preview(self.ping_voice(), self.set.mention_volume.percent());
+    }
+  }
+
+  // a sound file was set or cleared: a file means custom, none means back to the ping; then it is heard
+  pub(super) fn ping_file_follow(&mut self) {
+    if !self.set.ping_file.is_empty() {
+      self.set.ping_sound = PingSound::Custom;
+    } else if self.set.ping_sound == PingSound::Custom {
+      self.set.ping_sound = PingSound::Ping;
+    }
+    self.ping_preview();
   }
 
   // the taskbar entry lights up once per time away (on dwl the window's tag turns urgent); the compositor puts it
