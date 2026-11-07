@@ -1,8 +1,10 @@
 // the mod toolbar (ext mod-toolbar.js): while the pointer rests on a line of someone's in a room we
 // moderate, the picked buttons (/modbuttons) sit at that line's top right; a click runs the same action
-// the line menu offers (mod_run: confirm-before-ban and reasons included). like the jump chip it repaints
-// only when its place or hover changes, or when something painted over it. nothing is built while no
-// button is picked
+// the line menu offers (mod_run: confirm-before-ban and reasons included). with /hoverreply on, a reply
+// button leads the strip on any line that can be replied to (a click starts the reply as the menu's reply
+// does) and stands alone where there are no mod buttons. like the jump chip it repaints only when its
+// place or hover changes, or when something painted over it. nothing is built while no button is picked
+// and the reply is off
 use super::App;
 use crate::model::message::flag;
 use crate::model::modbar::{self, CATALOG};
@@ -23,9 +25,8 @@ pub(super) struct ModBar {
 impl App {
   // the strip as it should look this frame, with the seq of the line it belongs to
   fn modbar_want(&mut self) -> Option<(Shown, i64)> {
-    if self.set.mod_buttons == 0
+    if (self.set.mod_buttons == 0 && !self.set.hover_reply)
       || self.modbar.away
-      || self.me.is_none()
       || self.overlay.is_some()
       || self.form.is_some()
       || self.screen.is_some()
@@ -43,17 +44,29 @@ impl App {
     let (top, _, seq) = t.view.line_at(area, y, &mut self.res)?;
     let t = self.tabs.get(self.active)?;
     let m = t.view.message(seq)?;
-    // someone's line, not ours (the ext skips own lines), in a room we moderate
-    if !m.kind.said() || m.login.is_empty() || m.has(flag::OWN) {
+    if !m.kind.said() {
       return None;
     }
-    let chan = self.room_of(m)?;
-    if !self.can_mod(m.platform, &chan) || self.me.as_ref()?.names.iter().any(|n| n.eq_ignore_ascii_case(&m.login)) {
-      return None;
-    }
-    let mask = modbar::visible(self.set.mod_buttons, m.platform, !m.id.is_empty());
-    let bar = mod_bar::place(&mut self.res.text, area, top, mask)?;
+    // the reply button: the line menu's own test for a reply (a line with an id, in a channel tab)
+    let reply = self.set.hover_reply && t.kind == Kind::Chat && !m.id.is_empty();
+    // the mod buttons: someone's line, not ours (the ext skips own lines), in a room we moderate
+    let mask = self.modbar_mask(m);
+    let bar = mod_bar::place(&mut self.res.text, area, top, mask, reply)?;
     Some(((bar, bar.at(x, y)), seq))
+  }
+
+  // the picked mod buttons that suit this line; none when we can't moderate it
+  fn modbar_mask(&self, m: &crate::model::message::Message) -> u16 {
+    if self.set.mod_buttons == 0 || self.me.is_none() || m.login.is_empty() || m.has(flag::OWN) {
+      return 0;
+    }
+    let Some(chan) = self.room_of(m) else { return 0 };
+    if !self.can_mod(m.platform, &chan)
+      || self.me.as_ref().is_some_and(|me| me.names.iter().any(|n| n.eq_ignore_ascii_case(&m.login)))
+    {
+      return 0;
+    }
+    modbar::visible(self.set.mod_buttons, m.platform, !m.id.is_empty())
   }
 
   // `full`: the chat was just repainted whole (the strip with it); `anim`: an emote animation repainted
@@ -109,7 +122,7 @@ impl App {
   // the pointer moved: the strip follows it to another line, lights a cell, or goes
   pub(super) fn modbar_hover(&mut self) {
     self.modbar.away = false;
-    if self.set.mod_buttons == 0 && self.modbar.shown.is_none() {
+    if self.set.mod_buttons == 0 && !self.set.hover_reply && self.modbar.shown.is_none() {
       return;
     }
     if self.modbar_want().map(|w| w.0) != self.modbar.shown {
@@ -125,6 +138,11 @@ impl App {
     let Some(((cur, _), seq)) = self.modbar_want() else { return true };
     // the strip on screen is the one the pointer is on (a stale one is not acted on)
     if cur != bar {
+      return true;
+    }
+    if bar.idx[cell] == mod_bar::REPLY {
+      self.reply_to(Some(seq));
+      self.wake();
       return true;
     }
     let verb = CATALOG[bar.idx[cell] as usize].verb;

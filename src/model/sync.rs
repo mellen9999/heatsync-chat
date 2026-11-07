@@ -489,9 +489,9 @@ mod tests {
     out
   }
 
-  // keys this window writes that the ext's catalog does not hold yet: the name is the one the settings pass
-  // agreed for the merged switch, and the ext and the site add it. drop it from here the day the fixture has it
-  const PENDING: [&str; 1] = ["thirdPartyBadges"];
+  // keys this window writes that the ext's catalog does not hold yet: the name is the one agreed with the ext
+  // and the site, who add it. drop it from here the day the fixture has it
+  const PENDING: [&str; 2] = ["thirdPartyBadges", "hoverReply"];
 
   fn fixture() -> Value {
     serde_json::from_str(include_str!("sync_fixture.json")).unwrap()
@@ -1042,6 +1042,28 @@ mod tests {
     let m = p["inlineNotifs"].as_object().unwrap();
     for k in ["op", "mop", "re", "dm"] {
       assert_eq!(m.get(k), Some(&json!(true)), "{k}");
+    }
+  }
+
+  // the reply button rides under the key the site and the ext use, off until the account says on
+  #[test]
+  fn hover_reply_rides_under_its_own_key() {
+    assert!(keys().contains(&"hoverReply"));
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    assert!(!s.hover_reply, "off by default");
+    // the account turns it on: we follow, and write nothing back
+    assert_eq!(a.inbound(&one("hoverReply", json!(true)), &mut s, NOW).len(), 1);
+    assert!(s.hover_reply);
+    assert!(a.outbound(&s, NOW + 1000, true).is_none());
+    // we turn it off here: it goes up once under that key, as a plain boolean
+    s.hover_reply = false;
+    assert!(a.outbound(&s, NOW + 2000, true).is_none(), "wait out the burst");
+    let sent = a.outbound(&s, NOW + 2000 + DEBOUNCE_MS, true).expect("the change goes up");
+    assert_eq!(sent, json!({"hoverReply": false}));
+    // junk for the key changes nothing
+    for bad in [json!(null), json!("yes"), json!(1), json!([true])] {
+      assert!(a.inbound(&one("hoverReply", bad), &mut s, NOW + 9000).is_empty() && !s.hover_reply);
     }
   }
 

@@ -286,8 +286,19 @@ impl App {
 
   // `r` on the selected line: reply to it on its own platform
   pub(super) fn reply_selected(&mut self) {
+    self.reply_to(None)
+  }
+
+  // reply to the line `seq` (None: the picked one) on its own platform: the line menu's reply, and the
+  // hover button's
+  pub(super) fn reply_to(&mut self, seq: Option<i64>) {
     let Some(t) = self.tabs.get_mut(self.active).filter(|t| t.kind == Kind::Chat) else { return };
-    let Some(m) = t.view.selected() else { return };
+    let Some(m) = (match seq {
+      Some(s) => t.view.message(s),
+      None => t.view.selected(),
+    }) else {
+      return;
+    };
     if m.id.is_empty() {
       return self.say("that line can't be replied to");
     }

@@ -229,6 +229,8 @@ pub struct Settings {
   pub confirm_ban: bool,
   // the hover toolbar's picked buttons, a mask over model::modbar::CATALOG (ext hs_mod_toolbar_buttons). none by default
   pub mod_buttons: u16,
+  // a reply button on the line under the pointer (ext/site hoverReply). off by default
+  pub hover_reply: bool,
   // flagged pictures and emotes shown, by category (ext viewer_show_*): all off by default
   pub show_nsfw: bool,
   pub show_violence: bool,
@@ -292,6 +294,7 @@ impl Default for Settings {
       hide_dupes: false,
       confirm_ban: false,
       mod_buttons: 0,
+      hover_reply: false,
       show_nsfw: false,
       show_violence: false,
       show_weapons: false,
@@ -678,6 +681,7 @@ mod tests {
         hide_dupes: false,
         confirm_ban: false,
         mod_buttons: 0,
+        hover_reply: false,
         show_nsfw: false,
         show_violence: false,
         show_weapons: false,

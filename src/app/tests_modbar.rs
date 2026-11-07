@@ -84,11 +84,11 @@ fn bar(app: &App) -> Option<crate::ui::mod_bar::Bar> {
 }
 
 fn labels(app: &App) -> Vec<&'static str> {
-  bar(app).map_or_else(Vec::new, |b| (0..b.n).map(|i| modbar::CATALOG[b.idx[i] as usize].label).collect())
+  bar(app).map_or_else(Vec::new, |b| (0..b.n).map(|i| b.label(i)).collect())
 }
 
 fn over(app: &mut App, b: crate::ui::mod_bar::Bar, label: &str) {
-  let i = (0..b.n).find(|&i| modbar::CATALOG[b.idx[i] as usize].label == label).expect("that button is on the bar");
+  let i = (0..b.n).find(|&i| b.label(i) == label).expect("that button is on the bar");
   let r = b.cell[i];
   app.pointer = (r.x + r.w / 2, r.y + r.h / 2);
   app.modbar_hover();
@@ -260,4 +260,190 @@ fn headless_modbar_look() {
     }
   }
   assert!(seen < b.rect.w as usize, "only chat text is left over the old strip, not its border");
+}
+
+// ---- the reply button (hoverReply) rides the same strip ----
+
+// a twitch room we do not moderate, bob's line at the bottom, the pointer resting on it
+fn on_bob_replying() -> (App, Rx) {
+  let (mut app, rx) = boot();
+  app.set.hover_reply = true;
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "bob", "m1")));
+  app.redraw();
+  rest(&mut app);
+  (app, rx)
+}
+
+fn replies(app: &App) -> Option<(Box<str>, Box<str>)> {
+  app.reply.as_ref().map(|r| (r.id.clone(), r.nick.clone()))
+}
+
+#[test]
+fn the_reply_button_is_off_unless_asked_for_and_wants_a_line_it_can_answer() {
+  assert!(!Settings::default().hover_reply, "off by default, like the site");
+  // off: nothing on the line, mod room or not
+  let (mut app, _rx) = boot();
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "bob", "m1")));
+  app.redraw();
+  rest(&mut app);
+  assert!(bar(&app).is_none());
+  // on: one cell, the hook arrow, though we moderate nothing here
+  app.set.hover_reply = true;
+  rest(&mut app);
+  assert_eq!(labels(&app), ["\u{21aa}"]);
+  // our own line can be answered too (the line menu offers it)
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "mellen", "m2")));
+  app.redraw();
+  rest(&mut app);
+  assert_eq!(labels(&app), ["\u{21aa}"]);
+  // a line with no platform id has nothing to reply to; an event line is nobody's
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "amy", "")));
+  app.redraw();
+  rest(&mut app);
+  assert!(bar(&app).is_none());
+  app.on_chat("forsen", Chat::Msg(Message::system(now_ms(), Platform::Twitch, "bob was timed out")));
+  app.redraw();
+  rest(&mut app);
+  assert!(bar(&app).is_none());
+  // switched back off while showing: it goes
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "bob", "m3")));
+  app.redraw();
+  rest(&mut app);
+  assert!(bar(&app).is_some());
+  app.set.hover_reply = false;
+  rest(&mut app);
+  assert!(bar(&app).is_none());
+}
+
+#[test]
+fn the_button_is_drawn_over_the_row_without_moving_anything_else() {
+  let (mut app, _rx) = boot();
+  app.set.hover_reply = true;
+  for i in 0..4 {
+    app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "amy", &format!("a{i}"))));
+  }
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "bob", "m1")));
+  app.redraw();
+  let a = app.chat_area();
+  // the pointer far from any line: the chat as it is without the button
+  app.pointer = (5, 0);
+  app.modbar_hover();
+  app.redraw();
+  assert!(bar(&app).is_none());
+  let before = app.canvas.px.clone();
+  let h = |app: &mut App| {
+    let t = app.tabs.get_mut(app.active).unwrap();
+    (a.y..a.bottom()).map(|y| t.view.line_at(a, y, &mut app.res)).collect::<Vec<_>>()
+  };
+  let lines = h(&mut app);
+  // the pointer on the newest line
+  rest(&mut app);
+  let b = bar(&app).expect("the button shows on hover");
+  assert_eq!(b.n, 1);
+  assert_eq!(h(&mut app), lines, "every line keeps its top, bottom and place: nothing re-wrapped");
+  let (w, mut outside, mut inside) = (app.canvas.w, 0, 0);
+  for (i, (&was, &now)) in before.iter().zip(&app.canvas.px).enumerate() {
+    if was != now {
+      let (x, y) = (i as i32 % w, i as i32 / w);
+      if b.rect.contains(x, y) {
+        inside += 1;
+      } else {
+        outside += 1;
+      }
+    }
+  }
+  assert_eq!(outside, 0, "not one pixel moved outside the button");
+  assert!(inside > 0, "the button is drawn");
+  assert!(b.rect.bottom() <= a.bottom() && b.rect.right() <= a.right(), "inside the chat");
+  // the pointer leaving takes it away and the row is exactly as it was
+  app.pointer = (5, 0);
+  app.modbar_hover();
+  app.redraw();
+  assert!(bar(&app).is_none());
+  assert!(app.canvas.px == before, "nothing of the button is left behind");
+}
+
+#[test]
+fn white_on_black_and_the_hovered_arrow_inverts() {
+  let (mut app, _rx) = on_bob_replying();
+  let b = bar(&app).expect("on bob");
+  let r = b.cell[0];
+  let at = |app: &App, x: i32, y: i32| app.canvas.px[y as usize * app.canvas.w as usize + x as usize] & 0xffffff;
+  // resting: black ground, white arrow, a thin edge
+  assert_eq!(at(&app, r.x + 1, r.y + 1), theme::BLACK);
+  assert!(app.canvas.px.contains(&theme::DIM));
+  let lit = |app: &App, ink: u32| {
+    (r.y..r.bottom()).flat_map(|y| (r.x..r.right()).map(move |x| (x, y))).filter(|&(x, y)| at(app, x, y) == ink).count()
+  };
+  let plain = lit(&app, theme::WHITE);
+  assert!(plain > 0, "the arrow is white");
+  // under the pointer: a white block with the arrow black
+  over(&mut app, b, "\u{21aa}");
+  assert!(app.modbar.shown.unwrap().1.is_some());
+  assert!(lit(&app, theme::WHITE) > (r.w * r.h) as usize / 2, "a white block");
+  assert!(lit(&app, theme::BLACK) > 0, "the arrow black on it");
+  crate::bench::dump(&app.canvas);
+}
+
+#[test]
+fn a_click_starts_the_reply_the_line_menu_would() {
+  let (mut app, mut rx) = on_bob_replying();
+  assert!(app.reply.is_none());
+  let b = bar(&app).expect("on bob");
+  over(&mut app, b, "\u{21aa}");
+  app.click();
+  assert_eq!(replies(&app), Some(("m1".into(), "bob".into())));
+  assert_eq!(app.mode, crate::model::vi::Mode::Insert, "the box is ready to type");
+  assert!(app.card().is_none() && app.pop().is_none(), "the line's own click stays out");
+  assert!(mods(&mut rx).is_empty());
+  // the menu's reply on the same line gives the same
+  let was = app.reply.take().unwrap();
+  let a = app.chat_area();
+  let y = a.bottom() - 5;
+  assert!(app.tabs[app.active].view.select_at(a, y, &mut app.res));
+  app.reply_selected();
+  let now = app.reply.as_ref().expect("the menu's reply");
+  assert_eq!((&now.id, &now.nick, &now.text, now.platform), (&was.id, &was.nick, &was.text, was.platform));
+}
+
+#[test]
+fn it_sits_beside_the_mod_buttons_and_each_clicks_alone() {
+  let (mut app, mut rx) = on_bob("x 10m");
+  app.set.hover_reply = true;
+  let b = again(&mut app);
+  assert_eq!(labels(&app), ["\u{21aa}", "x", "10m"]);
+  for i in 1..b.n {
+    assert!(b.cell[i - 1].right() < b.cell[i].x, "cells apart: nothing overlaps");
+  }
+  assert_eq!(b.rect.right(), app.chat_area().right() - 4, "the mod buttons keep their place at the right");
+  // the mod button still does its job and starts no reply
+  over(&mut app, b, "10m");
+  app.click();
+  let got = mods(&mut rx);
+  assert_eq!((got.len(), got[0].verb), (1, Verb::Timeout(600)));
+  assert!(app.reply.is_none());
+  // the reply starts a reply and sends no mod action
+  let b = again(&mut app);
+  over(&mut app, b, "\u{21aa}");
+  app.click();
+  assert!(mods(&mut rx).is_empty());
+  assert_eq!(replies(&app), Some(("m1".into(), "bob".into())));
+  // in a room we moderate the reply shows on our own line (no mod buttons there) and alone
+  app.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "mellen", "m2")));
+  app.redraw();
+  rest(&mut app);
+  assert_eq!(labels(&app), ["\u{21aa}"]);
+}
+
+#[test]
+fn the_switch_is_kept_in_the_file_and_flipped_with_its_command() {
+  let s = Settings::parse("hover_reply=true\n");
+  assert!(s.hover_reply);
+  assert!(Settings::parse(&s.render()).hover_reply);
+  assert!(!Settings::parse("hover_reply=false\n").hover_reply);
+  let (mut app, _rx) = boot();
+  app.local(crate::model::settings::local_cmd("/hoverreply").unwrap());
+  assert!(app.set.hover_reply);
+  app.local(crate::model::settings::local_cmd("/hoverreply").unwrap());
+  assert!(!app.set.hover_reply);
 }

@@ -137,7 +137,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 62] = [
+pub static DEFS: [Def; 63] = [
   Def {
     id: "first_glow",
     cmd: Some("/glow"),
@@ -473,6 +473,18 @@ pub static DEFS: [Def; 62] = [
     ctl: pill!(dim_timeouts),
     fx: Fx::Look,
     wire: Wire::None,
+  },
+  Def {
+    id: "hover_reply",
+    cmd: Some("/hoverreply"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "reply button on hover",
+    tip: "a \u{21aa} button on the line under the pointer: one click starts a reply, same as reply in the line menu",
+    alias: "hoverReply reply hover button",
+    ctl: pill!(hover_reply),
+    fx: Fx::None,
+    wire: Wire::Bool("hoverReply"),
   },
   Def {
     id: "updates",
