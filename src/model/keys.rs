@@ -32,7 +32,7 @@ const fn v(keys: &'static str, does: &'static str) -> Row {
   Row { keys, does, vi: true }
 }
 
-pub static KEYS: [Group; 18] = [
+pub static KEYS: [Group; 19] = [
   Group {
     name: "anywhere",
     rows: &[
@@ -322,6 +322,20 @@ pub static KEYS: [Group; 18] = [
       k("esc q", "close"),
     ],
   },
+  Group {
+    name: "little marks on a line (what they mean)",
+    rows: &[
+      k("new here", "a chatter introducing themselves for the first time"),
+      k("returning", "a white bar: a chatter back after a long time away"),
+      k("first message", "a magenta bar and \u{25c7}: their very first message in this channel"),
+      k(
+        "shared:name",
+        "said in a partner channel's room, in a twitch shared chat (just shared if the room isn't known)",
+      ),
+      k("fx:name", "a twitch power-up: the message plays an effect, like fx:simmer"),
+      k("n/limit", "in the message box near the length limit: yellow close to it, red past it"),
+    ],
+  },
 ];
 
 #[cfg(test)]
@@ -360,6 +374,7 @@ mod tests {
       "your emotes (ctrl-p)" => "emotes",
       "menus and cards" => "menus",
       n if n.starts_with("your lists") => "lists",
+      n if n.starts_with("little marks") => "marks",
       "settings (ctrl-,)" => "settings",
       "followed (ctrl-b)" => "followed",
       "import (/import)" => "import",
@@ -388,6 +403,8 @@ mod tests {
       "import" => &["app/import.rs", "app/screen.rs"],
       "mod tools" => &["app/modtools.rs", "app/screen.rs"],
       "lists" => &["app/lists.rs", "app/screen.rs"],
+      // marks you read, not keys you press
+      "marks" => &[],
       // the box and the chat: the key handlers, the vi engine, zoom, paste, the find bar and the lists
       _ => &[
         "app/keys.rs",
@@ -482,7 +499,7 @@ mod tests {
   #[test]
   fn no_key_is_listed_twice_in_one_place() {
     let mut seen = HashSet::new();
-    for g in &KEYS {
+    for g in KEYS.iter().filter(|g| layer(g) != "marks") {
       for r in g.rows {
         for t in tokens(r.keys) {
           let place = (layer(g), r.vi);
@@ -497,6 +514,9 @@ mod tests {
   fn every_listed_key_is_in_the_handler_that_answers_it() {
     let slash: HashSet<&str> = crate::model::slash::all().iter().map(|s| s.name).collect();
     for g in &KEYS {
+      if layer(g) == "marks" {
+        continue;
+      }
       let code = handlers(layer(g));
       for r in g.rows {
         for t in tokens(r.keys) {
@@ -615,6 +635,15 @@ mod tests {
       }
     }
     assert!(missing.is_empty(), "keys with no row on the ? screen:\n{}", missing.join("\n"));
+  }
+
+  // the marks a person sees on a line are explained on the ? screen, in one group of their own
+  #[test]
+  fn the_key_map_explains_the_chips_and_marks() {
+    let g = KEYS.iter().find(|g| g.name.starts_with("little marks")).expect("a group for the marks");
+    let keys: Vec<&str> = g.rows.iter().map(|r| r.keys).collect();
+    assert_eq!(keys, ["new here", "returning", "first message", "shared:name", "fx:name", "n/limit"]);
+    assert!(g.rows.iter().all(|r| !r.vi));
   }
 
   #[test]
