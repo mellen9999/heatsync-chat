@@ -195,6 +195,18 @@ pub static DEFS: [Def; 70] = [
     wire: Wire::None,
   },
   Def {
+    id: "zoom",
+    cmd: Some("/zoom"),
+    cat: Cat::Display,
+    section: "font",
+    label: "zoom",
+    tip: "everything's size, 90 to 300 percent. ctrl-= / ctrl-- / ctrl-0 or ctrl-wheel anywhere. /zoom 1.5",
+    alias: "size scale font",
+    ctl: Ctl::Zoom,
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
     id: "first_glow",
     cmd: Some("/glow"),
     cat: Cat::Display,
@@ -217,18 +229,6 @@ pub static DEFS: [Def; 70] = [
     ctl: pill!(read_line),
     fx: Fx::ReadLine,
     wire: Wire::None,
-  },
-  Def {
-    id: "auto_hide",
-    cmd: Some("/autohide"),
-    cat: Cat::Display,
-    section: "chat messages",
-    label: "auto-hide input",
-    tip: "hides the input bar when idle",
-    alias: "autohide",
-    ctl: pill!(auto_hide),
-    fx: Fx::None,
-    wire: Wire::Bool("autoHideEmpty"),
   },
   Def {
     id: "timestamps",
@@ -435,18 +435,6 @@ pub static DEFS: [Def; 70] = [
     wire: Wire::Bool("hs_show_pronouns"),
   },
   Def {
-    id: "zoom",
-    cmd: Some("/zoom"),
-    cat: Cat::Display,
-    section: "font",
-    label: "zoom",
-    tip: "everything's size, 90 to 300 percent. ctrl-= / ctrl-- / ctrl-0 or ctrl-wheel anywhere. /zoom 1.5",
-    alias: "size scale font",
-    ctl: Ctl::Zoom,
-    fx: Fx::None,
-    wire: Wire::None,
-  },
-  Def {
     id: "line_height",
     cmd: Some("/lineheight"),
     cat: Cat::Display,
@@ -495,28 +483,16 @@ pub static DEFS: [Def; 70] = [
     wire: Wire::Bool("viMode"),
   },
   Def {
-    id: "media",
-    cmd: Some("/media"),
+    id: "auto_hide",
+    cmd: Some("/autohide"),
     cat: Cat::Chat,
-    section: "messages",
-    label: "inline media",
-    tip: "show images, gifs and link cards inline in chat",
-    alias: "mediaembeds embeds pictures",
-    ctl: pill!(media),
-    fx: Fx::Media,
-    wire: Wire::Bool("mediaEmbedsEnabled"),
-  },
-  Def {
-    id: "links",
-    cmd: Some("/links"),
-    cat: Cat::Chat,
-    section: "messages",
-    label: "clickable links",
-    tip: "urls in chat become clickable",
-    alias: "linksEnabled urls",
-    ctl: pill!(links),
-    fx: Fx::Links,
-    wire: Wire::Bool("linksEnabled"),
+    section: "input",
+    label: "auto-hide input",
+    tip: "hides the input bar when idle",
+    alias: "autohide",
+    ctl: pill!(auto_hide),
+    fx: Fx::None,
+    wire: Wire::Bool("autoHideEmpty"),
   },
   Def {
     id: "suggest_inventory",
@@ -541,6 +517,30 @@ pub static DEFS: [Def; 70] = [
     ctl: Ctl::Commands,
     fx: Fx::None,
     wire: Wire::None,
+  },
+  Def {
+    id: "media",
+    cmd: Some("/media"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "inline media",
+    tip: "show images, gifs and link cards inline in chat",
+    alias: "mediaembeds embeds pictures",
+    ctl: pill!(media),
+    fx: Fx::Media,
+    wire: Wire::Bool("mediaEmbedsEnabled"),
+  },
+  Def {
+    id: "links",
+    cmd: Some("/links"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "clickable links",
+    tip: "urls in chat become clickable",
+    alias: "linksEnabled urls",
+    ctl: pill!(links),
+    fx: Fx::Links,
+    wire: Wire::Bool("linksEnabled"),
   },
   Def {
     id: "dim_timeouts",
@@ -651,6 +651,42 @@ pub static DEFS: [Def; 70] = [
     wire: Wire::None,
   },
   Def {
+    id: "mention_rules",
+    cmd: None,
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "mention rules",
+    tip: "words the server watches for in every channel and pings you with here, like an @. enter opens the list: a adds, enter turns one on or off, x removes. needs a heatsync login",
+    alias: "alerts mention-rules keyword watch ping server",
+    ctl: Ctl::Alerts,
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
+    id: "title_flash",
+    cmd: Some("/titleflash"),
+    cat: Cat::Notifs,
+    section: "when the window is away",
+    label: "title flash",
+    tip: "the window title flashes who @'d you until you come back to the window",
+    alias: "mentionTitleFlash tab title flash",
+    ctl: pill!(title_flash),
+    fx: Fx::None,
+    wire: Wire::Bool("mentionTitleFlash"),
+  },
+  Def {
+    id: "taskbar_flash",
+    cmd: Some("/taskbarflash"),
+    cat: Cat::Notifs,
+    section: "when the window is away",
+    label: "taskbar flash",
+    tip: "your taskbar entry lights up when someone @s you and the window is not in front. muted channels and streamer mode hold it back, like the ping. stays on this computer",
+    alias: "urgent attention taskbar tag highlight blink dock",
+    ctl: pill!(taskbar_flash),
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
     id: "streamer",
     cmd: Some("/streamer"),
     cat: Cat::Notifs,
@@ -671,42 +707,6 @@ pub static DEFS: [Def; 70] = [
     tip: "the mention ping and rule sounds still play while streamer mode is on",
     alias: "streamer mode sound mute",
     ctl: pill!(streamer_sounds),
-    fx: Fx::None,
-    wire: Wire::None,
-  },
-  Def {
-    id: "title_flash",
-    cmd: Some("/titleflash"),
-    cat: Cat::Notifs,
-    section: "when you get @mentioned",
-    label: "title flash",
-    tip: "the window title flashes who @'d you until you come back to the window",
-    alias: "mentionTitleFlash tab title flash",
-    ctl: pill!(title_flash),
-    fx: Fx::None,
-    wire: Wire::Bool("mentionTitleFlash"),
-  },
-  Def {
-    id: "taskbar_flash",
-    cmd: Some("/taskbarflash"),
-    cat: Cat::Notifs,
-    section: "when you get @mentioned",
-    label: "taskbar flash",
-    tip: "your taskbar entry lights up when someone @s you and the window is not in front. muted channels and streamer mode hold it back, like the ping. stays on this computer",
-    alias: "urgent attention taskbar tag highlight blink dock",
-    ctl: pill!(taskbar_flash),
-    fx: Fx::None,
-    wire: Wire::None,
-  },
-  Def {
-    id: "mention_rules",
-    cmd: None,
-    cat: Cat::Notifs,
-    section: "when you get @mentioned",
-    label: "mention rules",
-    tip: "words the server watches for in every channel and pings you with here, like an @. enter opens the list: a adds, enter turns one on or off, x removes. needs a heatsync login",
-    alias: "alerts mention-rules keyword watch ping server",
-    ctl: Ctl::Alerts,
     fx: Fx::None,
     wire: Wire::None,
   },
@@ -1147,6 +1147,39 @@ mod tests {
       assert!(DEFS[i + 1..].iter().all(|o| o.id != d.id && (d.cmd.is_none() || o.cmd != d.cmd)));
       assert!(d.cmd.is_none_or(|c| c.starts_with('/') && c == c.to_lowercase()));
     }
+  }
+
+  // a section is one run of rows under one heading: it never comes back further down the screen
+  #[test]
+  fn every_section_is_one_run_of_rows() {
+    let mut seen: Vec<(Cat, &str)> = Vec::new();
+    for d in DEFS.iter() {
+      let at = (d.cat, d.section);
+      if seen.last() != Some(&at) {
+        assert!(!seen.contains(&at), "{} comes back: {:?}", d.id, at.1);
+        seen.push(at);
+      }
+    }
+  }
+
+  // one home for each look switch, and the pairs that belong together sit together
+  #[test]
+  fn each_look_switch_has_one_home_and_pairs_sit_together() {
+    let home = |id: &str| def(id).map(|d| (d.cat, d.section)).unwrap();
+    for id in ["zebra", "timestamps", "read_line", "time_fmt", "timestamp_seconds"] {
+      assert_eq!(home(id), (Cat::Display, "chat messages"), "{id}");
+    }
+    for id in ["hover_reply", "dim_timeouts"] {
+      assert_eq!(home(id), (Cat::Chat, "messages"), "{id}");
+    }
+    let place = |id: &str| DEFS.iter().position(|d| d.id == id).unwrap();
+    assert_eq!(home("zoom"), home("font_family"));
+    assert_eq!(place("zoom"), place("font_family") + 1, "zoom sits next to the font");
+    assert_eq!(home("auto_hide"), (Cat::Chat, "input"));
+    assert_eq!(place("auto_hide"), place("vi") + 1, "auto-hide sits beside vi mode");
+    assert_eq!(home("title_flash"), home("taskbar_flash"));
+    assert_eq!(home("title_flash").1, "when the window is away");
+    assert_ne!(home("title_flash"), home("mention_volume"));
   }
 
   #[test]
