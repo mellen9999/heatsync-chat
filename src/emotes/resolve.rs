@@ -257,4 +257,156 @@ mod tests {
     let got = find_word(&mut w.sources(), "c", &m, 0, 3, "IDK").map(|f| f.0.to_string());
     assert_eq!(got, Some(cdn("PERSONAL").url.to_string()));
   }
+
+  // ---- the emote rules (docs/planning/emote-rules-2026-11-07.md), each staged with the same word W in
+  // every source at once, the way the site's gate stages it ----
+
+  const TS: i64 = 1_793_399_211_099;
+
+  // W in the channel (ffz, 7tv, bttv), in the globals (7tv, bttv, ffz, twitch) and in `inventory` ids' own
+  // sets: every one a different picture, named by where it came from
+  fn collide(w: &mut World, inventory: &[u64]) {
+    for (chan, p, tag) in [
+      (Some("c"), Provider::Ffz, "c-ffz"),
+      (Some("c"), Provider::SevenTv, "c-7tv"),
+      (Some("c"), Provider::Bttv, "c-bttv"),
+      (None, Provider::SevenTv, "g-7tv"),
+      (None, Provider::Bttv, "g-bttv"),
+      (None, Provider::Ffz, "g-ffz"),
+      (None, Provider::Twitch, "g-twitch"),
+    ] {
+      w.emotes.set(chan, p, [("W".into(), cdn(tag))].into());
+    }
+    for &id in inventory {
+      let row = serde_json::json!({"custom_name": "W", "url": cdn(&format!("inv{id}")).url, "width": 32,
+        "height": 32, "added_at": "2026-10-30T22:26:51.099Z"});
+      w.senders.lookup(id, "W", TS);
+      w.senders.put(id, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    }
+  }
+
+  fn line(who: &str, body: &str) -> Message {
+    let mut m = plain("r", body);
+    (m.user_id, m.ts) = (who.into(), TS);
+    m
+  }
+
+  fn drawn(w: &mut World, m: &Message, word: &str) -> Option<String> {
+    find_word(&mut w.sources(), "c", m, 0, word.len(), word).map(|f| {
+      let id = f.0.rsplit('/').nth(1).unwrap_or("").to_owned();
+      if id.is_empty() { f.0.to_string() } else { id }
+    })
+  }
+
+  // rule 1: a platform token is exact by position. nothing with the same name replaces it: not the sender's
+  // inventory, not their line's refs, not the channel's or a global
+  #[test]
+  fn rule_1_a_platform_token_is_exact_by_position() {
+    let mut w = World::new();
+    collide(&mut w, &[42]);
+    let tw = "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0";
+    let mut m = line("42", "W W");
+    m.emotes = Box::new([(0..1, tw.into())]);
+    m.hs = Box::new([("W".into(), cdn("ref").url, false)]);
+    let first = find_word(&mut w.sources(), "c", &m, 0, 1, "W").unwrap();
+    assert_eq!((&*first.0, first.3), (tw, Scope::Native), "the token at 0..1");
+    // the same word at a place no token covers is an ordinary word
+    let second = find_word(&mut w.sources(), "c", &m, 2, 3, "W").unwrap();
+    assert_eq!(second.3, Scope::Hs, "the line's own ref, not the token's picture");
+    // a kick token is the same
+    let mut k = line("42", "W");
+    k.platform = Platform::Kick;
+    k.emotes = Box::new([(0..1, "https://files.kick.com/emotes/777/fullsize".into())]);
+    assert_eq!(find_word(&mut w.sources(), "c", &k, 0, 1, "W").unwrap().3, Scope::Native);
+  }
+
+  // rule 2: the sender's pick on the line is the line's pick, for any viewer: over their inventory's other W,
+  // the channel's W and every global W
+  #[test]
+  fn rule_2_the_senders_ref_on_the_line_wins() {
+    let mut w = World::new();
+    collide(&mut w, &[42]);
+    let mut m = line("42", "W");
+    m.hs = Box::new([("W".into(), cdn("pick").url, false)]);
+    assert_eq!(drawn(&mut w, &m, "W").as_deref(), Some("pick"));
+    // a sender with no inventory at all (a kick chatter, a relayed line) still has the ref honoured
+    m.user_id = "".into();
+    m.platform = Platform::Kick;
+    assert_eq!(drawn(&mut w, &m, "W").as_deref(), Some("pick"));
+    // the viewer's own W changes nothing about someone else's line
+    collide(&mut w, &[1]);
+    assert_eq!(drawn(&mut w, &m, "W").as_deref(), Some("pick"));
+  }
+
+  // rule 3: a bare word with no ref walks the channel (ffz, 7tv, bttv) then the globals (7tv, bttv, ffz,
+  // twitch): each one that is taken away lets the next step up
+  #[test]
+  fn rule_3_bare_word_walks_channel_then_globals_in_fixed_order() {
+    let mut w = World::new();
+    collide(&mut w, &[]);
+    let m = line("7", "W");
+    let mut walk = Vec::new();
+    for (chan, p) in [
+      (Some("c"), Provider::Ffz),
+      (Some("c"), Provider::SevenTv),
+      (Some("c"), Provider::Bttv),
+      (None, Provider::SevenTv),
+      (None, Provider::Bttv),
+      (None, Provider::Ffz),
+      (None, Provider::Twitch),
+    ] {
+      walk.push(drawn(&mut w, &m, "W"));
+      w.emotes.set(chan, p, Default::default());
+    }
+    walk.push(drawn(&mut w, &m, "W"));
+    let want = ["c-ffz", "c-7tv", "c-bttv", "g-7tv", "g-bttv", "g-ffz", "g-twitch"];
+    assert_eq!(walk[..7].iter().map(|x| x.as_deref()).collect::<Vec<_>>(), want.map(Some));
+    assert_eq!(walk[7], None, "nothing left: the plain word");
+  }
+
+  // rule 4: your inventory never draws someone else's bare word, and owning W never hides the channel's or a
+  // global W on their lines: it falls through to rule 3
+  #[test]
+  fn rule_4_my_inventory_never_draws_another_senders_word() {
+    let mut w = World::new();
+    collide(&mut w, &[1]);
+    w.senders.set_me(Some(1));
+    let theirs = line("7", "W");
+    assert_eq!(drawn(&mut w, &theirs, "W").as_deref(), Some("c-ffz"), "the channel's, not mine");
+    for p in [Provider::Ffz, Provider::SevenTv, Provider::Bttv] {
+      w.emotes.set(Some("c"), p, Default::default());
+    }
+    assert_eq!(drawn(&mut w, &theirs, "W").as_deref(), Some("g-7tv"), "then the global");
+    // mine draws on my own line only
+    let mine = line("1", "W");
+    assert_eq!(drawn(&mut w, &mine, "W").as_deref(), Some("inv1"));
+    // a second chatter who owns a different W draws their own, never mine
+    collide(&mut w, &[2]);
+    assert_eq!(drawn(&mut w, &line("2", "W"), "W").as_deref(), Some("inv2"));
+    assert_eq!(drawn(&mut w, &theirs, "W").as_deref(), Some("c-ffz"));
+  }
+
+  // rule 5: case is exact in every source: two emotes whose names differ by case stay two
+  #[test]
+  fn rule_5_case_is_exact_in_every_source() {
+    let mut w = World::new();
+    w.emotes.set(Some("c"), Provider::Ffz, [("KEKW".into(), cdn("c-up")), ("kekw".into(), cdn("c-low"))].into());
+    w.emotes.set(None, Provider::SevenTv, [("Kekw".into(), cdn("g-mix"))].into());
+    let m = line("7", "x");
+    let at = |w: &mut World, word: &str| drawn(w, &m, word);
+    assert_eq!(at(&mut w, "KEKW").as_deref(), Some("c-up"));
+    assert_eq!(at(&mut w, "kekw").as_deref(), Some("c-low"));
+    assert_eq!(at(&mut w, "Kekw").as_deref(), Some("g-mix"));
+    assert_eq!(at(&mut w, "kEKW"), None);
+    // the sender's own and the line's ref are exact too: their kekw is not a KEKW
+    let row = serde_json::json!({"custom_name": "kekw", "url": cdn("inv").url, "width": 32, "height": 32,
+      "added_at": "2026-10-30T22:26:51.099Z"});
+    w.senders.lookup(42, "kekw", TS);
+    w.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
+    let mut theirs = line("42", "x");
+    theirs.hs = Box::new([("Kekw".into(), cdn("ref").url, false)]);
+    assert_eq!(drawn(&mut w, &theirs, "kekw").as_deref(), Some("inv"));
+    assert_eq!(drawn(&mut w, &theirs, "KEKW").as_deref(), Some("c-up"), "not their kekw");
+    assert_eq!(drawn(&mut w, &theirs, "Kekw").as_deref(), Some("ref"));
+  }
 }
