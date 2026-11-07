@@ -110,6 +110,20 @@ impl App {
     self.say(if self.streamer.shown { "whispers shown" } else { "whispers hidden" });
   }
 
+  // a click on a hidden whisper line shows the whispers, same as space s. true = the click was spent
+  pub(super) fn hidden_press(&mut self) -> bool {
+    if self.kind() != Kind::Whispers || !self.hides_whispers() {
+      return false;
+    }
+    let (chat, y) = (self.chat_area(), self.pointer.1);
+    let res = &mut self.res;
+    if !self.tabs.get_mut(self.active).is_some_and(|t| t.view.select_at(chat, y, res)) {
+      return false;
+    }
+    self.streamer_reveal();
+    true
+  }
+
   // the screen has to follow a flip: layouts, whisper rows, the marker
   fn streamer_changed(&mut self) {
     self.sync_media();

@@ -74,7 +74,7 @@ fn auto_follows_obs_and_only_ticks_while_auto() {
 fn whispers_tab_rows_hide_their_words_until_shown() {
   let mut a = app();
   a.on_whispers(vec![dm(1, "Bob", "secret words")], false);
-  assert_eq!(whisper_rows(&a), ["secret words"]);
+  assert_eq!(whisper_rows(&a)[0], "secret words");
   set(&mut a, Mode::On);
   assert_eq!(whisper_rows(&a), [HIDDEN], "rebuilt the moment it is on");
   // a new live one is hidden too
@@ -180,4 +180,32 @@ fn the_marker_shows_in_the_bar() {
   set(&mut a, Mode::On);
   assert_eq!(a.streamer_mark(), Some("● streamer"));
   assert!(a.bar_dirty, "the bar redraws to show it");
+}
+
+// a hidden whisper line says how to show it, and a click on it does the same as space s
+#[test]
+fn clicking_a_hidden_whisper_line_shows_the_whispers() {
+  let mut a = app();
+  a.dpi = 1.0;
+  a.res.set_scale(a.scale());
+  a.resized(720, 400);
+  a.on_whispers(vec![dm(1, "Bob", "secret words")], false);
+  set(&mut a, Mode::On);
+  let i = a.tab_of(Kind::Whispers).unwrap();
+  a.select(i);
+  a.redraw();
+  assert_eq!(whisper_rows(&a), [HIDDEN]);
+  assert!(HIDDEN.starts_with("hidden: press space s"), "{HIDDEN}");
+  let chat = a.chat_area();
+  a.pointer = (chat.x + 10, chat.bottom() - 5);
+  a.click();
+  assert_eq!(whisper_rows(&a)[0], "secret words", "the click showed them");
+  assert!(a.streamer.shown);
+  // a click on a shown line is a normal click: nothing re-hides
+  a.redraw();
+  a.click();
+  assert_eq!(whisper_rows(&a)[0], "secret words");
+  // with the mode off there is nothing to reveal
+  set(&mut a, Mode::Off);
+  assert!(!a.hidden_press());
 }

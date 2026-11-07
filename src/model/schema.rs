@@ -692,7 +692,7 @@ pub static DEFS: [Def; 70] = [
     cat: Cat::Notifs,
     section: "streamer mode",
     label: "streamer mode",
-    tip: "hides whisper text, link previews and popup text, and mutes sounds, so nothing private shows on stream. auto = on while obs is running. space s shows the whispers tab for this session",
+    tip: "hides whisper text, link previews and popup text, and mutes sounds, so nothing private shows on stream. auto = on while obs is running. space s or a click on a hidden line shows the whispers tab for this session",
     alias: "obs stream privacy hide whisper dm live",
     ctl: pick!(streamer, Streamer),
     fx: Fx::Streamer,

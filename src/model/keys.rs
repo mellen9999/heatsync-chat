@@ -79,7 +79,10 @@ pub static KEYS: [Group; 18] = [
       v("space p", "this twitch channel's prediction (also /predictions, or click its banner)"),
       v("space t", "tab mode: move, reorder, close tabs from the keys"),
       v("space w", "watch this channel's stream (mpv, else the browser)"),
-      v("space s", "streamer mode: show or hide the whispers tab for this session"),
+      v(
+        "space s",
+        "streamer mode: show or hide the whispers tab for this session (a click on a hidden line shows it too)",
+      ),
       v("ctrl-w", "close the tab"),
     ],
   },

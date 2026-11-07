@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 // what a hidden whisper row says in place of its words
-pub const HIDDEN: &str = "hidden in streamer mode · press space s to show";
+pub const HIDDEN: &str = "hidden: press space s or click to show";
 
 // how often auto looks for obs, only while auto is the setting
 pub const CHECK_SECS: u64 = 10;

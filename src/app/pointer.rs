@@ -101,7 +101,7 @@ impl App {
     if !chat.contains(x, y) {
       return;
     }
-    if self.modbar_click() {
+    if self.modbar_click() || self.hidden_press() {
       return;
     }
     if self.vote_press()
