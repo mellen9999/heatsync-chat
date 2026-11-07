@@ -14,7 +14,7 @@ the heatsync browser extension's multichat overlay, as a standalone pure-rust wi
 - **cpu rendering only** (softbuffer + own blitter). no gpu context — that alone costs 30-80MB
 - **privacy invariant:** a word renders as a heatsync emote iff the SENDER's own inventory has it, and as a 7tv personal emote iff the SENDER owns that set. catalog/search caches never feed the render path. one chokepoint: `src/emotes/resolve.rs` (`find_word` → `resolve`; its `Sources` are the only inputs it can see) — nothing else turns a word into an emote
 - every server frame/response is hostile: bound sizes, validate urls against the image host allowlist (`docs/contract.md`)
-- palette: ansi 0-7 + `#444444` zebra, `#808080` dim (`#bcbcbc` on a zebra stripe), `#ff8700` heatsync, `#c8a8ff` twitch, `#00ad03` ffz mod badge tile, `#5f0000`/`#870000` mention fill (ext's, plain/zebra row) — all in `src/ui/theme.rs`, nowhere else. paint and user-chosen colors (name paints, scenes, effects, a chatter's color) are content, not palette: exempt
+- palette: ansi 0-7 + `#444444` zebra, `#808080` dim (`#bcbcbc` on a zebra stripe), `#ff8700` heatsync, `#c8a8ff` twitch, `#00ad03` ffz mod badge tile, `#5f0000` mention fill, and the brand-row fills `#808000` `#800080` `#000080` `#008080` `#800000` `#008000` (heatsync `shared/brand/tokens.json`; a test checks them) — all in `src/ui/theme.rs`, nowhere else. event rows are solid fills (`src/ui/chat_view/fill.rs` picks one), no outlines, no zebra, name on a black cutout, body white paint and user-chosen colors (name paints, scenes, effects, a chatter's color) are content, not palette: exempt
 - never a 🔥 on/next to a heat score
 - tokens never rendered or logged (streamer-safe)
 

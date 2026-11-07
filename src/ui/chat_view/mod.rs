@@ -85,6 +85,8 @@ type Words = (Vec<Link>, Vec<(std::ops::Range<usize>, usize)>, Vec<Mention>, Vec
 
 struct Laid {
   layout: TextLayout,
+  // px of black plate either side of the name on a filled row (0 = none): the name stays readable on any fill
+  cut: i32,
   // where the name sits in the laid-out text (empty for notices)
   nick: std::ops::Range<usize>,
   // the feed's ▲ and the post's own >>id (empty on every other line)
@@ -133,8 +135,6 @@ enum Frame {
   Hold,
   // a cheer's `N bits`: 1px twitch color
   Bits,
-  // an announcement's chip: 1px yellow (ext .hs-mc-notice-announce::before)
-  Announce,
   // a badge as a word: 1px in its own color
   Chip(u32),
 }
@@ -284,6 +284,7 @@ macro_rules! opts {
 }
 
 mod draw;
+mod fill;
 mod hit;
 mod layout;
 mod marks;
@@ -959,7 +960,7 @@ impl ChatView {
       return 0;
     }
     if r.height == 0 {
-      r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, o).layout.height().ceil() as i32;
+      r.height = layout_row(res, &self.channel, &r.msg, r.look, w, o).layout.height().ceil() as i32;
     }
     r.height
   }
@@ -1110,7 +1111,7 @@ impl ChatView {
     let mut total = 0;
     for r in self.rows.iter_mut().filter(|r| !r.hidden()) {
       if r.height == 0 {
-        r.height = layout_row(res, &self.channel, &r.msg, r.muted(), w, o).layout.height().ceil() as i32;
+        r.height = layout_row(res, &self.channel, &r.msg, r.look, w, o).layout.height().ceil() as i32;
       }
       total += r.height;
     }
@@ -1125,7 +1126,7 @@ impl ChatView {
     let (w, o) = (self.width, opts!(self));
     let mut shown = 0;
     for r in self.rows.iter_mut().rev().take(n).filter(|r| !r.hidden()) {
-      let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, o);
+      let laid = layout_row(res, &self.channel, &r.msg, r.look, w, o);
       r.height = laid.layout.height().ceil() as i32;
       shift += r.height;
       shown += 1;

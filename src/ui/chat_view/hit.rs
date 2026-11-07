@@ -4,6 +4,7 @@ use super::layout::layout_row;
 use super::{ChatView, EmoteHit, Laid, Layer, MARK_W, Mentioned, WhoHit, room};
 use crate::emotes::resolve::find_word;
 use crate::images::ImgId;
+use crate::model::filter;
 use crate::model::message::{Kind, Message, Platform};
 use crate::ui::canvas::Rect;
 use crate::ui::res::Res;
@@ -97,8 +98,8 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-        let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+        let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+        let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let eb = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
           PositionedLayoutItem::InlineBox(b)
@@ -137,11 +138,12 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+        let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+        let muted = look & filter::MUTED != 0;
         if !m.kind.said() || muted {
           return None;
         }
-        let mut laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+        let mut laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
         if laid.links.is_empty() {
           return None;
         }
@@ -179,11 +181,12 @@ impl ChatView {
   // the reaction chip under (x, y): its post and its emote. the chip's picture counts as the chip
   pub fn chip_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(Box<str>, u64)> {
     let (i, top) = self.row_at(area, y, res)?;
-    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+    let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+    let muted = look & filter::MUTED != 0;
     if muted || m.x.as_ref().is_none_or(|x| x.react.is_empty()) {
       return None;
     }
-    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
     let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
     let on_picture = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
       PositionedLayoutItem::InlineBox(b)
@@ -208,8 +211,8 @@ impl ChatView {
   // the inline button (show / hide, allow / deny) under (x, y): its line's seq and where its words start
   pub fn button_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(i64, usize)> {
     let (i, top) = self.row_at(area, y, res)?;
-    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+    let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
     let ranges = [laid.reveal.clone(), laid.allow.clone(), laid.deny.clone()];
     let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
     let k = over(&laid.layout, lx, ly, &ranges)?;
@@ -220,8 +223,8 @@ impl ChatView {
   // the video it plays, when it is a still
   pub fn pic_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<(ImgId, Option<Box<str>>)> {
     let (i, top) = self.row_at(area, y, res)?;
-    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+    let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
     let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
     let img = laid.layout.lines().flat_map(|l| l.items().collect::<Vec<_>>()).find_map(|it| match it {
       PositionedLayoutItem::InlineBox(b)
@@ -246,8 +249,8 @@ impl ChatView {
       return Some(id);
     }
     let (i, top) = self.row_at(area, y, res)?;
-    let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-    let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+    let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+    let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
     let ranges: Vec<_> = laid.refs.iter().map(|r| r.0.clone()).collect();
     let k = over(&laid.layout, (x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32, &ranges)?;
     laid.refs.into_iter().nth(k).map(|r| r.1)
@@ -316,8 +319,8 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
-        let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+        let (m, look) = (&self.rows[i].msg, self.rows[i].look);
+        let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let at = Cluster::from_point(&laid.layout, lx, ly)?.0.text_range();
         return f(m, &laid, at.start, self.rows[i].seq);
@@ -337,13 +340,13 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        let (m, muted) = (&self.rows[i].msg, self.rows[i].muted());
+        let (m, look) = (&self.rows[i].msg, self.rows[i].look);
         // a stream line (went live, switched to) heads with the streamer's name: that name is them too
         let stream = m.kind == Kind::Event && !m.login.is_empty();
         if !m.kind.said() && !stream {
           return None;
         }
-        let laid = layout_row(res, &self.channel, m, muted, self.width, opts!(self));
+        let laid = layout_row(res, &self.channel, m, look, self.width, opts!(self));
         let (lx, ly) = ((x - area.x - MARK_W) as f32 - theme::PAD_X, (y - top) as f32);
         let mut ranges = Vec::with_capacity(1 + laid.mentions.len());
         ranges.push(laid.nick.clone());

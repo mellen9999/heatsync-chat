@@ -1,10 +1,12 @@
 // a line becomes a row: its text, spans, emote boxes and the links, mentions and paints inside it
 
+use super::fill;
 use super::{EmoteBox, Frame, Laid, MARK_W, Mention, Opts, PaintedName, Words, room};
 use crate::cosmetics::id::PaintId;
 use crate::emotes::resolve::find_word;
 use crate::heatsync::content;
 use crate::images::ImgId;
+use crate::model::filter;
 use crate::model::find::Find;
 use crate::model::links::Link;
 use crate::model::markup::Style;
@@ -44,19 +46,6 @@ pub(super) fn one_line(res: &mut Res, head: &str, words: &str, w: f32) -> String
   out
 }
 
-// an event row's color (ext 08-message-rows.css notice kinds, nearest palette color): its words and its
-// left edge. None = a plain notice
-pub(super) fn notice_ink(n: Notice) -> Option<u32> {
-  Some(match n {
-    Notice::Plain => return None,
-    Notice::Sub | Notice::Raid => theme::MAGENTA,
-    Notice::Bits | Notice::Announce => theme::YELLOW,
-    Notice::Streak => theme::WHITE,
-    Notice::Milestone => theme::CYAN,
-    Notice::Redeem => theme::TWITCH,
-  })
-}
-
 // the ext's words over a first message
 const FIRST_LABEL: &str = "\u{25c7} first message in this channel";
 
@@ -78,8 +67,14 @@ fn chip(
   s.push(' ');
 }
 
-pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, width: i32, o: Opts) -> Laid {
+// `look`: the filters' verdict on the line (model::filter), which picks muting and a rule's fill
+pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width: i32, o: Opts) -> Laid {
   let Opts { ts, tags, find } = o;
+  let muted = look & filter::MUTED != 0;
+  // a filled row writes its words white and its chips in the fill's label colour
+  let fill = fill::of(m, look);
+  let ink_of = |c: u32| fill.map_or(c, |f| f.label);
+  let dim_ink = if fill.is_some() { theme::WHITE } else { theme::DIM };
   let (ts, tags) = (ts && res.look.timestamps, tags && res.look.tags);
   // a line from someone who was timed out or banned
   let cleared = m.has(flag::CLEARED) && res.look.dim_timeouts;
@@ -94,31 +89,26 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   let dim = |s: &mut String, spans: &mut Vec<Span>, t: &str| {
     let a = s.len();
     s.push_str(t);
-    spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
+    spans.push(Span { range: a..s.len(), ink: Ink(dim_ink), bold: false });
   };
-  let event = notice_ink(m.notice());
+  let event = fill.filter(|_| m.notice() != Notice::Plain).map(|f| f.label);
   let mut frames = Vec::new();
-  // an announcement opens with the ext's `announce` chip (::before on the row): yellow words in a 1px
-  // yellow box
+  // an announcement opens with the ext's `announce` chip (::before on the row)
   if m.notice() == Notice::Announce {
-    let a = s.len();
-    s.push_str(" announce ");
-    spans.push(Span { range: a..s.len(), ink: Ink(theme::YELLOW), bold: true });
-    frames.push((a..s.len(), Frame::Announce));
-    s.push(' ');
+    chip(&mut s, &mut spans, &mut frames, "announce", ink_of(theme::YELLOW), true);
   }
   // the twitch tags the row wears as chips before everything else (ext ::before): `new here` for an intro,
   // `fx:name` for a message effect, `shared` / `shared:name` for a line said in a partner's room
   if let Some(x) = x {
     if x.intro {
-      chip(&mut s, &mut spans, &mut frames, "new here", theme::MAGENTA, true);
+      chip(&mut s, &mut spans, &mut frames, "new here", ink_of(theme::MAGENTA), true);
     }
     if !x.fx.is_empty() {
-      chip(&mut s, &mut spans, &mut frames, &format!("fx:{}", x.fx), theme::MAGENTA, false);
+      chip(&mut s, &mut spans, &mut frames, &format!("fx:{}", x.fx), ink_of(theme::MAGENTA), false);
     }
     if !x.shared.is_empty() {
       let named = res.rooms.login(&x.shared).map(|n| format!("shared:{n}"));
-      chip(&mut s, &mut spans, &mut frames, named.as_deref().unwrap_or("shared"), theme::CYAN, false);
+      chip(&mut s, &mut spans, &mut frames, named.as_deref().unwrap_or("shared"), ink_of(theme::CYAN), false);
     }
   }
   if let Some(sys) = &m.system {
@@ -152,7 +142,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
         super::marks::plus(res, &uid, &mut s, &mut spans, &mut ib);
       }
     } else {
-      spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
+      spans.push(Span { range: a..s.len(), ink: Ink(dim_ink), bold: false });
     }
     // then the parent's words, dim, cut to the one line (ext's reply snippet)
     if let Some(t) = m.reply_text.as_deref().filter(|t| !t.trim().is_empty()) {
@@ -171,7 +161,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   if m.has(flag::FIRST) && m.kind.said() {
     let a = s.len();
     s.push_str(FIRST_LABEL);
-    spans.push(Span { range: a..s.len(), ink: Ink(theme::MAGENTA), bold: true });
+    spans.push(Span { range: a..s.len(), ink: Ink(ink_of(theme::MAGENTA)), bold: true });
     s.push('\n');
   }
   if ts {
@@ -204,6 +194,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   let mut link_runs = Vec::new();
   let mut unders: Vec<std::ops::Range<usize>> = Vec::new();
   let mut painted = None;
+  let mut cut = 0;
   let mut mentions = Vec::new();
   let mut embed = None;
   let mut nick = 0..0;
@@ -250,9 +241,17 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
       s.push(' ');
     }
     badges(res, chan, m, &mut s, &mut spans, &mut ib, &mut boxes, &mut frames);
+    // a filled row sets the name on a black plate (drawn behind it); its pad is room in the text
+    if fill.is_some() {
+      cut = res.images.px(theme::CUT_PAD_X) as i32;
+      ib.push(gap(s.len(), cut as u32));
+    }
     let n0 = s.len();
     s.push_str(&m.nick);
     nick = n0..s.len();
+    if fill.is_some() {
+      ib.push(gap(s.len(), cut as u32));
+    }
     // a painted name's glyphs are drawn from the shaded bitmap instead (paints: names only)
     painted = PaintId::of_message(m).and_then(|uid| {
       let paint = res.cosmetics.paint(&uid)?;
@@ -298,13 +297,21 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
         join
       });
       // a link's words are drawn in link blue
+      // (white and underlined on a fill, where blue would sink)
       for (r, _) in &link_runs {
-        spans.push(Span { range: r.clone(), ink: Ink(theme::BLUE), bold: false });
+        spans.push(Span {
+          range: r.clone(),
+          ink: Ink(if fill.is_some() { theme::WHITE } else { theme::BLUE }),
+          bold: false,
+        });
+        if fill.is_some() {
+          unders.push(r.clone());
+        }
       }
     }
     let ink = match (cleared, m.kind) {
-      (true, _) => Some(theme::DIM),
-      (_, Kind::Action) => Some(name_ink),
+      (true, _) => Some(dim_ink),
+      (_, Kind::Action) => Some(if fill.is_some() { theme::WHITE } else { name_ink }),
       _ => None,
     };
     if let Some(c) = ink {
@@ -337,8 +344,8 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
       mentions.clear();
     }
     for n in &mut mentions {
-      n.color = res.look.ink(n.color);
-      n.art = n.paint.as_ref().and_then(|id| res.cosmetics.paint(id));
+      n.color = if fill.is_some() { theme::WHITE } else { res.look.ink(n.color) };
+      n.art = n.paint.as_ref().filter(|_| fill.is_none()).and_then(|id| res.cosmetics.paint(id));
       let tag = if n.art.is_some() { Ink::PAINTED } else { 0 };
       spans.push(Span { range: n.range.clone(), ink: Ink(n.color | tag), bold: true });
     }
@@ -444,6 +451,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, muted: bool, wi
   }
   Laid {
     layout,
+    cut,
     nick,
     vote,
     thread,

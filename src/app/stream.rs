@@ -7,7 +7,7 @@ use super::App;
 use crate::model::chatters::Chatters;
 use crate::model::color;
 use crate::model::ident;
-use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg, flag};
+use crate::model::message::{Extra, Kind as MsgKind, Message, Notice, Platform, Seg, flag};
 use crate::model::pings::Bell;
 use crate::model::status::Info;
 use crate::model::stream_events::{Line, Tone};
@@ -19,21 +19,29 @@ use crate::util::time::now_ms;
 // how far apart a simulcast's channels may come up and still be one go-live
 const SIMULCAST_MS: i64 = 30 * 60_000;
 
+// the label's colour on the row's fill (tokens `labels`): olive's yellow, but went live is red
 fn color(t: Tone) -> u32 {
   match t {
     Tone::Online => theme::RED,
-    Tone::Switch => theme::YELLOW,
-    Tone::Offline | Tone::Moment => theme::WHITE,
-    Tone::Raid => theme::TWITCH,
-    Tone::Gift => theme::GREEN,
-    Tone::Redeem => theme::CYAN,
-    // the ext's gold, in our palette
-    Tone::Pred => theme::YELLOW,
+    Tone::Switch | Tone::Offline | Tone::Moment | Tone::Pred => theme::LABEL_OLIVE,
+    Tone::Raid => theme::LABEL_PURPLE,
+    Tone::Gift => theme::LABEL_NAVY,
+    Tone::Redeem => theme::LABEL_TEAL,
+  }
+}
+
+// the notice that picks the row's fill: a raid is purple, a gift navy, a redeem teal; the rest stay olive
+fn notice(t: Tone) -> Notice {
+  match t {
+    Tone::Raid => Notice::Raid,
+    Tone::Gift => Notice::Sub,
+    Tone::Redeem => Notice::Redeem,
+    _ => Notice::Plain,
   }
 }
 
 // a stream line (ext .hs-mc-stream-event): the streamer's lowercase login as in chat (their color, their
-// paint), `◆ went live — ` in the tone's color, the game white, and a stripe of the tone down the left.
+// paint), `◆ went live — ` in the tone's label color, the game white, on the tone's fill (ui::chat_view::fill).
 // `user_id` is their id on the line's platform, which their paint and badges hang off
 fn row(l: &Line, color: u32, user_id: Option<Box<str>>) -> Message {
   let ink = self::color(l.tone);
@@ -50,8 +58,14 @@ fn row(l: &Line, color: u32, user_id: Option<Box<str>>) -> Message {
     tail.push(Seg { text: l.game.clone(), ink: theme::WHITE, bold: false });
   }
   let opens = l.tone == Tone::Online;
-  m.x =
-    Some(Box::new(Extra { tail: tail.into(), edge: ink, late: l.color.is_none(), late_id, opens, ..Extra::default() }));
+  m.x = Some(Box::new(Extra {
+    tail: tail.into(),
+    notice: notice(l.tone),
+    late: l.color.is_none(),
+    late_id,
+    opens,
+    ..Extra::default()
+  }));
   m
 }
 

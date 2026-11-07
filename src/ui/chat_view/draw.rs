@@ -1,10 +1,10 @@
 // painting rows onto the canvas, and the repaint of what animates alone
 
-use super::layout::{layout_row, notice_ink};
+use super::fill;
+use super::layout::layout_row;
 use super::{Anim, ChatView, Frame, MARK_W, NameAnim, TICK_SCENE_MS, TICK_SMOOTH_MS};
 use crate::cosmetics::paint::Fill;
 use crate::images::{Images, ImgId};
-use crate::model::filter;
 use crate::model::message::flag;
 use crate::ui::canvas::{Canvas, Rect};
 use crate::ui::input_bar::underline_in;
@@ -129,6 +129,8 @@ impl ChatView {
     let mut bottom = self.edge(area, res);
     let o = opts!(self);
     let mut drawn_lo = self.rows.len();
+    // the row just below is filled too: a 1px black gap splits the two (ext `.hs-filled + .hs-filled`)
+    let mut below_filled = false;
     let hot = self.hot;
     // the last-read line goes on the seam above the oldest line read; none set = this stays a no-op
     let mut seam = self.last_read;
@@ -145,41 +147,35 @@ impl ChatView {
         c.fill(Rect::new(area.x, bottom, area.w, 1).intersect(clip), theme::RED);
       }
       if r.height == 0 || (r.laid.is_none() && bottom - r.height < clip.bottom()) {
-        let laid = layout_row(res, &self.channel, &r.msg, r.muted(), w, o);
+        let laid = layout_row(res, &self.channel, &r.msg, r.look, w, o);
         r.height = laid.layout.height().ceil() as i32;
         r.laid = Some(Box::new(laid));
       }
       let top = bottom - r.height;
+      let fill = fill::of(&r.msg, r.look);
       if top < clip.bottom() && bottom > clip.y {
         let row = Rect::new(area.x, top, area.w, r.height);
-        let stripe = zebra && r.seq % 2 == 0;
+        // a filled row never takes part in striping
+        let stripe = zebra && r.seq % 2 == 0 && fill.is_none();
         let (seq, picked) = (r.seq, self.selected == Some(r.seq));
-        let bg = match (r.msg.has(flag::ALERT), stripe) {
+        let bg = match (fill, stripe) {
           _ if picked => theme::WHITE,
-          (true, true) => theme::MENTION_STRIPE,
-          (true, false) => theme::MENTION_BG,
-          (false, true) => theme::ZEBRA,
-          (false, false) => theme::BLACK,
+          (Some(f), _) => f.bg,
+          (None, true) => theme::ZEBRA,
+          (None, false) => theme::BLACK,
         };
         if bg != theme::BLACK {
           c.fill(row.intersect(clip), bg);
         }
-        // a mention's signal is its red fill (ext), so it takes no edge of its own
+        if fill.is_some() && below_filled && !picked {
+          c.fill(Rect::new(area.x, bottom - 1, area.w, 1).intersect(clip), theme::BLACK);
+        }
+        // a fill is the row's signal (ext), so it takes no edge of its own; only heatsync's orange (whispers)
+        // and the session-first glow ride on top of one
         let mark = if r.msg.has(flag::BRAND) {
           Some(theme::HEATSYNC)
-        } else if r.msg.has(flag::FIRST) {
-          Some(theme::MAGENTA)
-        } else if r.look & filter::MARKED != 0 {
-          // a highlight rule's own colour (clamped to the palette), else the plain highlight
-          Some(filter::mark_ink(r.look))
-        } else if r.msg.has(flag::HIGHLIGHTED) {
-          Some(theme::CYAN)
-        } else if let Some(ink) = notice_ink(r.msg.notice()) {
-          // an event's ring outranks the session-first glow (ext: declared after it)
-          Some(ink)
-        } else if r.msg.x.as_ref().is_some_and(|x| x.intro || !x.fx.is_empty()) {
-          // an intro or a message effect rings in magenta (ext --hs-row-ring on .hs-mc-user-intro / .hs-mc-animated)
-          Some(theme::MAGENTA)
+        } else if fill.is_some() {
+          (r.msg.has(flag::NEW) && self.glow).then_some(theme::YELLOW)
         } else if r.msg.x.as_ref().is_some_and(|x| x.returning) {
           // back after a long absence: the ext's low-key bar (.is-returning), over the session-first glow
           Some(theme::WHITE)
@@ -208,6 +204,10 @@ impl ChatView {
               Rect::new((x0 + fx).round() as i32, top + ft.round() as i32, fw.round() as i32, (fb - ft).round() as i32);
             let lit = hot == Some((seq, range.start)) && !picked;
             let f = if picked { &Frame::Chip(theme::BLACK) } else { f };
+            // a chip or button on a fill sits on a black plate, so its colour reads
+            if fill.is_some() && !picked && matches!(f, Frame::Hold | Frame::Bits | Frame::Chip(_)) {
+              c.fill(rect.intersect(clip), theme::BLACK);
+            }
             if lit && matches!(f, Frame::Button | Frame::Hold) {
               // an inline button under the pointer: reversed, white behind black words
               c.fill(rect.intersect(clip), theme::WHITE);
@@ -220,10 +220,23 @@ impl ChatView {
                 let ink = if lit || picked { theme::BLACK } else { theme::WHITE };
                 c.fill(Rect::new(rect.x, rect.bottom() - 1, rect.w, 1).intersect(clip), ink);
               }
-              Frame::Hold | Frame::Announce => c.outline(rect, clip, theme::YELLOW),
+              Frame::Hold => c.outline(rect, clip, theme::YELLOW),
               Frame::Bits => c.outline(rect, clip, theme::TWITCH),
               Frame::Chip(ink) => c.outline(rect, clip, *ink),
             }
+          }
+          // the name's black plate (ext .hs-name-cut): the line's height, the name's width plus its pad each side
+          if laid.cut > 0
+            && !picked
+            && let Some((fx, ft, fw, fb)) = range_rect(&laid.layout, &laid.nick)
+          {
+            let plate = Rect::new(
+              (x0 + fx).round() as i32 - laid.cut,
+              top + ft.round() as i32,
+              fw.round() as i32 + 2 * laid.cut,
+              (fb - ft).round() as i32,
+            );
+            c.fill(plate.intersect(clip), theme::BLACK);
           }
           let anims = &mut self.anims;
           let name_anims = &mut self.name_anims;
@@ -313,7 +326,12 @@ impl ChatView {
                 if let Some((_, px)) = arts.frame(&key, name_art::clock()) {
                   c.rgba_pm(ax, ay, aw, ah, px, clip);
                 }
-                name_anims.push(NameAnim { rect: Rect::new(ax, ay, aw, ah), bg, key, smooth });
+                name_anims.push(NameAnim {
+                  rect: Rect::new(ax, ay, aw, ah),
+                  bg: if laid.cut > 0 && !picked { theme::BLACK } else { bg },
+                  key,
+                  smooth,
+                });
               } else if let Some(art) = arts.still(&key) {
                 c.rgba(ax, ay, art.w, art.h, &art.rgba, clip);
               }
@@ -334,6 +352,7 @@ impl ChatView {
         }
       }
       drawn_lo = i;
+      below_filled = fill.is_some();
       newer |= seam.is_some_and(|s| r.seq > s);
       bottom = top;
     }

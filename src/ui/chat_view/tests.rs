@@ -21,7 +21,7 @@ fn picture_waits_for_its_size_then_folds_the_link() {
   m.kind = Kind::Chat;
   m.nick = "bob".into();
   m.body = "look https://i.imgur.com/a.png".into();
-  let boxes = |res: &mut Res| layout_row(res, "c", &m, false, 400, NO_OPTS);
+  let boxes = |res: &mut Res| layout_row(res, "c", &m, 0, 400, NO_OPTS);
   // not loaded: no box, link stays as text, and nothing was requested by measuring
   let l = boxes(&mut res);
   assert!((l.boxes.len(), l.embed.is_some()) == (0, true));
@@ -52,7 +52,7 @@ fn seventv_badge_follows_the_cosmetics_answer() {
   m.user_id = "42".into();
   m.nick = "bob".into();
   m.body = "hi".into();
-  let n = |res: &mut Res| layout_row(res, "c", &m, false, 400, NO_OPTS).boxes.len();
+  let n = |res: &mut Res| layout_row(res, "c", &m, 0, 400, NO_OPTS).boxes.len();
   // unknown chatter: no badge yet, but the ask is queued
   assert_eq!(n(&mut res), 0);
   assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(42)]);
@@ -77,7 +77,7 @@ fn bttv_badge_shows_for_its_holder_behind_its_switch() {
   m.user_id = "42".into();
   m.nick = "bob".into();
   m.body = "hi".into();
-  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 400, NO_OPTS).boxes.len();
+  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, 0, 400, NO_OPTS).boxes.len();
   assert_eq!(n(&mut res, &m), 1);
   let mut other = m.clone();
   other.user_id = "43".into();
@@ -342,8 +342,7 @@ fn said(login: &str, body: &str) -> Message {
 fn avatars_off_ask_for_nothing_and_hold_no_room() {
   let mut res = Res::new(1.0);
   let m = said("bob", "hi");
-  let boxes =
-    |res: &mut Res| layout_row(res, "c", &m, false, 400, Opts { ts: false, tags: false, find: None }).boxes.len();
+  let boxes = |res: &mut Res| layout_row(res, "c", &m, 0, 400, Opts { ts: false, tags: false, find: None }).boxes.len();
   assert!(!res.look.avatars, "off like the ext");
   assert_eq!(boxes(&mut res), 0);
   assert!(res.avatars.take_wanted().is_empty() && res.avatars.len() == 0);
@@ -355,13 +354,13 @@ fn avatars_off_ask_for_nothing_and_hold_no_room() {
   // the answer turns the stand-in into the picture, with the box unchanged
   let url = "https://static-cdn.jtvnw.net/jtv_user_pictures/a-70x70.png";
   assert!(res.avatars.put(Platform::Twitch, "bob", Some(url.into())));
-  let laid = layout_row(&mut res, "c", &m, false, 400, Opts { ts: false, tags: false, find: None });
+  let laid = layout_row(&mut res, "c", &m, 0, 400, Opts { ts: false, tags: false, find: None });
   assert_eq!(laid.boxes.len(), 1);
   assert_ne!(laid.boxes[0].img, ImgId::MAX);
   assert!(laid.boxes[0].stand_in.is_some());
   // a notice never gets one
   let sys = Message::system(1, Platform::Twitch, "x");
-  let n = layout_row(&mut res, "c", &sys, false, 400, Opts { ts: false, tags: false, find: None }).boxes.len();
+  let n = layout_row(&mut res, "c", &sys, 0, 400, Opts { ts: false, tags: false, find: None }).boxes.len();
   assert_eq!(n, 0);
 }
 
@@ -700,15 +699,15 @@ fn a_reply_shows_its_parents_words_on_one_line() {
   m.reply_to = Some("wollip".into());
   m.reply_text = Some("short one".into());
   let text = |l: &Laid| l.layout.lines().map(|ln| ln.text_range()).collect::<Vec<_>>();
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert_eq!(text(&l).len(), 2);
   // long words (and a newline from a tag) are cut with …, never a third line
   m.reply_text = Some(format!("{}\nline two", "words ".repeat(60)).into());
   for w in [140, 400, 900] {
-    let l = layout_row(&mut res, "c", &m, false, w, NO_OPTS);
+    let l = layout_row(&mut res, "c", &m, 0, w, NO_OPTS);
     assert_eq!(text(&l).len(), 2, "at {w}px");
   }
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert!(l.layout.lines().next().is_some_and(|ln| ln.text_range().len() > 20), "the line is filled, not emptied");
 }
 
@@ -871,7 +870,7 @@ fn inventory_emotes_draw_only_while_their_switch_is_on() {
   let mut m = plain("a", "kek hi");
   m.user_id = "42".into();
   m.ts = ts;
-  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 400, NO_OPTS).boxes.len();
+  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, 0, 400, NO_OPTS).boxes.len();
   // the sender's own set, the privacy-safe source
   res.senders.lookup(42, "kek", ts);
   let row = serde_json::json!({"custom_name": "kek", "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32,
@@ -899,7 +898,7 @@ fn archived_heatsync_emotes_draw_only_from_the_senders_own_set() {
   let row = serde_json::json!({"message": "kek LUL", "timestamp": "2026-10-30T22:30:00.000Z",
     "message_html": "<img src=\"/e/hs/abc\" alt=\"kek\"> <img src=\"/e/7tv/9\" alt=\"LUL\">"});
   let m = parse_row(&row, &who).unwrap().msg;
-  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 400, NO_OPTS).boxes.len();
+  let n = |res: &mut Res, m: &Message| layout_row(res, "c", m, 0, 400, NO_OPTS).boxes.len();
   assert_eq!(n(&mut res, &m), 1, "the render's word is not enough: kek stays text, LUL is the channel's");
   res.senders.lookup(42, "kek", m.ts);
   let owns = |from: &str| {
@@ -939,7 +938,7 @@ fn an_overlay_after_an_emoji_stacks_on_it() {
   let base = Emote { url: "https://cdn.7tv.app/emote/b/1x.webp".into(), w: 28, h: 28, zero_width: false };
   res.emotes.set(Some("c"), Provider::SevenTv, [("fog0".into(), fog), ("Base".into(), base)].into());
   let laid = |res: &mut Res, body: &str| {
-    let l = layout_row(res, "c", &plain("a", body), false, 400, NO_OPTS);
+    let l = layout_row(res, "c", &plain("a", body), 0, 400, NO_OPTS);
     l.boxes.iter().map(|b| (b.glyph.as_deref().map(str::to_owned), b.zw.len())).collect::<Vec<_>>()
   };
   let on = |g: &str| vec![(Some(g.to_owned()), 0)];
@@ -958,9 +957,9 @@ fn an_overlay_after_an_emoji_stacks_on_it() {
 fn links_off_leaves_urls_plain() {
   let mut res = Res::new(1.0);
   let m = plain("a", "see https://example.com/x and watch?v=Gz0fAz9n_Os");
-  assert_eq!(layout_row(&mut res, "c", &m, false, 600, NO_OPTS).links.len(), 2);
+  assert_eq!(layout_row(&mut res, "c", &m, 0, 600, NO_OPTS).links.len(), 2);
   res.links = false;
-  assert!(layout_row(&mut res, "c", &m, false, 600, NO_OPTS).links.is_empty());
+  assert!(layout_row(&mut res, "c", &m, 0, 600, NO_OPTS).links.is_empty());
 }
 
 // the ext tags every stream line with its platform unless that is the host's (`platformBadgesEnabled ||
@@ -976,7 +975,7 @@ fn a_stream_line_of_another_platform_wears_its_tag_off_a_merged_tab() {
     m.nick = "xqc".into();
     m
   };
-  let start = |res: &mut Res, m: &Message| layout_row(res, "c", m, false, 600, NO_OPTS).nick.start;
+  let start = |res: &mut Res, m: &Message| layout_row(res, "c", m, 0, 600, NO_OPTS).nick.start;
   assert_eq!(start(&mut res, &live(Platform::Twitch)), 0, "the host's own platform is the unmarked one");
   assert_eq!(start(&mut res, &live(Platform::Kick)), 3, "[K]");
   assert_eq!(start(&mut res, &live(Platform::Youtube)), 3, "[Y]");
@@ -993,7 +992,7 @@ fn the_look_changes_what_a_row_is_made_of() {
   let mut res = Res::new(1.0);
   let mut m = plain("a", "hi");
   m.ts = 1_700_000_000_000;
-  let at = |res: &mut Res, o: Opts| layout_row(res, "c", &m, false, 600, o).nick.start;
+  let at = |res: &mut Res, o: Opts| layout_row(res, "c", &m, 0, 600, o).nick.start;
   let on = Opts { ts: true, tags: true, find: None };
   // off (the ext's default): no time column at all
   assert_eq!(at(&mut res, on), 3, "just the tag: the clock is off");
@@ -1013,7 +1012,7 @@ fn the_look_changes_what_a_row_is_made_of() {
   res.look.seconds = false;
   res.look.twelve = true;
   // line spacing: 22 and 26 are +10% and +30% of the 20px line
-  let h = |res: &mut Res| layout_row(res, "c", &m, false, 600, NO_OPTS).layout.height().round() as i32;
+  let h = |res: &mut Res| layout_row(res, "c", &m, 0, 600, NO_OPTS).layout.height().round() as i32;
   let tight = h(&mut res);
   res.look.spacing = 1.3;
   assert_eq!((tight, h(&mut res)), (20, 26));
@@ -1029,7 +1028,7 @@ fn the_look_picks_name_colors_and_dimming() {
   res.chatters.learned(Platform::Twitch, "carol", theme::CYAN, None);
   let mut m = said("bob", "hi @carol");
   m.flags |= flag::CLEARED;
-  let seen = |res: &mut Res| layout_row(res, "c", &m, false, 600, NO_OPTS).mentions.len();
+  let seen = |res: &mut Res| layout_row(res, "c", &m, 0, 600, NO_OPTS).mentions.len();
   assert_eq!(seen(&mut res), 0, "a timed-out line is dim: no colored names");
   res.look.dim_timeouts = false;
   assert_eq!(seen(&mut res), 1, "off: the line reads as normal");
@@ -1070,13 +1069,12 @@ fn alert_lines_get_the_mention_fill_and_copies_keep_their_room() {
   // newest line sits at the bottom, on the dark red fill; the one above it stays black
   assert_eq!(edge(70), theme::MENTION_BG);
   assert_eq!(edge(50), theme::BLACK);
-  // on a zebra row a mention takes the lighter red, never the gray stripe
+  // a filled row skips the zebra: the mention stays the one dark red, the plain row above still stripes
   v.zebra = true;
   v.draw(&mut c, &mut res, area, area);
   let (ping, plain_row) = (c.px[70 * 400 + 200], c.px[50 * 400 + 200]);
-  assert!([theme::MENTION_BG, theme::MENTION_STRIPE].contains(&ping), "{ping:06x}");
+  assert_eq!(ping, theme::MENTION_BG);
   assert!([theme::BLACK, theme::ZEBRA].contains(&plain_row), "{plain_row:06x}");
-  assert_ne!(ping == theme::MENTION_STRIPE, plain_row == theme::ZEBRA, "stripes alternate");
   // a copied line draws a room tag and head/tail segs around the name
   let mut x = plain("c", "hi");
   x.x = Some(Box::new(Extra {
@@ -1090,10 +1088,10 @@ fn alert_lines_get_the_mention_fill_and_copies_keep_their_room() {
     held: None,
     ..Default::default()
   }));
-  let l = layout_row(&mut res, "tab", &x, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "tab", &x, 0, 400, NO_OPTS);
   let n = l.layout.lines().count();
   assert_eq!(n, 1);
-  assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), false, 400, NO_OPTS).layout.width());
+  assert!(l.layout.width() > layout_row(&mut res, "tab", &plain("c", "hi"), 0, 400, NO_OPTS).layout.width());
 }
 
 #[test]
@@ -1146,7 +1144,7 @@ fn a_view_made_after_startup_lays_a_system_line_on_one_row() {
   v.push(sys());
   v.resize(600);
   let one = v.height_at(0, &mut res);
-  let line = layout_row(&mut res, "dellor", &plain("c", "x"), false, 600, NO_OPTS).layout.height().ceil() as i32;
+  let line = layout_row(&mut res, "dellor", &plain("c", "x"), 0, 600, NO_OPTS).layout.height().ceil() as i32;
   assert_eq!(one, line, "one row at a normal width");
   // a transient 0 clamps: a few rows at worst, never a word per line (9 words)
   let mut w = ChatView::new(10, "dellor".into());
@@ -1303,20 +1301,28 @@ fn event_rows_wear_their_color() {
   let at = |x: i32, y: i32| c.px[(y * c.w + x) as usize];
   let rows: Vec<i32> = v.rows.iter().map(|r| r.height).collect();
   let y0 = area.bottom() - rows.iter().sum::<i32>();
-  // each row's left edge: magenta sub, cyan milestone, none for the cheer
-  assert_eq!(at(0, y0 + 2), theme::MAGENTA);
-  assert_eq!(at(0, y0 + rows[0] + 2), theme::CYAN);
-  assert_ne!(at(0, y0 + rows[0] + rows[1] + 2), theme::MAGENTA);
-  // the redeem: twitch-colored edge
-  assert_eq!(at(0, y0 + rows[0] + rows[1] + rows[2] + 2), theme::TWITCH);
+  // support is navy (sub, milestone), the plain cheer stays black, redeem + announce are the broadcaster's teal
+  assert_eq!(at(0, y0 + 2), theme::FILL_NAVY);
+  assert_eq!(at(0, y0 + rows[0] + 2), theme::FILL_NAVY);
+  // (the plain cheer carries only the session-first glow)
+  assert!(![theme::FILL_NAVY, theme::FILL_TEAL].contains(&at(MARK_W + 1, y0 + rows[0] + rows[1] + 2)));
+  assert_eq!(at(0, y0 + rows[..3].iter().sum::<i32>() + 2), theme::FILL_TEAL);
+  assert_eq!(at(MARK_W + 1, y0 + rows[..4].iter().sum::<i32>() + 2), theme::FILL_TEAL);
+  // two filled rows touching are split by a 1px black line; the teal pair here, the navy pair above
+  assert_eq!(at(0, y0 + rows[0] - 1), theme::BLACK);
+  assert_eq!(at(0, y0 + rows[..4].iter().sum::<i32>() - 1), theme::BLACK);
   let count = |ink| c.px.iter().filter(|&&p| p == ink).count();
   assert!(count(theme::TWITCH) > 60, "the bits box and its words");
-  // the sub's words are magenta, not the dim of a plain notice
-  assert!(count(theme::MAGENTA) > rows[0] as usize * MARK_W as usize + 20);
-  // the announcement: its chip's box is a yellow line across the chip, past the edge
+  // the sub's words keep navy's blue label, not the dim of a plain notice
+  assert!(count(theme::BLUE) > 20);
+  // the redeem's words are teal's cyan label
+  assert!(count(theme::CYAN) > 20);
+  // the announcement: its chip's box is a cyan line across the chip on a black plate, past the edge
   let y4 = y0 + rows[..4].iter().sum::<i32>();
-  let boxed = (y4..y4 + rows[4]).any(|y| (MARK_W + 1..c.w).filter(|&x| at(x, y) == theme::YELLOW).count() >= 40);
+  let boxed = (y4..y4 + rows[4]).any(|y| (MARK_W + 1..c.w).filter(|&x| at(x, y) == theme::CYAN).count() >= 40);
   assert!(boxed, "the announce chip is boxed");
+  // no row of these is magenta any more: fills, not rings
+  assert_eq!(count(theme::MAGENTA), 0);
 }
 
 // a line sent through heatsync.org wears [H] in heatsync orange even with platform tags off
@@ -1325,10 +1331,10 @@ fn a_heatsync_send_wears_its_tag() {
   let mut res = Res::new(1.0);
   res.look.tags = false;
   let mut m = said("mellen", "gg");
-  let plain = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let plain = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert_eq!(plain.nick.start, 0, "no tag");
   m.extra().origin = true;
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert_eq!(l.nick.start, "[H]".len(), "the tag before the name");
   let mut v = ChatView::new(10, "c".into());
   v.zebra = false;
@@ -1359,13 +1365,13 @@ fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
   res.badges.set_kick("c", vec![(1, "https://files.kick.com/a/1".into()), (6, "https://files.kick.com/a/6".into())]);
   let m = relayed(Platform::Kick, &[("moderator", "1"), ("subscriber", "7"), ("og", "1"), ("trainwreckstv", "1")]);
   let at = |res: &mut Res, m: &Message, chan: &str| {
-    let l = layout_row(res, chan, m, false, 400, NO_OPTS);
+    let l = layout_row(res, chan, m, 0, 400, NO_OPTS);
     (l.boxes.len(), l.nick.start)
   };
   // the sub is a picture, the roles words, a channel's own badge name draws nothing
   assert_eq!(at(&mut res, &m, "c"), (1, " mod  og ".len()));
   // the sub art is the 6 month tier (7 months, nearest lower): nothing asked until drawn, so look at the box
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert_eq!(l.boxes[0].img, res.images.id("https://files.kick.com/a/6", crate::ui::res::BADGE_PX));
   // another tab has no art: the sub falls back to its word, like the ext
   assert_eq!(at(&mut res, &m, "other"), (0, " mod  sub  og ".len()));
@@ -1426,7 +1432,7 @@ fn kick_role_chips_are_drawn_in_their_colors() {
 fn youtube_lines_wear_a_star_and_swords_and_nothing_for_members() {
   let mut res = Res::new(1.0);
   let m = relayed(Platform::Youtube, &[("broadcaster", "1"), ("moderator", "1"), ("member", "1"), ("verified", "1")]);
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert_eq!((l.boxes.len(), l.nick.start), (0, "\u{2606}\u{2694}".len()));
   let yellow = |res: &mut Res, m| drawn(res, m, [theme::YELLOW, theme::YELLOW]).0;
   let plain = relayed(Platform::Youtube, &[]);
@@ -1486,7 +1492,7 @@ fn marked(uid: &str) -> Message {
 
 // how much text sits before the name, and how many pictures (badges) the line holds
 fn before_name(res: &mut Res, m: &Message) -> (usize, usize) {
-  let l = layout_row(res, "c", m, false, 400, NO_OPTS);
+  let l = layout_row(res, "c", m, 0, 400, NO_OPTS);
   (l.nick.start, l.boxes.len())
 }
 
@@ -1587,7 +1593,7 @@ fn the_marks_come_flair_then_flame_then_bar_and_only_on_twitch() {
   res.flairs.get(42);
   let sub = Badge { url: "https://static-cdn.jtvnw.net/badges/v1/a/1".into(), title: "x sub".into(), bg: None };
   res.flairs.put(42, Some(sub));
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   // the flair is a picture at the start of the text; the flame follows it
   assert_eq!((l.boxes.len(), l.nick.start), (1, FLAME_W));
   let at = |l: &Laid| l.boxes[0].img;
@@ -1682,16 +1688,16 @@ fn a_plus_member_has_a_tenure_plus_after_the_name_and_never_beside_an_at_name() 
       .count()
   };
   let plain = dim(&mut res, &m);
-  let base = layout_row(&mut res, "c", &m, false, 400, NO_OPTS).layout.width();
+  let base = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS).layout.width();
   // two months on plus: a dim `+`, the ext's #808080, the switches can't hide it
   let since = crate::util::time::now_ms() - 2 * 2_629_746_000;
   res.cosmetics.seed(PaintId::Twitch(42), Cosmetic { plus: Some(since), ..Default::default() });
   (res.cosmetics.on, res.cosmetics.hs_on) = (false, false);
   assert!(dim(&mut res, &m) > plain + 4, "the + has dim pixels");
-  let l = layout_row(&mut res, "c", &m, false, 400, NO_OPTS);
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   assert!(l.layout.width() > base, "it takes room after the name");
   // the words come after the name and its +, so the nick range itself is untouched
-  assert_eq!(l.nick, layout_row(&mut Res::new(1.0), "c", &m, false, 400, NO_OPTS).nick);
+  assert_eq!(l.nick, layout_row(&mut Res::new(1.0), "c", &m, 0, 400, NO_OPTS).nick);
   // someone else writing @bob: no + in their words
   let mut other = said("al", "@bob hi");
   other.user_id = "7".into();
@@ -1726,11 +1732,11 @@ fn reaction_chips_fit_on_the_line_or_take_one_extra() {
   assert_eq!(fits, none, "chips that fit add no height");
   let line = (res.text.line_px * res.look.spacing).round() as i32;
   assert_eq!(many, none + line, "too many: exactly one extra line");
-  let laid = layout_row(&mut res, "c", &v.rows[2].msg, false, 420, opts!(v));
+  let laid = layout_row(&mut res, "c", &v.rows[2].msg, 0, 420, opts!(v));
   assert!(laid.chips.len() < 32 && !laid.chips.is_empty(), "the rest folded into +N");
   assert!(laid.layout.len() == 2);
   // a post with no reactions has no chip to hit
-  let none_laid = layout_row(&mut res, "c", &v.rows[0].msg, false, 420, opts!(v));
+  let none_laid = layout_row(&mut res, "c", &v.rows[0].msg, 0, 420, opts!(v));
   assert!(none_laid.chips.is_empty());
 }
 
@@ -1745,7 +1751,7 @@ fn a_wide_overlay_widens_its_slot() {
   let base = Emote { url: "https://cdn.7tv.app/emote/b/1x.webp".into(), w: 28, h: 28, zero_width: false };
   res.emotes.set(Some("c"), Provider::SevenTv, [("lift0".into(), lift), (":3".into(), base)].into());
   let slot_w = |res: &mut Res, body: &str| {
-    let l = layout_row(res, "c", &plain("a", body), false, 400, NO_OPTS);
+    let l = layout_row(res, "c", &plain("a", body), 0, 400, NO_OPTS);
     l.layout
       .lines()
       .flat_map(|l| l.items().collect::<Vec<_>>())
@@ -1921,7 +1927,7 @@ fn painted(rows: Vec<Message>, h: i32) -> (Canvas, Res) {
 }
 
 fn lay(res: &mut Res, m: &Message) -> Laid {
-  layout_row(res, "c", m, false, 400, NO_OPTS)
+  layout_row(res, "c", m, 0, 400, NO_OPTS)
 }
 
 #[test]
@@ -1954,14 +1960,14 @@ fn edge_at(c: &Canvas, y: i32) -> u32 {
 }
 
 #[test]
-fn a_message_effect_wears_a_magenta_chip_naming_it_and_a_magenta_edge() {
+fn a_message_effect_wears_a_chip_naming_it_on_a_teal_fill() {
   let (plain, _) = painted(vec![said("bob", "hello")], 30);
   assert_eq!((plain.inked(theme::MAGENTA), edge_at(&plain, 10)), (0, theme::BLACK));
   let fx = |name: &str| tagged(|x| x.fx = name.into());
   let (c, mut res) = painted(vec![fx("rainbow-eclipse")], 30);
-  assert!(c.inked(theme::MAGENTA) > 40, "chip words and box");
-  assert_eq!(edge_at(&c, 10), theme::MAGENTA, "the row's edge");
-  assert!(matches!(lay(&mut res, &fx("simmer")).frames[0].1, Frame::Chip(ink) if ink == theme::MAGENTA));
+  assert!(c.inked(theme::CYAN) > 40, "chip words and box in teal's label colour");
+  assert_eq!(edge_at(&c, 10), theme::FILL_TEAL, "the row's fill");
+  assert!(matches!(lay(&mut res, &fx("simmer")).frames[0].1, Frame::Chip(ink) if ink == theme::CYAN));
   // the chip carries the effect's name, so a longer name makes a wider chip
   let w = |res: &mut Res, name: &str| lay(res, &fx(name)).layout.full_width();
   assert!(w(&mut res, "cosmic-abyss") > w(&mut res, "simmer"));
@@ -1969,18 +1975,18 @@ fn a_message_effect_wears_a_magenta_chip_naming_it_and_a_magenta_edge() {
 }
 
 #[test]
-fn an_intro_wears_a_new_here_chip_and_a_magenta_edge() {
+fn an_intro_wears_a_new_here_chip_on_a_purple_fill() {
   let intro = tagged(|x| x.intro = true);
   let (c, mut res) = painted(vec![intro.clone()], 30);
-  assert!(c.inked(theme::MAGENTA) > 40, "chip words and box");
-  assert_eq!(edge_at(&c, 10), theme::MAGENTA, "the row's edge");
+  assert!(c.inked(theme::WHITE) > 40, "chip words and box");
+  assert_eq!(edge_at(&c, 10), theme::FILL_PURPLE, "the row's fill");
   let laid = lay(&mut res, &intro);
-  assert!(matches!(laid.frames[0].1, Frame::Chip(ink) if ink == theme::MAGENTA));
+  assert!(matches!(laid.frames[0].1, Frame::Chip(ink) if ink == theme::WHITE));
   assert!(laid.layout.full_width() > lay(&mut res, &said("bob", "hello world")).layout.full_width() + 40.0);
 }
 
 #[test]
-fn a_returning_chatter_gets_a_white_edge_that_a_ring_still_outranks() {
+fn a_returning_chatter_gets_a_white_edge_that_a_fill_still_outranks() {
   // rows sit at the bottom of the canvas: look a few pixels up from it
   let edge = |c: &Canvas| {
     let row = (c.h - 6) as usize * c.w as usize;
@@ -1990,11 +1996,11 @@ fn a_returning_chatter_gets_a_white_edge_that_a_ring_still_outranks() {
   assert_eq!(edge(&c), (theme::WHITE, theme::WHITE, theme::BLACK), "MARK_W wide");
   let (c, _) = painted(vec![said("bob", "hello")], 30);
   assert_eq!(edge(&c).0, theme::BLACK);
-  // a first message is the magenta ring, whatever else it is
+  // a first message is the purple fill, whatever else it is
   let mut both = tagged(|x| x.returning = true);
   both.flags |= flag::FIRST;
   let (c, _) = painted(vec![both], 60);
-  assert_eq!(edge(&c).0, theme::MAGENTA);
+  assert_eq!(edge(&c).0, theme::FILL_PURPLE);
   // over the session-first glow, as in the ext
   let mut v = ChatView::new(50, "c".into());
   v.resize(400);
@@ -2050,4 +2056,95 @@ fn a_gigantified_message_draws_only_its_last_emote_big() {
   let mut none = said("bob", "no emotes here");
   none.extra().giant = true;
   assert!(lay(&mut Res::new(1.0), &none).boxes.is_empty());
+}
+
+// every brand row side by side with plain chat (zebra on): HSC_DUMP=x.ppm writes the frame
+#[test]
+fn brand_rows_each_wear_their_fill_and_plain_chat_none() {
+  use crate::model::message::{Notice, Seg};
+  let mut res = Res::new(1.0);
+  let stream = |tone_ink: u32, verb: &str, game: &str, n: Notice, opens: bool| {
+    let mut m = said("streamer", "");
+    m.kind = Kind::Event;
+    m.color = theme::GREEN;
+    let x = m.extra();
+    x.notice = n;
+    x.opens = opens;
+    x.tail = vec![
+      Seg { text: format!(" {verb}").into(), ink: tone_ink, bold: false },
+      Seg { text: game.into(), ink: theme::WHITE, bold: false },
+    ]
+    .into();
+    m
+  };
+  let mut mention = said("amy", "hey @mellen check https://a.example/x");
+  mention.flags |= flag::ALERT;
+  mention.color = theme::MAGENTA;
+  let mut first = said("newbie", "hi chat");
+  first.flags |= flag::FIRST;
+  first.color = theme::YELLOW;
+  let mut sub = said("sub", "so hyped");
+  sub.system = Some("sub subscribed with prime".into());
+  sub.extra().notice = Notice::Sub;
+  let mut announce = said("mod", "read the rules");
+  announce.extra().notice = Notice::Announce;
+  let mut redeem = said("dan", "play the song");
+  redeem.system = Some("dan redeemed hydrate".into());
+  redeem.extra().notice = Notice::Redeem;
+  let rows = vec![
+    said("plain", "ordinary chat"),
+    said("plain", "ordinary chat again"),
+    stream(theme::RED, "went live \u{2014} ", "just chatting", Notice::Plain, true),
+    stream(theme::LABEL_OLIVE, "switched to ", "minecraft", Notice::Plain, false),
+    stream(theme::LABEL_PURPLE, "raided with 40 viewers", "", Notice::Raid, false),
+    first,
+    sub,
+    announce,
+    redeem,
+    mention.clone(),
+    mention,
+    said("rule", "gg wp"),
+    said("plain", "ordinary chat"),
+  ];
+  let n = rows.len();
+  let mut v = ChatView::new(50, "c".into());
+  v.resize(520);
+  v.zebra = true;
+  for m in rows {
+    v.push(m);
+  }
+  // a green rule (the second ink in rules::INKS)
+  v.rows[n - 2].look = crate::model::filter::MARKED | 2 << 3;
+  let area = Rect::new(0, 0, 520, 460);
+  let mut c = Canvas::new(520, 460);
+  v.draw(&mut c, &mut res, area, area);
+  crate::bench::dump(&c);
+  let heights: Vec<i32> = v.rows.iter().map(|r| r.height).collect();
+  let mut y = area.bottom() - heights.iter().sum::<i32>();
+  let mut bgs = Vec::new();
+  for h in &heights {
+    bgs.push(c.px[((y + h / 2) * c.w + 300) as usize]);
+    y += h;
+  }
+  let want = [
+    None,
+    None,
+    Some(theme::FILL_OLIVE),
+    Some(theme::FILL_OLIVE),
+    Some(theme::FILL_PURPLE),
+    Some(theme::FILL_PURPLE),
+    Some(theme::FILL_NAVY),
+    Some(theme::FILL_TEAL),
+    Some(theme::FILL_TEAL),
+    Some(theme::MENTION_BG),
+    Some(theme::MENTION_BG),
+    Some(theme::FILL_GREEN),
+    None,
+  ];
+  for (i, (got, want)) in bgs.iter().zip(want).enumerate() {
+    match want {
+      Some(w) => assert_eq!(*got, w, "row {i}"),
+      None => assert!([theme::BLACK, theme::ZEBRA].contains(got), "row {i} is plain: {got:06x}"),
+    }
+  }
 }
