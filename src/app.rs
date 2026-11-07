@@ -367,6 +367,8 @@ pub struct App {
   // the title flashing who @'d you while the window is away: their name, and when it next turns
   flash: Option<(Box<str>, bool)>,
   flash_due: Option<Instant>,
+  // the taskbar was asked to light up for a mention and the window hasn't been looked at since
+  attention: bool,
   // desktop mention popups: one per 3s, the rest counted
   notify_pace: crate::util::notify::Coalesce,
   // the same for went-live and game-switch popups
@@ -580,6 +582,7 @@ impl App {
       upd: update::Update { release: None, installing: false, due: Some(Instant::now() + update::FIRST_CHECK) },
       flash: None,
       flash_due: None,
+      attention: false,
       notify_pace: Default::default(),
       live_pace: crate::util::notify::Coalesce::new("stream update", "stream updates"),
       dpi: 1.0,
@@ -796,15 +799,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
-      WindowEvent::Focused(f) => {
-        self.focused = f;
-        if f {
-          self.flash_stop();
-        } else {
-          self.hide_tip();
-          self.mark_read();
-        }
-      }
+      WindowEvent::Focused(f) => self.on_window_focus(f),
       WindowEvent::Occluded(o) => {
         self.occluded = o;
         if !o {

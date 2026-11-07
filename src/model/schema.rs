@@ -597,6 +597,18 @@ pub static DEFS: [Def; 64] = [
     wire: Wire::Bool("mentionTitleFlash"),
   },
   Def {
+    id: "taskbar_flash",
+    cmd: Some("/taskbarflash"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "taskbar flash",
+    tip: "your taskbar entry lights up when someone @s you and the window is not in front (on dwl the window's tag turns urgent). muted channels and streamer mode hold it back like the ping. stays on this computer",
+    alias: "urgent attention taskbar tag highlight blink dock",
+    ctl: pill!(taskbar_flash),
+    fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
     id: "mention_rules",
     cmd: None,
     cat: Cat::Notifs,

@@ -1,7 +1,8 @@
 // the mentions tab (ext mentions.js): every live line that pings you, from every joined room, plus
 // replies to you. in the room's own tab the line gets a red edge (the ext tints the row dark red; a
 // fill behind text is off-palette here). click or Enter jumps to the line in its room's tab. while the
-// window is away a mention also pings (util::sound) and flashes the title with who it was, like the ext
+// window is away a mention also pings (util::sound) and flashes the title with who it was, like the ext, and
+// lights the taskbar entry (a web page has no taskbar, so that part has no ext key)
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -16,6 +17,7 @@ use crate::store;
 use crate::util::notify;
 use crate::util::sound::Preset;
 use crate::util::time::now_ms;
+use winit::window::UserAttentionType;
 
 pub(super) const TITLE: &str = "heatsync";
 const FLASH_EVERY: Duration = Duration::from_millis(1200);
@@ -76,7 +78,8 @@ impl App {
     filter::with(|f| f.rule_sound(m, room))
   }
 
-  // a mention while the window is away: the desktop notification (if on), the ping and the title flash
+  // a mention while the window is away: the desktop notification (if on), the ping, the taskbar and the title
+  // flash. the ping and the taskbar go together: whatever holds the sound back (streamer mode) holds the light
   pub(super) fn mention_alert(&mut self, title: &str, nick: &str, body: &str) {
     if self.focused {
       return;
@@ -86,6 +89,9 @@ impl App {
     }
     if !self.sound_muted() {
       crate::util::sound::ping(self.set.mention_volume.percent(), crate::util::time::now_ms());
+      if self.set.taskbar_flash {
+        self.light_taskbar();
+      }
     }
     if self.set.title_flash {
       // the latest name; an already running flash picks it up on its next turn
@@ -196,6 +202,30 @@ impl App {
   pub(super) fn notify_pace_tick(&mut self, now: Instant) {
     if let Some(text) = self.notify_pace.tick(now) {
       notify::send("mention", "heatsync", &text);
+    }
+  }
+
+  // the taskbar entry lights up once per time away (on dwl the window's tag turns urgent); the compositor puts it
+  // out when the window is looked at, and `on_window_focus` lets the next time away light it again
+  fn light_taskbar(&mut self) {
+    if std::mem::replace(&mut self.attention, true) {
+      return;
+    }
+    if let Some(g) = &self.gfx {
+      g.window.request_user_attention(Some(UserAttentionType::Informational));
+    }
+  }
+
+  // the window gained or lost focus: coming back puts the title flash and the taskbar light down, leaving
+  // shuts the tooltip and marks what was read
+  pub(super) fn on_window_focus(&mut self, focused: bool) {
+    self.focused = focused;
+    if focused {
+      self.flash_stop();
+      self.attention = false;
+    } else {
+      self.hide_tip();
+      self.mark_read();
     }
   }
 

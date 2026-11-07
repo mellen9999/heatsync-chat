@@ -89,6 +89,54 @@ fn a_muted_tab_still_gets_the_mention_but_no_flash() {
   assert!(a.flash.is_some(), "another room still pings");
 }
 
+// the taskbar entry lights up for a mention while the window is away, through the one door the ping and the
+// popup use, so it holds the same rules: not while you look, not for a muted channel, not while streamer mode
+// holds sounds back, not when its own switch is off, and once per time away
+#[test]
+fn a_mention_while_away_lights_the_taskbar_by_the_ping_rules() {
+  use crate::model::schema::Fx;
+  use crate::model::settings::Streamer as Mode;
+  fresh();
+  let mut a = app();
+  assert!(a.set.taskbar_flash, "on by default");
+  a.focused = true;
+  ping(&mut a, "forsen");
+  assert!(!a.attention, "you are looking: nothing to light");
+  a.focused = false;
+  a.pings.set_mute(Platform::Twitch, "forsen", true);
+  ping(&mut a, "forsen");
+  assert!(!a.attention, "a muted channel stays dark");
+  a.pings.set_mute(Platform::Twitch, "forsen", false);
+  a.set.taskbar_flash = false;
+  ping(&mut a, "forsen");
+  assert!(!a.attention, "its own switch is off");
+  a.set.taskbar_flash = true;
+  a.set.streamer = Mode::On;
+  a.applied(Fx::Streamer);
+  ping(&mut a, "forsen");
+  assert!(!a.attention, "streamer mode holds it like the sound");
+  a.set.streamer_sounds = true;
+  ping(&mut a, "forsen");
+  assert!(a.attention, "keep sounds lets the ping and the flash through");
+  // coming back puts it down, and the next time away lights it again
+  a.attention = false;
+  a.set.streamer = Mode::Off;
+  a.applied(Fx::Streamer);
+  let mut m = Message::system(1, Platform::Twitch, "x");
+  (m.kind, m.login, m.nick, m.body) =
+    (crate::model::message::Kind::Chat, "bob".into(), "bob".into(), "hi @mellen".into());
+  m.flags |= crate::model::message::flag::HISTORY;
+  a.scan_mention(Platform::Twitch, "forsen", &mut m);
+  assert!(!a.attention, "backlog is not a new ping");
+  ping(&mut a, "forsen");
+  assert!(a.attention);
+  a.on_window_focus(true);
+  assert!(!a.attention, "looking at it again puts the flag down");
+  a.on_window_focus(false);
+  ping(&mut a, "forsen");
+  assert!(a.attention, "away again: lit again");
+}
+
 #[test]
 fn the_bell_decides_a_go_live_popup_per_channel() {
   fresh();

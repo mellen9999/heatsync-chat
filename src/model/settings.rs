@@ -217,6 +217,9 @@ pub struct Settings {
   pub notify: bool,
   // the window title flashes `@name ← heatsync` while unfocused after an @mention. default on, like the ext
   pub title_flash: bool,
+  // the taskbar entry lights up (the window's tag turns urgent on dwl) for an @mention while unfocused. default
+  // on; the ext, a web page, has no taskbar to light
+  pub taskbar_flash: bool,
   pub mention_volume: Volume,
   // streamer mode (src/app/streamer.rs): whisper text, link previews, popup text and sounds are held back
   pub streamer: Streamer,
@@ -291,6 +294,7 @@ impl Default for Settings {
       tab_modlog: false,
       notify: false,
       title_flash: true,
+      taskbar_flash: true,
       mention_volume: Volume::V30,
       streamer: Streamer::Off,
       streamer_sounds: false,
@@ -680,6 +684,7 @@ mod tests {
         tab_modlog: false,
         notify: false,
         title_flash: true,
+        taskbar_flash: true,
         mention_volume: Volume::V30,
         streamer: Streamer::Off,
         streamer_sounds: false,
