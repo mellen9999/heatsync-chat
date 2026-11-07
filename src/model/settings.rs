@@ -185,6 +185,8 @@ pub struct Settings {
   pub animate_emotes: Animate,
   // a timed-out or banned person's lines go dim (ext hs_dim_timeouts). default on
   pub dim_timeouts: bool,
+  // a run of timeouts and bans folds into one line, "5 people timed out" (chatterino's combine). default on
+  pub collapse_timeouts: bool,
   // orange edge on someone's first line of the session. default on, like the ext
   pub first_glow: bool,
   // a line where you stopped reading when you left the tab or the window. default on
@@ -292,6 +294,7 @@ impl Default for Settings {
       font_family: Inline::new(),
       animate_emotes: Animate::Always,
       dim_timeouts: true,
+      collapse_timeouts: true,
       first_glow: true,
       read_line: true,
       paints: true,
@@ -698,6 +701,7 @@ mod tests {
         font_family: Inline::new(),
         animate_emotes: Animate::Always,
         dim_timeouts: true,
+        collapse_timeouts: true,
         first_glow: true,
         read_line: true,
         paints: true,

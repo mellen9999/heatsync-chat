@@ -234,7 +234,8 @@ impl App {
         let row = removed(Platform::Twitch, Removed::User(&login, secs));
         self.mod_log(Platform::Twitch, ch, row.body.to_string());
         self.chatlog.log(Platform::Twitch, ch, &row);
-        self.tabs[i].chat().push(row);
+        let fold = self.set.collapse_timeouts;
+        self.tabs[i].chat().push_act(row, fold);
         self.lock_clearchat(ch, &login, secs);
       }
       Chat::ClearAll => {
@@ -664,7 +665,7 @@ impl App {
         for i in self.tabs_with(platform, &key) {
           let v = self.tabs[i].chat();
           v.clear_user(&login);
-          v.push(row.clone());
+          v.push_act(row.clone(), self.set.collapse_timeouts);
           self.touched(i);
         }
         self.mod_log(platform, &key, row.body.to_string());
@@ -724,8 +725,13 @@ pub(super) fn removed(p: Platform, what: Removed) -> Message {
     Removed::User(who, None) => (format!("{who} was permanently banned"), theme::RED),
     Removed::All => ("chat cleared".to_owned(), theme::RED),
   };
+  let run = match what {
+    Removed::User(who, secs) => Some(Box::new(crate::model::runs::Run::new(who, &text, secs.is_none()))),
+    _ => None,
+  };
   let mut m = Message::system(now_ms(), p, text);
   m.color = ink;
+  m.x = run.map(|run| Box::new(crate::model::message::Extra { run: Some(run), ..Default::default() }));
   m
 }
 

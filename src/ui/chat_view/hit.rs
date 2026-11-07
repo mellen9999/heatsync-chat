@@ -43,7 +43,7 @@ impl ChatView {
       }
       let top = bottom - self.height_at(i, res);
       if y >= top && y < bottom {
-        if !self.rows[i].msg.kind.said() {
+        if !self.rows[i].msg.kind.said() && self.rows[i].run().is_none() {
           return false;
         }
         self.selected = Some(self.rows[i].seq);

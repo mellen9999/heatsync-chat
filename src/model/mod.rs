@@ -63,6 +63,7 @@ pub mod reaction;
 pub mod reasons;
 pub mod rooms;
 pub mod rules;
+pub mod runs;
 pub mod schema;
 pub mod seen;
 pub mod sendto;

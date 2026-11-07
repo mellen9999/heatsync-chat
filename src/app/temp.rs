@@ -30,6 +30,17 @@ impl App {
     true
   }
 
+  // a click on a folded run of timeouts opens or closes it
+  pub(super) fn run_press(&mut self) -> bool {
+    let (chat, y) = (self.chat_area(), self.pointer.1);
+    let res = &mut self.res;
+    let hit = self.tabs.get_mut(self.active).is_some_and(|t| t.view.toggle_run_at(chat, y, res));
+    if hit {
+      self.wake();
+    }
+    hit
+  }
+
   // a channel a line names opens: its own tab when one shows it, else the temp tab. youtube's channel key
   // isn't something a tab can be made from, so only a tab it already has
   pub(super) fn open_channel(&mut self, p: Platform, chan: &str) {

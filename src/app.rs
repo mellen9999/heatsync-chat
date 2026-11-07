@@ -124,6 +124,8 @@ mod tests_reach;
 #[cfg(test)]
 mod tests_react;
 #[cfg(test)]
+mod tests_runs;
+#[cfg(test)]
 mod tests_screens;
 #[cfg(test)]
 mod tests_sendto;

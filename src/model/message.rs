@@ -129,6 +129,8 @@ pub struct Extra {
   // msg-id=user-intro (someone introducing themselves: the `new here` chip) and returning-chatter=1
   pub intro: bool,
   pub returning: bool,
+  // a person timed out or banned: the row joins the run of them just above it (model::runs)
+  pub run: Option<Box<crate::model::runs::Run>>,
   // a feed post's bold and underlined runs, in bytes of the body (model::markup)
   pub marks: Box<[crate::model::markup::Mark]>,
 }

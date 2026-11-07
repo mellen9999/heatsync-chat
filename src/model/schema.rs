@@ -181,7 +181,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 69] = [
+pub static DEFS: [Def; 70] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -552,6 +552,18 @@ pub static DEFS: [Def; 69] = [
     alias: "hs_dim_timeouts dimtimeouts timeout ban",
     ctl: pill!(dim_timeouts),
     fx: Fx::Look,
+    wire: Wire::None,
+  },
+  Def {
+    id: "collapse_timeouts",
+    cmd: Some("/collapsetimeouts"),
+    cat: Cat::Chat,
+    section: "messages",
+    label: "fold timeout runs",
+    tip: "timeouts and bans in a row fold into one line, 5 people timed out. click or enter opens it. a chat line between them ends the run. off shows each one",
+    alias: "combine stack timeouts bans",
+    ctl: pill!(collapse_timeouts),
+    fx: Fx::None,
     wire: Wire::None,
   },
   Def {

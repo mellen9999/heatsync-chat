@@ -330,7 +330,7 @@ impl App {
   }
 
   pub(super) fn selecting(&self) -> bool {
-    self.tabs.get(self.active).is_some_and(|t| t.view.selected().is_some())
+    self.tabs.get(self.active).is_some_and(|t| t.view.selected().is_some() || t.view.picked_run())
   }
 
   // a picked line's keys: j/k move it, r replies, esc lets go. false = not one of them (vi gets it)
@@ -339,6 +339,12 @@ impl App {
     match key {
       Key::Character("j") | Key::Named(NamedKey::ArrowDown) if !ctrl => self.select_move(1),
       Key::Character("k") | Key::Named(NamedKey::ArrowUp) if !ctrl => self.select_move(-1),
+      Key::Named(NamedKey::Enter) if self.view().is_some_and(|v| v.picked_run()) => {
+        if let Some(v) = self.view() {
+          v.toggle_run_picked();
+        }
+        self.wake();
+      }
       Key::Named(NamedKey::Enter) if self.kind() == Kind::Mentions => self.jump_to_mention(),
       Key::Named(NamedKey::Enter) if self.feedish() => self.feed_activate(),
       Key::Character("u") if !ctrl && self.feedish() => self.feed_vote(),

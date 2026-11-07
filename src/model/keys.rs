@@ -96,7 +96,10 @@ pub static KEYS: [Group; 18] = [
       v("c", "user card"),
       v("o", "open its first link (a video plays)"),
       v("ctrl-c", "copy the line"),
-      v("enter", "open it (mentions, feed); in whispers: answer that person, or retry a failed send"),
+      v(
+        "enter",
+        "open it (mentions, feed; a folded run of timeouts); in whispers: answer that person, or retry a failed send",
+      ),
       v("u", "upvote (feed)"),
       v("x", "delete your own dm (whispers; it asks first, and the other person loses it too; also in the m menu)"),
       v("h backspace", "back out of a thread, like the ← back tab"),

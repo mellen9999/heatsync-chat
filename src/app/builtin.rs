@@ -212,6 +212,8 @@ mod tests {
     use crate::ui::theme;
     let (net, _rx) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into()], false);
+    // each removal in its own words: the fold has its own tests (tests_runs)
+    app.set.collapse_timeouts = false;
     let mut m = Message::system(1, Platform::Twitch, "bad words");
     (m.kind, m.id, m.login, m.nick) = (crate::model::message::Kind::Chat, "m1".into(), "amy".into(), "amy".into());
     app.on_chat("forsen", Chat::Msg(m));

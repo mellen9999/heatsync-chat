@@ -8,6 +8,7 @@ use super::canvas::Rect;
 use super::name_art::ArtKey;
 use super::res::Res;
 use super::text::TextLayout;
+use super::theme;
 use crate::cosmetics::id::PaintId;
 use crate::cosmetics::paint::Paint as NamePaint;
 use crate::emotes::block::Scope;
@@ -157,6 +158,11 @@ impl Row {
 
   fn muted(&self) -> bool {
     self.look & filter::MUTED != 0
+  }
+
+  // a folded run of timeouts: a click or enter opens it
+  fn run(&self) -> Option<&crate::model::runs::Run> {
+    self.msg.x.as_ref().and_then(|x| x.run.as_deref()).filter(|r| r.many())
   }
 }
 
@@ -366,6 +372,68 @@ impl ChatView {
     let miss = self.missed(&msg);
     self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None, look, miss });
     self.pending += 1;
+  }
+
+  // a timeout or ban row: with `fold` on, it joins the timeout row just above it (that row, and only a row
+  // like it: a chat line between them ends the run). nothing is added, so a fold costs one look at the last row
+  pub fn push_act(&mut self, msg: Message, fold: bool) {
+    let inc = msg.x.as_ref().and_then(|x| x.run.as_deref());
+    if let (true, Some(inc), Some(last)) = (fold, inc, self.rows.back_mut())
+      && let Some(run) = last.msg.x.as_mut().and_then(|x| x.run.as_deref_mut())
+    {
+      run.add(inc);
+      Self::reword(last);
+      self.stale = true;
+      return;
+    }
+    self.push(msg);
+  }
+
+  // the row says what its run says, in the run's ink
+  fn reword(r: &mut Row) {
+    let Some(run) = r.msg.x.as_deref().and_then(|x| x.run.as_deref()) else { return };
+    r.msg.body = run.text().into();
+    r.msg.color = if run.red() { theme::RED } else { theme::GREEN };
+    Self::touch(r);
+  }
+
+  // open or close the run under y (a click on it). false = no run there
+  pub fn toggle_run_at(&mut self, area: Rect, y: i32, res: &mut Res) -> bool {
+    let mut bottom = self.edge(area, res);
+    for i in (0..self.rows.len()).rev() {
+      if bottom <= area.y {
+        break;
+      }
+      let top = bottom - self.height_at(i, res);
+      if y >= top && y < bottom {
+        return self.toggle_run(i);
+      }
+      bottom = top;
+    }
+    false
+  }
+
+  // enter on the picked row
+  pub fn toggle_run_picked(&mut self) -> bool {
+    self.selected.and_then(|s| self.index_of(s)).is_some_and(|i| self.toggle_run(i))
+  }
+
+  // is the picked row a run (enter opens it)
+  pub fn picked_run(&self) -> bool {
+    self.selected.and_then(|s| self.index_of(s)).is_some_and(|i| self.rows[i].run().is_some())
+  }
+
+  fn toggle_run(&mut self, i: usize) -> bool {
+    let r = &mut self.rows[i];
+    if r.run().is_none() {
+      return false;
+    }
+    if let Some(run) = r.msg.x.as_mut().and_then(|x| x.run.as_deref_mut()) {
+      run.open = !run.open;
+    }
+    Self::reword(r);
+    self.stale = true;
+    true
   }
 
   // when the oldest line here was said
@@ -901,8 +969,9 @@ impl ChatView {
     usize::try_from(i).ok().filter(|&i| self.rows.get(i).is_some_and(|r| r.seq == seq))
   }
 
+  // the picked line (a folded run is picked too, but it is not a line to reply to or copy: see picked_run)
   pub fn selected(&self) -> Option<&Message> {
-    Some(&self.rows[self.index_of(self.selected?)?].msg)
+    Some(&self.rows[self.index_of(self.selected?)?].msg).filter(|m| m.kind.said())
   }
 
   pub fn deselect(&mut self) {
@@ -926,7 +995,7 @@ impl ChatView {
     while left > 0 {
       i += step;
       let Some(r) = usize::try_from(i).ok().and_then(|j| self.rows.get(j)) else { break };
-      if r.msg.kind.said() && !r.hidden() {
+      if (r.msg.kind.said() || r.run().is_some()) && !r.hidden() {
         found = Some(i as usize);
         left -= 1;
       }
