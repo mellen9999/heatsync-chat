@@ -110,7 +110,7 @@ pub struct Peek {
   at: (i32, i32),
   // a mention's color may still arrive
   mention: bool,
-  // the line's own twitch id (a sender's name only): who pronoundb is asked about
+  // the line's own twitch id (a sender's name only): who pronouns are asked about
   uid: Box<str>,
 }
 

@@ -428,7 +428,7 @@ pub static DEFS: [Def; 72] = [
     cat: Cat::Display,
     section: "cosmetics",
     label: "pronouns",
-    tip: "pronoundb.org pronouns on the user card + name popup (twitch only)",
+    tip: "pronouns on the user card + name popup (twitch only)",
     alias: "hs_show_pronouns pronoundb",
     ctl: pill!(pronouns),
     fx: Fx::None,

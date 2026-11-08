@@ -536,7 +536,7 @@ pub enum Cmd {
   Play(Box<str>),
   // a link's preview, from heatsync's resolver
   Preview(Box<str>),
-  // someone's pronouns from pronoundb, by twitch user id
+  // someone's pronouns through heatsync's proxy, by twitch user id
   Pronouns(u64),
   // automod holds: watch a room you moderate, allow / deny one
   Held(held::Cmd),
@@ -622,7 +622,7 @@ const IMAGE_FETCHES: usize = 6;
 const DISK_CACHE_MAX: u64 = 256 << 20;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
 const MAX_PREVIEW: usize = 64 << 10;
-// a pronoundb answer for one id is a few dozen bytes
+// the proxy's answer for one id is a few dozen bytes
 const MAX_PRONOUNS: usize = 4 << 10;
 
 struct DecodeJob {
@@ -741,7 +741,7 @@ pub(crate) async fn tag_card(http: reqwest::Client, token: Option<String>, tag: 
   out.send(NetEvent::TagCard(tag, res));
 }
 
-// pronoundb (ext fetch_pronouns): public, by twitch id, no token ever goes there. 5s at most
+// pronouns (ext fetch_pronouns) via heatsync's proxy: public, by twitch id, no token goes with it. 5s at most
 async fn pronouns(http: reqwest::Client, uid: u64, out: Out) {
   let r = http
     .get(crate::model::pronouns::url(uid))
@@ -753,8 +753,8 @@ async fn pronouns(http: reqwest::Client, uid: u64, out: Out) {
     .await
     .ok()
     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-    .map(|v| crate::model::pronouns::parse(&v, uid))
-    .ok_or(());
+    .ok_or(())
+    .and_then(|v| crate::model::pronouns::parse(&v, uid));
   out.send(NetEvent::Pronouns(uid, res));
 }
 

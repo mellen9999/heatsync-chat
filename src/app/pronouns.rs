@@ -1,13 +1,13 @@
 // pronouns beside a twitch name on the user card and the name popup (ext pcApplyPronouns /
 // applyTooltipPronouns): asked once someone with a twitch id is on screen, drawn when the answer lands.
-// the `pronouns` switch off: pronoundb is never asked and nothing shows
+// the `pronouns` switch off: nobody is asked and nothing shows
 use super::App;
 use crate::model::card::Info;
 use crate::model::message::Platform;
 use crate::net::Cmd;
 use crate::util::time::now_ms;
 
-// the twitch id pronoundb knows them by: their twitch line's own, else the one linked to their heatsync
+// the twitch id pronouns are looked up by: their twitch line's own, else the one linked to their heatsync
 // account (a kick or youtube name with twitch linked)
 pub(super) fn twitch_id(platform: Platform, line_id: &str, info: Option<&Info>) -> Option<u64> {
   (platform == Platform::Twitch)

@@ -92,7 +92,7 @@ fn a_height_only_resize_paints_the_chat_again() {
 }
 
 #[test]
-fn the_card_asks_pronoundb_once_and_shows_the_answer_beside_the_name() {
+fn the_card_asks_for_pronouns_once_and_shows_the_answer_beside_the_name() {
   let (net, mut asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into()], false);
   app.set.pronouns = true;
@@ -128,7 +128,7 @@ fn the_card_asks_pronoundb_once_and_shows_the_answer_beside_the_name() {
   app.set.pronouns = false;
   assert_eq!(app.pronouns_of(app.card_twitch_id()), None);
   app.open_card(app.subject_of(&person("bob", "43")).unwrap());
-  assert!(drain(&mut asked).is_empty(), "pronoundb never hears of bob");
+  assert!(drain(&mut asked).is_empty(), "bob is never asked about");
 }
 
 #[test]

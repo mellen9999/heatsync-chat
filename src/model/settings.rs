@@ -209,8 +209,8 @@ pub struct Settings {
   pub sub_flair: bool,
   pub flame: bool,
   pub heat_bars: bool,
-  // pronoundb pronouns beside a twitch name on the card and the name popup. default on, like the ext
-  // (hs_show_pronouns). off, pronoundb is never asked
+  // pronouns beside a twitch name on the card and the name popup. default on, like the ext
+  // (hs_show_pronouns). off, nobody is asked
   pub pronouns: bool,
   // stream lines: went live (on), went offline (off), game switch (on), chat-spike line (on)
   pub ev_online: bool,

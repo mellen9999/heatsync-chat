@@ -1,6 +1,8 @@
 // someone's pronouns on their card and name popup (ext fetch_pronouns): what they set on pronoundb.org,
-// asked by twitch user id (pronoundb has no kick or youtube). the answer is hostile: a few short words or
-// nothing. answers are kept a day (they almost never change), a failed ask is tried again after 10min
+// asked through heatsync's own proxy (`GET /api/pronouns?platform=twitch&ids=<id>`) so a chatter's twitch id
+// never reaches a third party. twitch ids only (pronoundb has no kick or youtube). the answer is hostile: a few
+// short words or nothing. answers are kept a day (they almost never change), a failed or degraded ask is
+// tried again after 10min
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -15,13 +17,21 @@ const MAX_SETS: usize = 3;
 const MAX_WORD: usize = 12;
 
 pub fn url(uid: u64) -> String {
-  format!("https://pronoundb.org/api/v2/lookup?platform=twitch&ids={uid}")
+  format!("{}/api/pronouns?platform=twitch&ids={uid}", crate::net::ORIGIN)
 }
 
-// `{"<uid>": {"sets": {"en": ["he", "they"]}}}` → "he/they". anything that isn't a short plain word is
-// dropped; nothing left = they set none
-pub fn parse(v: &Value, uid: u64) -> Option<Box<str>> {
-  let sets = v.get(uid.to_string())?.pointer("/sets/en")?.as_array()?;
+// `{"pronouns": {"<uid>": ["he", "they"]}, "degraded": false}` → Ok(Some("he/they")). anything that isn't a
+// short plain word is dropped; nothing left, or the id absent = they set none (Ok(None)). `degraded` true (or
+// missing / not a bool) means the proxy could not find out, which is NOT "no pronouns": Err, so it is asked
+// again later and never remembered as an answer
+pub fn parse(v: &Value, uid: u64) -> Result<Option<Box<str>>, ()> {
+  if v.get("degraded").and_then(Value::as_bool) != Some(false) {
+    return Err(());
+  }
+  let map = v.get("pronouns").and_then(Value::as_object).ok_or(())?;
+  let Some(sets) = map.get(&uid.to_string()).and_then(Value::as_array) else {
+    return Ok(None);
+  };
   let words: Vec<String> = sets
     .iter()
     .take(MAX_SETS)
@@ -29,7 +39,7 @@ pub fn parse(v: &Value, uid: u64) -> Option<Box<str>> {
     .filter(|w| (1..=MAX_WORD).contains(&w.len()) && w.bytes().all(|b| b.is_ascii_alphabetic()))
     .map(str::to_ascii_lowercase)
     .collect();
-  (!words.is_empty()).then(|| words.join("/").into())
+  Ok((!words.is_empty()).then(|| words.join("/").into()))
 }
 
 enum State {
@@ -94,32 +104,60 @@ mod tests {
   use serde_json::json;
 
   #[test]
+  fn the_ask_goes_to_heatsync_never_pronoundb() {
+    assert_eq!(url(42), "https://heatsync.org/api/pronouns?platform=twitch&ids=42");
+  }
+
+  #[test]
   fn sets_read_like_the_ext() {
     let p = |v: Value| parse(&v, 42);
-    assert_eq!(p(json!({"42": {"sets": {"en": ["he", "they"]}}})).as_deref(), Some("he/they"));
-    assert_eq!(p(json!({"42": {"sets": {"en": ["She"]}}})).as_deref(), Some("she"));
-    // a real answer (2026-11), other languages and the decoration ignored
-    let real = json!({"94762492923748352":{"decoration":"catgirl_chief","sets":{"en":["she","it"],"fr":["elle"]}}});
-    assert_eq!(parse(&real, 94762492923748352).as_deref(), Some("she/it"));
-    assert_eq!(p(json!({"42": {"sets": {"en": ["any", "it", "he", "she"]}}})).as_deref(), Some("any/it/he"));
-    // somebody else's answer, nothing set, junk
+    let ok = |w: Value| json!({"pronouns": {"42": w}, "degraded": false});
+    assert_eq!(p(ok(json!(["he", "they"]))), Ok(Some("he/they".into())));
+    assert_eq!(p(ok(json!(["She"]))), Ok(Some("she".into())));
+    assert_eq!(p(ok(json!(["any", "it", "he", "she"]))), Ok(Some("any/it/he".into())));
+    // somebody else's answer, nothing set, junk shapes = they set none
     for v in [
-      json!({}),
-      json!({"7": {"sets": {"en": ["he"]}}}),
-      json!({"42": {"sets": {}}}),
-      json!({"42": {"sets": {"en": []}}}),
-      json!({"42": {"sets": {"en": "he"}}}),
-      json!({"42": null}),
+      json!({"pronouns": {}, "degraded": false}),
+      json!({"pronouns": {"7": ["he"]}, "degraded": false}),
+      ok(json!([])),
+      ok(json!("he")),
+      ok(json!(null)),
+      ok(json!({"en": ["he"]})),
+    ] {
+      assert_eq!(p(v.clone()), Ok(None), "{v}");
+    }
+    // hostile words are dropped, the rest stay
+    assert_eq!(
+      p(ok(json!(["he\u{202e}", "x".repeat(13), 5, "they", "<b>"]))),
+      Ok(None),
+      "only the first three sets are read, none of them clean"
+    );
+    assert_eq!(p(ok(json!(["she", "a b", "they"]))), Ok(Some("she/they".into())));
+  }
+
+  #[test]
+  fn a_degraded_or_malformed_answer_is_no_answer_not_no_pronouns() {
+    let p = |v: Value| parse(&v, 42);
+    // the proxy could not look: even a body that names the id is not trusted
+    assert_eq!(p(json!({"pronouns": {}, "degraded": true})), Err(()));
+    assert_eq!(p(json!({"pronouns": {"42": ["he"]}, "degraded": true})), Err(()));
+    for v in [
+      json!({"pronouns": {}}),
+      json!({"pronouns": {}, "degraded": "no"}),
+      json!({"pronouns": [], "degraded": false}),
+      json!({"degraded": false}),
       json!([1]),
       json!(null),
     ] {
-      assert_eq!(p(v.clone()), None, "{v}");
+      assert_eq!(p(v.clone()), Err(()), "{v}");
     }
-    // hostile words are dropped, the rest stay
-    let v = json!({"42": {"sets": {"en": ["he\u{202e}", "x".repeat(13), 5, "they", "<b>"]}}});
-    assert_eq!(p(v), None, "only the first three sets are read, none of them clean");
-    let v = json!({"42": {"sets": {"en": ["she", "a b", "they"]}}});
-    assert_eq!(p(v).as_deref(), Some("she/they"));
+    // and an Err is retried after 10min, where an answer would be kept a day
+    let mut c = Pronouns::default();
+    assert!(c.want(42, 0));
+    c.put(42, p(json!({"pronouns": {}, "degraded": true})), 0);
+    assert_eq!(c.get(42, 1), None);
+    assert!(!c.want(42, FAILED_MS - 1));
+    assert!(c.want(42, FAILED_MS));
   }
 
   #[test]
