@@ -1,0 +1,7 @@
+# god-file ceilings: <max lines> <path>  # why. raise only with a reason in the same commit
+1518 src/ui/name_art/scene_cat.rs  # baseline
+1475 src/net/mod.rs  # baseline
+1305 src/model/rules.rs  # baseline
+1288 src/model/schema.rs  # baseline
+1266 src/net/hs_ws.rs  # baseline
+1231 src/model/vi.rs  # baseline
