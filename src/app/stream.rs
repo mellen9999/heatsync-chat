@@ -19,11 +19,10 @@ use crate::util::time::now_ms;
 // how far apart a simulcast's channels may come up and still be one go-live
 const SIMULCAST_MS: i64 = 30 * 60_000;
 
-// the label's colour on the row's fill (tokens `labels`): olive's yellow, but went live is red
+// the label's colour on the row's fill (tokens `labels`): every stream line wears olive's yellow
 fn color(t: Tone) -> u32 {
   match t {
-    Tone::Online => theme::RED,
-    Tone::Switch | Tone::Offline | Tone::Moment | Tone::Pred => theme::LABEL_OLIVE,
+    Tone::Online | Tone::Switch | Tone::Offline | Tone::Moment | Tone::Pred => theme::LABEL_OLIVE,
     Tone::Raid => theme::LABEL_PURPLE,
     Tone::Gift => theme::LABEL_NAVY,
     Tone::Redeem => theme::LABEL_TEAL,

@@ -20,7 +20,7 @@ const TEAL: Fill = Fill { bg: theme::FILL_TEAL, label: theme::LABEL_TEAL };
 const RED: Fill = Fill { bg: theme::MENTION_BG, label: theme::LABEL_RED };
 
 // the ext's order (rowFill): for-you, a rule, new people, the broadcaster's voice, support, then a stream
-// line (olive, its went-live label red)
+// line (olive, its label yellow)
 pub(super) fn of(m: &Message, look: u8) -> Option<Fill> {
   let x = m.x.as_deref();
   if m.has(flag::ALERT) || x.is_some_and(|x| x.held.is_some()) {

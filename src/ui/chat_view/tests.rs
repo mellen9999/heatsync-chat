@@ -2094,7 +2094,7 @@ fn brand_rows_each_wear_their_fill_and_plain_chat_none() {
   let rows = vec![
     said("plain", "ordinary chat"),
     said("plain", "ordinary chat again"),
-    stream(theme::RED, "went live \u{2014} ", "just chatting", Notice::Plain, true),
+    stream(theme::LABEL_OLIVE, "went live \u{2014} ", "just chatting", Notice::Plain, true),
     stream(theme::LABEL_OLIVE, "switched to ", "minecraft", Notice::Plain, false),
     stream(theme::LABEL_PURPLE, "raided with 40 viewers", "", Notice::Raid, false),
     first,
