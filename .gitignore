@@ -4,3 +4,5 @@
 /packaging/arch/pkg
 /packaging/arch/*.pkg.tar*
 /packaging/arch/.SRCINFO
+CLAUDE.md
+/.claude/
