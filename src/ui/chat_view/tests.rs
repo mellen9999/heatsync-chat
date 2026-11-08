@@ -2121,9 +2121,11 @@ fn brand_rows_each_wear_their_fill_and_plain_chat_none() {
   crate::bench::dump(&c);
   let heights: Vec<i32> = v.rows.iter().map(|r| r.height).collect();
   let mut y = area.bottom() - heights.iter().sum::<i32>();
+  // sampled in the right pad: text stops PAD_X short of the edge whatever the font's advance
+  let x = area.right() - 2;
   let mut bgs = Vec::new();
   for h in &heights {
-    bgs.push(c.px[((y + h / 2) * c.w + 300) as usize]);
+    bgs.push(c.px[((y + h / 2) * c.w + x) as usize]);
     y += h;
   }
   let want = [
