@@ -76,7 +76,7 @@ fn parse(out: &str, asked: &str) -> Result<Found, Miss> {
     }
     Ok(Found { family: first.to_owned(), file: Some(path.to_owned()) })
   } else {
-    Err(Miss::Absent(first.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect()))
+    Err(Miss::Absent(crate::util::strip(first).take(MAX_NAME).collect()))
   }
 }
 

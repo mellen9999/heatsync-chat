@@ -26,6 +26,17 @@ pub mod wav;
 #[cfg(windows)]
 pub mod win;
 
+// `s` with every control character (tab, newline, escape, ...) as one space: text from outside stays one
+// line. callers cut it by their own rule after (`.take(n)` chars, `clamp` bytes, ...)
+pub fn blank(s: &str) -> impl Iterator<Item = char> + '_ {
+  s.chars().map(|c| if c.is_control() { ' ' } else { c })
+}
+
+// `s` with every control character dropped
+pub fn strip(s: &str) -> impl Iterator<Item = char> + '_ {
+  s.chars().filter(|c| !c.is_control())
+}
+
 // at most `max` bytes of `s`, cut on a char boundary
 pub fn clamp(s: &str, max: usize) -> &str {
   if s.len() <= max {
@@ -54,6 +65,13 @@ pub fn path_seg(s: &str) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn control_characters_blank_or_go() {
+    assert_eq!(blank("a\tb\nc\u{1b}d é").collect::<String>(), "a b c d é");
+    assert_eq!(strip("a\tb\nc\u{1b}d é").collect::<String>(), "abcd é");
+    assert_eq!(blank("a\u{85}b").collect::<String>(), "a b", "c1 controls too");
+  }
 
   #[test]
   fn path_segments_keep_only_unreserved() {
