@@ -22,6 +22,7 @@ mod clip;
 mod complete;
 mod dmdel;
 mod emote;
+mod emote_up;
 mod engage;
 mod feed;
 mod filters;
@@ -92,6 +93,8 @@ mod tests_cardclip;
 mod tests_chain;
 #[cfg(test)]
 mod tests_copy;
+#[cfg(test)]
+mod tests_emote_up;
 #[cfg(test)]
 mod tests_findbar;
 #[cfg(test)]

@@ -193,10 +193,16 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
   c.fill(area, theme::BLACK);
 
   // filter row
-  let mut s = String::from(&*p.query);
-  let pre = s.len()..s.len() + preedit.len();
+  // the upload form, while it is open, has this row: its question (dim), then what is typed
+  let ask = p.up.as_ref().map_or("", |u| u.prompt());
+  let mut s = String::from(p.up.as_ref().map_or(&*p.query, |u| u.text.as_str()));
+  let pre = ask.len() + s.len()..ask.len() + s.len() + preedit.len();
   s.push_str(preedit);
-  let (shown, spans) = if s.is_empty() {
+  let (shown, spans) = if !ask.is_empty() {
+    let t = format!("{ask}{s}");
+    let dim = Span { range: 0..ask.len(), ink: Ink(theme::DIM), bold: false };
+    (t, vec![dim])
+  } else if s.is_empty() {
     let hint = if p.tab == Tab::Gifs { "search gifs" } else { "type to filter" };
     (hint.to_owned(), vec![Span { range: 0..hint.len(), ink: Ink(theme::DIM), bold: false }])
   } else {
@@ -208,11 +214,12 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
   let tabs = tab_rects(text, g.search);
   let room = Rect::new(g.search.x, g.search.y, (tabs[0].x - g.search.x - 4).max(0), g.search.h);
   text.draw(&l, c, ox, oy, room, |_, _| {});
-  if !s.is_empty() {
+  if !preedit.is_empty() {
     underline(c, &l, pre, ox, oy, room);
   }
-  if p.focus == Focus::Search {
-    let x = ox as i32 + if s.is_empty() { 0 } else { l.full_width().ceil() as i32 };
+  let shown_is_hint = ask.is_empty() && s.is_empty();
+  if p.focus == Focus::Search && p.up.as_ref().is_none_or(|u| u.typing()) {
+    let x = ox as i32 + if shown_is_hint { 0 } else { l.full_width().ceil() as i32 };
     c.fill(Rect::new(x, g.search.y, 2, g.search.h).intersect(room), theme::WHITE);
   }
   for (t, r) in Tab::ALL.into_iter().zip(tabs) {
@@ -323,10 +330,12 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
 
   // hint row: what's selected, then the keys that work now
   let keys = match p.focus {
+    _ if p.up.as_ref().is_some_and(|u| u.typing()) => "enter go on · esc back",
+    _ if p.up.is_some() => "wait for it…",
     Focus::Search if emoji => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
-    Focus::Search if !gifs => "enter insert · tab hjkl · ctrl-tab tabs · alt-1-4 sources · esc close",
+    Focus::Search if !gifs => "enter insert · tab hjkl · ctrl-tab tabs · alt-1-4 sources · alt-u upload · esc close",
     Focus::Search => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
-    Focus::Grid => "hjkl move · / filter · [ ] tabs · enter insert · esc close",
+    Focus::Grid => "hjkl move · / filter · [ ] tabs · enter insert · alt-u upload · esc close",
   };
   let picked = p.selected().map(|i| if emoji { format!(":{}:", i.name) } else { i.name.to_string() });
   let name = if p.note.is_empty() || empty { picked.as_deref().unwrap_or("") } else { &*p.note };

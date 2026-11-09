@@ -9,6 +9,7 @@ use serde_json::Value;
 use super::{NetEvent, ORIGIN, Out};
 use crate::images::url::allowed;
 
+pub mod emote;
 mod strip;
 
 // the ext's own client caps (the server's are 10MB / 50MB)
@@ -27,6 +28,10 @@ pub enum Upload {
   NoChooser,
   // a tab-completion answered: for what was typed (`input`) and the ask it belongs to (`seq`)
   Completed { seq: u64, input: String, text: String, many: Vec<String> },
+  // the emote upload (the picker's alt-u): the file the dialog gave back, the emote now in your set, or why not
+  EmotePicked(PathBuf),
+  EmoteDone(emote::Done),
+  EmoteFailed(emote::Failed),
 }
 
 // listing a folder can hang (a slow or dead network mount): it runs on a blocking thread and the app
@@ -171,13 +176,20 @@ fn checked(buf: Vec<u8>, video_ok: bool) -> Result<(Vec<u8>, Media), String> {
   Ok((strip::clean(m.mime, buf)?, m))
 }
 
-fn multipart(boundary: &str, m: &Media, bytes: &[u8]) -> Vec<u8> {
+// `emote`: also the `type=emote` field, which has the server make the emote picture and its smaller copies
+fn multipart(boundary: &str, m: &Media, bytes: &[u8], emote: bool) -> Vec<u8> {
   // the local file name stays local: the server only needs the extension
   let head = format!(
     "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"upload.{}\"\r\nContent-Type: {}\r\n\r\n",
     m.ext, m.mime
   );
-  let mut body = Vec::with_capacity(bytes.len() + head.len() + boundary.len() + 8);
+  let kind = if emote {
+    format!("--{boundary}\r\nContent-Disposition: form-data; name=\"type\"\r\n\r\nemote\r\n")
+  } else {
+    String::new()
+  };
+  let mut body = Vec::with_capacity(bytes.len() + head.len() + kind.len() + boundary.len() + 8);
+  body.extend_from_slice(kind.as_bytes());
   body.extend_from_slice(head.as_bytes());
   body.extend_from_slice(bytes);
   body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
@@ -224,8 +236,23 @@ async fn post_picture(http: &reqwest::Client, token: &str, bytes: Vec<u8>) -> Re
 }
 
 async fn send(http: &reqwest::Client, token: &str, bytes: Vec<u8>, m: Media) -> Result<String, String> {
+  let v = send_form(http, token, bytes, m, false).await?;
+  v.get("url")
+    .and_then(Value::as_str)
+    .and_then(absolute)
+    .ok_or_else(|| "heatsync sent back a link i don't trust".into())
+}
+
+// the whole answer of a good upload (capped, json), or why not in our words
+async fn send_form(
+  http: &reqwest::Client,
+  token: &str,
+  bytes: Vec<u8>,
+  m: Media,
+  emote: bool,
+) -> Result<Value, String> {
   let b = boundary();
-  let body = multipart(&b, &m, &bytes);
+  let body = multipart(&b, &m, &bytes, emote);
   drop(bytes);
   let mut r = http
     .post(format!("{ORIGIN}/api/upload"))
@@ -250,10 +277,7 @@ async fn send(http: &reqwest::Client, token: &str, bytes: Vec<u8>, m: Media) -> 
   if !(200..300).contains(&code) {
     return Err(why(code, &v));
   }
-  v.get("url")
-    .and_then(Value::as_str)
-    .and_then(absolute)
-    .ok_or_else(|| "heatsync sent back a link i don't trust".into())
+  Ok(v)
 }
 
 pub async fn run_picture(http: reqwest::Client, token: String, bytes: Vec<u8>, out: Out) {
@@ -430,11 +454,15 @@ mod tests {
   #[test]
   fn body_shape() {
     let m = img("image/png", "png");
-    let b = multipart("BND", &m, b"DATA");
+    let b = multipart("BND", &m, b"DATA", false);
     let s = String::from_utf8(b).unwrap();
     assert!(s.starts_with("--BND\r\n"));
     assert!(s.contains("filename=\"upload.png\""));
     assert!(s.contains("Content-Type: image/png\r\n\r\nDATA\r\n--BND--\r\n"));
+    assert!(!s.contains("name=\"type\""), "a chat upload is not an emote");
+    let e = String::from_utf8(multipart("BND", &m, b"DATA", true)).unwrap();
+    assert!(e.starts_with("--BND\r\nContent-Disposition: form-data; name=\"type\"\r\n\r\nemote\r\n--BND\r\n"));
+    assert!(e.ends_with("DATA\r\n--BND--\r\n"));
   }
 
   #[test]

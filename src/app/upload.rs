@@ -84,6 +84,9 @@ impl App {
 
   pub(super) fn on_upload(&mut self, u: Upload) {
     self.input_dirty = true;
+    if self.emote_up_event(&u) {
+      return;
+    }
     match u {
       Upload::NoChooser => {
         self.uploading = false;
@@ -99,6 +102,7 @@ impl App {
         self.uploading = false;
         self.say(format!("upload failed: {e}"));
       }
+      Upload::EmotePicked(_) | Upload::EmoteDone(_) | Upload::EmoteFailed(_) => {}
       Upload::Url(url) => {
         self.uploading = false;
         self.line.end();

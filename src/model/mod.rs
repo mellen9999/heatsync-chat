@@ -9,6 +9,7 @@ pub mod chatters;
 pub mod color;
 pub mod complete;
 pub mod emoji;
+pub mod emote_up;
 pub mod engage;
 pub mod feed;
 pub mod filter;

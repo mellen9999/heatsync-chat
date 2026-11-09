@@ -196,6 +196,9 @@ impl App {
   }
 
   pub fn picker_key(&mut self, key: Key<&str>, text: Option<&str>) {
+    if self.emote_up_key(&key, text) {
+      return;
+    }
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
     let half = self.picker_geo().grid.h / 2;
     let g = self.picker_geo();
@@ -211,6 +214,7 @@ impl App {
       Key::Named(NamedKey::PageUp) => p.scroll_by(-half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::PageDown) => p.scroll_by(half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::Tab) if ctrl => return self.picker_tab(None),
+      Key::Character("u") if alt && !ctrl => return self.emote_up_start(),
       Key::Character(c @ ("1" | "2" | "3" | "4")) if alt && !ctrl => {
         return self.picker_chip(c.parse::<usize>().map_or(0, |n| n - 1));
       }

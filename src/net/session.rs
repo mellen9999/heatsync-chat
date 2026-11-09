@@ -198,6 +198,7 @@ pub async fn run(
           }
           st.forget("logged out");
         }
+        Some(Cmd::Emote(c)) if st.emote_upload(&c) => {}
         Some(Cmd::Emote(c)) => match &st.token {
           Some(t) => {
             let _ = emotes.send(EmoteJob::Op(t.clone(), c));
@@ -300,6 +301,41 @@ impl State {
         self.out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
       }
     }
+  }
+
+  // the picker's emote upload: the file dialog, the upload, the add. each runs on its own task (a 10MB gif must not
+  // hold up the emote queue). false = not one of those
+  fn emote_upload(&self, c: &super::emote_ops::EmoteCmd) -> bool {
+    use super::emote_ops::EmoteCmd as E;
+    use super::upload::{Upload, emote};
+    if !matches!(c, E::PickFile | E::Upload { .. } | E::AddKept { .. }) {
+      return false;
+    }
+    let (http, out) = (self.http.clone(), self.out.clone());
+    let Some(token) = self.token.clone() else {
+      let why = "log in to upload (ctrl-l)".to_string();
+      out.send(NetEvent::Upload(Upload::EmoteFailed(emote::Failed { why, kept: None })));
+      return true;
+    };
+    match c {
+      E::PickFile => {
+        tokio::spawn(async move {
+          let r = tokio::task::spawn_blocking(upload::choose).await.unwrap_or(Upload::Cancelled);
+          out.send(NetEvent::Upload(match r {
+            Upload::Url(p) => Upload::EmotePicked(p.into()),
+            other => other,
+          }));
+        });
+      }
+      E::Upload { path, name } => {
+        tokio::spawn(emote::run(http, token, path.clone(), name.clone(), out));
+      }
+      E::AddKept { kept, name } => {
+        tokio::spawn(emote::run_add(http, token, kept.clone(), name.clone(), out));
+      }
+      _ => {}
+    }
+    true
   }
 
   fn picture(&self, bytes: Vec<u8>) {

@@ -24,6 +24,11 @@ pub enum EmoteCmd {
   // another emote you own under this name makes way for this one (remove, then add: the server holds
   // one emote per name)
   Swap { name: Box<str>, url: Box<str>, zero_width: bool },
+  // the picker's own-emote upload (`session` runs these on their own tasks, never this queue): ask a file
+  // dialog for a picture, upload a file under a name, or add an upload the server already holds under another
+  PickFile,
+  Upload { path: std::path::PathBuf, name: String },
+  AddKept { kept: super::upload::emote::Kept, name: String },
 }
 
 // body capped while streaming, so a hostile server can't make us buffer more than `max`
@@ -144,6 +149,7 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
         Err(e) => out.status(format!("couldn't swap {name}, you still have your old one: {e}")),
       }
     }
+    EmoteCmd::PickFile | EmoteCmd::Upload { .. } | EmoteCmd::AddKept { .. } => {}
     EmoteCmd::Remove { name } => match remove(http, token, &name).await {
       Ok(()) => {
         out.status(format!("removed {name} from your emotes"));

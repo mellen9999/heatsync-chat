@@ -255,6 +255,8 @@ pub struct Picker {
   pub view: crate::ui::picker::View,
   pub query: String,
   pub focus: Focus,
+  // the upload-your-own-emote form, while it is open: it has the top row
+  pub up: Option<super::emote_up::EmoteUp>,
   // position within `shown`
   pub sel: usize,
   pub scroll: i32,
@@ -298,11 +300,29 @@ impl Picker {
       view: Default::default(),
       query: String::new(),
       focus: Focus::Search,
+      up: None,
       sel: 0,
       scroll: 0,
     };
     p.refilter();
     p
+  }
+
+  // an emote you just uploaded: in your section, in name order (a name already there is replaced), picked
+  pub fn add_mine(&mut self, it: Item) {
+    let local = &self.items[..self.n_local];
+    let start = local.iter().position(|x| x.sec != Sec::Recent).unwrap_or(local.len());
+    let end = start + local[start..].iter().take_while(|x| x.sec == Sec::Mine).count();
+    if let Some(i) = (start..end).find(|&i| self.items[i].name == it.name) {
+      self.query = it.name.to_string();
+      self.items[i] = it;
+    } else {
+      let at = (start..end).find(|&i| ci_cmp(&self.items[i].name, &it.name).is_gt()).unwrap_or(end);
+      self.query = it.name.to_string();
+      self.items.insert(at, it);
+      self.n_local += 1;
+    }
+    self.refilter();
   }
 
   fn list(&self) -> &[Item] {

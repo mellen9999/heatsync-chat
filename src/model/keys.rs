@@ -172,6 +172,7 @@ pub static KEYS: [Group; 19] = [
         "next, previous tab: emotes, gifs, emoji (gifs: type to search, enter inserts the link; emoji: fuzzy search, enter inserts it)",
       ),
       k("alt-1 alt-2 alt-3 alt-4", "search 7tv, ffz, heatsync, exact names only (the chips; kept on this machine)"),
+      k("alt-u", "upload your own emote: pick a picture, name it (one word), it lands in your set. needs a login"),
       k("g G", "first, last"),
       k("ctrl-d ctrl-u  pagedown pageup", "page down, up"),
       k("backspace  ctrl-w", "erase a letter in the search, clear it"),
@@ -201,7 +202,10 @@ pub static KEYS: [Group; 19] = [
       k("alt-1 .. alt-0", "jump to a tab (alt-0 is the tenth)"),
       k("ctrl-tab", "next tab (shift for previous)"),
       k("alt-[ alt-]", "previous, next tab"),
-      k("alt-r", "row mode (no vi needed): pick a line with j k, then the picked-line keys; esc lets go"),
+      k(
+        "alt-r",
+        "row mode (no vi needed): pick a line with j k (g, home: first line; shift-g, end: last), then the picked-line keys; esc lets go",
+      ),
       k("click", "open a tab; the ⚙ is settings, the ? is this screen"),
       k(
         "right-click",
