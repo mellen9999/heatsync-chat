@@ -1,6 +1,6 @@
 [package]
 name = "heatsync-chat"
-version = "0.3.6"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 description = "twitch, kick and youtube chat in one native window, with heatsync emotes"
