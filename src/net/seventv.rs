@@ -464,7 +464,6 @@ fn dispatch(v: &Value, st: &State) -> Vec<NetEvent> {
 mod tests {
   use super::*;
   use crate::cosmetics::id::PaintId;
-  use tokio_tungstenite::connect_async_with_config;
 
   fn watch(ch: &str, set: &str, user: Option<(&str, u64)>) -> Cmd {
     Cmd::Watch { ch: ch.into(), set: set.into(), user: user.map(|(u, t)| (u.into(), t)) }
@@ -794,7 +793,7 @@ mod tests {
   #[ignore]
   async fn live_hello_and_subscribe_ack() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let (ws, _) = connect_async_with_config(URL, None, false).await.unwrap();
+    let (ws, _) = ws_connect(URL, MAX_FRAME).await.unwrap();
     let (mut tx, mut rx) = ws.split();
     let hello: Value = serde_json::from_str(rx.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     println!("{hello}");
