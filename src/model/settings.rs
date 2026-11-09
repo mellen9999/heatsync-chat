@@ -110,6 +110,10 @@ pub struct Choice {
 }
 
 choice! {
+  // the language every word is shown in: `auto` follows the os, the rest are the 34 of src/i18n (the index is the language's place + 1)
+  Language { Auto = "auto", Ar = "ar", Bg = "bg", Cs = "cs", Da = "da", De = "de", El = "el", En = "en", Es = "es", Fi = "fi", Fr = "fr", He = "he", Hi = "hi", Hu = "hu", Id = "id", It = "it", Ja = "ja", Ko = "ko", Ms = "ms", Nl = "nl", No = "no", Pl = "pl", PtBr = "pt_br", PtPt = "pt_pt", Ro = "ro", Ru = "ru", Sk = "sk", Sv = "sv", Th = "th", Tl = "tl", Tr = "tr", Uk = "uk", Vi = "vi", ZhCn = "zh_cn", ZhTw = "zh_tw" }
+}
+choice! {
   // the clock on a timestamped line (ext timestampFormat)
   TimeFmt { H24 = "24h", H12 = "12h" }
 }
@@ -176,6 +180,7 @@ pub struct Settings {
   // a time before each chat line, and its clock. default off, like the ext
   pub timestamps: bool,
   pub time_fmt: TimeFmt,
+  pub language: Language,
   // seconds on that clock: 16:05:09 for 16:05. default off, like the ext (it has none)
   pub timestamp_seconds: bool,
   // the #444444 stripe on every other row. default on
@@ -300,6 +305,7 @@ impl Default for Settings {
       auto_hide: false,
       timestamps: false,
       time_fmt: TimeFmt::H24,
+      language: Language::Auto,
       timestamp_seconds: false,
       zebra: true,
       readable: true,
@@ -717,6 +723,7 @@ mod tests {
         auto_hide: false,
         timestamps: false,
         time_fmt: TimeFmt::H24,
+        language: Language::Auto,
         timestamp_seconds: false,
         zebra: true,
         readable: true,

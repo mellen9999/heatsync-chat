@@ -10,6 +10,7 @@ mod cosmetics;
 mod emotes;
 mod fake;
 mod heatsync;
+mod i18n;
 mod images;
 mod model;
 mod net;

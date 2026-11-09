@@ -2,6 +2,6 @@
 1518 src/ui/name_art/scene_cat.rs  # baseline
 1475 src/net/mod.rs  # baseline
 1334 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity)
-1314 src/model/schema.rs  # three settings rows: mention sound when, remember sent (ext parity)
+1330 src/model/schema.rs  # three settings rows: mention sound when, remember sent (ext parity); language
 1266 src/net/hs_ws.rs  # baseline
 1231 src/model/vi.rs  # baseline

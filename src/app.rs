@@ -498,6 +498,7 @@ impl App {
     // no channel to open (a first run, or nothing saved): the add-channel form greets the window
     let welcome = tabs.is_empty();
     let set = Settings::load();
+    crate::i18n::apply(set.language as usize);
     let acct = crate::model::sync::Acct::new(&set);
     crate::heatsync::content::set_shown(set.content());
     crate::model::filter::edit(|f| {

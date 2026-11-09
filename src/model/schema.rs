@@ -58,6 +58,8 @@ pub enum Fx {
   PingFile,
   // the font family changed: the new one is looked up and, once found, all text is laid out again
   Font,
+  // the language changed: every word is looked up again and all text is laid out again
+  Lang,
   // chat logs flipped: the writer starts or lets go
   ChatLogs,
   // remember sent messages flipped: off removes the saved copy, on starts a fresh list
@@ -183,7 +185,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 74] = [
+pub static DEFS: [Def; 75] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -206,6 +208,18 @@ pub static DEFS: [Def; 74] = [
     alias: "size scale font",
     ctl: Ctl::Zoom,
     fx: Fx::None,
+    wire: Wire::None,
+  },
+  Def {
+    id: "language",
+    cmd: Some("/language"),
+    cat: Cat::Display,
+    section: "font",
+    label: "language",
+    tip: "auto follows this computer. /language de",
+    alias: "locale translation lang idioma sprache langue",
+    ctl: pick!(language, Language),
+    fx: Fx::Lang,
     wire: Wire::None,
   },
   Def {

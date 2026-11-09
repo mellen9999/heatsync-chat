@@ -364,6 +364,11 @@ impl App {
       Fx::PingFile => self.ping_file_follow(),
       Fx::SentHistory => self.sent_follow(),
       Fx::Font => self.font_follow(true),
+      Fx::Lang => {
+        crate::i18n::apply(self.set.language as usize);
+        self.res.apply_look(&self.set);
+        self.relayout_where(None);
+      }
     }
     self.input_dirty = true;
     self.bar_dirty = true;
