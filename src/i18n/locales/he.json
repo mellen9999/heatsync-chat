@@ -963,8 +963,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "אלימות",
  "misc.content.weapons": "נשק",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub של {who}",
  "misc.font.absent": "לא מותקנת משפחת גופנים בשם {asked} (הקרוב ביותר הוא {near})",
  "misc.font.bad_name": "זה לא שם גופן שאני יכול לחפש",
  "misc.font.no_tool": "חיפוש גופנים דורש fc-match: paru -S {pkg}",

@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "karahasan",
  "misc.content.weapons": "armas",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub ni {who}",
  "misc.font.absent": "walang naka-install na font family na {asked} (pinakamalapit ang {near})",
  "misc.font.bad_name": "hindi iyan pangalan ng font na mahahanap ko",
  "misc.font.no_tool": "kailangan ng fc-match para maghanap ng font: paru -S {pkg}",

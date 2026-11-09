@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::badges::Badge;
-use crate::i18n::{f, t};
 use crate::images::url::allowed;
 
 // the contract's ttl, for a flair and for "has none" alike
@@ -116,16 +115,7 @@ fn badge(v: &Value) -> Option<Badge> {
     return None;
   }
   let url = v.get("badge_url").and_then(Value::as_str).filter(|u| u.len() <= MAX_URL && allowed(u))?;
-  let who: String = v
-    .get("broadcaster_login")
-    .and_then(Value::as_str)
-    .unwrap_or("")
-    .chars()
-    .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
-    .take(25)
-    .collect();
-  let title = if who.is_empty() { t("misc.flair.sub").to_owned() } else { f("misc.flair.sub_of", &[("who", &who)]) };
-  Some(Badge { url: url.into(), title: title.into(), bg: None })
+  Some(Badge { url: url.into(), bg: None })
 }
 
 // `GET /api/users/flair` answer: `flairs{id:{…}}`, read back per id asked (absent = wears none)
@@ -154,11 +144,10 @@ mod tests {
       "7": 5
     }});
     let got = parse(&v, &[1, 2, 3, 4, 5, 6, 7]).unwrap();
-    let urls: Vec<_> =
-      got.iter().map(|(i, b)| (*i, b.as_ref().map(|b| (b.url.to_string(), b.title.to_string())))).collect();
-    assert_eq!(urls[0], (1, Some(("https://static-cdn.jtvnw.net/badges/v1/a/1".into(), "examplestreamer sub".into()))));
+    let urls: Vec<_> = got.iter().map(|(i, b)| (*i, b.as_ref().map(|b| b.url.to_string()))).collect();
+    assert_eq!(urls[0], (1, Some("https://static-cdn.jtvnw.net/badges/v1/a/1".into())));
     assert!(urls[1].1.is_none() && urls[2].1.is_none() && urls[3].1.is_none(), "{urls:?}");
-    assert_eq!(urls[4].1.as_ref().unwrap().1, "weirdb sub", "the name is cut to login characters");
+    assert!(urls[4].1.is_some());
     assert!(urls[5].1.is_none() && urls[6].1.is_none());
     for bad in [json!(null), json!({"flairs": []}), json!({})] {
       assert!(parse(&bad, &[1]).is_none());
@@ -176,7 +165,7 @@ mod tests {
     let mut f = Flairs::default();
     f.get(7);
     f.take_wanted();
-    let b = Badge { url: "https://static-cdn.jtvnw.net/x".into(), title: "sub".into(), bg: None };
+    let b = Badge { url: "https://static-cdn.jtvnw.net/x".into(), bg: None };
     f.put(7, Some(b));
     f.stale();
     assert_eq!(f.take_wanted(), vec![7]);
@@ -193,7 +182,7 @@ mod tests {
     assert_eq!(f.take_wanted(), [7]);
     f.get(7);
     assert!(f.take_wanted().is_empty(), "in flight");
-    let b = Badge { url: "https://static-cdn.jtvnw.net/a".into(), title: "x sub".into(), bg: None };
+    let b = Badge { url: "https://static-cdn.jtvnw.net/a".into(), bg: None };
     assert!(f.put(7, Some(b.clone())));
     assert!(!f.put(7, Some(b)), "same picture, nothing to redraw");
     assert!(f.get(7).is_some());

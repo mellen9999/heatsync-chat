@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "насилие",
  "misc.content.weapons": "оръжия",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub на {who}",
  "misc.font.absent": "няма инсталиран шрифт на име {asked} (най-близкият е {near})",
  "misc.font.bad_name": "това не е име на шрифт, което мога да потърся",
  "misc.font.no_tool": "търсенето на шрифтове иска fc-match: paru -S {pkg}",

@@ -30,8 +30,7 @@ fn twitch_set(list: Option<&Value>) -> TwitchSet {
     if !allowed(url) {
       continue;
     }
-    let title = b.get("title").and_then(Value::as_str).unwrap_or(set);
-    out.insert(key(set, ver), Badge { url: url.into(), title: title.into(), bg: None });
+    out.insert(key(set, ver), Badge { url: url.into(), bg: None });
   }
   out
 }
@@ -49,14 +48,13 @@ async fn gql(http: &reqwest::Client, query: &str) -> Result<Value, String> {
 }
 
 pub async fn twitch_global(http: &reqwest::Client) -> Result<TwitchSet, String> {
-  let d = gql(http, "{ badges { imageURL(size: NORMAL) setID version title } }").await?;
+  let d = gql(http, "{ badges { imageURL(size: NORMAL) setID version } }").await?;
   Ok(twitch_set(d.get("badges")))
 }
 
 pub async fn twitch_channel(http: &reqwest::Client, login: &str) -> Result<TwitchSet, String> {
   // login is validated by the caller ([a-z0-9_]); never interpolate anything else
-  let q =
-    format!("{{ user(login: \"{login}\") {{ broadcastBadges {{ imageURL(size: NORMAL) setID version title }} }} }}");
+  let q = format!("{{ user(login: \"{login}\") {{ broadcastBadges {{ imageURL(size: NORMAL) setID version }} }} }}");
   let d = gql(http, &q).await?;
   Ok(twitch_set(d.get("user").and_then(|u| u.get("broadcastBadges"))))
 }
@@ -71,17 +69,16 @@ pub fn ffz_room(v: &Value) -> TwitchSet {
   let rows = [
     (
       "moderator",
-      "moderator",
       pick("mod_urls").or_else(|| room.get("moderator_badge").and_then(Value::as_str)),
       crate::ui::theme::MOD_BADGE,
     ),
-    ("vip", "vip", pick("vip_badge"), crate::ui::theme::BLACK),
+    ("vip", pick("vip_badge"), crate::ui::theme::BLACK),
   ];
-  for (set, title, url, bg) in rows {
+  for (set, url, bg) in rows {
     let Some(url) = url else { continue };
     let url = url.strip_prefix("//").map_or_else(|| url.to_owned(), |r| format!("https://{r}"));
     if url.len() <= 512 && allowed(&url) {
-      out.insert(key(set, "1"), Badge { url: url.into(), title: title.into(), bg: Some(bg) });
+      out.insert(key(set, "1"), Badge { url: url.into(), bg: Some(bg) });
     }
   }
   out
@@ -99,10 +96,9 @@ pub fn ffz(v: &Value) -> UserBadges {
     if !allowed(url) {
       continue;
     }
-    let title = b.get("title").and_then(Value::as_str).unwrap_or("ffz");
     let bg = b.get("color").and_then(Value::as_str).and_then(parse_hex);
     index.insert(id.to_string(), out.list.len() as u16);
-    out.list.push(Badge { url: url.into(), title: title.into(), bg });
+    out.list.push(Badge { url: url.into(), bg });
   }
   let mut n = 0;
   for (id, users) in v.get("users").and_then(Value::as_object).into_iter().flatten() {
@@ -134,10 +130,8 @@ pub fn bttv(v: &Value) -> UserBadges {
     let i = match index.get(url) {
       Some(&i) => i,
       None if out.list.len() < MAX_BADGES => {
-        let title = badge.get("description").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("bttv");
-        let title: String = title.chars().filter(|c| !c.is_control()).take(100).collect();
         let i = out.list.len() as u16;
-        out.list.push(Badge { url: url.into(), title: title.into(), bg: None });
+        out.list.push(Badge { url: url.into(), bg: None });
         index.insert(url.into(), i);
         i
       }
@@ -154,8 +148,7 @@ pub fn chatterino(v: &Value) -> UserBadges {
   for b in v.get("badges").and_then(Value::as_array).into_iter().flatten().take(200) {
     let Some(url) = b.get("image1").and_then(Value::as_str).filter(|u| allowed(u)) else { continue };
     let i = out.list.len() as u16;
-    let title = b.get("tooltip").and_then(Value::as_str).unwrap_or("chatterino");
-    out.list.push(Badge { url: url.into(), title: title.into(), bg: None });
+    out.list.push(Badge { url: url.into(), bg: None });
     for u in b.get("users").and_then(Value::as_array).into_iter().flatten() {
       let id = u.as_u64().or_else(|| u.as_str().and_then(|s| s.parse().ok()));
       if let Some(id) = id
@@ -230,7 +223,6 @@ mod tests {
     ]);
     let u = bttv(&v);
     assert_eq!(u.list.len(), 1, "one picture shared by its holders");
-    assert_eq!(&*u.list[0].title, "NightDev Developer");
     assert_eq!(u.users.len(), 2);
     assert_eq!(u.users.get(&11785491), Some(&vec![0]));
     assert!(bttv(&json!({"badges": 1})).users.is_empty() && bttv(&json!(null)).list.is_empty());
@@ -248,7 +240,7 @@ mod tests {
       &json!([{"imageURL": "https://static-cdn.jtvnw.net/badges/v1/a/1", "setID": "moderator", "version": "1", "title": "Moderator"}, {"imageURL": "https://x.example/b", "setID": "s", "version": "1"}]),
     ));
     assert_eq!(s.len(), 1);
-    assert_eq!(&*s[&key("moderator", "1")].title, "Moderator");
+    assert!(s.contains_key(&key("moderator", "1")));
   }
 
   #[test]

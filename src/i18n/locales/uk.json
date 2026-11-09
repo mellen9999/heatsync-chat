@@ -963,8 +963,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "насильство",
  "misc.content.weapons": "зброя",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "шрифт із назвою {asked} не встановлено (найближчий: {near})",
  "misc.font.bad_name": "це не назва шрифту, яку можна знайти",
  "misc.font.no_tool": "для пошуку шрифтів потрібен fc-match: paru -S {pkg}",

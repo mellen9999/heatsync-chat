@@ -963,8 +963,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "násilie",
  "misc.content.weapons": "zbrane",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "rodina písma {asked} nie je nainštalovaná (najbližšia je {near})",
  "misc.font.bad_name": "to nie je názov písma, ktorý viem vyhľadať",
  "misc.font.no_tool": "vyhľadávanie písiem potrebuje fc-match: paru -S {pkg}",

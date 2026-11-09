@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "暴力",
  "misc.content.weapons": "武器",
- "misc.flair.sub": "订阅",
- "misc.flair.sub_of": "{who} 订阅",
  "misc.font.absent": "未安装名为 {asked} 的字体（最接近的是 {near}）",
  "misc.font.bad_name": "这不是我能查询的字体名称",
  "misc.font.no_tool": "查询字体需要 fc-match：paru -S {pkg}",

@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "βία",
  "misc.content.weapons": "όπλα",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub του {who}",
  "misc.font.absent": "δεν είναι εγκατεστημένη γραμματοσειρά {asked} (η πιο κοντινή είναι {near})",
  "misc.font.bad_name": "αυτό δεν είναι όνομα γραμματοσειράς που μπορώ να βρω",
  "misc.font.no_tool": "η αναζήτηση γραμματοσειρών θέλει fc-match: paru -S {pkg}",

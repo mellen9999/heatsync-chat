@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "kekerasan",
  "misc.content.weapons": "senjata",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "tidak ada font bernama {asked} yang terpasang (yang terdekat {near})",
  "misc.font.bad_name": "itu bukan nama font yang bisa dicari",
  "misc.font.no_tool": "mencari font butuh fc-match: paru -S {pkg}",

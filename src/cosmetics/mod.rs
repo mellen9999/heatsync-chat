@@ -56,12 +56,7 @@ fn badge(v: &Value) -> Option<Badge> {
   if !allowed(&url) {
     return None;
   }
-  let title = v.get("tooltip").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("7tv");
-  Some(Badge {
-    url: url.into(),
-    title: title.chars().filter(|c| !c.is_control()).take(100).collect::<String>().into(),
-    bg: None,
-  })
+  Some(Badge { url: url.into(), bg: None })
 }
 
 // one entry of the batch response. `hs` is the chatter's heatsync-native paint (`/api/paints`), which
@@ -285,7 +280,6 @@ mod tests {
     let mut cache = paints();
     let c = parse(&v, None, None, None, &mut cache).unwrap();
     assert_eq!(&*c.badge.as_ref().unwrap().url, "https://cdn.7tv.app/badge/B1/2x.webp");
-    assert_eq!(&*c.badge.as_ref().unwrap().title, "Subscriber");
     let again = parse(&v, None, None, None, &mut cache).unwrap();
     assert!(Arc::ptr_eq(c.paint.as_ref().unwrap(), again.paint.as_ref().unwrap()));
   }
@@ -363,7 +357,7 @@ mod tests {
     assert_eq!(s.take_wanted(), vec![T(7)]);
     let c = Cosmetic {
       paint: None,
-      badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), title: "t".into(), bg: None }),
+      badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), bg: None }),
       ..Default::default()
     };
     assert!(s.put(&T(7), Some(c.clone())));
@@ -387,7 +381,7 @@ mod tests {
     let (tw, nat) = (T(5), PaintId::Native("5".into()));
     let c = Cosmetic {
       paint: None,
-      badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), title: "t".into(), bg: None }),
+      badge: Some(Badge { url: "https://cdn.7tv.app/b/1x.webp".into(), bg: None }),
       ..Default::default()
     };
     s.get(&tw);

@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "keganasan",
  "misc.content.weapons": "senjata",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "tiada keluarga fon bernama {asked} dipasang (yang paling hampir ialah {near})",
  "misc.font.bad_name": "itu bukan nama fon yang boleh dicari",
  "misc.font.no_tool": "mencari fon perlukan fc-match: paru -S {pkg}",
