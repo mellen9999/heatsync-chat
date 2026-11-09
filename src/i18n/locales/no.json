@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "bannlyst",
  "mod.verb.delete": "slett",
  "mod.verb.deleted": "slettet",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "tøm",
  "mod.verb.purged": "purget",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

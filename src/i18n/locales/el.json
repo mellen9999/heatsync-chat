@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "ban",
  "mod.verb.delete": "διαγραφή",
  "mod.verb.deleted": "διαγράφηκε",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "σβήσιμο",
  "mod.verb.purged": "έγινε purge",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

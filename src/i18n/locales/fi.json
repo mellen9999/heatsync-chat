@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "bannattu",
  "mod.verb.delete": "poista",
  "mod.verb.deleted": "poistettu",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "tyhjennä",
  "mod.verb.purged": "purgattu",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

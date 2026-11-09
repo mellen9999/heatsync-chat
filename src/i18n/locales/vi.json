@@ -1210,7 +1210,7 @@
  "mod.verb.banned": "đã bị cấm",
  "mod.verb.delete": "xóa",
  "mod.verb.deleted": "đã xóa",
- "mod.verb.purge": "xóa sạch",
+ "mod.verb.purge": "dọn",
  "mod.verb.purged": "đã xóa sạch",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

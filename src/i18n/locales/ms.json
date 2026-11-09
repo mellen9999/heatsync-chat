@@ -1210,7 +1210,7 @@
  "mod.verb.banned": "diban",
  "mod.verb.delete": "padam",
  "mod.verb.deleted": "dipadam",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "kosong",
  "mod.verb.purged": "dipurge",
  "mod.verb.timed_out": "di-timeout {n}s",
  "mod.verb.timeout": "timeout",

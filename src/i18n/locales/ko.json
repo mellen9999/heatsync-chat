@@ -1210,7 +1210,7 @@
  "mod.verb.banned": "ban됨",
  "mod.verb.delete": "삭제",
  "mod.verb.deleted": "삭제됨",
- "mod.verb.purge": "퍼지",
+ "mod.verb.purge": "지우기",
  "mod.verb.purged": "퍼지됨",
  "mod.verb.timed_out": "{n}초 타임아웃",
  "mod.verb.timeout": "timeout",

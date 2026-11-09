@@ -1210,7 +1210,7 @@
  "mod.verb.banned": "ban 済み",
  "mod.verb.delete": "削除",
  "mod.verb.deleted": "削除済み",
- "mod.verb.purge": "パージ",
+ "mod.verb.purge": "消す",
  "mod.verb.purged": "パージした",
  "mod.verb.timed_out": "{n}s タイムアウト",
  "mod.verb.timeout": "timeout",

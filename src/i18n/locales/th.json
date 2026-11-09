@@ -1210,7 +1210,7 @@
  "mod.verb.banned": "แบนแล้ว",
  "mod.verb.delete": "ลบ",
  "mod.verb.deleted": "ลบแล้ว",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "ล้าง",
  "mod.verb.purged": "purge แล้ว",
  "mod.verb.timed_out": "timeout {n} วินาที",
  "mod.verb.timeout": "timeout",

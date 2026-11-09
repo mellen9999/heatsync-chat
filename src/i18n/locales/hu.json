@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "bannolva",
  "mod.verb.delete": "törlés",
  "mod.verb.deleted": "törölve",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "töröl",
  "mod.verb.purged": "purge-olva",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",
