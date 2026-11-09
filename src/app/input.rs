@@ -139,6 +139,7 @@ impl App {
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Reset => self.ask_reset(),
       Local::Keys => self.open_screen(screen::Page::Keys),
+      Local::Tour => self.tour_open(),
       Local::Login(arg) => self.login_cmd(&arg),
       Local::Logout => self.logout_cmd(),
       Local::Account => self.account_open(),

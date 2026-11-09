@@ -215,6 +215,7 @@ impl App {
     // the "add your first channel" box has done its job once any channel is open, by whatever route
     if self.form.as_ref().is_some_and(|f| f.welcome) {
       self.close_form();
+      self.tour_first();
     }
     if let Some(t) = self.tabs.get_mut(i) {
       t.unread = false;
@@ -456,13 +457,17 @@ impl App {
 
   fn submit_form(&mut self) {
     let Some(f) = &self.form else { return };
-    let (edit, res) = (f.edit, f.submit(&self.other_specs(f.edit)));
+    let (edit, welcome, res) = (f.edit, f.welcome, f.submit(&self.other_specs(f.edit)));
     match res {
       Ok(spec) => {
         self.close_form();
         match edit {
           Some(i) if i < self.tabs.len() => self.edit_tab(i, &spec),
           _ => self.add_tab(&spec),
+        }
+        // the first channel of a new install: the tour comes next
+        if welcome && edit.is_none() {
+          self.tour_first();
         }
       }
       Err(e) => {

@@ -580,6 +580,8 @@ pub enum Local {
   // /reset: every look and behaviour back to its default (asks first)
   Reset,
   Keys,
+  // /tour: the first-run tour again
+  Tour,
   // /login [platform], /logout, /account: who you are
   Login(String),
   Logout,
@@ -682,6 +684,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/settings" => Some(Local::Settings),
     "/reset" => Some(Local::Reset),
     "/keys" | "/help" => Some(Local::Keys),
+    "/tour" => Some(Local::Tour),
     "/logout" => Some(Local::Logout),
     "/account" => Some(Local::Account),
     "/following" | "/live" => Some(Local::Following),

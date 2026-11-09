@@ -36,7 +36,7 @@ pub static KEYS: [Group; 19] = [
   Group {
     name: "anywhere",
     rows: &[
-      k("f1", "this screen · the ? button · /keys"),
+      k("f1", "this screen · the ? button · /keys · /tour shows the first-run tour again"),
       k("ctrl-,", "settings · the ⚙ button"),
       k(
         "/reset",

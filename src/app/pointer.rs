@@ -26,7 +26,11 @@ impl App {
   pub(super) fn chat_hover(&mut self) {
     let (x, y) = self.pointer;
     let chat = self.chat_area();
-    let over = self.screen.is_none() && self.form.is_none() && self.img_view.is_none() && chat.contains(x, y);
+    let over = self.screen.is_none()
+      && self.form.is_none()
+      && self.tour.is_none()
+      && self.img_view.is_none()
+      && chat.contains(x, y);
     let res = &mut self.res;
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     let hot = if over { t.view.button_at(chat, x, y, res) } else { None };
@@ -38,6 +42,9 @@ impl App {
   // click a line to select it; click the input to type
   pub(super) fn click(&mut self) {
     self.hide_tip();
+    if self.tour.is_some() {
+      return self.tour_click();
+    }
     if self.form.is_some() {
       return self.form_click();
     }
@@ -162,7 +169,7 @@ impl App {
   }
 
   pub(super) fn right_click(&mut self) {
-    if self.picker.is_some() || self.form.is_some() {
+    if self.picker.is_some() || self.form.is_some() || self.tour.is_some() {
       return;
     }
     if self.screen.is_some() {

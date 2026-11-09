@@ -23,6 +23,7 @@ pub mod tab_bar;
 pub mod text;
 pub mod theme;
 pub mod tip;
+pub mod tour;
 
 use canvas::Rect;
 

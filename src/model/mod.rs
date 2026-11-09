@@ -83,6 +83,7 @@ pub mod tab_count;
 pub mod tabs;
 pub mod tabsync;
 pub mod tagcard;
+pub mod tour;
 pub mod unseen;
 pub mod usercmd;
 pub mod vi;

@@ -239,11 +239,21 @@ impl App {
       }
       self.wake();
     }
-    if self.form.is_some() || self.screen.is_some() || self.img_view.is_some() || self.picker.is_some() {
+    if self.tour.is_some()
+      || self.form.is_some()
+      || self.screen.is_some()
+      || self.img_view.is_some()
+      || self.picker.is_some()
+    {
       self.jump_forget();
       self.modbar_forget();
     }
-    if self.form.is_some() {
+    if self.tour.is_some() {
+      self.next_anim = None;
+      if let Some(r) = self.draw_tour() {
+        dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      }
+    } else if self.form.is_some() {
       self.next_anim = None;
       if let Some(r) = self.draw_form() {
         dirty = Some(dirty.map_or(r, |d| union(d, r)));

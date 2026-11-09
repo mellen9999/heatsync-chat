@@ -145,6 +145,9 @@ impl App {
     if self.zoom_key(&k) {
       return;
     }
+    if self.tour.is_some() {
+      return self.tour_key(k);
+    }
     if self.form.is_some() {
       if self.paste_key(&k) {
         return;

@@ -76,7 +76,7 @@ pub fn hit(g: &Geo, x: i32, y: i32) -> Option<Hit> {
   g.fields.iter().position(|f| f.contains(x, y)).map(Hit::Field)
 }
 
-fn put(c: &mut Canvas, t: &mut Text, s: &str, at: (i32, i32), ink: u32, bold: bool, clip: Rect) {
+pub(super) fn put(c: &mut Canvas, t: &mut Text, s: &str, at: (i32, i32), ink: u32, bold: bool, clip: Rect) {
   if s.is_empty() {
     return;
   }
@@ -84,12 +84,12 @@ fn put(c: &mut Canvas, t: &mut Text, s: &str, at: (i32, i32), ink: u32, bold: bo
   t.draw(&l, c, at.0 as f32, at.1 as f32, clip, |_, _| {});
 }
 
-fn boxed(c: &mut Canvas, r: Rect, bg: u32) {
+pub(super) fn boxed(c: &mut Canvas, r: Rect, bg: u32) {
   c.fill(r, theme::WHITE);
   c.fill(Rect::new(r.x + 1, r.y + 1, r.w - 2, r.h - 2), bg);
 }
 
-fn button(c: &mut Canvas, t: &mut Text, r: Rect, label: &str, on: bool, line: i32) {
+pub(super) fn button(c: &mut Canvas, t: &mut Text, r: Rect, label: &str, on: bool, line: i32) {
   let (bg, fg) = if on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
   boxed(c, r, bg);
   let w = t.layout(label, &[], &[], f32::MAX).full_width() as i32;

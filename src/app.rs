@@ -148,12 +148,15 @@ mod tests_streamer;
 #[cfg(test)]
 mod tests_tabs;
 #[cfg(test)]
+mod tests_tour;
+#[cfg(test)]
 mod tests_usercmd;
 #[cfg(test)]
 mod tests_whisper_toast;
 #[cfg(test)]
 mod tests_ytgone;
 mod tip;
+mod tour;
 mod unseen;
 mod update;
 mod upload;
@@ -368,6 +371,8 @@ pub struct App {
   overlay: Option<overlay::Overlay>,
   // the add/edit channel form (covers the chat)
   form: Option<Form>,
+  // the first-run tour card (model::tour), over the chat
+  tour: Option<crate::model::tour::Tour>,
   // the first window of a run with no channels asks for one (tabs::first_run)
   welcome: bool,
   form_hover: Option<Hit>,
@@ -604,6 +609,7 @@ impl App {
       ime_win: Default::default(),
       overlay: None,
       form: None,
+      tour: None,
       welcome,
       form_hover: None,
       cursor: winit::window::CursorIcon::Default,
@@ -858,6 +864,9 @@ impl ApplicationHandler<NetEvent> for App {
         self.card_hover();
         self.screen_hover();
         self.form_hover_move();
+        if self.tour.is_some() {
+          self.wake();
+        }
         self.bar_hover();
         self.picker_hover();
         self.cursor_sync();
