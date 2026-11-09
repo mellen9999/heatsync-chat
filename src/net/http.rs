@@ -109,7 +109,16 @@ pub async fn ws_connect(
   req
     .headers_mut()
     .insert("user-agent", tokio_tungstenite::tungstenite::http::HeaderValue::from_static(super::USER_AGENT));
-  tokio_tungstenite::connect_async_with_config(req, Some(ws_config(max)), false).await
+  let connector = tls().map(tokio_tungstenite::Connector::Rustls);
+  tokio_tungstenite::connect_async_tls_with_config(req, Some(ws_config(max)), false, connector).await
+}
+
+// one tls config for every socket and reconnect, verifying against the os trust store like reqwest does.
+// None = the store could not be read: sockets then fail loud (no roots), they never skip verification
+fn tls() -> Option<std::sync::Arc<rustls::ClientConfig>> {
+  use rustls_platform_verifier::ConfigVerifierExt;
+  static TLS: std::sync::OnceLock<Option<std::sync::Arc<rustls::ClientConfig>>> = std::sync::OnceLock::new();
+  TLS.get_or_init(|| rustls::ClientConfig::with_platform_verifier().ok().map(std::sync::Arc::new)).clone()
 }
 
 #[cfg(test)]
