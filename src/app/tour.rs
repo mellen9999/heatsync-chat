@@ -8,6 +8,7 @@ use crate::model::schema::def;
 use crate::model::tour::{Go, SWITCHES, Tour, seen};
 use crate::ui::canvas::Rect;
 use crate::ui::tour::{self as view, Hit};
+use crate::ui::tour_arrow::{Anchors, target};
 
 impl App {
   // the first channel is open: the tour greets a new install, once
@@ -105,12 +106,34 @@ impl App {
     }
   }
 
+  // the on-screen things the cards describe, from the layout as it is this frame
+  pub(super) fn tour_anchors(&mut self) -> Anchors {
+    let area = self.chat_area();
+    let n = self.bar_map.len();
+    let button = |i: usize| self.bar_hits.get(n + i).copied();
+    let (plus, gear) = (button(0), button(1));
+    let row = match self.tabs.get_mut(self.active) {
+      Some(t) if !area.is_empty() => t.view.line_at(area, area.bottom() - 1, &mut self.res).map(|(top, bottom, _)| {
+        Rect::new(area.x, top.max(area.y), area.w, (bottom.min(area.bottom()) - top.max(area.y)).max(0))
+      }),
+      _ => None,
+    };
+    Anchors { row, input: self.input_area(), plus, gear }
+  }
+
+  pub(super) fn tour_target(&mut self) -> Option<Rect> {
+    let at = self.tour.as_ref()?.at;
+    let a = self.tour_anchors();
+    target(at, &a)
+  }
+
   pub(super) fn draw_tour(&mut self) -> Option<Rect> {
     let area = self.chat_area();
+    let target = self.tour_target();
     let t = self.tour.as_ref()?;
     let rows: Vec<(&str, bool)> =
       SWITCHES.iter().filter_map(|id| def(id)).map(|d| (d.label_t(), d.on(&self.set).unwrap_or(false))).collect();
-    view::draw(&mut self.canvas, &mut self.res.text, area, t, &rows, self.pointer);
+    view::draw(&mut self.canvas, &mut self.res.text, area, t, &rows, self.pointer, target);
     Some(area)
   }
 }

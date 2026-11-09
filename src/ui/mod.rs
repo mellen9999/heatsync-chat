@@ -24,6 +24,7 @@ pub mod text;
 pub mod theme;
 pub mod tip;
 pub mod tour;
+pub mod tour_arrow;
 
 use canvas::Rect;
 

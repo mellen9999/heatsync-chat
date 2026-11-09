@@ -73,8 +73,17 @@ pub fn hit(g: &Geo, tour: &Tour, x: i32, y: i32) -> Option<Hit> {
   None
 }
 
-// `rows`: each switch's label and whether it is on. `pointer` reverses the button under it
-pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, tour: &Tour, rows: &[(&str, bool)], pointer: (i32, i32)) {
+// `rows`: each switch's label and whether it is on. `pointer` reverses the button under it. `target`: what the card
+// is about, the yellow arrow points at it
+pub fn draw(
+  c: &mut Canvas,
+  t: &mut Text,
+  area: Rect,
+  tour: &Tour,
+  rows: &[(&str, bool)],
+  pointer: (i32, i32),
+  target: Option<Rect>,
+) {
   let line = t.line_px as i32;
   let em = t.layout("0", &[], &[], f32::MAX).full_width().ceil() as i32;
   let g = geo(area, line, em, tour);
@@ -111,6 +120,7 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, tour: &Tour, rows: &[(&str
   button(c, t, g.skip, tr("settings.tour.skip"), under == Some(Hit::Skip), line);
   let hint = tr(if tour.last() { "settings.tour.hint_last" } else { "settings.tour.hint" });
   put(c, t, hint, g.hint, theme::DIM, false, g.panel);
+  super::tour_arrow::draw(c, t, area, g.panel, target);
 }
 
 #[cfg(test)]

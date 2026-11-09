@@ -203,3 +203,39 @@ fn every_card_draws_and_the_card_covers_the_chat() {
   }
   crate::store::remove("tour");
 }
+
+#[test]
+fn the_cards_point_at_the_real_bar_box_and_buttons_and_the_last_points_at_nothing() {
+  let (mut app, _rx) = boot(&["forsen"]);
+  app.local(Local::Tour);
+  let yellow = |app: &App| {
+    let a = app.chat_area();
+    (a.y..a.bottom())
+      .any(|y| (a.x..a.right()).any(|x| app.canvas.px[(y * app.canvas.w + x) as usize] & 0xffffff == 0xffff00))
+  };
+  for i in 0..CARDS.len() {
+    app.tour.as_mut().unwrap().at = i;
+    app.redraw();
+    let t = app.tour_target();
+    match i {
+      1 => assert_eq!(t, Some(app.input_area()), "the box"),
+      3 => assert_eq!(t, Some(app.bar_hits[app.bar_map.len()]), "the +"),
+      4 => assert_eq!(t, Some(app.bar_hits[app.bar_map.len() + 1]), "the gear"),
+      LAST => assert!(t.is_none() && !yellow(&app), "no arrow on the switches"),
+      // the newest line: an empty tab has none, so no arrow and the card still draws
+      _ => {}
+    }
+    if t.is_some() {
+      assert!(
+        yellow(&app),
+        "card {i} draws its arrow {t:?} {:?} {:?}",
+        app.chat_area(),
+        app.tour_geo().map(|g| g.panel)
+      );
+    }
+  }
+  app.tour = None;
+  app.redraw();
+  assert!(!yellow(&app), "gone with the tour");
+  crate::store::remove("tour");
+}
