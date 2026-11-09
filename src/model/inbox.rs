@@ -57,7 +57,7 @@ pub struct Item {
 }
 
 fn clean(s: &str, max: usize) -> String {
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().to_string()
+  crate::util::blank(s).take(max).collect::<String>().trim().to_string()
 }
 
 fn valid_post(s: &str) -> bool {

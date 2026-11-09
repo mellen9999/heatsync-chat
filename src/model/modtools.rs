@@ -31,7 +31,7 @@ pub struct Unban {
 
 fn text(v: &Value, k: &str, max: usize) -> Box<str> {
   let s = v.get(k).and_then(Value::as_str).unwrap_or("");
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().into()
+  crate::util::blank(s).take(max).collect::<String>().trim().into()
 }
 
 pub fn unbans(v: &Value) -> Vec<Unban> {

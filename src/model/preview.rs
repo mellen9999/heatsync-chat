@@ -125,7 +125,7 @@ pub fn site(url: &str) -> Option<&'static str> {
 
 fn text(v: &Value, key: &str, max: usize) -> Box<str> {
   let s = v.get(key).and_then(Value::as_str).unwrap_or("");
-  s.chars().filter(|c| !c.is_control()).take(max).collect::<String>().trim().into()
+  crate::util::strip(s).take(max).collect::<String>().trim().into()
 }
 
 fn link(v: &Value, key: &str) -> Option<Box<str>> {

@@ -28,7 +28,7 @@ impl Follow {
 }
 
 fn name(raw: &str, login: &str) -> Box<str> {
-  let n: String = raw.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_NAME).collect();
+  let n: String = crate::util::blank(raw).take(MAX_NAME).collect();
   let n = n.trim();
   if n.is_empty() || n.eq_ignore_ascii_case(login) { "".into() } else { n.into() }
 }

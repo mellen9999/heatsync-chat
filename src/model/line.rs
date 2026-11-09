@@ -32,7 +32,7 @@ impl Line {
   pub fn insert(&mut self, s: &str) {
     let room = MAX_CHARS.saturating_sub(self.text.chars().count());
     // newlines and control bytes never reach a chat line
-    let clean: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(room).collect();
+    let clean: String = crate::util::blank(s).take(room).collect();
     self.text.insert_str(self.cursor, &clean);
     self.cursor += clean.len();
     self.browsing = None;

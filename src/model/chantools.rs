@@ -183,7 +183,7 @@ pub fn command(text: &str) -> Option<Result<Cmd, &'static str>> {
 
 // a hostile string made safe to show: no control characters, trimmed, at most `max` characters
 pub fn tidy(s: &str, max: usize) -> Box<str> {
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().into()
+  crate::util::blank(s).take(max).collect::<String>().trim().into()
 }
 
 // an id twitch gave us, before it goes back in a request

@@ -35,7 +35,7 @@ fn id_of(v: Option<&Value>) -> Option<u64> {
 
 fn name_of(v: &Value) -> String {
   let s = v.get("emote_name").and_then(Value::as_str).unwrap_or("");
-  s.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect::<String>().trim().to_owned()
+  crate::util::strip(s).take(MAX_NAME).collect::<String>().trim().to_owned()
 }
 
 // the picture, unless flagged: a flagged emote is shown as its name only, whatever the viewer's switches say

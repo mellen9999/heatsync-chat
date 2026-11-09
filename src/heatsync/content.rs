@@ -91,7 +91,7 @@ pub fn held<'a>(cats: impl IntoIterator<Item = &'a str>) -> Option<Hold> {
         Some(k) => k.label(),
         None => c,
       };
-      first = Some(Hold { label: label.chars().filter(|c| !c.is_control()).take(32).collect(), can_show: true });
+      first = Some(Hold { label: crate::util::strip(label).take(32).collect(), can_show: true });
     }
   }
   first

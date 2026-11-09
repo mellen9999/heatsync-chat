@@ -68,7 +68,7 @@ pub fn gif(v: &Value) -> Option<Gif> {
   let url = v.get("url")?.as_str().filter(|u| good(u))?;
   let alt = |k: &str| v.get(k).and_then(Value::as_str).filter(|u| good(u)).unwrap_or(url);
   let id = match v.get("id") {
-    Some(Value::String(s)) => s.chars().filter(|c| !c.is_control()).take(40).collect(),
+    Some(Value::String(s)) => crate::util::strip(s).take(40).collect(),
     Some(Value::Number(n)) => n.to_string(),
     _ => url.to_owned(),
   };
@@ -97,7 +97,7 @@ pub fn parse(v: &Value) -> Page {
 
 // the query as typed, trimmed and bounded; empty = the top list
 pub fn clean(q: &str) -> String {
-  q.chars().filter(|c| !c.is_control()).take(MAX_QUERY).collect::<String>().trim().to_owned()
+  crate::util::strip(q).take(MAX_QUERY).collect::<String>().trim().to_owned()
 }
 
 pub fn path(q: &str) -> String {

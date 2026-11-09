@@ -119,7 +119,7 @@ impl App {
     if away && self.set.title_flash {
       // the latest name; an already running flash picks it up on its next turn
       let shown = self.flash.as_ref().is_some_and(|f| f.1);
-      self.flash = Some((nick.chars().filter(|c| !c.is_control()).take(40).collect::<String>().into(), shown));
+      self.flash = Some((crate::util::strip(nick).take(40).collect::<String>().into(), shown));
       self.flash_due.get_or_insert_with(Instant::now);
     }
   }

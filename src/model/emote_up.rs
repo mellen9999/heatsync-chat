@@ -52,7 +52,7 @@ impl EmoteUp {
   pub fn type_str(&mut self, s: &str) {
     if self.typing() {
       let room = MAX_TEXT.saturating_sub(self.text.chars().count());
-      self.text.extend(s.chars().filter(|c| !c.is_control()).take(room));
+      self.text.extend(crate::util::strip(s).take(room));
     }
   }
 

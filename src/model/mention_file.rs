@@ -137,7 +137,7 @@ pub fn decode(text: &str, owner: &str, now: i64) -> Read {
 
 fn text(v: &Value, k: &str, max: usize) -> Option<String> {
   let s = v.get(k)?.as_str()?;
-  (s.len() <= max).then(|| s.chars().filter(|c| !c.is_control()).collect())
+  (s.len() <= max).then(|| crate::util::strip(s).collect())
 }
 
 fn pairs<'a>(v: &'a Value, k: &str, max: usize) -> Vec<&'a Vec<Value>> {

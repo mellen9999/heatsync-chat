@@ -188,7 +188,7 @@ pub fn history(now: i64, v: &serde_json::Value) -> Vec<(i64, Line)> {
 }
 
 pub fn clean(s: &str) -> Box<str> {
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_GAME).collect::<String>().trim().into()
+  crate::util::blank(s).take(MAX_GAME).collect::<String>().trim().into()
 }
 
 // lib/stream-event-text.js streamEventBody

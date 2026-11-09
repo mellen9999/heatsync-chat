@@ -35,7 +35,7 @@ pub struct View<'a> {
 }
 
 fn one_line(s: &str) -> String {
-  let t: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(RECENT_MAX).collect();
+  let t: String = crate::util::blank(s).take(RECENT_MAX).collect();
   t
 }
 

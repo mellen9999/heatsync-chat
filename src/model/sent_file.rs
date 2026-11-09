@@ -13,7 +13,7 @@ pub const MAX_BYTES: u64 = 128 * 1024;
 
 // a line as the history keeps it: no control bytes, no more than a chat line holds. None = nothing worth keeping
 pub fn clean(s: &str) -> Option<String> {
-  let t: String = s.chars().filter(|c| !c.is_control()).take(MAX_CHARS).collect();
+  let t: String = crate::util::strip(s).take(MAX_CHARS).collect();
   let t = t.trim();
   (!t.is_empty()).then(|| t.to_owned())
 }

@@ -45,7 +45,7 @@ pub struct Saved {
 
 // a name as shown: no control bytes, cut to the server's length, None when nothing is left
 fn clean(s: &str) -> Option<Box<str>> {
-  let t: String = s.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect();
+  let t: String = crate::util::strip(s).take(MAX_NAME).collect();
   let t = t.trim();
   (!t.is_empty()).then(|| t.into())
 }

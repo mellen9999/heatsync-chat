@@ -30,7 +30,7 @@ pub fn name(s: &str) -> Option<String> {
 
 // one line of text for a file: no control chars, trimmed
 fn clean(s: &str) -> String {
-  let flat: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+  let flat: String = crate::util::blank(s).collect();
   flat.trim().to_owned()
 }
 

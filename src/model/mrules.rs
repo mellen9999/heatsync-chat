@@ -77,7 +77,7 @@ pub struct Body {
 
 // control bytes become spaces, the ends are trimmed, at most `max` characters
 fn clean(s: &str, max: usize) -> String {
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().to_owned()
+  crate::util::blank(s).take(max).collect::<String>().trim().to_owned()
 }
 
 // a room name as the server keeps them: lowercase, no `#`, nothing that could be a space or a control
