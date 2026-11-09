@@ -2085,6 +2085,20 @@ fn a_gigantified_message_draws_only_its_last_emote_big() {
   assert!(lay(&mut Res::new(1.0), &none).boxes.is_empty());
 }
 
+// a mod anniversary is its own family: dim green fill, white label (never the navy support fill)
+#[test]
+fn a_mod_anniversary_wears_the_green_fill_with_a_white_label() {
+  use crate::model::message::Notice;
+  let mut m = said("amy", "");
+  m.system = Some("amy is celebrating 6 months as a mod!".into());
+  m.extra().notice = Notice::ModAnniv;
+  let f = super::fill::of(&m, 0).expect("filled");
+  assert_eq!((f.bg, f.label), (0x008000, theme::WHITE));
+  let mut sub = said("amy", "");
+  sub.extra().notice = Notice::Bits;
+  assert_eq!(super::fill::of(&sub, 0).unwrap().bg, theme::FILL_NAVY);
+}
+
 // every brand row side by side with plain chat (zebra on): HSC_DUMP=x.ppm writes the frame
 #[test]
 fn brand_rows_each_wear_their_fill_and_plain_chat_none() {

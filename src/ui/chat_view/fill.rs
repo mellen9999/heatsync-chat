@@ -1,6 +1,6 @@
 // which fill a row wears (heatsync shared/brand/tokens.json; ext styles/21-brand-rows.css + fill-family.js).
 // a notification row is a solid fill from the dim set, the dim twin of its meaning: olive stream events,
-// purple new people, navy support, teal channel points + the broadcaster's voice, red for-you. plain chat
+// purple new people, navy support, green mod anniversaries, teal channel points + the broadcaster's voice, red for-you. plain chat
 // never gets one. a filled row skips zebra, keeps its label's own colour and writes everything else white
 use crate::model::filter;
 use crate::model::message::{Kind, Message, Notice, flag};
@@ -16,6 +16,7 @@ pub(super) struct Fill {
 const OLIVE: Fill = Fill { bg: theme::FILL_OLIVE, label: theme::LABEL_OLIVE };
 const PURPLE: Fill = Fill { bg: theme::FILL_PURPLE, label: theme::LABEL_PURPLE };
 const NAVY: Fill = Fill { bg: theme::FILL_NAVY, label: theme::LABEL_NAVY };
+const GREEN: Fill = Fill { bg: theme::FILL_GREEN, label: theme::LABEL_GREEN };
 const TEAL: Fill = Fill { bg: theme::FILL_TEAL, label: theme::LABEL_TEAL };
 const RED: Fill = Fill { bg: theme::MENTION_BG, label: theme::LABEL_RED };
 
@@ -35,6 +36,9 @@ pub(super) fn of(m: &Message, look: u8) -> Option<Fill> {
   }
   if m.has(flag::HIGHLIGHTED) || matches!(n, Notice::Announce | Notice::Redeem) || x.is_some_and(|x| !x.fx.is_empty()) {
     return Some(TEAL);
+  }
+  if n == Notice::ModAnniv {
+    return Some(GREEN);
   }
   if n != Notice::Plain {
     return Some(NAVY);

@@ -71,6 +71,8 @@ pub enum Notice {
   Raid,
   // a bits badge tier, a charity gift, kick's KICKs
   Bits,
+  // a mod's anniversary (twitch modiversary)
+  ModAnniv,
   Announce,
   Streak,
   Milestone,

@@ -27,6 +27,7 @@ pub const FILL_TEAL: u32 = 0x008080; // channel points + the broadcaster's voice
 pub const FILL_MAROON: u32 = 0x800000; // a rule's red
 pub const FILL_GREEN: u32 = 0x008000; // a rule's green
 pub const LABEL_OLIVE: u32 = YELLOW;
+pub const LABEL_GREEN: u32 = WHITE; // mod anniversaries
 pub const LABEL_PURPLE: u32 = WHITE;
 pub const LABEL_NAVY: u32 = BLUE;
 pub const LABEL_TEAL: u32 = CYAN;
@@ -79,7 +80,13 @@ mod tests {
     assert_eq!(hex(&t["mention"]["bg"]), MENTION_BG);
     assert_eq!(hex(&t["zebra"]), ZEBRA);
     let label = |n: &str| hex(&t["palette"][t["labels"][n].as_str().unwrap()]);
-    for (k, mine) in [("olive", LABEL_OLIVE), ("purple", LABEL_PURPLE), ("navy", LABEL_NAVY), ("teal", LABEL_TEAL)] {
+    for (k, mine) in [
+      ("olive", LABEL_OLIVE),
+      ("purple", LABEL_PURPLE),
+      ("navy", LABEL_NAVY),
+      ("teal", LABEL_TEAL),
+      ("green", LABEL_GREEN),
+    ] {
       assert_eq!(label(k), mine, "label {k}");
     }
     assert_eq!(label("red"), LABEL_RED);

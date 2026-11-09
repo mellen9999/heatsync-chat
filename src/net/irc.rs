@@ -244,7 +244,8 @@ fn notice_of(l: &Line) -> Notice {
     | "communitypayforward" => Notice::Sub,
     "raid" | "unraid" => Notice::Raid,
     "announcement" => Notice::Announce,
-    "bitsbadgetier" | "charitydonation" | "mod-anniversary" | "mod_anniversary" => Notice::Bits,
+    "bitsbadgetier" | "charitydonation" => Notice::Bits,
+    "modiversary" | "mod-anniversary" | "mod_anniversary" => Notice::ModAnniv,
     "viewermilestone" if l.tag("msg-param-category").as_deref() == Some("watch-streak") => Notice::Streak,
     "viewermilestone" => Notice::Milestone,
     _ => Notice::Plain,
@@ -910,6 +911,9 @@ mod tests {
     assert_eq!(kind("submysterygift", "").0, Notice::Sub);
     assert_eq!(kind("raid", "").0, Notice::Raid);
     assert_eq!(kind("bitsbadgetier", "").0, Notice::Bits);
+    for id in ["modiversary", "mod-anniversary", "mod_anniversary"] {
+      assert_eq!(kind(id, "msg-param-months=6;").0, Notice::ModAnniv, "{id}");
+    }
     assert_eq!(kind("viewermilestone", "msg-param-category=watch-streak;").0, Notice::Streak);
     assert_eq!(kind("viewermilestone", "").0, Notice::Milestone);
     assert_eq!(kind("sharedchatnotice", "source-msg-id=subgift;").0, Notice::Sub);
