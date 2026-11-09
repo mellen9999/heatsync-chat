@@ -1230,7 +1230,7 @@
  "mod.verb.banned": "banat",
  "mod.verb.delete": "șterge",
  "mod.verb.deleted": "șters",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "șterge",
  "mod.verb.purged": "purjat",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

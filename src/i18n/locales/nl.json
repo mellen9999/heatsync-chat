@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "verbannen",
  "mod.verb.delete": "wissen",
  "mod.verb.deleted": "gewist",
- "mod.verb.purge": "purgen",
+ "mod.verb.purge": "wis",
  "mod.verb.purged": "gepurged",
  "mod.verb.timed_out": "{n}s timeout gegeven",
  "mod.verb.timeout": "timeout",

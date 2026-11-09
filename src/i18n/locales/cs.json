@@ -1230,7 +1230,7 @@
  "mod.verb.banned": "zabanován",
  "mod.verb.delete": "smazat",
  "mod.verb.deleted": "smazáno",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "smazat",
  "mod.verb.purged": "purge hotov",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

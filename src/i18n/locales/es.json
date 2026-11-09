@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "baneado",
  "mod.verb.delete": "borrar",
  "mod.verb.deleted": "borrado",
- "mod.verb.purge": "purgar",
+ "mod.verb.purge": "borrar",
  "mod.verb.purged": "purgado",
  "mod.verb.timed_out": "timeout de {n}s",
  "mod.verb.timeout": "timeout",

@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "баннат",
  "mod.verb.delete": "изтрий",
  "mod.verb.deleted": "изтрито",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "изчисти",
  "mod.verb.purged": "purged",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "таймаут",

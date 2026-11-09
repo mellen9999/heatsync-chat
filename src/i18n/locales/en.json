@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "banned",
  "mod.verb.delete": "delete",
  "mod.verb.deleted": "deleted",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "clear",
  "mod.verb.purged": "purged",
  "mod.verb.timed_out": "timed out {n}s",
  "mod.verb.timeout": "timeout",

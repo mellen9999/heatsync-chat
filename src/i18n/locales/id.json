@@ -1210,7 +1210,7 @@
  "mod.verb.banned": "dibanned",
  "mod.verb.delete": "hapus",
  "mod.verb.deleted": "dihapus",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "bersih",
  "mod.verb.purged": "dipurge",
  "mod.verb.timed_out": "di-timeout {n}d",
  "mod.verb.timeout": "timeout",

@@ -1230,7 +1230,7 @@
  "mod.verb.banned": "zabanovaný",
  "mod.verb.delete": "zmazať",
  "mod.verb.deleted": "vymazané",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "vymazať",
  "mod.verb.purged": "purgnuté",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

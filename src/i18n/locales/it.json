@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "bannato",
  "mod.verb.delete": "elimina",
  "mod.verb.deleted": "eliminato",
- "mod.verb.purge": "purga",
+ "mod.verb.purge": "pulisci",
  "mod.verb.purged": "purgato",
  "mod.verb.timed_out": "timeout {n}s",
  "mod.verb.timeout": "timeout",

@@ -1220,7 +1220,7 @@
  "mod.verb.banned": "na-ban",
  "mod.verb.delete": "pagbura",
  "mod.verb.deleted": "nabura",
- "mod.verb.purge": "purge",
+ "mod.verb.purge": "burahin",
  "mod.verb.purged": "na-purge",
  "mod.verb.timed_out": "na-timeout nang {n}s",
  "mod.verb.timeout": "timeout",
