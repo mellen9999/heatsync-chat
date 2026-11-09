@@ -82,6 +82,7 @@ pub fn map_tag(tag: &str) -> Option<usize> {
 
 // the os's own answer: the first of LC_ALL, LC_MESSAGES, LANG that is set and not empty decides (glibc's order). `get` reads a
 // variable so a test can hand it any environment. an unmapped answer is english
+#[cfg(any(unix, test))]
 pub fn from_env(get: impl Fn(&str) -> Option<String>) -> usize {
   for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
     if let Some(v) = get(var).filter(|v| !v.is_empty()) {

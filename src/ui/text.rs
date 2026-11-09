@@ -6,8 +6,8 @@ use std::ops::Range;
 use std::path::Path;
 
 use parley::{
-  Alignment, AlignmentOptions, FontContext, FontFamily, FontFamilyName, FontWeight, GenericFamily, InlineBox, Layout,
-  LayoutContext, LineHeight, OverflowWrap, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
+  Alignment, AlignmentOptions, FontContext, FontFamily, FontFamilyName, FontWeight, GenericFamily, InlineBox, Language,
+  Layout, LayoutContext, LineHeight, OverflowWrap, PositionedInlineBox, PositionedLayoutItem, StyleProperty,
 };
 use swash::FontRef;
 use swash::scale::image::Content;
@@ -96,6 +96,9 @@ pub struct Text {
   family: Option<Box<str>>,
   // the families to set text in (see `chain`), kept so a layout allocates nothing for it
   families: Vec<FontFamilyName<'static>>,
+  // the ui language as a locale (cached per language): the system picks the regional font for shared han
+  // characters by it (simplified vs traditional vs japanese), not by the characters alone
+  locale: Option<Language>,
 }
 
 impl Text {
@@ -112,12 +115,18 @@ impl Text {
       lit: None,
       family: None,
       families: chain(None),
+      locale: None,
     }
   }
 
   // the family text is set in now; None = the system monospace
   pub fn family(&self) -> Option<&str> {
     self.family.as_deref()
+  }
+
+  // the ui language (an `i18n::lang` index) the text is set in
+  pub fn language(&mut self, lang: usize) {
+    self.locale = Language::parse(&crate::i18n::lang::CODES[lang].replace('_', "-")).ok();
   }
 
   // back to the system monospace
@@ -195,12 +204,14 @@ impl Text {
     line: f32,
     emoji: (Range<usize>, u16),
   ) -> TextLayout {
+    let locale = self.locale;
     // the picked family first, the system monospace behind it for what it has no glyph for, then the symbol fonts
     let mut b = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
     b.push_default(StyleProperty::FontFamily(match self.families.as_slice() {
       [only] => FontFamily::Single(only.clone()),
       l => FontFamily::List(Cow::Borrowed(l)),
     }));
+    b.push_default(StyleProperty::Locale(locale));
     b.push_default(StyleProperty::FontSize(self.font_px));
     b.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line)));
     b.push_default(StyleProperty::Brush(Ink::default()));
@@ -592,6 +603,7 @@ mod tests {
           continue;
         }
       }
+      t.language(crate::i18n::lang::map_tag(lang).unwrap());
       let l = t.layout(sample, &[], &[], 600.0);
       let mut glyphs = 0;
       let mut rtl = false;

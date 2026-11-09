@@ -151,6 +151,7 @@ impl Res {
   // the settings that shape drawing
   pub fn apply_look(&mut self, s: &Settings) {
     self.look = Look::of(s);
+    self.text.language(crate::i18n::current());
     // name paints move or hold still with the emotes
     self.arts.set_motion(self.look.animate_emotes);
   }
