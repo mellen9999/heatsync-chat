@@ -64,3 +64,29 @@ fn alt_r_picks_a_line_and_its_keys_stay_out_of_the_box() {
   press(&mut app, "x");
   assert_eq!(app.line.text, "xdraft");
 }
+
+#[test]
+fn row_mode_g_and_home_jump_to_the_first_line_and_shift_g_and_end_to_the_last() {
+  let mut app = boot();
+  let f = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  app.select(f);
+  for i in 0..5 {
+    let mut m = Message::system(i + 1, Platform::Twitch, "");
+    (m.kind, m.login, m.nick, m.body) = (MsgKind::Chat, "bob".into(), "bob".into(), format!("line {i}").into());
+    app.tabs[f].view.push(m);
+  }
+  app.line.set_text("draft".to_owned());
+  alt(&mut app, "r");
+  let picked = |app: &App| app.tabs[app.active].view.selected().map(|m| m.body.to_string());
+  assert_eq!(picked(&app).as_deref(), Some("line 4"));
+  press(&mut app, "g");
+  assert_eq!(picked(&app).as_deref(), Some("line 0"));
+  press(&mut app, "G");
+  assert_eq!(picked(&app).as_deref(), Some("line 4"));
+  app.on_key(Key::Named(NamedKey::Home), None);
+  assert_eq!(picked(&app).as_deref(), Some("line 0"));
+  app.on_key(Key::Named(NamedKey::End), None);
+  assert_eq!(picked(&app).as_deref(), Some("line 4"));
+  assert!(app.rows, "still in row mode");
+  assert_eq!(app.line.text, "draft", "the box is untouched");
+}

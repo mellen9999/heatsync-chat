@@ -364,6 +364,21 @@ impl App {
       return false;
     }
     let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
+    // g / G / home / end: first and last line, as the ext's row mode
+    let edge = match key {
+      Key::Character("g") | Key::Named(NamedKey::Home) => Some(true),
+      Key::Character("G") | Key::Named(NamedKey::End) => Some(false),
+      _ => None,
+    };
+    if let Some(first) = edge.filter(|_| !ctrl && !alt) {
+      let h = self.chat_area().h;
+      let res = &mut self.res;
+      if let Some(t) = self.tabs.get_mut(self.active) {
+        t.view.select_edge(first, res, h);
+      }
+      self.wake();
+      return true;
+    }
     let mut took = self.pick_key(key.clone());
     // enter on a plain chat line opens its menu, as in the ext
     if !took && *key == Key::Named(NamedKey::Enter) && self.kind() == Kind::Chat {

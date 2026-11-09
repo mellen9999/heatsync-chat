@@ -1006,6 +1006,15 @@ impl ChatView {
     self.reveal(i, res, view_h);
   }
 
+  // pick the oldest (`first`) or newest line held that can be picked, and bring it on screen. a no-op when none can
+  pub fn select_edge(&mut self, first: bool, res: &mut Res, view_h: i32) {
+    let pickable = |r: &Row| (r.msg.kind.said() || r.run().is_some()) && !r.hidden();
+    let i = if first { self.rows.iter().position(pickable) } else { self.rows.iter().rposition(pickable) };
+    let Some(i) = i else { return };
+    self.selected = Some(self.rows[i].seq);
+    self.reveal(i, res, view_h);
+  }
+
   // scroll just enough to show row `i`
   fn reveal(&mut self, i: usize, res: &mut Res, view_h: i32) {
     let h = self.height_at(i, res);
