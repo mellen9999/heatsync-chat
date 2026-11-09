@@ -73,9 +73,10 @@ const SUBPIXEL_STEPS: f32 = 4.0;
 mod symbols;
 
 // the families a line is set in, in order: the picked family, the system monospace, then `symbols::BEHIND`
-fn chain(family: Option<&str>) -> Vec<FontFamilyName<'static>> {
+// then the han fonts for the ui language (`han`, windows only)
+fn chain(family: Option<&str>, han: &[&'static str]) -> Vec<FontFamilyName<'static>> {
   let first = family.map(|f| FontFamilyName::Named(Cow::Owned(f.to_owned())));
-  let behind = symbols::BEHIND.iter().map(|n| FontFamilyName::named(n));
+  let behind = symbols::BEHIND.iter().chain(han).map(|n| FontFamilyName::named(n));
   first.into_iter().chain([FontFamilyName::Generic(GenericFamily::Monospace)]).chain(behind).collect()
 }
 
@@ -99,6 +100,7 @@ pub struct Text {
   // the ui language as a locale (cached per language): the system picks the regional font for shared han
   // characters by it (simplified vs traditional vs japanese), not by the characters alone
   locale: Option<Language>,
+  han: &'static [&'static str],
 }
 
 impl Text {
@@ -114,8 +116,9 @@ impl Text {
       reverse: false,
       lit: None,
       family: None,
-      families: chain(None),
+      families: chain(None, symbols::han("en")),
       locale: None,
+      han: symbols::han("en"),
     }
   }
 
@@ -126,13 +129,16 @@ impl Text {
 
   // the ui language (an `i18n::lang` index) the text is set in
   pub fn language(&mut self, lang: usize) {
-    self.locale = Language::parse(&crate::i18n::lang::CODES[lang].replace('_', "-")).ok();
+    let code = crate::i18n::lang::CODES[lang];
+    self.locale = Language::parse(&code.replace('_', "-")).ok();
+    self.han = symbols::han(code);
+    self.families = chain(self.family.as_deref(), self.han);
   }
 
   // back to the system monospace
   pub fn use_default(&mut self) {
     self.family = None;
-    self.families = chain(None);
+    self.families = chain(None, self.han);
     self.glyphs.clear();
   }
 
@@ -157,7 +163,7 @@ impl Text {
       return false;
     }
     self.family = Some(family.into());
-    self.families = chain(Some(family));
+    self.families = chain(Some(family), self.han);
     self.glyphs.clear();
     true
   }
@@ -486,10 +492,10 @@ mod tests {
   fn text_is_set_in_the_family_then_the_monospace_then_the_symbol_fonts() {
     use super::{Cow, FontFamilyName, GenericFamily, chain, symbols};
     let mono = FontFamilyName::Generic(GenericFamily::Monospace);
-    let c = chain(None);
+    let c = chain(None, &[]);
     assert_eq!(c.len(), 1 + symbols::BEHIND.len());
     assert_eq!(c[0], mono);
-    let c = chain(Some("Fira Code"));
+    let c = chain(Some("Fira Code"), &[]);
     assert_eq!((&c[0], &c[1]), (&FontFamilyName::Named(Cow::Borrowed("Fira Code")), &mono));
     let behind: Vec<_> = c[2..].iter().map(|f| format!("{f:?}")).collect();
     assert_eq!(behind.len(), symbols::BEHIND.len());
@@ -600,16 +606,6 @@ mod tests {
         let out = std::process::Command::new("fc-list").arg(format!(":lang={lang}")).arg("family").output();
         if !out.is_ok_and(|o| o.status.success() && !o.stdout.is_empty()) {
           eprintln!("skipped {lang}: no font for it here");
-          continue;
-        }
-      }
-      if cfg!(windows) && lang == "zh-cn" {
-        // simplified han needs one of windows' simplified fonts (yahei, simsun, dengxian, simhei): a stripped
-        // image (a server or ci runner without the chinese language pack) has none, and no fallback can draw it
-        let fonts = std::path::Path::new("C:\\Windows\\Fonts");
-        let have = ["msyh.ttc", "simsun.ttc", "Deng.ttf", "simhei.ttf"].iter().any(|f| fonts.join(f).exists());
-        if !have {
-          eprintln!("skipped {lang}: no simplified font installed here");
           continue;
         }
       }
