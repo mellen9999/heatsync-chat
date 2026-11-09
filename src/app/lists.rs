@@ -63,7 +63,7 @@ impl Kind {
   fn more(self) -> Option<&'static str> {
     match self {
       Kind::Rules => Some(
-        "more kinds: put user, badge, msgtype, regex or expr before the value, like highlight user bob or hide regex ^!",
+        "more kinds: put user, badge, msgtype, regex or expr before the value, like highlight user bob or hide regex ^! \u{b7} a highlight can play your own wav: /rule sound <number> <path>",
       ),
       Kind::Alerts => Some("more: phrase big news \u{b7} regex ^hi \u{b7} end with #channel to keep it to one channel"),
       _ => None,
@@ -117,6 +117,8 @@ pub(super) struct Ls {
   hidden: Vec<Box<str>>,
   pub adding: bool,
   pub add: Line,
+  // the rule being rewritten in the add box (its number), else None: enter saves it where it stands
+  pub editing: Option<usize>,
   // what the last change said, under the list
   pub msg: String,
   // the mention rules as the app holds them, and what an empty list says (signed out, still reading, none)
@@ -177,7 +179,7 @@ impl Ls {
         .describe()
         .iter()
         .enumerate()
-        .map(|(i, d)| item(d.split_once(' ').map_or(&**d, |x| x.1), "", Del::Rule(i + 1)))
+        .map(|(i, d)| item(d.split_once(' ').map_or(&**d, |x| x.1), &f.rules().extras(i), Del::Rule(i + 1)))
         .collect(),
     })
   }
@@ -210,9 +212,12 @@ impl Ls {
 
   pub(super) fn keys(&self) -> &'static str {
     match (self.adding, self.kind.addable()) {
+      (true, _) if self.editing.is_some() => "enter saves · esc leaves it as it was",
       (true, _) => "enter adds · esc stops",
       (_, true) if self.kind == Kind::Alerts => "j k move · a add · enter on or off · x delete · ? more · esc closes",
-      (_, true) if self.kind == Kind::Rules => "j k move · a add · x delete · ? more · esc closes",
+      (_, true) if self.kind == Kind::Rules => {
+        "j k move · a add · e edit · n notify · s sound · + - volume · x delete · ? more · esc closes"
+      }
       (_, true) => "j k move · a add · x delete · esc closes",
       _ if self.kind == Kind::Buttons => "j k move · enter on or off · esc closes",
       _ => "j k move · enter opens their card · x lets them back · esc closes",
@@ -237,6 +242,7 @@ impl App {
         hidden,
         adding: false,
         add: Line::default(),
+        editing: None,
         msg: String::new(),
         mr,
         mr_note,
@@ -317,7 +323,7 @@ impl App {
   // enter on the typed line
   fn list_add(&mut self) {
     let Some(l) = self.ls() else { return };
-    let (kind, typed) = (l.kind, l.add.text.trim().to_owned());
+    let (kind, typed, editing) = (l.kind, l.add.text.trim().to_owned(), l.editing);
     if typed.is_empty() {
       return;
     }
@@ -349,16 +355,103 @@ impl App {
     }
     let cmd = match kind {
       Kind::Reasons => Cmd::Reason { add: true, text: Some(typed) },
-      Kind::Rules => match filtercmd::command(&format!("/rule add {typed}")) {
+      Kind::Rules => match filtercmd::command(&format!(
+        "/rule {} {typed}",
+        editing.map_or("add".to_owned(), |n| format!("edit {n}"))
+      )) {
         Some(c) => c,
         None => return,
       },
       Kind::People | Kind::Alerts | Kind::Commands | Kind::Buttons => return,
     };
+    // a rule that would not save stays in the box, with why, so it can be fixed
+    let refused = editing.is_some() && matches!(cmd, Cmd::Usage(_));
     self.list_run(cmd);
+    let said = self.said();
+    let kept = editing.is_some() && !said.starts_with("rule changed");
+    if refused || kept {
+      return;
+    }
     if let Some(l) = self.ls() {
       l.add.set_text(String::new());
       l.add.home();
+      if l.editing.take().is_some() {
+        l.adding = false;
+        if let Some(s) = self.screen.as_mut() {
+          s.typing = false;
+        }
+      }
+    }
+  }
+
+  // e on a rule: its words come into the add box, enter saves them back into the same rule
+  fn list_edit(&mut self, i: usize) {
+    let Some(l) = self.ls().filter(|l| l.kind == Kind::Rules) else { return };
+    let Some(v) = filter::with(|f| f.rules().view(i)) else { return };
+    l.editing = Some(i + 1);
+    l.add.set_text(format!("{} {} {}", v.action, v.ty, v.value));
+    l.add.end();
+    l.msg.clear();
+    l.adding = true;
+    if let Some(s) = self.screen.as_mut() {
+      s.typing = true;
+    }
+    self.list_preview();
+  }
+
+  // n / s / + - on a highlight rule: notify, the next sound, the volume. every one is the slash command's own path
+  fn list_rule_tweak(&mut self, i: usize, key: &str) {
+    let Some(v) = filter::with(|f| f.rules().view(i)) else { return };
+    let n = (i + 1).to_string();
+    let cmd = match key {
+      "n" => RuleCmd::Notify(n, !v.notify),
+      "s" => {
+        // off, then each preset in turn, then off again; a file of yours is set with /rule sound
+        let order = ["ping", "blip", "knock", "chime"];
+        let next = match v.sound.as_deref() {
+          None => order[0],
+          Some(cur) => order.iter().position(|o| *o == cur).and_then(|p| order.get(p + 1)).copied().unwrap_or("off"),
+        };
+        RuleCmd::Sound(n, next.to_owned())
+      }
+      _ => {
+        let now = v.volume.unwrap_or_else(|| self.set.mention_volume.percent());
+        let to = if key == "+" { now.saturating_add(10).min(100) } else { now.saturating_sub(10) };
+        RuleCmd::Volume(n, Some(to))
+      }
+    };
+    self.list_run(Cmd::Rule(cmd));
+  }
+
+  // the add box while it holds a rule: how many of the lines already here it would catch (ext "matches n of the
+  // last 200 messages"), from the real matcher
+  pub(super) fn list_preview(&mut self) {
+    const ROWS: usize = 200;
+    let Some(l) = self.ls().filter(|l| l.kind == Kind::Rules && l.adding) else { return };
+    let (typed, case) = (
+      l.add.text.trim().to_owned(),
+      l.editing.and_then(|n| filter::with(|f| f.rules().view(n - 1))).is_some_and(|v| v.case),
+    );
+    let text = if typed.is_empty() {
+      String::new()
+    } else {
+      let parts = match filtercmd::command(&format!("/rule add {typed}")) {
+        Some(Cmd::Rule(RuleCmd::Add { action, ty, value })) => Some((action, ty, value)),
+        _ => None,
+      };
+      let tried = parts.and_then(|(a, t, v)| {
+        let rows = self.tabs.get(self.active)?.view.msgs().rev().take(ROWS).collect::<Vec<_>>();
+        crate::model::rules::Rules::preview(&a, &t, &v, case, rows.into_iter(), "")
+      });
+      match tried {
+        None => "that isn't a rule yet".to_owned(),
+        Some((_, 0)) => "no lines here to try it on yet".to_owned(),
+        Some((0, n)) => format!("matches none of the last {n} messages"),
+        Some((h, n)) => format!("matches {h} of the last {n} messages"),
+      }
+    };
+    if let Some(l) = self.ls() {
+      l.msg = text;
     }
   }
 
@@ -385,6 +478,7 @@ impl App {
         if let Some(Del::Button(b)) =
           self.ls().filter(|l| l.kind == Kind::Buttons).and_then(|l| l.items().into_iter().nth(i)).map(|x| x.del)
         {
+          super::modseed::mod_buttons_decided();
           self.set.mod_buttons ^= 1 << b;
           let mask = self.set.mod_buttons;
           self.set.save();
@@ -410,6 +504,12 @@ impl App {
     let Some(l) = s.ls.as_deref_mut() else { return false };
     if l.adding {
       match key {
+        Key::Named(NamedKey::Escape) if l.editing.is_some() => {
+          (l.adding, s.typing, l.editing) = (false, false, None);
+          l.add.set_text(String::new());
+          l.add.home();
+          l.msg.clear();
+        }
         Key::Named(NamedKey::Escape) if !l.add.text.is_empty() => {
           l.add.set_text(String::new());
           l.add.home();
@@ -424,9 +524,22 @@ impl App {
         }
         _ => {}
       }
+      // a typed key moves the count; enter has just said what it did, and that stays
+      if *key != Key::Named(NamedKey::Enter) {
+        self.list_preview();
+      }
       return true;
     }
     match key {
+      Key::Character(k @ ("e" | "n" | "s" | "+" | "-" | "=")) if !ctrl && !alt && l.kind == Kind::Rules => {
+        let k: &str = if *k == "=" { "+" } else { k };
+        if let Some(Target::Item(i)) = s.target() {
+          match k {
+            "e" => self.list_edit(i),
+            _ => self.list_rule_tweak(i, k),
+          }
+        }
+      }
       Key::Character("x") | Key::Named(NamedKey::Delete) if !ctrl => {
         if let Some(Target::Item(i)) = s.target() {
           self.list_delete(i);

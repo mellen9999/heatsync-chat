@@ -279,6 +279,34 @@ impl Line {
     Some(msg)
   }
 
+  // what was sent, oldest first (the file `sent_file` keeps between runs)
+  pub fn sent(&self) -> impl DoubleEndedIterator<Item = &str> {
+    self.history.iter().map(String::as_str)
+  }
+
+  // the last run's sent lines come back, oldest first. lines sent before they arrived stay newest
+  pub fn restore_sent(&mut self, old: Vec<String>) {
+    let now: Vec<String> = self.history.drain(..).collect();
+    for l in old.into_iter().chain(now) {
+      if self.history.back() != Some(&l) {
+        if self.history.len() == HISTORY {
+          self.history.pop_front();
+        }
+        self.history.push_back(l);
+      }
+    }
+    self.browsing = None;
+  }
+
+  // forget every sent line (and stop browsing them)
+  pub fn clear_sent(&mut self) {
+    if self.browsing.take().is_some() {
+      self.text = std::mem::take(&mut self.draft);
+      self.cursor = self.text.len();
+    }
+    self.history.clear();
+  }
+
   // up: older sent message; down: newer, then back to the draft
   pub fn older(&mut self) {
     let i = match self.browsing {
@@ -512,5 +540,37 @@ mod tests {
     l.newer();
     l.newer();
     assert_eq!(l.text, "draft");
+  }
+
+  #[test]
+  fn sent_lines_come_back_behind_the_ones_sent_since() {
+    let mut l = Line::default();
+    for m in ["new one", "newer"] {
+      l.insert(m);
+      l.take();
+    }
+    l.restore_sent(vec!["old".into(), "older".into(), "new one".into()]);
+    assert_eq!(l.sent().collect::<Vec<_>>(), ["old", "older", "new one", "newer"]);
+    l.older();
+    assert_eq!(l.text, "newer");
+    // the cap holds across a restore
+    let many: Vec<String> = (0..80).map(|i| i.to_string()).collect();
+    l.restore_sent(many);
+    assert_eq!(l.sent().count(), HISTORY);
+    assert_eq!(l.sent().last(), Some("newer"));
+  }
+
+  #[test]
+  fn clearing_forgets_everything_and_gives_back_the_draft() {
+    let mut l = Line::default();
+    l.insert("sent");
+    l.take();
+    l.insert("draft");
+    l.older();
+    assert_eq!(l.text, "sent");
+    l.clear_sent();
+    assert_eq!((l.text.as_str(), l.sent().count()), ("draft", 0));
+    l.older();
+    assert_eq!(l.text, "draft", "nothing to recall");
   }
 }

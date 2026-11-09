@@ -9,7 +9,7 @@ use crate::model::reasons::Reasons;
 use crate::model::rules::{INKS, Judged, Line, Old, Rules, Verdict};
 use crate::store;
 use crate::ui::theme;
-use crate::util::sound::Preset;
+use crate::util::sound::{Preset, Voice};
 
 // a line's verdict bits
 pub const HIDDEN: u8 = 1;
@@ -49,6 +49,9 @@ const BOTS: [&str; 12] = [
 // an old file is read for this many words and patterns, no more
 const MAX_OLD: usize = 1024;
 const MAX_NAMES: usize = 5000;
+// a rule's wav file: the longest path kept, and a rule id the file is kept under
+const MAX_PATH: usize = crate::model::settings::PATH_MAX;
+const MAX_RULE_ID: usize = 64;
 pub const DEFAULT_MUTE_MS: i64 = 24 * 3600 * 1000;
 
 #[derive(Default, Clone, Debug)]
@@ -72,6 +75,17 @@ pub struct Filters {
   synced_blocks: HashSet<Box<str>>,
   // your own names (lowercase): never hidden by these filters
   me: Vec<Box<str>>,
+  // a highlight rule's own wav, by the rule's id. the rule only carries the file's name (it syncs), the path
+  // stays on this device, in this file
+  rule_files: HashMap<Box<str>, Box<str>>,
+}
+
+// what a highlight rule gives a live line: a sound (with its own loudness, else the shared one) and a ping
+// into the mentions tab
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Cue {
+  pub sound: Option<(Voice, Option<u8>)>,
+  pub notify: bool,
 }
 
 // "@Bob" → "bob"; youtube handles carry a leading @ in chat but not in lists
@@ -132,17 +146,61 @@ impl Filters {
 
   fn ruled(&self, m: &Message, chan: &str) -> Judged {
     if self.rules.is_empty() {
-      return Judged { verdict: Verdict::Pass, ink: None, sound: None };
+      return Judged::default();
     }
     self.rules.judge(&Line::new(m, chan))
   }
 
-  // the sound a highlight rule gives a new line in `chan`
-  pub fn rule_sound(&self, m: &Message, chan: &str) -> Option<Preset> {
+  // the sound a verdict plays, with its own volume. a file the rule names that is not on this device plays the
+  // ping instead (the ext does the same), so a synced rule is never silent
+  fn voice(&self, j: &Judged) -> Option<(Voice, Option<u8>)> {
+    let voice = match (j.sound, j.custom) {
+      (Some(p), _) => Voice::Preset(p),
+      (None, true) => self
+        .rules
+        .id_at(j.at)
+        .and_then(|id| self.rule_files.get(id))
+        .map_or(Voice::Preset(Preset::Ping), |p| Voice::File(p.to_string())),
+      (None, false) => return None,
+    };
+    Some((voice, j.volume))
+  }
+
+  // what a highlight rule gives a new said line in `chan`
+  pub fn rule_cue(&self, m: &Message, chan: &str) -> Cue {
     if !m.kind.said() {
-      return None;
+      return Cue::default();
     }
-    self.ruled(m, chan).sound
+    let j = self.ruled(m, chan);
+    Cue { sound: self.voice(&j), notify: j.notify }
+  }
+
+  // what the rule at `at` plays (to hear it as it is set)
+  pub fn rule_voice_at(&self, at: usize) -> Option<(Voice, Option<u8>)> {
+    self.voice(&self.rules.judged(at)?)
+  }
+
+  pub fn rule_file(&self, id: &str) -> Option<&str> {
+    self.rule_files.get(id).map(|p| &**p)
+  }
+
+  // keep (Some) or forget (None) where a rule's wav is. false = not kept: an id or path that is no good
+  pub fn set_rule_file(&mut self, id: &str, path: Option<&str>) -> bool {
+    let ok_id =
+      (1..=MAX_RULE_ID).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if !ok_id {
+      return false;
+    }
+    let Some(p) = path else {
+      self.rule_files.remove(id);
+      return true;
+    };
+    let ok_path = !p.is_empty() && p.len() <= MAX_PATH && !p.chars().any(char::is_control);
+    if !ok_path || (self.rule_files.len() >= crate::model::rules::MAX_RULES && !self.rule_files.contains_key(id)) {
+      return false;
+    }
+    self.rule_files.insert(id.into(), p.into());
+    true
   }
 
   pub fn muted(&self, who: &str, now: i64) -> bool {
@@ -321,6 +379,11 @@ impl Filters {
         }
         "banreason" => _ = f.reason(true, rest),
         "rules" => _ = f.set_rules_text(rest),
+        "rulewav" => {
+          if let Some((id, path)) = rest.split_once(' ') {
+            f.set_rule_file(id, Some(path));
+          }
+        }
         "block" => _ = f.block(rest),
         "sblock" => _ = f.block_synced(rest),
         "mute" | "smute" => {
@@ -350,6 +413,12 @@ impl Filters {
     }
     if !self.rules.is_empty() {
       s.push_str(&format!("rules {}\n", self.rules.json()));
+    }
+    // a file for a rule that is gone is not written again
+    let mut files: Vec<_> = self.rule_files.iter().filter(|(id, _)| self.rules.has_id(id)).collect();
+    files.sort_unstable();
+    for (id, path) in files {
+      s.push_str(&format!("rulewav {id} {path}\n"));
     }
     let mut blocks: Vec<_> = self.blocks.iter().collect();
     blocks.sort_unstable();
@@ -522,9 +591,50 @@ mod tests {
     }
     // the sound is the rule's, for a said line in its channel only
     assert!(f.set_rules_text(&rule("#ff0000", "all").replace("\"color\"", "\"sound\":\"chime\",\"color\"")));
-    assert_eq!(f.rule_sound(&line("a", "gg"), "xqc"), Some(Preset::Chime));
-    assert_eq!(f.rule_sound(&line("a", "hi"), "xqc"), None);
-    assert_eq!(f.rule_sound(&Message::system(0, Platform::Twitch, "gg"), "xqc"), None);
+    let sound = |f: &Filters, m: &Message, c: &str| f.rule_cue(m, c).sound.map(|s| s.0);
+    assert_eq!(sound(&f, &line("a", "gg"), "xqc"), Some(Voice::Preset(Preset::Chime)));
+    assert_eq!(sound(&f, &line("a", "hi"), "xqc"), None);
+    assert_eq!(sound(&f, &Message::system(0, Platform::Twitch, "gg"), "xqc"), None);
+  }
+
+  #[test]
+  fn a_rules_wav_is_kept_here_and_never_outlives_the_rule() {
+    let mut f = Filters::default();
+    f.rules_mut().add("r1".into(), "highlight", "keyword", "gg").unwrap();
+    f.rules_mut().set_sound("1", &crate::model::rules::Pick::File("ding.wav".into())).unwrap();
+    let said = |f: &Filters| f.rule_cue(&line("a", "gg"), "").sound;
+    // no file on this device yet: the ping, never silence
+    assert_eq!(said(&f), Some((Voice::Preset(Preset::Ping), None)));
+    assert!(f.set_rule_file("r1", Some("/home/me/ding.wav")));
+    assert_eq!(said(&f), Some((Voice::File("/home/me/ding.wav".into()), None)));
+    // it survives a restart, in the local file
+    let g = Filters::parse(&f.render());
+    assert_eq!(g.rule_file("r1"), Some("/home/me/ding.wav"));
+    assert!(f.render().contains("rulewav r1 /home/me/ding.wav\n"));
+    // bounds: a bad id, a control byte, a path too long, an empty one
+    for (id, p) in
+      [("a b", "/x.wav"), ("", "/x.wav"), ("r1", ""), ("r1", "/x\n.wav"), ("r1", &"y".repeat(MAX_PATH + 1)[..])]
+    {
+      assert!(!f.set_rule_file(id, Some(p)), "{id:?} {p:?}");
+    }
+    assert_eq!(f.rule_file("r1"), Some("/home/me/ding.wav"), "a refusal keeps what was there");
+    // the rule goes, and its file is not written again
+    f.rules_mut().remove("1");
+    assert!(!f.render().contains("rulewav"));
+    // hostile lines in the file
+    let h = Filters::parse("rulewav\nrulewav only-id\nrulewav bad!id /x.wav\nrulewav ok /x.wav\n");
+    assert_eq!(h.rule_files.len(), 1);
+  }
+
+  #[test]
+  fn a_rule_can_ask_for_the_mentions_tab() {
+    let mut f = Filters::default();
+    f.rules_mut().add("r".into(), "highlight", "keyword", "gg").unwrap();
+    assert!(!f.rule_cue(&line("a", "gg"), "").notify);
+    f.rules_mut().set_notify("1", true).unwrap();
+    assert!(f.rule_cue(&line("a", "gg"), "").notify);
+    assert!(!f.rule_cue(&line("a", "hello"), "").notify);
+    assert!(!f.rule_cue(&Message::system(0, Platform::Twitch, "gg"), "").notify);
   }
 
   #[test]

@@ -8,10 +8,14 @@ use super::pop::{Pop, Subject, Todo};
 use crate::cosmetics::id::PaintId;
 use crate::model::message::{Message, Platform};
 use crate::model::modcmd::{Cmd as Slash, NUKE_MAX, NUKE_USAGE, Verb};
+use crate::model::modlog_file;
 use crate::net::Cmd;
 use crate::net::modact::{Done, Fail, NukeDone, Req};
+use crate::store;
 use crate::util::time::now_ms;
 
+// how long an action of ours waits for twitch's echo of it to be named
+const MOD_ECHO_MS: i64 = 30_000;
 // how much of a long term the question shows
 const NUKE_TERM_SHOWN: usize = 40;
 
@@ -20,6 +24,7 @@ impl App {
     let had = self.mod_in.contains(ch);
     if on && !had {
       self.mod_in.insert(ch.into());
+      self.mod_buttons_seed();
       self.held_sweep();
     } else if !on && had {
       self.mod_in.remove(ch);
@@ -48,19 +53,76 @@ impl App {
       return;
     };
     if crate::model::modrole::kick_badges_mod(&own.badges) {
-      self.kick_mod.insert(slug.into());
+      if self.kick_mod.insert(slug.into()) {
+        self.mod_buttons_seed();
+      }
     } else {
       self.kick_mod.remove(slug);
     }
   }
 
-  // one line in the mod log tab: the room, then what happened
+  // one line in the mod log tab: the room, then what happened. an action you took through heatsync names you
+  // (twitch's echo of it does not say who did it, so a recent one of ours that matches is the one). kept in the
+  // `modlog` file, so a restart brings it back
   pub(super) fn mod_log(&mut self, p: Platform, chan: &str, what: String) {
     let Some(i) = self.tab_of(crate::model::tabs::Kind::ModLog) else { return };
-    self.tabs[i].chat().push(Message::system(now_ms(), p, format!("{chan} · {what}")));
+    let what = match self.mod_actor(chan, &what) {
+      Some(by) => format!("{what} \u{b7} by {by}"),
+      None => what,
+    };
+    self.tabs[i].chat().push(Message::system(now_ms(), p, format!("{chan} \u{b7} {what}")));
+    self.modlog_save(i);
     if i != self.active {
       self.tabs[i].unread = true;
       self.bar_dirty = true;
+    }
+  }
+
+  // an action of ours is waiting for its echo in `chan`: the person it was for
+  pub(super) fn mod_expect(&mut self, chan: &str, login: &str) {
+    let now = now_ms();
+    self.mod_by.retain(|e| now - e.2 < MOD_ECHO_MS);
+    if self.mod_by.len() >= 16 {
+      self.mod_by.remove(0);
+    }
+    self.mod_by.push((chan.into(), login.to_lowercase().into(), now));
+  }
+
+  // the echo `what` in `chan` is one of ours: its actor (our username), the wait ended
+  fn mod_actor(&mut self, chan: &str, what: &str) -> Option<String> {
+    let now = now_ms();
+    self.mod_by.retain(|e| now - e.2 < MOD_ECHO_MS);
+    let low = what.to_lowercase();
+    let at = self.mod_by.iter().position(|e| &*e.0 == chan && !e.1.is_empty() && low.contains(&*e.1))?;
+    self.mod_by.remove(at);
+    self.me.as_ref().map(|m| m.username.to_string()).filter(|u| !u.is_empty())
+  }
+
+  // the tab's rows, written soon (the store batches a burst into one write)
+  fn modlog_save(&self, i: usize) {
+    let v = &self.tabs[i].view;
+    let text = modlog_file::encode(v.msgs().filter(|m| !m.body.is_empty()).map(|m| (m.ts, m.platform, &*m.body)));
+    if text.is_empty() {
+      return;
+    }
+    store::write_later(modlog_file::FILE, &text);
+  }
+
+  // at boot: the last run's mod log comes back as history. a file with unusable lines is written again without
+  // them; one that is not ours is set aside, not read
+  pub(super) fn modlog_restore(&mut self) {
+    let Some(i) = self.tab_of(crate::model::tabs::Kind::ModLog) else { return };
+    let Some(text) = store::read_capped(modlog_file::FILE, modlog_file::MAX_BYTES) else { return };
+    let (rows, junk) = modlog_file::decode(&text);
+    if rows.is_empty() && junk > 0 {
+      return store::set_aside(modlog_file::FILE, None);
+    }
+    if junk > 0 {
+      store::set_aside(modlog_file::FILE, Some(junk));
+    }
+    self.tabs[i].chat().prepend(rows.into_iter().map(|(ts, p, x)| Message::system(ts, p, x)).collect());
+    if junk > 0 {
+      self.modlog_save(i);
     }
   }
 
@@ -320,8 +382,9 @@ impl App {
           self.touched(i);
         }
         // twitch's own echo logs a ban, timeout or delete; an unban and anything on kick only show here
-        if let Some(n) = note {
-          self.mod_log(platform, &chan, n);
+        match note {
+          Some(n) => self.mod_log(platform, &chan, n),
+          None => self.mod_expect(&chan, &login),
         }
       }
       Err(Fail::Auth) => self.say("log in first (ctrl-l)"),

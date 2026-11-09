@@ -12,7 +12,7 @@ const fn s(name: &'static str, args: &'static str, desc: &'static str) -> Slash 
   Slash { name, args, desc }
 }
 
-const FIXED: [Slash; 81] = [
+const FIXED: [Slash; 82] = [
   s("/op", "<text>", "post a thread to your heatsync feed"),
   s("/re", "<text>", "answer the last op shown in chat"),
   s("/me", "<text>", "say it as an action"),
@@ -72,7 +72,11 @@ const FIXED: [Slash; 81] = [
   s("/banreason", "[reason]", "a quick reason your bans offer; alone, list them"),
   s("/modbuttons", "[x 1m 10m 1h 24h 7d purge ban unban | off]", "the hover buttons on a line you can moderate"),
   s("/unbanreason", "<reason>", "stop offering a reason"),
-  s("/rule", "[add|del|on|off|up|down|list] ...", "hide / highlight rules: words, patterns, users, badges"),
+  s(
+    "/rule",
+    "[add|edit|notify|sound|volume|del|on|off|up|down|list] ...",
+    "hide / highlight rules: words, patterns, users, badges",
+  ),
   s("/mutes", "", "who is muted"),
   s("/blocks", "", "who is blocked"),
   s("/login", "[twitch|kick|youtube]", "log in; when in, link a platform"),
@@ -90,6 +94,7 @@ const FIXED: [Slash; 81] = [
   s("/user", "<name>", "their card"),
   s("/follow", "<name>", "follow them on heatsync: their posts fill your feed"),
   s("/unfollow", "<name>", "stop following them on heatsync"),
+  s("/clearsent", "", "forget the messages up and down recall, here and on disk"),
   s("/lclear", "", "empty this tab's lines (only here, not for anyone else)"),
   s("/shrug", "[text]", "say it with ¯\\_(ツ)_/¯"),
   s("/tableflip", "[text]", "say it with (╯°□°)╯︵ ┻━┻"),

@@ -212,6 +212,15 @@
   "scope": "sync",
   "default": true
  },
+ "mentionSoundWhen": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "away",
+  "options": [
+   "away",
+   "always"
+  ]
+ },
  "mentionSoundVolume": {
   "type": "range",
   "scope": "sync",

@@ -122,6 +122,10 @@ choice! {
   Volume { V0 = "0", V10 = "10", V20 = "20", V30 = "30", V50 = "50", V70 = "70", V100 = "100" }
 }
 choice! {
+  // when the mention ping sounds (ext mentionSoundWhen): only while the window is in the background, or also in front
+  MentionWhen { Away = "away", Always = "always" }
+}
+choice! {
   // the sound a mention plays: the ext's four (src/util/sound.rs), or a wav file of yours (`ping_file`)
   PingSound { Ping = "ping", Blip = "blip", Knock = "knock", Chime = "chime", Custom = "custom" }
 }
@@ -253,6 +257,9 @@ pub struct Settings {
   // on; the ext, a web page, has no taskbar to light
   pub taskbar_flash: bool,
   pub mention_volume: Volume,
+  pub mention_sound_when: MentionWhen,
+  // up / down in the box recall what you sent, also after a restart (ext hs_remember_sent). default on, like the ext
+  pub remember_sent: bool,
   // which sound a mention plays, and the wav file behind `custom`. the ext has one fixed ping and a volume, so
   // neither has a key there
   pub ping_sound: PingSound,
@@ -336,6 +343,8 @@ impl Default for Settings {
       title_flash: true,
       taskbar_flash: true,
       mention_volume: Volume::V30,
+      mention_sound_when: MentionWhen::Away,
+      remember_sent: true,
       ping_sound: PingSound::Ping,
       ping_file: Inline::new(),
       streamer: Streamer::Off,
@@ -591,6 +600,8 @@ pub enum Local {
   Pred,
   // /modtools: shield, automod, unban requests, chatters
   ModTools,
+  // /clearsent: forget what up / down recall
+  ClearSent,
   // /lclear: empty this tab's lines (here only)
   Lclear,
   // /user <name>: their card
@@ -677,6 +688,7 @@ pub fn local_cmd(text: &str) -> Option<Local> {
     "/import" => Some(Local::Import),
     "/emotes" => Some(Local::Emotes),
     "/lclear" => Some(Local::Lclear),
+    "/clearsent" => Some(Local::ClearSent),
     "/blocked" => Some(Local::Blocked),
     "/summary" => Some(Local::Summary),
     "/status" | "/modes" => Some(Local::Status),
@@ -745,6 +757,8 @@ mod tests {
         title_flash: true,
         taskbar_flash: true,
         mention_volume: Volume::V30,
+        mention_sound_when: MentionWhen::Away,
+        remember_sent: true,
         ping_sound: PingSound::Ping,
         ping_file: Inline::new(),
         streamer: Streamer::Off,

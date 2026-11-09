@@ -48,6 +48,7 @@ mod media_peek;
 mod mentions;
 mod modbar;
 mod mods;
+mod modseed;
 mod modsuite;
 mod modtools;
 mod mrules;
@@ -72,8 +73,10 @@ mod react;
 mod render;
 mod resume;
 mod rover;
+mod rulesound;
 mod screen;
 mod sendto;
+mod sent;
 mod stats;
 mod status;
 mod stream;
@@ -108,6 +111,8 @@ mod tests_mrules;
 #[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
+mod tests_parity;
+#[cfg(test)]
 mod tests_path;
 #[cfg(test)]
 mod tests_pickers;
@@ -123,6 +128,8 @@ mod tests_pushed;
 mod tests_reach;
 #[cfg(test)]
 mod tests_react;
+#[cfg(test)]
+mod tests_rowmode;
 #[cfg(test)]
 mod tests_runs;
 #[cfg(test)]
@@ -372,6 +379,10 @@ pub struct App {
   chain: Option<chain::Open>,
   // tab mode's cursor on the tab bar (space t)
   rover: Option<rover::Rover>,
+  // our own mod actions waiting for twitch's echo, so the mod log can name who did them: (room, target, when)
+  mod_by: Vec<(Box<str>, Box<str>, i64)>,
+  // alt-r row mode is on: keys drive the picked line, not the box (never set with vi, whose normal mode does)
+  rows: bool,
   // the settings screen or the key map, covering the chat
   screen: Option<screen::Screen>,
   // last drawn tab rects, then the + button
@@ -597,6 +608,8 @@ impl App {
       logs: None,
       chain: None,
       rover: None,
+      mod_by: Vec::new(),
+      rows: false,
       screen: None,
       bar_hits: Vec::new(),
       bar_map: Vec::new(),
@@ -646,6 +659,8 @@ impl App {
     // the saved font family is looked up now; until it answers, the system monospace
     app.font_follow(false);
     app.sync_plats();
+    app.modlog_restore();
+    app.sent_restore();
     app
   }
 

@@ -193,6 +193,24 @@ impl App {
           Err(why) => return self.say(why),
         }
       }
+      RuleCmd::Edit { key, action, ty, value } => {
+        match filter::edit(|f| f.rules_mut().edit(&key, &action, &ty, &value)) {
+          Ok(()) => Some("rule changed"),
+          Err(why) => return self.say(why),
+        }
+      }
+      RuleCmd::Notify(k, on) => match filter::edit(|f| f.rules_mut().set_notify(&k, on)) {
+        Ok(()) => Some(if on { "hits land in mentions" } else { "hits stay in the chat" }),
+        Err(why) => return self.say(why),
+      },
+      RuleCmd::Sound(k, what) => match self.rule_sound_set(&k, &what) {
+        Ok(said) => Some(said),
+        Err(why) => return self.say(why),
+      },
+      RuleCmd::Volume(k, pct) => match self.rule_volume_set(&k, pct) {
+        Ok(said) => Some(said),
+        Err(why) => return self.say(why),
+      },
       RuleCmd::Del(k) => filter::edit(|f| f.rules_mut().remove(&k)).then_some("removed rule"),
       RuleCmd::Enable(k, on) => {
         filter::edit(|f| f.rules_mut().enable(&k, on)).then_some(if on { "rule on" } else { "rule off" })

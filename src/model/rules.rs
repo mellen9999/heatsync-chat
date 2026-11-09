@@ -21,8 +21,9 @@ const MAX_EXPR: usize = 512;
 const MAX_TOKENS: usize = 256;
 const MAX_DEPTH: usize = 40;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Verdict {
+  #[default]
   Pass,
   Hide,
   Mark,
@@ -30,11 +31,17 @@ pub enum Verdict {
 
 // what the rules say of a line: the verdict, and for a highlight the ink and sound of the first highlight
 // rule that matched (the ext's rule: one rule gives both). ink None = the plain highlight look
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+// `custom`: its sound is a file of yours (kept on this device, `Filters::rule_cue`). `volume`: its own 0..100, else the
+// shared mention volume. `notify`: a hit also lands in the mentions tab. `at`: the rule's place in the list
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Judged {
   pub verdict: Verdict,
   pub ink: Option<u32>,
   pub sound: Option<Preset>,
+  pub custom: bool,
+  pub volume: Option<u8>,
+  pub notify: bool,
+  pub at: usize,
 }
 
 // a line as the rules look at it: the first SCAN characters, lowercased once if anything needs it, and the
@@ -357,6 +364,9 @@ struct Compiled {
   // a highlight's colour, clamped onto the palette (None: none given, or not a usable colour)
   ink: Option<u32>,
   sound: Option<Preset>,
+  custom: bool,
+  volume: Option<u8>,
+  notify: bool,
   test: Test,
 }
 
@@ -444,8 +454,15 @@ fn compile(raw: &Value) -> Option<Compiled> {
   };
   // a hide rule has neither (the ext reads them off highlights only)
   let ink = if hide { None } else { ink_of(o.get("color")) };
-  let sound = if hide { None } else { o.get("sound").and_then(Value::as_str).and_then(Preset::parse) };
-  Some(Compiled { hide, scope, ink, sound, test })
+  let named = if hide { None } else { o.get("sound").and_then(Value::as_str) };
+  let (sound, custom) = (named.and_then(Preset::parse), named == Some("custom"));
+  // 0..100 whole numbers; absent or junk follows the shared volume, and only a rule that has a sound has one
+  let volume = (sound.is_some() || custom)
+    .then(|| o.get("soundVolume").and_then(Value::as_f64).filter(|v| v.is_finite()))
+    .flatten()
+    .map(|v| v.round().clamp(0.0, 100.0) as u8);
+  let notify = !hide && o.get("notify") == Some(&Value::Bool(true));
+  Some(Compiled { hide, scope, ink, sound, custom, volume, notify, test })
 }
 
 impl Compiled {
@@ -599,6 +616,9 @@ pub struct Rules {
   list: Vec<Rule>,
 }
 
+mod edit;
+pub use edit::Pick;
+
 impl Rules {
   pub fn is_empty(&self) -> bool {
     self.list.is_empty()
@@ -633,22 +653,31 @@ impl Rules {
   // the verdict on one line: the first hide wins, else the first highlight (whose colour and sound it keeps).
   // rules for every channel go before a channel's own, as in the ext
   pub fn judge(&self, l: &Line) -> Judged {
-    let mut first: Option<&Compiled> = None;
-    let all = self.list.iter().filter_map(|r| r.c.as_ref()).filter(|c| c.scope == Scope::All);
-    let own = self.list.iter().filter_map(|r| r.c.as_ref()).filter(|c| c.scope != Scope::All);
-    for c in all.chain(own).filter(|c| c.applies(l.chan) && c.hits(l)) {
+    let mut first: Option<(usize, &Compiled)> = None;
+    let live = || self.list.iter().enumerate().filter_map(|(i, r)| Some((i, r.c.as_ref()?)));
+    let all = live().filter(|(_, c)| c.scope == Scope::All);
+    let own = live().filter(|(_, c)| c.scope != Scope::All);
+    for (i, c) in all.chain(own).filter(|(_, c)| c.applies(l.chan) && c.hits(l)) {
       if c.hide {
-        return Judged { verdict: Verdict::Hide, ink: None, sound: None };
+        return Judged { verdict: Verdict::Hide, ..Judged::default() };
       }
-      first.get_or_insert(c);
+      first.get_or_insert((i, c));
     }
     match first {
-      Some(c) => Judged { verdict: Verdict::Mark, ink: c.ink, sound: c.sound },
-      None => Judged { verdict: Verdict::Pass, ink: None, sound: None },
+      Some((at, c)) => Judged {
+        verdict: Verdict::Mark,
+        ink: c.ink,
+        sound: c.sound,
+        custom: c.custom,
+        volume: c.volume,
+        notify: c.notify,
+        at,
+      },
+      None => Judged::default(),
     }
   }
 
-  fn has_id(&self, id: &str) -> bool {
+  pub fn has_id(&self, id: &str) -> bool {
     self.list.iter().any(|r| r.raw.get("id").and_then(Value::as_str) == Some(id))
   }
 

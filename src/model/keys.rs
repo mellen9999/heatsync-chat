@@ -200,6 +200,8 @@ pub static KEYS: [Group; 19] = [
     rows: &[
       k("alt-1 .. alt-0", "jump to a tab (alt-0 is the tenth)"),
       k("ctrl-tab", "next tab (shift for previous)"),
+      k("alt-[ alt-]", "previous, next tab"),
+      k("alt-r", "row mode (no vi needed): pick a line with j k, then the picked-line keys; esc lets go"),
       k("click", "open a tab; the ⚙ is settings, the ? is this screen"),
       k(
         "right-click",
@@ -321,6 +323,10 @@ pub static KEYS: [Group; 19] = [
       ),
       k("x delete", "remove the picked one (unmute, unblock, unhide, delete)"),
       k("a", "add an entry: a rule, ban reason or mention rule"),
+      k(
+        "e  n  s  +  -  =",
+        "a filter rule: edit it in place (live match count), notify on or off, pick its sound, volume down or up",
+      ),
       k("?", "filter rules and mention rules: the other kinds of rule and the syntax"),
       k("esc q", "close"),
     ],

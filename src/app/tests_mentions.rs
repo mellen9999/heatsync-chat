@@ -324,7 +324,7 @@ fn leaving_or_restarting_writes_the_mentions_and_the_settings_that_were_waiting(
 // a highlight rule's sound: the rule's own preset, for a live line from someone else in its channel
 #[test]
 fn a_highlight_rules_sound_plays_for_a_live_line_in_its_channel() {
-  use crate::util::sound::Preset;
+  use crate::util::sound::{Preset, Voice};
   let rules = json!([
     { "id": "a", "enabled": true, "scope": "forsen", "sound": "knock", "color": "#ff0000", "action": "highlight",
       "match": { "type": "keyword", "value": "gg" } },
@@ -340,19 +340,19 @@ fn a_highlight_rules_sound_plays_for_a_live_line_in_its_channel() {
     (m.kind, m.login, m.nick, m.body) = (MsgKind::Chat, login.into(), login.into(), body.into());
     m
   };
-  assert_eq!(a.line_sound("forsen", &say("bob", "gg wp")), Some(Preset::Knock));
-  assert_eq!(a.line_sound("xqc", &say("bob", "gg wp")), None, "the rule is for forsen's tab");
-  assert_eq!(a.line_sound("xqc", &say("bob", "so hype")), Some(Preset::Blip));
-  assert_eq!(a.line_sound("forsen", &say("bob", "spam gg")), None, "a hidden line is silent");
-  assert_eq!(a.line_sound("forsen", &say("bob", "nothing")), None);
+  assert_eq!(a.line_cue("forsen", &say("bob", "gg wp")).sound, Some((Voice::Preset(Preset::Knock), None)));
+  assert_eq!(a.line_cue("xqc", &say("bob", "gg wp")).sound, None, "the rule is for forsen's tab");
+  assert_eq!(a.line_cue("xqc", &say("bob", "so hype")).sound, Some((Voice::Preset(Preset::Blip), None)));
+  assert_eq!(a.line_cue("forsen", &say("bob", "spam gg")).sound, None, "a hidden line is silent");
+  assert_eq!(a.line_cue("forsen", &say("bob", "nothing")).sound, None);
   let mut old = say("bob", "gg");
   old.flags |= flag::HISTORY;
-  assert_eq!(a.line_sound("forsen", &old), None, "backlog is silent");
+  assert_eq!(a.line_cue("forsen", &old).sound, None, "backlog is silent");
   let mut mine = say("bob", "gg");
   mine.flags |= flag::OWN;
-  assert_eq!(a.line_sound("forsen", &mine), None, "your own line is silent");
+  assert_eq!(a.line_cue("forsen", &mine).sound, None, "your own line is silent");
   crate::model::filter::edit(|f| f.block("bob"));
-  assert_eq!(a.line_sound("forsen", &say("bob", "gg")), None, "a blocked person never sounds");
+  assert_eq!(a.line_cue("forsen", &say("bob", "gg")).sound, None, "a blocked person never sounds");
 }
 
 // twitch shared chat sends one line to every room of the session. you hear it from the first, and the

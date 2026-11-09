@@ -39,6 +39,16 @@ impl Preset {
     }
   }
 
+  // the ext's name for it, the other way round from `parse`
+  pub fn name(self) -> &'static str {
+    match self {
+      Preset::Ping => "ping",
+      Preset::Blip => "blip",
+      Preset::Knock => "knock",
+      Preset::Chime => "chime",
+    }
+  }
+
   // (hz, start s, length s)
   fn tones(self) -> &'static [(f32, f32, f32)] {
     match self {
@@ -94,14 +104,9 @@ fn from_file(path: &str, volume: f32) -> (Vec<u8>, Option<wav::Bad>) {
   }
 }
 
-// the mention ping at `percent` volume (0 = silent), paced: a burst sounds once
+// the mention ping, or a rule's sound, at `percent` volume (0 = silent), paced: a burst sounds once
 pub fn mention(voice: Voice, percent: u8, now_ms: i64) {
   start(voice, percent, Some(now_ms))
-}
-
-// a rule's sound at `percent` volume (0 = silent), paced like the ping
-pub fn play(p: Preset, percent: u8, now_ms: i64) {
-  start(Voice::Preset(p), percent, Some(now_ms))
 }
 
 // hear a sound now (a pick just made), whatever else sounded a moment ago

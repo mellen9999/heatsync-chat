@@ -87,6 +87,7 @@ impl App {
 
   // after a send or local command: fresh undo history
   pub(super) fn after_send(&mut self) {
+    self.sent_save();
     self.vi.reset();
     if self.set.vi && self.mode == Mode::Insert {
       self.vi.begin_insert(&self.line);
@@ -150,6 +151,7 @@ impl App {
       Local::Pred => self.pred_here(),
       Local::ModTools => self.tools_here(),
       Local::Lclear => self.lclear(),
+      Local::ClearSent => self.sent_clear(),
       Local::User(name) => self.user_cmd(&name),
       Local::Goto(q) => self.goto_tab(&q),
       Local::Set(k, v) => self.set_cmd(&k, &v),

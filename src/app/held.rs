@@ -248,6 +248,7 @@ mod tests {
   fn app(packs: &[&str]) -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>, usize) {
     let (net, asked) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into(), "xqc".into()], false);
+    super::super::modseed::mod_buttons_decided();
     app.dpi = 1.0;
     app.res.set_scale(app.scale());
     app.resized(720, 400);

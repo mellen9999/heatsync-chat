@@ -60,6 +60,8 @@ pub enum Fx {
   Font,
   // chat logs flipped: the writer starts or lets go
   ChatLogs,
+  // remember sent messages flipped: off removes the saved copy, on starts a fresh list
+  SentHistory,
   // a built-in tab came or went
   Tab(Kind),
 }
@@ -181,7 +183,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 72] = [
+pub static DEFS: [Def; 74] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -519,6 +521,18 @@ pub static DEFS: [Def; 72] = [
     wire: Wire::None,
   },
   Def {
+    id: "remember_sent",
+    cmd: Some("/remembersent"),
+    cat: Cat::Chat,
+    section: "input",
+    label: "remember sent messages",
+    tip: "up and down in the box recall what you sent, also after a restart. kept on this computer only, the newest 50. off = memory only, and the saved copy goes. /clearsent forgets them now",
+    alias: "hs_remember_sent history recall up down arrow forget privacy sent messages",
+    ctl: pill!(remember_sent),
+    fx: Fx::SentHistory,
+    wire: Wire::None,
+  },
+  Def {
     id: "my_commands",
     cmd: None,
     cat: Cat::Chat,
@@ -649,6 +663,18 @@ pub static DEFS: [Def; 72] = [
     ctl: pick!(mention_volume, Volume),
     fx: Fx::None,
     wire: Wire::Level("mentionSoundVolume"),
+  },
+  Def {
+    id: "mention_sound_when",
+    cmd: Some("/mentionsoundwhen"),
+    cat: Cat::Notifs,
+    section: "when you get @mentioned",
+    label: "mention sound plays",
+    tip: "away = only while the window is in the background. always = also while you are looking at it. rule sounds always play. /mentionsoundwhen always",
+    alias: "mentionSoundWhen away focused always sound play",
+    ctl: pick!(mention_sound_when, MentionWhen),
+    fx: Fx::None,
+    wire: Wire::Name("mentionSoundWhen"),
   },
   Def {
     id: "ping_sound",

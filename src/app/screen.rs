@@ -362,6 +362,7 @@ impl App {
       Fx::Tab(_) => self.fix_active(),
       Fx::Ping => self.ping_preview(),
       Fx::PingFile => self.ping_file_follow(),
+      Fx::SentHistory => self.sent_follow(),
       Fx::Font => self.font_follow(true),
     }
     self.input_dirty = true;
@@ -428,6 +429,8 @@ impl App {
     if bad > 0 && mask == 0 {
       return self.say(usage);
     }
+    // a choice, even a clear: the starter set is never put back over it
+    super::modseed::mod_buttons_decided();
     if mask != cur {
       set(&mut self.set, mask);
       self.set.save();

@@ -163,18 +163,18 @@ fn popups_lose_their_text_and_sounds_are_muted() {
 
 #[test]
 fn a_rule_sound_is_silent_in_streamer_mode() {
-  use crate::util::sound::Preset;
+  use crate::util::sound::{Preset, Voice};
   let rules = json!([{ "id": "a", "enabled": true, "scope": "all", "sound": "knock", "action": "highlight",
     "match": { "type": "keyword", "value": "gg" } }]);
   let mut a = app();
   assert!(crate::model::filter::edit(|f| f.set_rules_text(&rules.to_string())));
   let mut m = Message::system(crate::util::time::now_ms(), Platform::Twitch, "");
   (m.kind, m.login, m.nick, m.body) = (MsgKind::Chat, "bob".into(), "bob".into(), "gg".into());
-  assert_eq!(a.line_sound("forsen", &m), Some(Preset::Knock));
+  assert_eq!(a.line_cue("forsen", &m).sound, Some((Voice::Preset(Preset::Knock), None)));
   set(&mut a, Mode::On);
-  assert_eq!(a.line_sound("forsen", &m), None);
+  assert_eq!(a.line_cue("forsen", &m).sound, None);
   a.set.streamer_sounds = true;
-  assert_eq!(a.line_sound("forsen", &m), Some(Preset::Knock));
+  assert_eq!(a.line_cue("forsen", &m).sound, Some((Voice::Preset(Preset::Knock), None)));
 }
 
 #[test]

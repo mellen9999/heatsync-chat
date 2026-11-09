@@ -169,7 +169,7 @@ mod tests {
       b.extend_from_slice(&v.to_le_bytes());
     }
     b.extend_from_slice(&rate.to_le_bytes());
-    b.extend_from_slice(&(rate * u32::from(align)).to_le_bytes());
+    b.extend_from_slice(&(rate.wrapping_mul(u32::from(align))).to_le_bytes());
     for v in [align, bits] {
       b.extend_from_slice(&v.to_le_bytes());
     }

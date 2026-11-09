@@ -6,17 +6,17 @@
 use std::time::{Duration, Instant};
 
 use super::App;
-use crate::model::filter;
+use crate::model::filter::{self, Cue};
 use crate::model::inbox::{self, Item};
 use crate::model::mention_file::{self as file, Read};
 use crate::model::message::{Extra, Message, Platform, flag};
-use crate::model::settings::PingSound;
+use crate::model::settings::{MentionWhen, PingSound};
 use crate::model::tabs::Kind;
 use crate::model::unseen::Surface;
 use crate::net::{Cmd, social};
 use crate::store;
 use crate::util::notify;
-use crate::util::sound::{Preset, Voice};
+use crate::util::sound::Voice;
 use crate::util::time::now_ms;
 use winit::window::UserAttentionType;
 
@@ -43,11 +43,15 @@ impl App {
     let again = self.mentions.again(m);
     // ...but the ping is once per line across the rooms that are not muted: a muted copy leaves it for them
     let pinged = self.mentions.pinged(m, muted);
-    if let Some(s) = self.line_sound(room, m).filter(|_| !muted && !pinged) {
-      crate::util::sound::play(s, self.set.mention_volume.percent(), now_ms());
+    let cue = self.line_cue(room, m);
+    if let Some((voice, own)) = cue.sound.filter(|_| !muted && !pinged) {
+      crate::util::sound::mention(voice, own.unwrap_or_else(|| self.set.mention_volume.percent()), now_ms());
     }
-    // a blocked person never pings you
-    if !self.mentions.hit(m) || crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&m.login))) {
+    // a blocked person never pings you (a highlight rule with notify on is a ping too, and line_cue has
+    // already left a blocked person out)
+    if !(self.mentions.hit(m) || cue.notify)
+      || crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&m.login)))
+    {
       return;
     }
     m.flags |= flag::ALERT;
@@ -79,35 +83,39 @@ impl App {
     }
   }
 
-  // the sound a highlight rule gives a live line (ext playFilterRuleSound): the rule's, at the mention
-  // volume. none for backlog, your own lines, a blocked person, or a line a hide rule takes
-  pub(super) fn line_sound(&self, room: &str, m: &Message) -> Option<Preset> {
-    if self.sound_muted()
-      || m.has(flag::HISTORY)
-      || m.has(flag::OWN)
-      || filter::with(|f| f.blocked(&filter::key(&m.login)))
-    {
-      return None;
+  // what a highlight rule gives a live line (ext playFilterRuleSound): its sound at its own volume, else at the
+  // mention volume, and a ping into the mentions tab when the rule says notify. nothing for backlog, your own
+  // lines or a blocked person; a line a hide rule takes judges to nothing. the sound is held back in streamer mode
+  pub(super) fn line_cue(&self, room: &str, m: &Message) -> Cue {
+    if m.has(flag::HISTORY) || m.has(flag::OWN) || filter::with(|f| f.blocked(&filter::key(&m.login))) {
+      return Cue::default();
     }
-    filter::with(|f| f.rule_sound(m, room))
+    let mut cue = filter::with(|f| f.rule_cue(m, room));
+    if self.sound_muted() {
+      cue.sound = None;
+    }
+    cue
   }
 
   // a mention while the window is away: the desktop notification (if on), the ping, the taskbar and the title
   // flash. the ping and the taskbar go together: whatever holds the sound back (streamer mode) holds the light
   pub(super) fn mention_alert(&mut self, title: &str, nick: &str, body: &str) {
-    if self.focused {
+    let away = !self.focused;
+    // the ping can also sound while you are looking at the window (mention_sound_when); everything else needs you away
+    let sounds = away || self.set.mention_sound_when == MentionWhen::Always;
+    if !sounds {
       return;
     }
-    if self.set.notify && self.notify_pace.offer(Instant::now()) {
+    if away && self.set.notify && self.notify_pace.offer(Instant::now()) {
       notify::send("mention", title, self.popup_body(body));
     }
     if !self.sound_muted() {
       crate::util::sound::mention(self.ping_voice(), self.set.mention_volume.percent(), now_ms());
-      if self.set.taskbar_flash {
+      if away && self.set.taskbar_flash {
         self.light_taskbar();
       }
     }
-    if self.set.title_flash {
+    if away && self.set.title_flash {
       // the latest name; an already running flash picks it up on its next turn
       let shown = self.flash.as_ref().is_some_and(|f| f.1);
       self.flash = Some((nick.chars().filter(|c| !c.is_control()).take(40).collect::<String>().into(), shown));

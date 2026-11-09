@@ -13,6 +13,9 @@ impl App {
     if self.global_key(key.clone()) {
       return;
     }
+    if self.row_key(&key) {
+      return;
+    }
     self.sync_suggest();
     if self.suggest_key(&key) {
       return;
@@ -119,6 +122,8 @@ impl App {
           self.select(i);
         }
       }
+      Key::Character(c @ ("[" | "]")) if alt && !ctrl => self.select(self.step_tab(self.active, c == "[")),
+      Key::Character("r") if alt && !ctrl => self.row_mode(),
       Key::Character(c @ ("t" | "k" | "y")) if alt && !ctrl => {
         let p = match c {
           "t" => Platform::Twitch,
@@ -338,6 +343,35 @@ impl App {
 
   pub(super) fn selecting(&self) -> bool {
     self.tabs.get(self.active).is_some_and(|t| t.view.selected().is_some() || t.view.picked_run())
+  }
+
+  // alt-r: the pick cursor without vi (the ext's row mode). the keys are a picked line's own (`pick_key`); letters
+  // that mean nothing there are swallowed so they never land in the box; esc, or any way of letting go, ends it
+  pub(super) fn row_mode(&mut self) {
+    if self.set.vi && self.mode == Mode::Insert {
+      self.leave_insert();
+    }
+    self.select_start();
+    self.rows = self.selecting() && !self.set.vi;
+  }
+
+  fn row_key(&mut self, key: &Key<&str>) -> bool {
+    if !self.rows {
+      return false;
+    }
+    if !self.selecting() {
+      self.rows = false;
+      return false;
+    }
+    let (ctrl, alt) = (self.mods.control_key(), self.mods.alt_key());
+    let mut took = self.pick_key(key.clone());
+    // enter on a plain chat line opens its menu, as in the ext
+    if !took && *key == Key::Named(NamedKey::Enter) && self.kind() == Kind::Chat {
+      self.line_menu_key();
+      took = true;
+    }
+    self.rows = self.selecting();
+    took || (matches!(key, Key::Character(_) | Key::Named(NamedKey::Space)) && !ctrl && !alt)
   }
 
   // a picked line's keys: j/k move it, r replies, esc lets go. false = not one of them (vi gets it)

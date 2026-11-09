@@ -6,6 +6,9 @@
 //   /banreason [text]  /unbanreason <text>    quick reasons a ban offers; no text lists them
 //   /rule [list]                              the hide / highlight rules, in the order they win (words, patterns, users...)
 //   /rule add <hide|highlight> <keyword|regex|user|badge|msgtype|expr> <value>
+//   /rule edit <number|id> <hide|highlight> [kind] <value>   change it in place: same place, colour, sound
+//   /rule notify <number|id> <on|off>          a highlight also lands in the mentions tab
+//   /rule sound <number|id> <off|ping|blip|knock|chime|a .wav path>   /rule volume <number|id> <0-100|off>
 //   /rule del|on|off|up|down <number|id>
 //   /mutes  /blocks                           who is muted / blocked
 use crate::model::modcmd::name;
@@ -40,6 +43,13 @@ pub enum Cmd {
 pub enum RuleCmd {
   List,
   Add { action: String, ty: String, value: String },
+  // the same words as an add, for the rule named: it keeps its place
+  Edit { key: String, action: String, ty: String, value: String },
+  Notify(String, bool),
+  // a preset's name, a wav path, or off
+  Sound(String, String),
+  // 0..=100, None = the shared mention volume
+  Volume(String, Option<u8>),
   Del(String),
   Enable(String, bool),
   Shift(String, bool),
@@ -47,7 +57,23 @@ pub enum RuleCmd {
 
 const RULE_TYPES: [&str; 6] = ["keyword", "regex", "user", "badge", "msgtype", "expr"];
 
-const RULE_USAGE: &str = "usage: /rule add <hide|highlight> <word>, or with a kind first: user, badge, msgtype, regex, expr \u{b7} /rule del|on|off|up|down <number> \u{b7} /rule lists them";
+const RULE_USAGE: &str = "usage: /rule add <hide|highlight> <word>, or with a kind first: user, badge, msgtype, regex, expr \u{b7} /rule edit|notify|sound|volume <number> ... \u{b7} /rule del|on|off|up|down <number> \u{b7} /rule lists them";
+
+// `<hide|highlight> [kind] <value>` as an add and an edit both take it: no kind named = a keyword, and a kind
+// word with nothing after it is not a keyword
+fn spec(tail: &str) -> Option<(String, String, String)> {
+  let mut p = tail.splitn(3, char::is_whitespace);
+  match (p.next(), p.next(), p.next().map(str::trim)) {
+    (Some(a), Some(t), Some(v)) if !v.is_empty() && RULE_TYPES.contains(&t.to_ascii_lowercase().as_str()) => {
+      Some((a.to_ascii_lowercase(), t.to_ascii_lowercase(), v.to_owned()))
+    }
+    (Some(a), Some(t), _) if !RULE_TYPES.contains(&t.to_ascii_lowercase().as_str()) => {
+      let value = tail.split_once(char::is_whitespace).map_or("", |x| x.1).trim();
+      Some((a.to_ascii_lowercase(), "keyword".into(), value.to_owned()))
+    }
+    _ => None,
+  }
+}
 
 fn rule(rest: &str) -> Cmd {
   let (verb, tail) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
@@ -55,20 +81,34 @@ fn rule(rest: &str) -> Cmd {
   let key = || tail.split_whitespace().next().filter(|_| tail.split_whitespace().count() == 1).map(str::to_owned);
   let r = match verb.to_ascii_lowercase().as_str() {
     "" | "list" if tail.is_empty() => RuleCmd::List,
-    "add" => {
-      let mut p = tail.splitn(3, char::is_whitespace);
-      match (p.next(), p.next(), p.next().map(str::trim)) {
-        (Some(a), Some(t), Some(v)) if !v.is_empty() && RULE_TYPES.contains(&t.to_ascii_lowercase().as_str()) => {
-          RuleCmd::Add { action: a.to_ascii_lowercase(), ty: t.to_ascii_lowercase(), value: v.to_owned() }
-        }
-        // no kind named: the words are a keyword ("hide spoilers"). a kind word alone is not a keyword
-        (Some(a), Some(t), _) if !RULE_TYPES.contains(&t.to_ascii_lowercase().as_str()) => {
-          let value = tail.split_once(char::is_whitespace).map_or("", |x| x.1).trim();
-          RuleCmd::Add { action: a.to_ascii_lowercase(), ty: "keyword".into(), value: value.to_owned() }
-        }
+    "add" => match spec(tail) {
+      Some((action, ty, value)) => RuleCmd::Add { action, ty, value },
+      None => return Cmd::Usage(RULE_USAGE),
+    },
+    "edit" => {
+      let (key, rest) = tail.split_once(char::is_whitespace).unwrap_or((tail, ""));
+      match spec(rest.trim()) {
+        Some((action, ty, value)) if !key.is_empty() => RuleCmd::Edit { key: key.to_owned(), action, ty, value },
         _ => return Cmd::Usage(RULE_USAGE),
       }
     }
+    "notify" => match tail.split_whitespace().collect::<Vec<_>>()[..] {
+      [k, "on"] => RuleCmd::Notify(k.to_owned(), true),
+      [k, "off"] => RuleCmd::Notify(k.to_owned(), false),
+      _ => return Cmd::Usage(RULE_USAGE),
+    },
+    "sound" => match tail.split_once(char::is_whitespace) {
+      Some((k, what)) if !what.trim().is_empty() => RuleCmd::Sound(k.to_owned(), what.trim().to_owned()),
+      _ => return Cmd::Usage(RULE_USAGE),
+    },
+    "volume" => match tail.split_whitespace().collect::<Vec<_>>()[..] {
+      [k, "off" | "default"] => RuleCmd::Volume(k.to_owned(), None),
+      [k, n] => match n.parse::<u8>().ok().filter(|n| *n <= 100) {
+        Some(n) => RuleCmd::Volume(k.to_owned(), Some(n)),
+        None => return Cmd::Usage(RULE_USAGE),
+      },
+      _ => return Cmd::Usage(RULE_USAGE),
+    },
     "del" | "rm" | "remove" => match key() {
       Some(k) => RuleCmd::Del(k),
       None => return Cmd::Usage(RULE_USAGE),
@@ -148,6 +188,35 @@ mod tests {
     assert_eq!(command("/rule off 1"), Some(Cmd::Rule(RuleCmd::Enable("1".into(), false))));
     assert_eq!(command("/rule on abc"), Some(Cmd::Rule(RuleCmd::Enable("abc".into(), true))));
     assert_eq!(command("/rule up 3"), Some(Cmd::Rule(RuleCmd::Shift("3".into(), true))));
+    let edit = |k: &str, a: &str, t: &str, v: &str| {
+      Some(Cmd::Rule(RuleCmd::Edit { key: k.into(), action: a.into(), ty: t.into(), value: v.into() }))
+    };
+    assert_eq!(command("/rule edit 2 hide spoilers"), edit("2", "hide", "keyword", "spoilers"));
+    assert_eq!(command("/rule EDIT abc highlight user bob"), edit("abc", "highlight", "user", "bob"));
+    assert_eq!(command("/rule notify 1 on"), Some(Cmd::Rule(RuleCmd::Notify("1".into(), true))));
+    assert_eq!(command("/rule notify 1 off"), Some(Cmd::Rule(RuleCmd::Notify("1".into(), false))));
+    assert_eq!(command("/rule sound 3 chime"), Some(Cmd::Rule(RuleCmd::Sound("3".into(), "chime".into()))));
+    assert_eq!(
+      command("/rule sound 3 ~/My Sounds/ding.wav"),
+      Some(Cmd::Rule(RuleCmd::Sound("3".into(), "~/My Sounds/ding.wav".into())))
+    );
+    assert_eq!(command("/rule volume 3 40"), Some(Cmd::Rule(RuleCmd::Volume("3".into(), Some(40)))));
+    assert_eq!(command("/rule volume 3 off"), Some(Cmd::Rule(RuleCmd::Volume("3".into(), None))));
+    for bad in [
+      "/rule edit",
+      "/rule edit 2",
+      "/rule edit 2 hide",
+      "/rule edit 2 hide user",
+      "/rule notify 1",
+      "/rule notify 1 maybe",
+      "/rule sound 3",
+      "/rule volume 3 101",
+      "/rule volume 3 -1",
+      "/rule volume 3 loud",
+      "/rule volume",
+    ] {
+      assert!(matches!(command(bad), Some(Cmd::Usage(_))), "{bad}");
+    }
     assert_eq!(command("/rule down 3"), Some(Cmd::Rule(RuleCmd::Shift("3".into(), false))));
     // no kind named = a keyword; a kind word with nothing after it is still refused
     assert_eq!(command("/rule add hide big spoiler"), add("hide", "keyword", "big spoiler"));
