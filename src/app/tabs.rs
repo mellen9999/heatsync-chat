@@ -31,6 +31,8 @@ enum Button {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TabAct {
   Edit,
+  // one place along the strip (down = later): the same reorder as tab mode's JK
+  Move(bool),
   Remove,
   // the temp tab becomes a saved one
   Keep,
@@ -671,6 +673,16 @@ impl App {
     };
     let mut items = items;
     if self.tabs[i].kind == Kind::Chat {
+      // moving, named for where the strip really runs; a channel at an end has nowhere to go that way
+      let column = matches!(self.set.tab_side, Side::Left | Side::Right);
+      let (before, after) = if column { ("move up", "move down") } else { ("move left", "move right") };
+      let mut slot = 1;
+      for (down, label) in [(false, before), (true, after)] {
+        if self.carry_target(i, down).is_some() {
+          items.insert(slot, (TabAct::Move(down), label.into()));
+          slot += 1;
+        }
+      }
       items.push((TabAct::Lclear, "clear lines".into()));
       items.push((TabAct::Bell, format!("bell: {}", self.tab_bell(i).label())));
       items.push((TabAct::Mute, if self.tab_muted(i) { "unmute pings" } else { "mute pings" }.into()));
@@ -725,6 +737,9 @@ impl App {
     self.tab_menu_changed();
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
+      Some(TabAct::Move(down)) => {
+        self.carry_tab(m.tab, down);
+      }
       Some(TabAct::Remove) => self.remove_tab(m.tab),
       Some(TabAct::Keep) => self.keep_tab(m.tab),
       Some(TabAct::Hide) => {

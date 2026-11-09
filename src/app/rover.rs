@@ -67,20 +67,36 @@ impl App {
       self.say("that tab is fixed");
       return;
     }
-    let shown = self.shown_tabs();
-    let p = shown.iter().position(|&i| i == at).unwrap_or(0);
-    let next = if down { shown.get(p + 1..).and_then(|s| s.first()) } else { p.checked_sub(1).map(|q| &shown[q]) };
-    let Some(&to) = next.filter(|&&j| self.tabs[j].kind == Kind::Chat) else { return };
+    if let Some(to) = self.carry_tab(at, down)
+      && let Some(r) = &mut self.rover
+    {
+      r.at = to;
+    }
+  }
+
+  // the channel tab `at` one place along the shown channels (down = later). where it landed; None at an end,
+  // or for a tab that is not a channel. the one reorder: tab mode's JK and the tab menu's move rows
+  pub(super) fn carry_tab(&mut self, at: usize, down: bool) -> Option<usize> {
+    if self.tabs.get(at)?.kind != Kind::Chat {
+      return None;
+    }
+    let to = self.carry_target(at, down)?;
     self.tabs.swap(at, to);
     if self.active == at {
       self.active = to;
     } else if self.active == to {
       self.active = at;
     }
-    if let Some(r) = &mut self.rover {
-      r.at = to;
-    }
     self.save_tabs();
+    Some(to)
+  }
+
+  // where `carry_tab` would put it: the next shown channel that way
+  pub(super) fn carry_target(&self, at: usize, down: bool) -> Option<usize> {
+    let shown = self.shown_tabs();
+    let p = shown.iter().position(|&i| i == at)?;
+    let next = if down { shown.get(p + 1..).and_then(|s| s.first()) } else { p.checked_sub(1).map(|q| &shown[q]) };
+    next.copied().filter(|&j| self.tabs[j].kind == Kind::Chat)
   }
 
   fn rover_remove(&mut self) {
