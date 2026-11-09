@@ -1,7 +1,7 @@
 // the file dialog on windows: the system's own open box (GetOpenFileNameW, comdlg32). no process, no shell.
 // it blocks until the box closes, like zenity does, so the caller runs it off the ui thread. a failure to open
 // at all falls back to typing a path in the input bar (`NoChooser`), the same as a unix box with no zenity
-use crate::i18n::{f, t};
+use crate::i18n::t;
 use std::ptr::null_mut;
 
 use super::{Upload, parse_pick};
