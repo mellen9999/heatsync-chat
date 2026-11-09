@@ -603,6 +603,16 @@ mod tests {
           continue;
         }
       }
+      if cfg!(windows) && lang == "zh-cn" {
+        // simplified han needs one of windows' simplified fonts (yahei, simsun, dengxian, simhei): a stripped
+        // image (a server or ci runner without the chinese language pack) has none, and no fallback can draw it
+        let fonts = std::path::Path::new("C:\\Windows\\Fonts");
+        let have = ["msyh.ttc", "simsun.ttc", "Deng.ttf", "simhei.ttf"].iter().any(|f| fonts.join(f).exists());
+        if !have {
+          eprintln!("skipped {lang}: no simplified font installed here");
+          continue;
+        }
+      }
       t.language(crate::i18n::lang::map_tag(lang).unwrap());
       let l = t.layout(sample, &[], &[], 600.0);
       let mut glyphs = 0;
