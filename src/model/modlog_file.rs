@@ -50,7 +50,7 @@ pub fn encode<'a>(rows: impl DoubleEndedIterator<Item = (i64, Platform, &'a str)
       continue;
     }
     *n += 1;
-    let text: String = text.chars().filter(|c| !c.is_control()).take(MAX_TEXT).collect();
+    let text: String = crate::util::strip(text).take(MAX_TEXT).collect();
     kept.push(json!({"t": ts, "p": tag(p), "x": text}).to_string());
   }
   let mut out = String::new();

@@ -36,7 +36,7 @@ pub fn key(p: Platform, login: &str) -> String {
 
 // one line of one note: no control chars (a pasted newline would break the file), cut to the cap
 pub fn clean(s: &str) -> String {
-  let flat: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+  let flat: String = crate::util::blank(s).collect();
   // counted the way the server counts (js string length, utf-16 units), so an emoji-heavy note is never refused
   let mut units = 0;
   flat

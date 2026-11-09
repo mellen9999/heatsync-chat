@@ -12,7 +12,7 @@ use crate::util::clip::Paste;
 
 // pasted text as one line: newlines and other control chars become spaces
 pub fn flat(s: &str) -> String {
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
+  crate::util::blank(s).collect()
 }
 
 // what ctrl-c on a selected chat line copies

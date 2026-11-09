@@ -27,7 +27,7 @@ impl Ime {
   // an empty string ends the composition. control bytes become spaces, size is bounded
   pub fn set(&mut self, text: &str, cursor: Option<(usize, usize)>) {
     self.preedit.clear();
-    self.preedit.extend(text.chars().map(|c| if c.is_control() { ' ' } else { c }));
+    self.preedit.extend(crate::util::blank(text));
     if self.preedit.len() > MAX_PREEDIT {
       let mut n = MAX_PREEDIT;
       while !self.preedit.is_char_boundary(n) {

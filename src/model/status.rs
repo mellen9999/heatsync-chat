@@ -21,7 +21,7 @@ pub fn query(login: &str) -> Value {
 
 fn text(v: Option<&Value>, max: usize) -> Box<str> {
   let s = v.and_then(Value::as_str).unwrap_or("");
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().into()
+  crate::util::blank(s).take(max).collect::<String>().trim().into()
 }
 
 // None = twitch knows no such login

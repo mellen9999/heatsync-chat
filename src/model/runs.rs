@@ -23,7 +23,7 @@ pub struct Run {
 }
 
 fn clean(s: &str) -> Box<str> {
-  s.chars().filter(|c| !c.is_control()).take(LINE_CHARS).collect::<String>().into()
+  crate::util::strip(s).take(LINE_CHARS).collect::<String>().into()
 }
 
 impl Run {

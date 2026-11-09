@@ -388,7 +388,7 @@ const MAX_SEND: usize = 500;
 
 // what goes on the wire for a send: one line, no injection of a second irc command
 fn privmsg(chan: &str, text: &str, reply: Option<&str>, dupes: &mut Dupes) -> Option<String> {
-  let text: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MAX_SEND).collect();
+  let text: String = crate::util::blank(text).take(MAX_SEND).collect();
   let text = text.trim();
   if !ident::twitch_room(chan) || text.is_empty() {
     return None;

@@ -90,7 +90,7 @@ pub struct Timeline {
 }
 
 fn clean(s: &str, max: usize) -> String {
-  s.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect::<String>().trim().to_string()
+  crate::util::blank(s).take(max).collect::<String>().trim().to_string()
 }
 
 pub fn digits(v: Option<&Value>) -> Option<Box<str>> {

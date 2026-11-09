@@ -526,7 +526,7 @@ impl Picker {
   // typed or committed text goes to the filter (control bytes dropped, bounded)
   pub fn type_str(&mut self, s: &str) {
     let room = MAX_QUERY.saturating_sub(self.query.chars().count());
-    self.query.extend(s.chars().filter(|c| !c.is_control()).take(room));
+    self.query.extend(crate::util::strip(s).take(room));
     self.edited();
   }
 

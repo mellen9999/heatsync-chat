@@ -25,7 +25,7 @@ pub fn plain_status(code: u16) -> String {
 // ("Rate limit exceeded", "invalid_params"): the ones it sends often get our copy, the rest come out
 // lowercase, one line, no trailing period, at most 100 chars
 pub fn server_words(raw: &str) -> String {
-  let clean: String = raw.chars().filter(|c| !c.is_control()).take(100).collect();
+  let clean: String = crate::util::strip(raw).take(100).collect();
   let low = clean.trim().to_lowercase().replace('_', " ").replace('’', "'");
   let low = low.trim_end_matches('.').trim_end();
   let has = |ks: &[&str]| ks.iter().any(|k| low.contains(k));

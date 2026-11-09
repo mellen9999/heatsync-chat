@@ -132,7 +132,7 @@ impl Rules {
   pub fn set_sound(&mut self, key: &str, pick: &Pick) -> Result<(), &'static str> {
     self.is_highlight(key)?;
     let name: String = match pick {
-      Pick::File(n) => n.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect(),
+      Pick::File(n) => crate::util::strip(n).take(MAX_NAME).collect(),
       _ => String::new(),
     };
     self.amend(key, |o| {

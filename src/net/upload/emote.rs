@@ -109,7 +109,7 @@ pub fn kept(v: &Value) -> Option<Kept> {
     .map(|a| {
       a.iter()
         .filter_map(Value::as_str)
-        .map(|s| s.chars().filter(|c| !c.is_control()).take(32).collect::<String>())
+        .map(|s| crate::util::strip(s).take(32).collect::<String>())
         .filter(|s| !s.is_empty())
         .take(8)
         .collect()

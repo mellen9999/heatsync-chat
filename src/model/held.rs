@@ -142,7 +142,7 @@ fn why(v: &Value) -> Box<str> {
       .flatten()
       .take(MAX_TERMS)
       .filter_map(Value::as_str)
-      .map(|t| t.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect::<String>())
+      .map(|t| crate::util::strip(t).take(MAX_NAME).collect::<String>())
       .find(|t| !t.trim().is_empty());
     return term.map_or_else(
       || t("chat1.held.blocked_term").into(),

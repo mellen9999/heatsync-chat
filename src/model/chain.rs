@@ -83,7 +83,7 @@ pub fn find(buf: &[&Message], pick: &str) -> Option<Found> {
 
 // copy thread: one `name: text` per line, oldest first. none unless it has 2+ lines
 pub fn copy_text(lines: &[Message]) -> Option<String> {
-  let flat = |s: &str| s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect::<String>();
+  let flat = |s: &str| crate::util::blank(s).collect::<String>();
   (lines.len() >= 2)
     .then(|| lines.iter().map(|m| format!("{}: {}", m.nick, flat(&m.body))).collect::<Vec<_>>().join("\n"))
 }

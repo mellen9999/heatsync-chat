@@ -142,7 +142,7 @@ impl Buf {
   fn splice(&mut self, a: usize, e: usize, with: &str) -> usize {
     let mut room = MAX_CHARS.saturating_sub(self.chars(0, a) + self.chars(e, self.len()));
     let mut ins = Buf { c: Vec::new(), pos: 0, units: std::mem::take(&mut self.units) };
-    let clean: String = with.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let clean: String = crate::util::blank(with).collect();
     for r in crate::model::line::breaks(&clean).collect::<Vec<_>>().windows(2) {
       let g = &clean[r[0]..r[1]];
       let n = g.chars().count();

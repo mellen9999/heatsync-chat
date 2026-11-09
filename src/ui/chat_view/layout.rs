@@ -30,7 +30,7 @@ pub(super) fn seg(s: &mut String, spans: &mut Vec<Span>, g: &Seg) {
 // ": words" after `head`, cut with … so the two fit one line `w` wide. control chars become spaces
 pub(super) fn one_line(res: &mut Res, head: &str, words: &str, w: f32) -> String {
   let mut out = String::from(": ");
-  out.extend(words.chars().map(|c| if c.is_control() { ' ' } else { c }));
+  out.extend(crate::util::blank(words));
   let full = format!("{head}{out}");
   let l = res.text.layout(&full, &[], &[], f32::MAX);
   if l.full_width() <= w {
