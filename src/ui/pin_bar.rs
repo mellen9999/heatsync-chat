@@ -3,14 +3,15 @@
 use super::canvas::{Canvas, Rect};
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
+use crate::i18n::t;
 use crate::model::pin::Pin;
 
-const LABEL: &str = "pin ";
 const HIDE: &str = " × ";
 
 fn body(text: &mut Text, p: &Pin, wrap: f32) -> TextLayout {
-  let s = format!("{LABEL}{}: {}", p.nick, p.text);
-  let (a, b) = (LABEL.len(), LABEL.len() + p.nick.len());
+  let label = t("ui.pin.label");
+  let s = format!("{label}{}: {}", p.nick, p.text);
+  let (a, b) = (label.len(), label.len() + p.nick.len());
   let spans =
     [Span { range: 0..a, ink: Ink(theme::DIM), bold: false }, Span { range: a..b, ink: Ink(p.color), bold: true }];
   text.layout(&s, &spans, &[], wrap)

@@ -2,6 +2,7 @@
 // asked of 7tv, ffz and heatsync after a short rest, and more pages follow when the pick nears the end of
 // what is shown. what comes back is tiles in the picker and nothing more: a click registers the name the
 // way tab-complete does (`catalog_reg`), and only a line SENT with it puts it in your inventory
+use crate::i18n::t;
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -49,7 +50,7 @@ impl App {
     let prefs = p.prefs;
     let Some(a) = p.search.ask(self.catalog_epoch, &prefs, fresh) else { return };
     if a.page == 1 {
-      p.set_note("searching…".into());
+      p.set_note(t("app.picker.searching").into());
     }
     let q = p.search.q.clone();
     self.net.send(Cmd::PickerSearch { q, epoch: self.catalog_epoch, page: a.page, ask: a.which });
@@ -61,7 +62,7 @@ impl App {
   pub(super) fn on_picker_search(&mut self, epoch: u32, pages: [Option<Page>; 3]) {
     let Some(p) = self.picker.as_mut() else { return };
     let Some(step) = p.search.absorb(epoch, pages) else { return };
-    p.set_note(if step.failed { "can't reach the catalogs".into() } else { String::new() });
+    p.set_note(if step.failed { t("app.picker.catalogs_down").into() } else { String::new() });
     p.rerank();
     if step.chase {
       self.picker_search_ask(false);

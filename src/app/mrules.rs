@@ -4,6 +4,7 @@
 // in the mentions tab as a row that pings like any @. a line that already pinged you through your name is
 // one row, not two
 use super::App;
+use crate::i18n::{f, t};
 use crate::model::filter;
 use crate::model::livegate::Ask;
 use crate::model::message::{Extra, Kind as MsgKind, Message, Platform, Seg, flag};
@@ -54,9 +55,9 @@ impl App {
   // what the list says when it has no rows
   pub(super) fn mrules_note(&self) -> &'static str {
     match (self.me.is_some(), self.mrules_read) {
-      (false, _) => "log in to keep mention rules",
-      (true, false) => "reading your rules…",
-      (true, true) => "nothing yet",
+      (false, _) => t("mod.mrules.note_login"),
+      (true, false) => t("mod.mrules.note_reading"),
+      (true, true) => t("mod.mrules.note_empty"),
     }
   }
 
@@ -149,13 +150,13 @@ impl App {
     m.body = h.snippet.clone();
     m.x = Some(Box::new(Extra {
       chan: h.channel.clone(),
-      head: Box::new([Seg { text: "[rule] ".into(), ink: theme::CYAN, bold: false }]),
+      head: Box::new([Seg { text: t("mod.mrules.tag").into(), ink: theme::CYAN, bold: false }]),
       ..Extra::default()
     }));
     self.tabs[i].chat().push(m);
     self.unseen_note(Surface::Mentions);
     self.mentions_changed();
-    let title = format!("{} in #{}", notify::name(&h.user), notify::name(&h.channel));
+    let title = f("mod.mrules.alert", &[("user", &notify::name(&h.user)), ("chan", &notify::name(&h.channel))]);
     self.mention_alert(&title, &h.user, &h.snippet);
     self.wake();
   }

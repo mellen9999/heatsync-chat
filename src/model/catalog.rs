@@ -2,6 +2,7 @@
 // and ffz catalogs are searched a page at a time and appended to the cycle. a catalog hit is only ever a
 // candidate in the box; it reaches chat the one way anything does, by being in your heatsync inventory
 // (auto-add on send, `Registry`). every response is hostile: names, ids and urls are checked here
+use crate::i18n::t;
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -49,9 +50,9 @@ impl Source {
 
   fn what(self) -> &'static str {
     match self {
-      Source::SevenTv => "catalog · 7tv",
-      Source::Ffz => "catalog · ffz",
-      Source::Heatsync => "catalog · hs",
+      Source::SevenTv => t("chat1.catalog.7tv"),
+      Source::Ffz => t("chat1.catalog.ffz"),
+      Source::Heatsync => t("chat1.catalog.hs"),
     }
   }
 }

@@ -2,6 +2,7 @@
 // after a short rest, answers are matched to the last ask (older ones are dropped), the box opens on
 // the gifs you sent lately (a request only for a cold reader), and the picked gif starts to play once
 // it has rested. picking inserts the gif's link
+use crate::i18n::t;
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -109,7 +110,7 @@ impl App {
       return self.gifs_apply(&q, page);
     }
     self.gifs.epoch += 1;
-    p.set_note("searching…".into());
+    p.set_note(t("app.picker.searching").into());
     self.net.send(Cmd::Social(social::Cmd::Gifs { q: q.into(), epoch: self.gifs.epoch }));
     self.picker_changed();
   }
@@ -147,7 +148,7 @@ impl App {
   pub(super) fn gif_pick(&mut self, keep: bool) {
     let Some(g) = self.picker.as_ref().and_then(|p| p.selected_gif()).cloned() else { return };
     if self.line.text.chars().count() + g.url.chars().count() + 2 > crate::model::line::MAX_CHARS {
-      self.say("no room for that link in the box");
+      self.say(t("app.gifs.no_room"));
       self.bar_dirty = true;
       return self.wake();
     }

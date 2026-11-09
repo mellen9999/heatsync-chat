@@ -4,6 +4,7 @@
 // it can't loop: a result that starts another of your commands is refused, so the second pass never
 // finds a command of yours to expand
 use super::App;
+use crate::i18n::f;
 use crate::model::message::Platform;
 use crate::model::usercmd::{self, Ctx};
 use crate::model::{chan, chantools, filtercmd, modcmd, modes, modsuite, notes, postcmd, settings, slash, whisper};
@@ -49,7 +50,7 @@ impl App {
       && self.ucmds.get(&again).is_some()
       && !builtin(&again)
     {
-      return Some(Err(format!("/{name} can't run /{again}: a command of yours can only run built-in ones")));
+      return Some(Err(f("app.usercmd.loop", &[("name", &name), ("again", &again)])));
     }
     Some(Ok(text))
   }
@@ -79,9 +80,9 @@ impl App {
     let name = self.ucmds.add(typed).map_err(str::to_owned)?;
     self.ucmds.save();
     Ok(if builtin(&name) {
-      format!("saved, but /{name} is a built-in command and always wins: yours never runs. use another name")
+      f("app.usercmd.shadowed", &[("name", &name)])
     } else {
-      format!("added /{name}")
+      f("app.usercmd.added", &[("name", &name)])
     })
   }
 
@@ -89,6 +90,6 @@ impl App {
     if self.ucmds.remove(name) {
       self.ucmds.save();
     }
-    format!("removed /{name}")
+    f("app.usercmd.removed", &[("name", name)])
   }
 }

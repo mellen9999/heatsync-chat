@@ -2,6 +2,7 @@
 // lines over the tab, newest at the bottom, drawn as chat. scroll to the top for older ones, / searches
 // them, a swaps this channel for all channels, y copies the line's public link, esc / q / h goes back.
 // the tab reads `← back` like a thread does; the data and its caps live in model::logs
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -14,19 +15,19 @@ use crate::ui::chat_view::ChatView;
 // what a failed ask says, in plain words
 fn why(status: u16) -> &'static str {
   match status {
-    0 => "couldn't reach heatsync — press r to try again",
-    404 => "no logged messages",
-    410 => "they opted out of the public archive",
-    429 => "too many asks — wait a moment, then press r",
-    503 => "the archive is busy — try r in half a minute",
-    _ => "couldn't load the archive — press r to try again",
+    0 => t("app.logs.why_0"),
+    404 => t("app.logs.why_404"),
+    410 => t("app.logs.why_410"),
+    429 => t("app.logs.why_429"),
+    503 => t("app.logs.why_503"),
+    _ => t("app.logs.why_other"),
   }
 }
 
 impl App {
   pub(super) fn logs_open(&mut self, w: &Subject) {
     let Some(login) = logs::archive_name(w.platform, &w.login) else {
-      return self.say("no chat logs for that name");
+      return self.say(t("app.logs.no_logs"));
     };
     // youtube keys its rooms differently from the room a line carries: it opens on every channel
     let home = if w.platform == Platform::Youtube { None } else { logs::room(&w.chan) };
@@ -138,11 +139,11 @@ impl App {
   fn logs_scope(&mut self) {
     let Some(l) = &mut self.logs else { return };
     if !l.toggle_scope() {
-      return self.say("opened with no channel: this is already every channel");
+      return self.say(t("app.logs.already_all"));
     }
     let note = match l.channel() {
-      Some(c) => format!("#{c} only"),
-      None => "every channel".into(),
+      Some(c) => f("app.logs.only", &[("channel", &c)]),
+      None => t("app.logs.every").into(),
     };
     self.logs_fetch();
     self.say(note);
@@ -153,13 +154,13 @@ impl App {
     let url = {
       let (Some(l), Some(i)) = (&self.logs, self.takeover_tab()) else { return };
       let Some(m) = self.tabs[i].view.selected() else {
-        return self.say("pick a line first (j or k)");
+        return self.say(t("app.logs.pick_line"));
       };
       l.link_of(m)
     };
     match url {
-      Some(u) => self.copy(&u, "copied the link"),
-      None => self.say("that line has no link"),
+      Some(u) => self.copy(&u, t("app.logs.copied")),
+      None => self.say(t("app.logs.no_link")),
     }
   }
 

@@ -1,6 +1,7 @@
 // emote clicks: left inserts the name; right acts on the exact emote under the pointer (rule 10) as
 // `right-click an emote` says: a menu, or at once (a blocked one unblocks, yours is removed, any other is
 // blocked), or nothing; shift+right always opens the small menu with the rest
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -31,11 +32,11 @@ pub struct Open {
 
 fn label(a: Act) -> &'static str {
   match a {
-    Act::Block => "block",
-    Act::Unblock => "unblock",
-    Act::Add => "add to my emotes",
-    Act::Remove => "remove from my emotes",
-    Act::Copy => "copy name",
+    Act::Block => t("app.emote.block"),
+    Act::Unblock => t("app.emote.unblock"),
+    Act::Add => t("app.emote.add"),
+    Act::Remove => t("app.emote.remove"),
+    Act::Copy => t("app.emote.copy"),
   }
 }
 
@@ -118,7 +119,7 @@ impl App {
     let hash = emote_hash(&hit.url, scope);
     let name = &hit.name;
     match act {
-      Act::Copy => self.copy(name, format!("copied {name}")),
+      Act::Copy => self.copy(name, f("app.emote.copied", &[("name", name)])),
       Act::Block | Act::Unblock => {
         let block = act == Act::Block;
         let hashes = if block {
@@ -128,7 +129,7 @@ impl App {
           self.res.blocked.unblock(name, &hit.url, scope)
         };
         self.res.blocked.save();
-        self.say(format!("{} {name}", if block { "blocked" } else { "unblocked" }));
+        self.say(f(if block { "app.emote.blocked" } else { "app.emote.unblocked" }, &[("name", name)]));
         if self.me.is_some() {
           for hash in hashes {
             self.net.send(Cmd::Emote(if block { EmoteCmd::Block { hash } } else { EmoteCmd::Unblock { hash } }));
@@ -136,9 +137,9 @@ impl App {
         }
         self.relayout_where(None);
       }
-      Act::Add | Act::Remove if self.me.is_none() => self.say("log in first (ctrl-l)"),
+      Act::Add | Act::Remove if self.me.is_none() => self.say(t("app.login_first_ctrl_l")),
       Act::Add => {
-        self.say(format!("adding {name}…"));
+        self.say(f("app.emote.adding", &[("name", name)]));
         self.net.send(Cmd::Emote(EmoteCmd::Add {
           name: name.clone(),
           url: hit.url.clone(),
@@ -147,7 +148,7 @@ impl App {
         }));
       }
       Act::Remove => {
-        self.say(format!("removing {name}…"));
+        self.say(f("app.emote.removing", &[("name", name)]));
         self.net.send(Cmd::Emote(EmoteCmd::Remove { name: name.clone() }));
       }
     }

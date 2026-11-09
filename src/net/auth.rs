@@ -1,6 +1,7 @@
 // heatsync login for the app: rfc 8252 loopback + pkce (server side: heatsync lib/native-auth.ts).
 // the browser does the twitch oauth; the app only ever sees a one-time code on 127.0.0.1, and that
 // code is worthless without the verifier that never leaves this process
+use crate::i18n::t;
 use crate::model::ident;
 use std::time::Duration;
 
@@ -32,9 +33,7 @@ fn b64url(b: &[u8]) -> String {
 
 fn random(n: usize) -> Result<Vec<u8>, String> {
   let mut b = vec![0u8; n];
-  SystemRandom::new()
-    .fill(&mut b)
-    .map_err(|_| "couldn't start the login (no randomness on this system)".to_string())?;
+  SystemRandom::new().fill(&mut b).map_err(|_| t("net1.auth.no_random").to_string())?;
   Ok(b)
 }
 
@@ -133,8 +132,8 @@ async fn link_ticket(http: &reqwest::Client, token: &str) -> Result<String, Stri
   let v = body(r).await.unwrap_or(Value::Null);
   match v.get("ticket").and_then(Value::as_str) {
     Some(t) if ok && t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => Ok(t.to_string()),
-    _ if expired => Err("session expired, log in again (ctrl-l)".to_string()),
-    _ => Err(words(&v, "couldn't start linking")),
+    _ if expired => Err(t("net1.logged_out_again").to_string()),
+    _ => Err(words(&v, t("net1.auth.link_failed"))),
   }
 }
 
@@ -154,11 +153,7 @@ pub async fn login(
   let p = pkce()?;
   let listener = TcpListener::bind("127.0.0.1:0").await.map_err(no_port)?;
   let port = listener.local_addr().map_err(no_port)?.port();
-  let done = if ticket.is_some() {
-    "linked. you can close this tab"
-  } else {
-    "logged in to heatsync chat. you can close this tab"
-  };
+  let done = if ticket.is_some() { t("net1.auth.linked_page") } else { t("net1.auth.logged_in_page") };
   let url = login_url(provider, port, &p, pack, ticket.as_deref());
   open_browser(&url)?;
   let code = wait_for_callback(listener, &p.state, done, WAIT).await?;
@@ -183,11 +178,7 @@ async fn wait_for_callback(listener: TcpListener, state: &str, done: &str, wait:
       let req = String::from_utf8_lossy(&buf[..n]);
       let Some((code, got)) = callback(&req) else { continue };
       if got != state {
-        let _ = sock
-          .write_all(
-            page("this login link doesn't belong to this window. go back to heatsync chat and try again").as_bytes(),
-          )
-          .await;
+        let _ = sock.write_all(page(t("net1.auth.wrong_window")).as_bytes()).await;
         continue;
       }
       let _ = sock.write_all(page(done).as_bytes()).await;
@@ -195,13 +186,13 @@ async fn wait_for_callback(listener: TcpListener, state: &str, done: &str, wait:
     }
   })
   .await
-  .map_err(|_| "login timed out".to_string())
+  .map_err(|_| t("net1.auth.timed_out").to_string())
 }
 
 // the login needs a local port for the browser to come back to
 fn no_port(e: std::io::Error) -> String {
   eprintln!("login loopback: {e}");
-  "couldn't start the login (no free local port)".to_string()
+  t("net1.auth.no_port").to_string()
 }
 
 async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<String, String> {
@@ -216,7 +207,7 @@ async fn exchange(http: &reqwest::Client, code: &str, verifier: &str) -> Result<
   let v = body(r).await?;
   match v.get("token").and_then(Value::as_str) {
     Some(t) if ok && valid_token(t) => Ok(t.to_string()),
-    _ => Err(words(&v, "login failed")),
+    _ => Err(words(&v, t("net1.auth.login_failed"))),
   }
 }
 
@@ -231,7 +222,7 @@ fn words(v: &Value, plain: &str) -> String {
 async fn body(r: reqwest::Response) -> Result<Value, String> {
   http::read_json(r, MAX_REPLY).await.map_err(|e| {
     eprintln!("heatsync reply: {e}");
-    "heatsync sent back something unreadable".to_string()
+    t("net1.auth.unreadable").to_string()
   })
 }
 
@@ -374,7 +365,14 @@ fn parse_chat_token(ok: bool, v: &Value) -> Result<Option<(String, String)>, Str
   let u = v.get("username").and_then(Value::as_str).map(str::to_lowercase).filter(|u| ident::twitch_room(u));
   match (ok, t, u) {
     (true, Some(t), Some(u)) => Ok(Some((t.to_string(), u))),
-    _ => Err(v.get("error").and_then(Value::as_str).unwrap_or("no twitch chat token").chars().take(100).collect()),
+    _ => Err(
+      v.get("error")
+        .and_then(Value::as_str)
+        .unwrap_or(crate::i18n::t("net1.auth.no_chat_token"))
+        .chars()
+        .take(100)
+        .collect(),
+    ),
   }
 }
 
@@ -384,15 +382,13 @@ pub async fn logout(http: &reqwest::Client, token: &str) -> Result<(), String> {
     Ok(r) => logout_verdict(r.status().as_u16()),
     Err(e) => {
       eprintln!("logout: {e}");
-      Err(LOGOUT_OPEN.into())
+      Err(t("net1.auth.logout_open").into())
     }
   }
 }
 
-const LOGOUT_OPEN: &str = "logged out here, but heatsync didn't hear it: your login there stays open until it runs out";
-
 fn logout_verdict(status: u16) -> Result<(), String> {
-  if (200..300).contains(&status) || status == 401 { Ok(()) } else { Err(LOGOUT_OPEN.into()) }
+  if (200..300).contains(&status) || status == 401 { Ok(()) } else { Err(t("net1.auth.logout_open").into()) }
 }
 
 #[cfg(test)]
@@ -506,7 +502,7 @@ mod tests {
   async fn a_login_nobody_finishes_times_out() {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let got = wait_for_callback(l, "mine", "done", Duration::from_millis(30)).await;
-    assert_eq!(got, Err("login timed out".to_string()));
+    assert_eq!(got, Err(t("net1.auth.timed_out").to_string()));
   }
 
   #[test]

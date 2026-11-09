@@ -2,6 +2,7 @@
 // cursor, the next ones cycle them in place, and a tooltip over the box names the shown one
 use super::App;
 use crate::emotes::Provider;
+use crate::i18n::{f, t};
 use crate::model::catalog::{self, Cycle, Page, Rec};
 use crate::model::complete::{Cand, Complete, MIN_WORD, Pick, commands, emoji, emotes, people};
 use crate::model::slash;
@@ -17,14 +18,14 @@ const RECENT_MAX: usize = 150;
 // the cycle tooltip's "where it's from · who sees it"
 fn what(channel: bool, p: Provider) -> &'static str {
   match (channel, p) {
-    (true, Provider::SevenTv) => "channel · 7tv users",
-    (true, Provider::Bttv) => "channel · bttv users",
-    (true, Provider::Ffz) => "channel · ffz users",
-    (true, Provider::Twitch) => "channel · all twitch",
-    (false, Provider::SevenTv) => "global · 7tv users",
-    (false, Provider::Bttv) => "global · bttv users",
-    (false, Provider::Ffz) => "global · ffz users",
-    (false, Provider::Twitch) => "global · all twitch",
+    (true, Provider::SevenTv) => t("app.complete.channel_7tv"),
+    (true, Provider::Bttv) => t("app.complete.channel_bttv"),
+    (true, Provider::Ffz) => t("app.complete.channel_ffz"),
+    (true, Provider::Twitch) => t("app.complete.channel_twitch"),
+    (false, Provider::SevenTv) => t("app.complete.global_7tv"),
+    (false, Provider::Bttv) => t("app.complete.global_bttv"),
+    (false, Provider::Ffz) => t("app.complete.global_ffz"),
+    (false, Provider::Twitch) => t("app.complete.global_twitch"),
   }
 }
 
@@ -37,7 +38,7 @@ impl App {
       .iter()
       .map(|(n, _)| format!("/{n}"))
       .filter(|n| n.starts_with(&low) && !super::usercmd::builtin(&n[1..]))
-      .map(|n| Pick { name: n.into(), what: "your command", emote: false, code: None })
+      .map(|n| Pick { name: n.into(), what: t("app.complete.your_command"), emote: false, code: None })
       .collect()
   }
 
@@ -49,7 +50,7 @@ impl App {
 
   pub(super) fn candidates(&self, word: &str, slash: bool) -> Vec<Pick> {
     let tab = self.tabs.get(self.active);
-    let chat = |n: Box<str>| Pick { name: n, what: "chatter", emote: false, code: None };
+    let chat = |n: Box<str>| Pick { name: n, what: t("app.complete.chatter"), emote: false, code: None };
     if slash {
       let mut out = self.own_commands(word);
       let builtin = commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
@@ -72,13 +73,13 @@ impl App {
     let own = self.own_id().filter(|_| self.set.suggest_inventory);
     let own = own.map_or_else(Vec::new, |id| self.res.senders.entries(id, now));
     let own = own.into_iter().filter(|(n, e)| !blocked(n, &e.url));
-    let own = own.map(|(name, _)| Cand { name, tier: 1, what: "your inventory · heatsync only" });
+    let own = own.map(|(name, _)| Cand { name, tier: 1, what: t("app.complete.your_inventory") });
     // your own 7tv personal set, only if 7tv has said it is yours (emotes/personal.rs)
     let mine = self.own_id().map_or_else(Vec::new, |id| self.res.personal.entries(id));
     let mine = mine.into_iter().filter(|(n, e)| !blocked(n, &e.url));
-    let mine = mine.map(|(name, _)| Cand { name, tier: 1, what: "your personal set · 7tv users" });
+    let mine = mine.map(|(name, _)| Cand { name, tier: 1, what: t("app.complete.your_set") });
     let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, e)| !blocked(n, &e.url));
-    let subs: Vec<Cand> = subs.map(|(name, _)| Cand { name, tier: 1, what: "your sub emote · all twitch" }).collect();
+    let subs: Vec<Cand> = subs.map(|(name, _)| Cand { name, tier: 1, what: t("app.complete.your_sub") }).collect();
     let global = self.res.emotes.global_names().into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
     let global = global.map(|(name, p, _)| Cand { name, tier: 2, what: what(false, p) });
     let found = emotes(q, own.chain(mine).chain(subs).chain(channel).chain(global), |n| self.frecency.score(n, now));
@@ -110,7 +111,7 @@ impl App {
       let q = word.strip_prefix(':').unwrap_or(word);
       let remote = !slash && catalog::eligible(q);
       if matches.is_empty() && !remote {
-        self.say(format!("no match for {word}"));
+        self.say(f("app.complete.no_match", &[("word", word)]));
         self.bar_dirty = true;
         return self.wake();
       }
@@ -192,7 +193,7 @@ impl App {
       self.ask_catalog(false);
     } else if none && done {
       self.complete = None;
-      self.say(format!("no match for {word}"));
+      self.say(f("app.complete.no_match", &[("word", &word)]));
       self.bar_dirty = true;
     } else if step.first {
       c.at = 0;

@@ -2,6 +2,7 @@
 // /api/mod/vip and /moderator, PUT /api/chat/color, and /api/mod/polls + /predictions. each needs its
 // twitch permission pack (announce, channeltools, chatcolor); the server's helix call is the real check
 // (announce: mods, roles / polls / predictions: the broadcaster). the room is named by login
+use crate::i18n::f;
 use reqwest::Method;
 use serde_json::{Value, json};
 
@@ -163,7 +164,10 @@ async fn ask(http: &reqwest::Client, token: &str, chan: &str, cmd: &Cmd) -> Resu
         }
         Cmd::Resolve(n) => {
           let Some((oid, name)) = p.outcomes.get(n - 1) else {
-            return Err(Oops(Fail::Other, format!("no outcome {n}: it has {}", p.outcomes.len()).into()));
+            return Err(Oops(
+              Fail::Other,
+              f("net1.mod.no_outcome", &[("n", &n.to_string()), ("count", &p.outcomes.len().to_string())]).into(),
+            ));
           };
           body["status"] = "RESOLVED".into();
           body["winning_outcome_id"] = (&**oid).into();

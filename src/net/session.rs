@@ -1,5 +1,6 @@
 // the logged-in heatsync session: token on disk (0600), who we are, the twitch irc credential it
 // brokers, and kick sends. one task, so login/logout/renewal never race each other
+use crate::i18n::{f, t};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -133,7 +134,7 @@ async fn login_result(w: &mut Option<Waiting>) -> Result<String, String> {
   match w {
     Some(w) => (&mut w.task).await.unwrap_or_else(|e| {
       eprintln!("login task: {e}");
-      Err("login stopped, try again".into())
+      Err(t("net1.session.login_stopped").into())
     }),
     None => std::future::pending().await,
   }
@@ -176,10 +177,10 @@ pub async fn run(
         None => return,
         Some(Cmd::Login(provider, pack)) => st.start_login(provider, pack, None),
         Some(Cmd::Link(provider, pack)) => match st.token.clone() {
-          None => st.out.status("log in first (ctrl-l)"),
+          None => st.out.status(t("net1.log_in_first")),
           Some(cur) => st.start_login(provider, pack, Some(cur)),
         },
-        Some(Cmd::CancelLogin) => st.cancel_login("login cancelled"),
+        Some(Cmd::CancelLogin) => st.cancel_login(t("net1.session.login_cancelled")),
         Some(Cmd::ChatRefused(bad)) => {
           if st.chat_refused(&bad) {
             next = Instant::now() + if st.refusals <= 1 { Duration::ZERO } else { retry_in(st.refusals) };
@@ -196,14 +197,14 @@ pub async fn run(
               }
             });
           }
-          st.forget("logged out");
+          st.forget(t("net1.session.logged_out"));
         }
         Some(Cmd::Emote(c)) if st.emote_upload(&c) => {}
         Some(Cmd::Emote(c)) => match &st.token {
           Some(t) => {
             let _ = emotes.send(EmoteJob::Op(t.clone(), c));
           }
-          None => st.out.status("log in first (ctrl-l)"),
+          None => st.out.status(t("net1.log_in_first")),
         },
         Some(Cmd::Inventory(op)) => {
           tokio::spawn(super::inventory::run(st.http.clone(), st.token.clone(), op, st.out.clone()));
@@ -298,7 +299,7 @@ impl State {
         tokio::spawn(upload::run(self.http.clone(), t.clone(), path, self.out.clone()));
       }
       None => {
-        self.out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
+        self.out.send(NetEvent::Upload(upload::Upload::Failed(t("net1.log_in_upload").into())));
       }
     }
   }
@@ -313,7 +314,7 @@ impl State {
     }
     let (http, out) = (self.http.clone(), self.out.clone());
     let Some(token) = self.token.clone() else {
-      let why = "log in to upload (ctrl-l)".to_string();
+      let why = t("net1.log_in_upload").to_string();
       out.send(NetEvent::Upload(Upload::EmoteFailed(emote::Failed { why, kept: None })));
       return true;
     };
@@ -344,7 +345,7 @@ impl State {
         tokio::spawn(upload::run_picture(self.http.clone(), t.clone(), bytes, self.out.clone()));
       }
       None => {
-        self.out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
+        self.out.send(NetEvent::Upload(upload::Upload::Failed(t("net1.log_in_upload").into())));
       }
     }
   }
@@ -356,11 +357,11 @@ impl State {
       let r = tokio::task::spawn_blocking(upload::choose).await.unwrap_or(upload::Upload::Cancelled);
       match (r, token) {
         (upload::Upload::Url(p), Some(t)) => {
-          out.status("uploading…");
+          out.status(crate::i18n::t("net1.session.uploading"));
           upload::run(http, t, p.into(), out).await
         }
         (upload::Upload::Url(_), None) => {
-          out.send(NetEvent::Upload(upload::Upload::Failed("log in to upload (ctrl-l)".into())));
+          out.send(NetEvent::Upload(upload::Upload::Failed(t("net1.log_in_upload").into())));
         }
         (other, _) => {
           out.send(NetEvent::Upload(other));
@@ -393,9 +394,9 @@ impl State {
     let link = link_as.is_some();
     let name = provider.name();
     self.out.status(if link {
-      format!("finish linking {name} in your browser (esc cancels)")
+      f("net1.session.finish_linking", &[("name", name)])
     } else {
-      format!("finish logging in with {name} in your browser (esc cancels)")
+      f("net1.session.finish_login", &[("name", name)])
     });
     eprintln!("login: opening the browser");
     let http = self.http.clone();
@@ -426,9 +427,9 @@ impl State {
         self.fresh();
         if w.link {
           self.out.status(if w.pack == "post" {
-            "youtube posting allowed".to_owned()
+            crate::i18n::t("net1.session.yt_post_allowed").to_owned()
           } else {
-            format!("linked {}", w.provider.name())
+            f("net1.session.linked", &[("name", w.provider.name())])
           });
         }
         true
@@ -436,9 +437,9 @@ impl State {
       Err(e) => {
         eprintln!("login failed: {e}");
         self.out.status(if w.link {
-          format!("couldn't link {}: {e}", w.provider.name())
+          f("net1.session.link_failed", &[("name", w.provider.name()), ("why", &e)])
         } else {
-          format!("couldn't log in: {e}")
+          f("net1.session.login_failed", &[("why", &e)])
         });
         false
       }
@@ -493,8 +494,10 @@ impl State {
         let wait = next_in(false, self.fails);
         // the first tries just say it's coming back; a stubborn one says what else to try. a long
         // outage is a few lines, not one a minute
-        let why = if self.fails >= 3 && why.contains("chat login") {
-          format!("{why} (if it keeps happening, log in again with ctrl-l)")
+        let why = if self.fails >= 3
+          && (why == t("net1.session.chat_login_refused") || why == t("net1.session.chat_login_failed"))
+        {
+          f("net1.session.chat_login_hint", &[("why", &why)])
         } else {
           why
         };
@@ -512,7 +515,7 @@ impl State {
         let t = renewed.unwrap_or(t);
         if let Err(e) = store::write_secret(TOKEN, &t) {
           eprintln!("saving the login: {e}");
-          self.out.status("couldn't save your login, you'll have to log in again next time");
+          self.out.status(crate::i18n::t("net1.session.not_saved"));
         }
         self.token = Some(t);
         self.checked = Instant::now();
@@ -521,7 +524,7 @@ impl State {
         me
       }
       Ok(Check::Expired) => {
-        self.forget("you're logged out, log in again (ctrl-l)");
+        self.forget(crate::i18n::t("net1.logged_out_again"));
         return Ok(());
       }
       Err(e) => return Err(super::http::offline("heatsync", &e)),
@@ -563,7 +566,7 @@ impl State {
         Ok(())
       }
       Step::Expired => {
-        self.forget("you're logged out, log in again (ctrl-l)");
+        self.forget(crate::i18n::t("net1.logged_out_again"));
         Ok(())
       }
       Step::Retry(why) => {
@@ -589,11 +592,11 @@ impl State {
 // like kick: success shows up through the relay, a refusal is a system line in the tab
 async fn youtube_job(http: reqwest::Client, token: Option<String>, chan: Box<str>, text: String, out: Out) {
   let why = match &token {
-    None => Some("log in to send (ctrl-l)".to_owned()),
+    None => Some(t("net1.log_in_send").to_owned()),
     Some(t) => super::youtube::send(&http, t, &chan, &text).await.err(),
   };
   if let Some(why) = why {
-    let m = Message::system(now_ms(), Platform::Youtube, format!("not sent to youtube: {why}"));
+    let m = Message::system(now_ms(), Platform::Youtube, f("net1.session.not_sent_youtube", &[("why", &why)]));
     out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
   }
 }
@@ -607,7 +610,7 @@ async fn kick_job(
   out: Out,
 ) {
   let why = match &token {
-    None => Some("log in to send (ctrl-l)".to_owned()),
+    None => Some(t("net1.log_in_send").to_owned()),
     Some(t) => kick_send(&http, t, &chan, &text, reply.as_deref()).await.err(),
   };
   // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
@@ -619,7 +622,7 @@ async fn kick_job(
     out.send(NetEvent::Lock(Platform::Kick, chan.clone(), cause));
   }
   if let Some(why) = why {
-    let m = Message::system(now_ms(), Platform::Kick, format!("not sent to kick: {why}"));
+    let m = Message::system(now_ms(), Platform::Kick, f("net1.session.not_sent_kick", &[("why", &why)]));
     out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });
   }
 }
@@ -639,13 +642,15 @@ enum Step {
 // `refused` = a token irc just turned down: handing it back would loop
 fn chat_step(got: Result<Chat, String>, refused: Option<&str>) -> Step {
   match got {
-    Ok(Chat::Ready(t, _)) if refused == Some(&t) => Step::Retry("twitch didn't accept your chat login".into()),
+    Ok(Chat::Ready(t, _)) if refused == Some(&t) => {
+      Step::Retry(crate::i18n::t("net1.session.chat_login_refused").into())
+    }
     Ok(Chat::Ready(t, n)) => Step::Login(t, n),
     Ok(Chat::Unlinked) => Step::Unlinked,
     Ok(Chat::Expired) => Step::Expired,
     Err(e) => {
       eprintln!("twitch chat token: {e}");
-      Step::Retry("can't get your twitch chat login".into())
+      Step::Retry(t("net1.session.chat_login_failed").into())
     }
   }
 }
@@ -676,10 +681,10 @@ async fn kick_send(
   let code = r.status().as_u16();
   let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
   Err(match v.get("error_code").and_then(Value::as_str) {
-    Some("not_linked") => "link kick on heatsync.org first".into(),
-    Some("scope_missing") => "re-link kick on heatsync.org to allow sending".into(),
-    Some("token_expired") => "kick login expired, re-link on heatsync.org".into(),
-    Some("rate_limited") => "slow down".into(),
+    Some("not_linked") => t("net1.session.kick_not_linked").into(),
+    Some("scope_missing") => t("net1.session.kick_scope").into(),
+    Some("token_expired") => t("net1.session.kick_expired").into(),
+    Some("rate_limited") => t("net1.slow_down").into(),
     _ => match http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")) {
       w if w.is_empty() => http::plain_status(code),
       w => w,
@@ -748,7 +753,7 @@ mod tests {
   fn a_failed_chat_token_asks_again_soon_not_in_six_hours() {
     // the old step said "all fine" here and left chat read-only until the next renewal
     let step = chat_step(Err("http 503".into()), None);
-    assert_eq!(step, Step::Retry("can't get your twitch chat login".into()));
+    assert_eq!(step, Step::Retry(t("net1.session.chat_login_failed").into()));
     assert!(matches!(chat_step(Err("x".into()), Some("tok")), Step::Retry(_)));
     for fails in 1..=8 {
       let wait = next_in(false, fails);
@@ -807,7 +812,7 @@ mod tests {
       std::future::pending::<Result<String, String>>().await
     });
     st.login = Some(Waiting { provider: Provider::Twitch, pack: "base", link: false, task });
-    st.cancel_login("login cancelled");
+    st.cancel_login(t("net1.session.login_cancelled"));
     assert!(st.login.is_none());
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
@@ -822,7 +827,7 @@ mod tests {
       .collect();
     assert_eq!(events, ["wait false", "login cancelled"]);
     // nothing waiting: nothing to say
-    st.cancel_login("login cancelled");
+    st.cancel_login(t("net1.session.login_cancelled"));
     assert!(said(&out).is_empty());
   }
 

@@ -3,6 +3,7 @@
 // {input} everything after the command, {channel} this tab's channel, {user} your own name. an expansion
 // is made exactly once, from what you typed, and the result is never looked at again for placeholders, so
 // there is nothing to loop (app/usercmd.rs also refuses a result that starts another of your commands)
+use crate::i18n::t;
 use crate::store;
 
 pub const MAX_CMDS: usize = 200;
@@ -37,13 +38,13 @@ fn clean(s: &str) -> String {
 pub fn entry(s: &str) -> Result<(String, String), &'static str> {
   let s = s.trim();
   let (n, rest) = s.split_once(char::is_whitespace).unwrap_or((s, ""));
-  let Some(n) = name(n) else { return Err("a name is 1-32 of a-z 0-9 _ -, like /gg") };
+  let Some(n) = name(n) else { return Err(t("chat2.usercmd.bad_name")) };
   let exp = clean(rest);
   if exp.is_empty() {
-    return Err("say what it expands to: /gg good game {1}");
+    return Err(t("chat2.usercmd.empty"));
   }
   if exp.chars().count() > MAX_EXP {
-    return Err("500 characters at most");
+    return Err(t("chat2.usercmd.too_long"));
   }
   Ok((n, exp))
 }

@@ -3,13 +3,16 @@
 // plain (non-vi) mode shows nothing
 use super::text::{Ink, Span};
 use super::theme;
+use crate::i18n::t;
 use crate::model::vi::Mode;
 
 // (text, bold)
 pub type Seg = (&'static str, bool);
 
 // the widest short label: the bar's left gutter is sized to it so typed text never shifts
-pub const WIDEST: &str = "-- normal --";
+pub fn widest() -> &'static str {
+  t("ui.mode.normal")
+}
 
 // short: the bar already holds typed text, so keep to the gutter width
 pub fn segs(vi: bool, mode: Mode, selecting: bool, short: bool) -> Vec<Seg> {
@@ -17,21 +20,26 @@ pub fn segs(vi: bool, mode: Mode, selecting: bool, short: bool) -> Vec<Seg> {
     return Vec::new();
   }
   match mode {
-    Mode::Insert => vec![("-- insert --", false)],
-    Mode::Normal if selecting && short => vec![("-- select --", false)],
-    Mode::Normal if selecting => vec![
-      ("-- select: ", false),
-      ("r", true),
-      (" reply · ", false),
-      ("m", true),
-      (" menu · ", false),
-      ("c", true),
-      (" card · ", false),
-      ("esc", true),
-      (" --", false),
-    ],
-    Mode::Normal => vec![(WIDEST, false)],
+    Mode::Insert => vec![(t("ui.mode.insert"), false)],
+    Mode::Normal if selecting && short => vec![(t("ui.mode.select"), false)],
+    // the keys sit between `*` marks, bold; any wording around them is the translator's
+    Mode::Normal if selecting => t("ui.mode.select_keys")
+      .split('*')
+      .enumerate()
+      .filter(|(_, s)| !s.is_empty())
+      .map(|(i, s)| (s, i % 2 == 1))
+      .collect(),
+    Mode::Normal => vec![(widest(), false)],
   }
+}
+
+// the widest a short label can be in this language: the gutter is sized to it, so a longer translation of
+// `insert` or `select` can't push the typed text around
+pub fn widest_px(text: &mut super::text::Text) -> f32 {
+  [t("ui.mode.normal"), t("ui.mode.insert"), t("ui.mode.select")]
+    .into_iter()
+    .map(|s| text.layout(s, &[], &[], f32::MAX).full_width())
+    .fold(0.0, f32::max)
 }
 
 pub fn text(s: &[Seg]) -> String {
@@ -100,7 +108,7 @@ mod tests {
   #[test]
   fn short_labels_fit_the_gutter() {
     for m in [Mode::Insert, Mode::Normal] {
-      assert!(text(&segs(true, m, true, true)).chars().count() <= WIDEST.chars().count());
+      assert!(text(&segs(true, m, true, true)).chars().count() <= widest().chars().count());
     }
   }
 

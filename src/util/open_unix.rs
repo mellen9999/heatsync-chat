@@ -24,7 +24,7 @@ pub fn browse(url: &str) -> Result<(), String> {
     .spawn()
     .map_err(|e| {
       eprintln!("xdg-open: {e}");
-      "can't open links yet, install xdg-utils (paru -S xdg-utils)".to_string()
+      crate::i18n::t("misc.open.no_xdg").to_string()
     })?;
   // reap it so it never lingers as a zombie
   std::thread::spawn(move || _ = child.wait());

@@ -1,4 +1,5 @@
 // the file dialog on unix: zenity, then kdialog, run with an argument list and never a shell
+use crate::i18n::t;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -23,10 +24,10 @@ fn run_chooser(prog: &str, args: &[&str]) -> Ran {
 
 // blocks until the dialog closes
 pub fn choose() -> Upload {
-  let tries: [(&str, &[&str]); 2] = [
-    ("zenity", &["--file-selection", "--title=upload a picture or video"]),
-    ("kdialog", &["--getopenfilename", ".", "--title", "upload a picture or video"]),
-  ];
+  let title = t("net2.upload.dialog");
+  let zenity_title = format!("--title={title}");
+  let tries: [(&str, &[&str]); 2] =
+    [("zenity", &["--file-selection", &zenity_title]), ("kdialog", &["--getopenfilename", ".", "--title", title])];
   for (p, a) in tries {
     match run_chooser(p, a) {
       Ran::Picked(path) => return Upload::Url(path.to_string_lossy().into_owned()),

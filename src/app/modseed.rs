@@ -4,6 +4,7 @@
 // marker file: any edit of the buttons (including clearing them) writes it, and so does the seed, so it happens
 // at most once and never over a choice. a reset of the settings does not bring it back
 use super::App;
+use crate::i18n::t;
 use crate::model::modbar;
 use crate::store;
 
@@ -31,7 +32,7 @@ impl App {
     }
     self.set.mod_buttons = modbar::parse(STARTER).0;
     self.set.save();
-    self.say("starter mod buttons on: delete, 10m, ban. change them in settings \u{203a} mod toolbar buttons");
+    self.say(t("mod.seed.started"));
     self.wake();
   }
 }

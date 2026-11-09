@@ -1,6 +1,7 @@
 // heatsync's anonymous websocket: kick + youtube chat relay, stream/pin/moment events.
 // hardening per docs/contract.md: backoff reset only after a stable session, idle watchdog,
 // server:shutdown spread without a backoff charge, kick `_seq` resume, yt re-subscribe on reconnect
+use crate::i18n::t;
 use crate::model::ident;
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
@@ -137,7 +138,7 @@ pub async fn run(
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
         if std::mem::take(&mut told) {
-          out.status("heatsync is back");
+          out.status(t("net1.hs.back"));
         }
         let ended = session(ws, &mut rx, &mut st, &pins, &out).await;
         st.resumed = true;
@@ -172,7 +173,7 @@ pub async fn run(
       // a drop that connects again at once is not worth a line; trouble connecting is
       if attempts > 1 {
         told = true;
-        retrying(&out, "can't reach heatsync", attempts - 1, wait);
+        retrying(&out, t("net1.hs.unreachable"), attempts - 1, wait);
       }
       wait
     });
@@ -378,7 +379,7 @@ async fn session(
       }
       _ = beat.tick() => {
         if last_rx.elapsed() > IDLE_LIMIT {
-          out.status("heatsync went quiet, reconnecting");
+          out.status(t("net1.hs.quiet"));
           return End::Reconnect;
         }
         if tx.send(Ws::text(r#"{"type":"presence:heartbeat"}"#)).await.is_err() {

@@ -3,6 +3,7 @@
 // pictures come from the provider's cdn (we go through heatsync's image proxy, so the cdn never sees
 // us). every field of an answer is hostile: urls are checked, text is bounded, rows are capped.
 // picking inserts the gif's direct url, which chat then embeds
+use crate::i18n::{f, t};
 use serde_json::Value;
 
 use crate::images::url::host;
@@ -109,10 +110,10 @@ pub fn path(q: &str) -> String {
 // what an empty grid says (an empty library is ours, not the reader's query)
 pub fn empty_note(q: &str, lib: Library) -> String {
   match (lib, q.is_empty()) {
-    (Library::Empty, _) => "the gif library is empty for now".into(),
-    (Library::Building(n), false) => format!("still indexing gifs ({n} so far), try again soon"),
-    (_, false) => "no gifs match".into(),
-    (_, true) => "type to search gifs".into(),
+    (Library::Empty, _) => t("chat1.gifs.empty_lib").into(),
+    (Library::Building(n), false) => f("chat1.gifs.building", &[("n", &n.to_string())]),
+    (_, false) => t("chat1.gifs.none").into(),
+    (_, true) => t("chat1.gifs.prompt").into(),
   }
 }
 
@@ -134,9 +135,9 @@ impl Fail {
   // what a failed ask says, in plain words
   pub fn note(self) -> String {
     match self.status {
-      0 => "couldn't reach heatsync".into(),
-      429 => format!("too many searches, wait {}s", self.wait.max(1)),
-      _ => "couldn't load gifs".into(),
+      0 => t("chat1.gifs.offline").into(),
+      429 => f("chat1.gifs.rate", &[("n", &self.wait.max(1).to_string())]),
+      _ => t("chat1.gifs.fail").into(),
     }
   }
 }

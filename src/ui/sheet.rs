@@ -4,6 +4,7 @@
 use super::canvas::{Canvas, Rect};
 use super::text::{Ink, Span, Text};
 use super::theme;
+use crate::i18n::t;
 
 const PAD: i32 = 6;
 
@@ -101,6 +102,11 @@ impl Ctx<'_> {
     l.full_width().ceil() as i32
   }
 
+  // `s` cut to `max` px of laid-out width with a `…`: a translated label can outrun its column
+  fn fit(&mut self, s: &str, max: i32) -> String {
+    self.text.elide(s, max.max(0))
+  }
+
   fn width(&mut self, s: &str, bold: bool) -> i32 {
     let l = self.text.layout(s, &[Span { range: 0..s.len(), ink: Ink(theme::WHITE), bold }], &[], f32::MAX);
     l.full_width().ceil() as i32
@@ -116,10 +122,12 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
   // top row: title, then the search box
   let top = Rect::new(area.x, area.y, area.w, line);
   let mut x = area.x + PAD;
-  x += cx.put(v.title, x, top, theme::WHITE, true) + 2 * em;
+  let title = cx.fit(v.title, area.w * 2 / 3 - PAD);
+  x += cx.put(&title, x, top, theme::WHITE, true) + 2 * em;
   if let Some((q, typing, hint, mark)) = v.search {
     if q.is_empty() && !typing {
-      cx.put(hint, x, top, theme::DIM, false);
+      let hint = cx.fit(hint, area.right() - x - PAD);
+      cx.put(&hint, x, top, theme::DIM, false);
     } else {
       x += cx.put(mark, x, top, theme::DIM, false);
       x += cx.put(q, x, top, theme::WHITE, false);
@@ -145,7 +153,8 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
     let r = Rect::new(body.x, body.y + (k - st.scroll) as i32 * line, body.w, line);
     let (a, b, pill, ink) = match l {
       L::Head(h) => {
-        cx.put(h, r.x + PAD, r, theme::WHITE, true);
+        let h = cx.fit(h, r.w - 2 * PAD);
+        cx.put(&h, r.x + PAD, r, theme::WHITE, true);
         continue;
       }
       L::Row { a, b, pill } => (a, b, *pill, theme::WHITE),
@@ -158,10 +167,18 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
     st.hits.push((r, k));
     let dim = if ink == theme::WHITE { theme::DIM } else { ink };
     let (fg, bg) = if sel { (theme::BLACK, theme::WHITE) } else { (ink, theme::BLACK) };
-    cx.put(a, r.x + PAD + em, r, fg, false);
+    // the label keeps what the right-hand part (the pill, the value, or the value's column) leaves it
+    let left = r.x + PAD + em;
+    let right = match (pill, v.col) {
+      (Some(on), _) => cx.width(if on { t("ui.sheet.on") } else { t("ui.sheet.off") }, false) + PAD + em,
+      (None, Some(col)) => r.w - (PAD + em + col as i32 * em) + em,
+      (None, None) => cx.width(b, false) + PAD + em,
+    };
+    let a = cx.fit(a, r.right() - right - left);
+    cx.put(&a, left, r, fg, false);
     match (pill, v.col) {
       (Some(on), _) => {
-        let s = if on { "[on]" } else { "[off]" };
+        let s = if on { t("ui.sheet.on") } else { t("ui.sheet.off") };
         let w = cx.width(s, false);
         let pr = Rect::new(r.right() - PAD - w, r.y, w, line);
         // on = reverse video; the picked row is already reversed, so there it flips back
@@ -177,7 +194,9 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
         cx.put(s, pr.x, pr, pfg, false);
       }
       (None, Some(col)) => {
-        cx.put(b, r.x + PAD + em + col as i32 * em, r, if sel { theme::BLACK } else { dim }, false);
+        let x = r.x + PAD + em + col as i32 * em;
+        let b = cx.fit(b, r.right() - PAD - x);
+        cx.put(&b, x, r, if sel { theme::BLACK } else { dim }, false);
       }
       (None, None) => {
         let w = cx.width(b, false);
@@ -195,7 +214,8 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, st: &mut Stat
   );
   cx.text.draw(&l, cx.c, (tip_r.x + PAD) as f32, tip_r.y as f32, tip_r, |_, _| {});
   let keys_r = Rect::new(area.x, area.bottom() - line, area.w, line);
-  cx.put(v.keys, keys_r.x + PAD, keys_r, theme::DIM, false);
+  let keys = cx.fit(v.keys, area.w - 2 * PAD);
+  cx.put(&keys, keys_r.x + PAD, keys_r, theme::DIM, false);
 }
 
 #[cfg(test)]

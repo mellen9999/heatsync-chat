@@ -2,6 +2,7 @@
 // the pane, as wide as it fits (never blown up past its own size), top first. the tab reads ← back;
 // a click, esc, q or ← back closes it. over a picture the pointer is a magnifier (+), over the view
 // one with a minus. keys: + / - / 0 zoom, h j k l or arrows move, the wheel scrolls
+use crate::i18n::t;
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -138,7 +139,7 @@ impl App {
     self.next_anim = None;
     if self.res.images.failed(id) {
       self.img_close();
-      self.say("couldn't open that picture");
+      self.say(t("app.img_view.cant_open"));
       return Some(area);
     }
     self.img_clamp();
@@ -152,7 +153,7 @@ impl App {
         self.next_anim = next.map(|ms| std::time::Instant::now() + std::time::Duration::from_millis(ms.max(33) as u64));
       }
       _ => {
-        let l = self.res.text.layout("loading…", &[], &[], f32::MAX);
+        let l = self.res.text.layout(t("app.img_view.loading"), &[], &[], f32::MAX);
         self.res.text.draw(&l, &mut self.canvas, area.x as f32 + theme::PAD_X, area.y as f32, area, |_, _| {});
       }
     }

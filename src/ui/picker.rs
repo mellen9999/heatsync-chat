@@ -8,6 +8,7 @@ use super::input_bar::underline;
 use super::res::{EMOTE_PX, Res};
 use super::text::{Ink, Span};
 use super::theme;
+use crate::i18n::t;
 use crate::images::{Images, ImgId};
 use crate::model::picker::{Focus, Metrics, Picker, Tab};
 
@@ -116,7 +117,15 @@ fn tab_rects(text: &mut super::text::Text, row: Rect) -> [Rect; 3] {
   out
 }
 
-const CHIPS: [&str; 4] = ["7tv", "ffz", "hs", "exact"];
+// the source chips: three brand names and the exact-match switch
+fn chip_name(i: usize) -> &'static str {
+  match i {
+    0 => "7tv",
+    1 => "ffz",
+    2 => "hs",
+    _ => t("ui.picker.chip_exact"),
+  }
+}
 
 // the chips, left to right under the filter row: on = white with black text, off = dim on black
 fn draw_chips(c: &mut Canvas, text: &mut super::text::Text, p: &Picker, row: Rect) -> [Rect; 4] {
@@ -125,7 +134,8 @@ fn draw_chips(c: &mut Canvas, text: &mut super::text::Text, p: &Picker, row: Rec
     return out;
   }
   let mut x = row.x + theme::PAD_X as i32;
-  for (i, name) in CHIPS.into_iter().enumerate() {
+  for i in 0..4 {
+    let name = chip_name(i);
     let w = text.layout(name, &[], &[], 100_000.0).full_width().ceil() as i32 + 2 * TAB_PAD;
     let r = Rect::new(x, row.y, w, row.h);
     let on = p.prefs.is_on(i);
@@ -203,7 +213,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     let dim = Span { range: 0..ask.len(), ink: Ink(theme::DIM), bold: false };
     (t, vec![dim])
   } else if s.is_empty() {
-    let hint = if p.tab == Tab::Gifs { "search gifs" } else { "type to filter" };
+    let hint = t(if p.tab == Tab::Gifs { "ui.picker.hint_gifs" } else { "ui.picker.hint_filter" });
     (hint.to_owned(), vec![Span { range: 0..hint.len(), ink: Ink(theme::DIM), bold: false }])
   } else {
     (s.clone(), Vec::new())
@@ -318,10 +328,10 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
   if empty {
     let msg = match (gifs, p.note.is_empty()) {
       (true, false) => &*p.note,
-      (true, true) => "type to search gifs",
+      (true, true) => t("ui.picker.empty_gifs"),
       (false, false) => &*p.note,
-      _ if emoji => "no emoji match",
-      _ => "no emotes match",
+      _ if emoji => t("ui.picker.empty_emoji"),
+      _ => t("ui.picker.empty_emotes"),
     };
     let span = Span { range: 0..msg.len(), ink: Ink(theme::DIM), bold: false };
     let l = text.layout(msg, &[span], &[], 100_000.0);
@@ -330,16 +340,32 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
 
   // hint row: what's selected, then the keys that work now
   let keys = match p.focus {
-    _ if p.up.as_ref().is_some_and(|u| u.typing()) => "enter go on · esc back",
-    _ if p.up.is_some() => "wait for it…",
-    Focus::Search if emoji => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
-    Focus::Search if !gifs => "enter insert · tab hjkl · ctrl-tab tabs · alt-1-4 sources · alt-u upload · esc close",
-    Focus::Search => "enter insert · tab hjkl · ctrl-tab tabs · esc close",
-    Focus::Grid => "hjkl move · / filter · [ ] tabs · enter insert · alt-u upload · esc close",
+    _ if p.up.as_ref().is_some_and(|u| u.typing()) => t("ui.picker.keys_upload_typing"),
+    _ if p.up.is_some() => t("ui.picker.keys_upload_wait"),
+    Focus::Search if emoji => t("ui.picker.keys_search_emoji"),
+    Focus::Search if !gifs => t("ui.picker.keys_search_emotes"),
+    Focus::Search => t("ui.picker.keys_search_gifs"),
+    Focus::Grid => t("ui.picker.keys_grid"),
   };
   let picked = p.selected().map(|i| if emoji { format!(":{}:", i.name) } else { i.name.to_string() });
   let name = if p.note.is_empty() || empty { picked.as_deref().unwrap_or("") } else { &*p.note };
-  let t = if name.is_empty() { keys.to_owned() } else { format!("{name}  {keys}") };
+  // one line: the name first, the keys in what room is left, cut with `…` (translations run long)
+  let room = g.foot.w - ox as i32;
+  let name = text.elide(name, room);
+  let name = name.as_str();
+  let keys = if name.is_empty() {
+    text.elide(keys, room)
+  } else {
+    let used = text.layout(&format!("{name}  "), &[], &[], f32::MAX).full_width().ceil() as i32;
+    if room - used < 3 * g.foot.h { String::new() } else { text.elide(keys, room - used) }
+  };
+  let t = if name.is_empty() {
+    keys
+  } else if keys.is_empty() {
+    name.to_owned()
+  } else {
+    format!("{name}  {keys}")
+  };
   let spans = [
     Span { range: 0..name.len(), ink: Ink(theme::WHITE), bold: true },
     Span { range: name.len()..t.len(), ink: Ink(theme::DIM), bold: false },

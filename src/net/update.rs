@@ -4,6 +4,7 @@
 // the app starts again. a copy the package manager owns (/usr/bin) is left to the package manager.
 // the signature (`<asset>.sig2`) covers the release's version, this machine's asset name and the
 // binary's sha256, so an old signed build can't pass as a new release, nor another arch's as ours
+use crate::i18n::t;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -172,12 +173,12 @@ fn offered(r: &Release) -> bool {
 
 // download, check the signature, swap the file in one rename. Err says what went wrong in plain words
 async fn install(http: &reqwest::Client, r: &Release) -> Result<(), String> {
-  let (bin, sig) = r.bin.as_ref().ok_or("there is no download for this computer yet")?;
-  let exe = exe().ok_or("can't find where this app is installed")?;
+  let (bin, sig) = r.bin.as_ref().ok_or(t("net2.update.no_build"))?;
+  let exe = exe().ok_or(t("net2.update.no_exe"))?;
   let bin = fetch(http, bin, MAX_BIN, 300).await.map_err(download_failed)?;
   let sig = fetch(http, sig, MAX_SIG, 30).await.map_err(download_failed)?;
   if !verify(&r.version, &asset_name(), &bin, &sig) {
-    return Err("the download isn't signed by heatsync: not installed".into());
+    return Err(t("net2.update.unsigned").into());
   }
   // the write + fsync of a big binary blocks: not on the net runtime, where it would stall chat
   off_thread(move || replace(exe, &bin)).await.and_then(|r| r.map_err(replace_failed))
@@ -186,12 +187,12 @@ async fn install(http: &reqwest::Client, r: &Release) -> Result<(), String> {
 // the technical reason goes to stderr, the screen gets plain words
 fn download_failed(e: String) -> String {
   eprintln!("update download: {e}");
-  "the download didn't work, try again later".into()
+  t("net2.update.download_failed").into()
 }
 
 fn replace_failed(e: impl std::fmt::Display) -> String {
   eprintln!("update replace: {e}");
-  "couldn't put the new version in place, nothing was changed".into()
+  t("net2.update.replace_failed").into()
 }
 
 // `f` on a blocking thread

@@ -1,6 +1,7 @@
 // add/edit/remove-channel rules, ported from the ext's channel-mgmt (channelAddError, the form's
 // charset gates, tab-registry reserved ids). pure: no ui, no net
 use super::ident;
+use crate::i18n::t;
 use crate::model::line::Line;
 
 // ids a channel may never take: the ext's page tabs, plus this app's synthetic flood tab
@@ -22,13 +23,13 @@ impl Err {
   // plain words, the ext's locale strings where it has one
   pub fn msg(self) -> &'static str {
     match self {
-      Err::Empty => "enter at least one platform",
-      Err::Invalid => "invalid channel name — check for typos or spaces",
-      Err::YtHandle => "youtube needs the @handle or its url",
-      Err::Reserved => "reserved name",
-      Err::TwitchExists => "twitch channel already added",
-      Err::KickExists => "kick channel already added",
-      Err::YoutubeExists => "youtube channel already added",
+      Err::Empty => t("chat1.chan.err.empty"),
+      Err::Invalid => t("chat1.chan.err.invalid"),
+      Err::YtHandle => t("chat1.chan.err.yt_handle"),
+      Err::Reserved => t("chat1.chan.err.reserved"),
+      Err::TwitchExists => t("chat1.chan.err.twitch_exists"),
+      Err::KickExists => t("chat1.chan.err.kick_exists"),
+      Err::YoutubeExists => t("chat1.chan.err.youtube_exists"),
     }
   }
 }

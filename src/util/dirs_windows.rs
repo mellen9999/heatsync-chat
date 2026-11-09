@@ -31,8 +31,7 @@ pub fn show(dir: &Path) -> String {
   dir.display().to_string()
 }
 
-pub const HELP_FOLDERS: &str = "your settings and tabs are in %APPDATA%\\heatsync-chat, the picture cache in
-%LOCALAPPDATA%\\heatsync-chat. both are private to you.";
+pub const HELP_FOLDERS: [&str; 2] = ["%APPDATA%\\heatsync-chat", "%LOCALAPPDATA%\\heatsync-chat"];
 
 #[cfg(test)]
 mod tests {

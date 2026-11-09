@@ -3,6 +3,7 @@
 // ping and does not light its tab. the choice is device-local (model::platfilter), never sent to the account
 use super::tabs::spec_of;
 use super::{App, Tab};
+use crate::i18n::f;
 use crate::model::message::{Message, Platform};
 use crate::model::platfilter::{bit, linked};
 
@@ -41,7 +42,15 @@ impl App {
     ALL
       .into_iter()
       .filter(|p| t.sources.iter().any(|s| s.0 == *p))
-      .map(|p| (p, format!("show {}: {}", p.name(), if off & bit(p) == 0 { "on" } else { "off" })))
+      .map(|p| {
+        (
+          p,
+          f(
+            if off & bit(p) == 0 { "app.platforms.show_on" } else { "app.platforms.show_off" },
+            &[("platform", p.name())],
+          ),
+        )
+      })
       .collect()
   }
 
@@ -49,7 +58,7 @@ impl App {
     let Some(t) = self.tabs.get(i) else { return };
     let (key, feeds) = (t.plat_key(), linked(&t.sources));
     if !self.plats.flip(&key, p, feeds) {
-      return self.say(format!("can't hide {}: a tab keeps at least one platform showing", p.name()));
+      return self.say(f("app.platforms.cant_hide", &[("platform", p.name())]));
     }
     self.plats.save();
     self.sync_plats();

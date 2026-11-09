@@ -4,6 +4,7 @@
 // what shows is what twitch says (ROOMSTATE), so another mod's change lands here too
 use super::App;
 use super::screen::{Page, Target};
+use crate::i18n::{f, t};
 use crate::model::message::Platform;
 use crate::model::modes::{self, ALL, FOLLOW_STEPS, Mode, Modes, SLOW_DEFAULT, SLOW_STEPS, Set};
 use crate::model::stats;
@@ -44,13 +45,15 @@ fn rows(chan: &str, info: Option<&Option<Info>>, modes: Option<&Modes>, can: boo
     marks.push(t);
   };
   match info {
-    None => put(row("loading…".into()), Target::None),
-    Some(None) => put(row("stream info unavailable".into()), Target::None),
+    None => put(row(t("app.status.loading").into()), Target::None),
+    Some(None) => put(row(t("app.status.no_info").into()), Target::None),
     Some(Some(i)) => {
       put(
         row(match i.live {
-          Some((n, at)) => format!("live · {} · {} viewers", stats::span(now_ms() - at), stats::group(n)),
-          None => "offline".into(),
+          Some((n, at)) => {
+            f("app.status.live", &[("span", &stats::span(now_ms() - at)), ("viewers", &stats::group(n))])
+          }
+          None => t("app.status.offline").into(),
         }),
         Target::None,
       );
@@ -63,9 +66,9 @@ fn rows(chan: &str, info: Option<&Option<Info>>, modes: Option<&Modes>, can: boo
       }
     }
   }
-  put(L::Head(if can { "chat modes".into() } else { "chat modes · read only".into() }), Target::None);
+  put(L::Head(if can { t("app.status.modes").into() } else { t("app.status.modes_ro").into() }), Target::None);
   match modes {
-    None => put(row(format!("not known yet: still joining {chan}")), Target::None),
+    None => put(row(f("app.status.joining", &[("chan", chan)])), Target::None),
     Some(ms) => {
       for m in ALL {
         let v = ms.get(m);
@@ -73,11 +76,11 @@ fn rows(chan: &str, info: Option<&Option<Info>>, modes: Option<&Modes>, can: boo
       }
     }
   }
-  put(L::Head("more".into()), Target::None);
-  put(row("stream summary".into()), Target::Summary);
+  put(L::Head(t("app.status.more").into()), Target::None);
+  put(row(t("app.status.summary").into()), Target::Summary);
   if can {
-    put(row("blocked terms".into()), Target::BlockedTerms);
-    put(row("mod tools".into()), Target::ModTools);
+    put(row(t("app.pop.blocked_terms").into()), Target::BlockedTerms);
+    put(row(t("app.status.mod_tools").into()), Target::ModTools);
   }
   (lines, marks)
 }
@@ -92,7 +95,7 @@ impl App {
   pub(super) fn status_here(&mut self) {
     match self.twitch_here() {
       Some(chan) => self.status_open(chan),
-      None => self.say("/status needs a twitch channel tab"),
+      None => self.say(t("app.status.needs_tab")),
     }
   }
 
@@ -122,7 +125,7 @@ impl App {
     let Some(s) = self.screen.as_ref().filter(|s| s.page() == Page::Status) else { return };
     let can = self.can_mod(Platform::Twitch, &s.of);
     let (lines, marks) = rows(&s.of, s.info.as_ref(), self.modes.get(&s.of), can);
-    let title = format!("status · {}", s.of);
+    let title = f("app.status.title", &[("chan", &s.of)]);
     if let Some(s) = &mut self.screen {
       (s.shown, s.marks, s.title) = (lines, marks, title);
     }
@@ -170,20 +173,20 @@ impl App {
   pub(super) fn modes_slash(&mut self, cmd: Result<Set, String>) {
     match (cmd, self.twitch_here()) {
       (Err(usage), _) => self.say(usage),
-      (Ok(_), None) => self.say("chat modes need a twitch channel tab"),
+      (Ok(_), None) => self.say(t("app.status.modes_need_tab")),
       (Ok(set), Some(chan)) => self.modes_set(chan, set),
     }
   }
 
   fn modes_set(&mut self, chan: Box<str>, set: Set) {
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("app.login_first_ctrl_l"));
     }
     if !self.can_mod(Platform::Twitch, &chan) {
-      return self.say(format!("changing {} needs mod on {chan}", set.mode.label()));
+      return self.say(f("app.status.needs_mod", &[("mode", set.mode.label()), ("chan", &chan)]));
     }
     if self.modes_busy {
-      return self.say("one moment: the last change is still going through");
+      return self.say(t("app.status.busy"));
     }
     self.modes_busy = true;
     self.net.send(Cmd::Modes(chan, set));
@@ -195,14 +198,14 @@ impl App {
       Ok(()) => {
         // twitch's ROOMSTATE echo confirms it; shown now so the screen doesn't lag it
         self.modes.entry(chan.clone()).or_default().put(set);
-        self.say(format!("{} in {chan}", set.done()));
+        self.say(f("app.status.done", &[("what", &set.done()), ("chan", &chan)]));
       }
-      Err(Fail::Auth) => self.say("log in first (ctrl-l)"),
+      Err(Fail::Auth) => self.say(t("app.login_first_ctrl_l")),
       Err(Fail::Relink) => {
         self.say(super::feed::needs_twitch("chat modes"));
         self.net.send(Cmd::Relink("mod"));
       }
-      Err(Fail::Other(e)) => self.say(format!("couldn't change {}: {e}", set.mode.label())),
+      Err(Fail::Other(e)) => self.say(f("app.status.failed", &[("mode", set.mode.label()), ("why", &e.to_string())])),
     }
     self.wake();
   }

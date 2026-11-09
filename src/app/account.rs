@@ -4,6 +4,7 @@
 use super::App;
 use super::pop::Act;
 use super::screen::{Page, Target};
+use crate::i18n::{f, t};
 use crate::model::message::Platform;
 use crate::net::Cmd;
 use crate::net::auth::{Me, Provider};
@@ -27,11 +28,11 @@ impl Step {
   // the dim line under the list while the row is picked
   pub(super) fn tip(self) -> &'static str {
     match self {
-      Step::Login(_) => "opens your browser to log in",
-      Step::Link(_) => "opens your browser to link it to this account",
-      Step::Import => "lists the twitch channels you follow so you can add them as tabs (same as /import)",
-      Step::Color => "types /color for you: a name like coral, or a #hex. twitch turbo or prime may be needed for hex",
-      Step::Logout => "logs you out of heatsync on this computer; ctrl-l or /login gets you back in",
+      Step::Login(_) => t("app.account.tip.login"),
+      Step::Link(_) => t("app.account.tip.link"),
+      Step::Import => t("app.account.tip.import"),
+      Step::Color => t("app.account.tip.color"),
+      Step::Logout => t("app.account.tip.logout"),
     }
   }
 }
@@ -54,9 +55,9 @@ pub(super) fn rows(me: Option<&Me>) -> (Vec<L>, Vec<Target>) {
   };
   let row = |a: String, b: String| L::Row { a, b, pill: None };
   let Some(me) = me else {
-    put(L::Head("not logged in".into()), Target::None);
+    put(L::Head(t("app.account.not_logged_in").into()), Target::None);
     for p in PROVIDERS {
-      put(row(format!("log in with {}", p.name()), String::new()), Target::Account(Step::Login(p)));
+      put(row(f("app.account.log_in_with", &[("name", p.name())]), String::new()), Target::Account(Step::Login(p)));
     }
     return (lines, marks);
   };
@@ -64,14 +65,14 @@ pub(super) fn rows(me: Option<&Me>) -> (Vec<L>, Vec<Target>) {
   for p in PROVIDERS {
     match me.name_on(platform(p)) {
       Some(name) => put(row(p.name().into(), name.to_owned()), Target::None),
-      None => put(row(p.name().into(), "not linked · enter links it".into()), Target::Account(Step::Link(p))),
+      None => put(row(p.name().into(), t("app.account.not_linked").into()), Target::Account(Step::Link(p))),
     }
   }
-  put(row("import your twitch follows".into(), "/import".into()), Target::Account(Step::Import));
+  put(row(t("app.account.import").into(), "/import".into()), Target::Account(Step::Import));
   if me.twitch.is_some() {
-    put(row("chat color…".into(), "/color".into()), Target::Account(Step::Color));
+    put(row(t("app.account.color").into(), "/color".into()), Target::Account(Step::Color));
   }
-  put(row("log out".into(), "/logout".into()), Target::Account(Step::Logout));
+  put(row(t("app.account.logout").into(), "/logout".into()), Target::Account(Step::Logout));
   (lines, marks)
 }
 
@@ -102,7 +103,7 @@ impl App {
       Step::Import => self.toggle_import(),
       Step::Color => {
         self.type_into_line("/color ");
-        self.say("type a color name (coral, red, blue violet…) or a #hex, then enter");
+        self.say(t("app.account.color_hint"));
       }
       Step::Login(p) => self.act(Act::Login(p), None, None),
       Step::Link(p) => self.act(Act::Link(p), None, None),
@@ -118,20 +119,20 @@ impl App {
       "twitch" => Provider::Twitch,
       "kick" => Provider::Kick,
       "youtube" | "yt" => Provider::Youtube,
-      _ => return self.say("usage: /login twitch, kick or youtube"),
+      _ => return self.say(t("app.account.login_usage")),
     };
     let name = self.me.as_ref().map(|me| me.name_on(platform(p)).map(str::to_owned));
     match name {
       None => self.act(Act::Login(p), None, None),
       Some(None) => self.act(Act::Link(p), None, None),
-      Some(Some(name)) => self.say(format!("{} is already linked as {name}", p.name())),
+      Some(Some(name)) => self.say(f("app.account.already_linked", &[("platform", p.name()), ("name", &name)])),
     }
   }
 
   // /logout
   pub(super) fn logout_cmd(&mut self) {
     if self.me.is_none() {
-      return self.say("you're not logged in: ctrl-l or /login");
+      return self.say(t("app.account.not_logged_in_hint"));
     }
     self.net.send(Cmd::Logout);
   }

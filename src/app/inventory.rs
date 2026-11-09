@@ -8,6 +8,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use super::screen::{Page, Target};
+use crate::i18n::{f, t};
 use crate::model::inventory::{self as inv, Gone, Saved, Slot};
 use crate::model::line::Line;
 use crate::net::Cmd;
@@ -26,9 +27,9 @@ const TABS: [Tab; 3] = [Tab::Mine, Tab::Removed, Tab::Sets];
 impl Tab {
   fn name(self) -> &'static str {
     match self {
-      Tab::Mine => "mine",
-      Tab::Removed => "removed",
-      Tab::Sets => "sets",
+      Tab::Mine => t("settings.inventory.tab.mine"),
+      Tab::Removed => t("settings.inventory.tab.removed"),
+      Tab::Sets => t("settings.inventory.tab.sets"),
     }
   }
 
@@ -60,9 +61,9 @@ pub(super) enum Ask {
 impl Ask {
   pub(super) fn mark(self) -> &'static str {
     match self {
-      Ask::Rename(_) => "name · ",
-      Ask::Move(_) => "slot · ",
-      Ask::Import => "channel · ",
+      Ask::Rename(_) => t("settings.inventory.ask.rename"),
+      Ask::Move(_) => t("settings.inventory.ask.move"),
+      Ask::Import => t("settings.inventory.ask.import"),
     }
   }
 }
@@ -100,13 +101,13 @@ fn detail(s: &Slot) -> String {
     p.push(s.source.to_string());
   }
   if s.upload {
-    p.push("upload".into());
+    p.push(t("settings.inventory.upload").into());
   }
   if s.zero_width {
-    p.push("zero-width".into());
+    p.push(t("settings.inventory.zero_width").into());
   }
   if s.uses > 0 {
-    p.push(format!("{} uses", s.uses));
+    p.push(f("settings.inventory.uses", &[("n", &s.uses.to_string())]));
   }
   p.join(" · ")
 }
@@ -153,17 +154,19 @@ impl Inv {
   pub(super) fn lines(&self, q: &str) -> (Vec<L>, Vec<Target>) {
     let say = |a: &str| (vec![row(a, "")], vec![Target::None]);
     match self.state() {
-      Load::Not | Load::Busy => return say("loading…"),
-      Load::Failed(e) => return (vec![row(e.as_str(), ""), row("retry", "")], vec![Target::None, Target::Retry]),
+      Load::Not | Load::Busy => return say(t("settings.inventory.loading")),
+      Load::Failed(e) => {
+        return (vec![row(e.as_str(), ""), row(t("settings.inventory.retry"), "")], vec![Target::None, Target::Retry]);
+      }
       Load::Ready => {}
     }
     let shown = self.shown(q);
     if shown.is_empty() {
       return say(match (self.count(), self.tab) {
-        (n, _) if n > 0 => "nothing matches",
-        (_, Tab::Mine) => "no emotes yet: add some from the picker (ctrl-;), or i imports a channel's",
-        (_, Tab::Removed) => "nothing removed lately",
-        (_, Tab::Sets) => "no saved sets: save one on heatsync.org",
+        (n, _) if n > 0 => t("settings.inventory.empty.filter"),
+        (_, Tab::Mine) => t("settings.inventory.empty.mine"),
+        (_, Tab::Removed) => t("settings.inventory.empty.removed"),
+        (_, Tab::Sets) => t("settings.inventory.empty.sets"),
       });
     }
     let lines = shown
@@ -172,18 +175,23 @@ impl Inv {
         Tab::Mine => {
           let s = &self.slots[i];
           match self.sure {
-            Some(Sure::Remove(slot)) if slot == s.slot => row(format!("remove \"{}\"?  y yes · n no", s.name), ""),
+            Some(Sure::Remove(slot)) if slot == s.slot => {
+              row(f("settings.inventory.sure_remove", &[("name", &s.name)]), "")
+            }
             _ => row(&*s.name, detail(s)),
           }
         }
-        Tab::Removed => row(&*self.gone[i].name, format!("was #{}", self.gone[i].slot)),
+        Tab::Removed => {
+          row(&*self.gone[i].name, f("settings.inventory.was", &[("slot", &self.gone[i].slot.to_string())]))
+        }
         Tab::Sets => {
           let s = &self.sets[i];
           match self.sure {
-            Some(Sure::Apply(id)) if id == s.id => {
-              row(format!("replace your emotes with \"{}\"?  y yes · n no", s.name), "")
-            }
-            _ => row(format!("{}{}", if s.starred { "★ " } else { "" }, s.name), format!("{} emotes", s.count)),
+            Some(Sure::Apply(id)) if id == s.id => row(f("settings.inventory.sure_apply", &[("name", &s.name)]), ""),
+            _ => row(
+              format!("{}{}", if s.starred { "★ " } else { "" }, s.name),
+              f("settings.inventory.emotes", &[("n", &s.count.to_string())]),
+            ),
           }
         }
       })
@@ -193,10 +201,11 @@ impl Inv {
 
   pub(super) fn title(&self) -> String {
     let tabs: Vec<String> =
-      TABS.iter().map(|t| if *t == self.tab { format!("[{}]", t.name()) } else { t.name().to_owned() }).collect();
+      TABS.iter().map(|k| if *k == self.tab { format!("[{}]", k.name()) } else { k.name().to_owned() }).collect();
+    let tabs = tabs.join(" ");
     match self.state() {
-      Load::Ready => format!("emotes · {} · {}", tabs.join(" "), self.count()),
-      _ => format!("emotes · {}", tabs.join(" ")),
+      Load::Ready => f("settings.inventory.title_n", &[("tabs", &tabs), ("n", &self.count().to_string())]),
+      _ => f("settings.inventory.title", &[("tabs", &tabs)]),
     }
   }
 
@@ -206,32 +215,30 @@ impl Inv {
       return &self.msg;
     }
     match (self.ask, self.sure, self.tab) {
-      (Some(Ask::Rename(_)), ..) => "one word, no spaces; the case you type is the case chat reads",
-      (Some(Ask::Move(_)), ..) => "a slot from 0 to 4999; a slot with an emote in it trades places with this one",
-      (Some(Ask::Import), ..) => {
-        "adds a channel's 7tv, bttv and ffz emotes to yours; ones you already have are skipped"
-      }
-      (_, Some(Sure::Unshare), _) => "turn off your share link? the old link stops working for good",
-      (.., Tab::Mine) => "your heatsync emotes, by slot. J and K swap a slot with its neighbour",
-      (.., Tab::Removed) => "emotes you removed stay here for a while: enter puts one back",
-      (.., Tab::Sets) => "applying a set replaces your emotes; the old ones go to removed",
+      (Some(Ask::Rename(_)), ..) => t("settings.inventory.tip.rename"),
+      (Some(Ask::Move(_)), ..) => t("settings.inventory.tip.move"),
+      (Some(Ask::Import), ..) => t("settings.inventory.tip.import"),
+      (_, Some(Sure::Unshare), _) => t("settings.inventory.tip.unshare"),
+      (.., Tab::Mine) => t("settings.inventory.tip.mine"),
+      (.., Tab::Removed) => t("settings.inventory.tip.removed"),
+      (.., Tab::Sets) => t("settings.inventory.tip.sets"),
     }
   }
 
   pub(super) fn keys(&self, filtering: bool) -> &'static str {
     if self.ask.is_some() {
-      return "enter saves · esc stops";
+      return t("settings.inventory.keys.ask");
     }
     if filtering {
-      return "type to filter · enter or esc stops";
+      return t("settings.inventory.keys.filter");
     }
     if self.sure.is_some() {
-      return "y yes · n no";
+      return t("settings.inventory.keys.sure");
     }
     match self.tab {
-      Tab::Mine => "j k · J K carry · n name · m slot · x remove · u undo · s share · i import · [ ] tab",
-      Tab::Removed => "j k move · enter restores · [ ] tab · / filter · esc closes",
-      Tab::Sets => "j k move · enter applies · [ ] tab · / filter · esc closes",
+      Tab::Mine => t("settings.inventory.keys.mine"),
+      Tab::Removed => t("settings.inventory.keys.removed"),
+      Tab::Sets => t("settings.inventory.keys.sets"),
     }
   }
 }
@@ -243,7 +250,7 @@ impl App {
       return self.close_screen();
     }
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("settings.inventory.login_first"));
     }
     self.open_screen(Page::Inventory);
     if let Some(s) = &mut self.screen {
@@ -274,7 +281,7 @@ impl App {
   fn inv_act(&mut self, op: Op) {
     let Some(iv) = self.inv() else { return };
     if iv.acting {
-      iv.msg = "one moment…".into();
+      iv.msg = t("settings.inventory.one_moment").into();
       return;
     }
     (iv.acting, iv.sure) = (true, None);
@@ -457,7 +464,7 @@ impl App {
       Key::Character(k @ ("J" | "K")) => {
         let Some(i) = row else { return true };
         if filtering {
-          iv.msg = "clear the filter to carry a slot".into();
+          iv.msg = t("settings.inventory.clear_filter").into();
           return true;
         }
         if let Some(to) = inv::neighbour(&iv.slots, i, *k == "J") {
@@ -513,11 +520,11 @@ impl App {
       Ok(Got::Sets(l)) => (iv.sets, iv.load[2]) = (l, Load::Ready),
       Ok(Got::Renamed(slot, name)) => {
         inv::renamed(&mut iv.slots, slot, &name);
-        iv.msg = format!("renamed to {name}: u undoes");
+        iv.msg = f("settings.inventory.renamed", &[("name", &name)]);
       }
       Ok(Got::Moved(from, to)) => {
         inv::moved(&mut iv.slots, from, to);
-        iv.msg = format!("moved to slot {to}: u undoes");
+        iv.msg = f("settings.inventory.moved", &[("to", &to.to_string())]);
         // the pick follows the emote it carried
         if let Some(p) = iv.shown(&s.q.text).into_iter().position(|i| iv.slots[i].slot == to) {
           s.st.at = p;
@@ -526,7 +533,7 @@ impl App {
       Ok(Got::Dropped(slot, name)) => {
         inv::dropped(&mut iv.slots, slot);
         iv.load[Tab::Removed.at()] = Load::Not;
-        iv.msg = format!("removed {name}: u undoes, or restore it from removed");
+        iv.msg = f("settings.inventory.removed_msg", &[("name", &name)]);
       }
       Ok(Got::Changed(say)) => {
         // only a fresh read shows what these did
@@ -536,10 +543,10 @@ impl App {
         reload = Some(iv.tab).filter(|t| *t != Tab::Sets);
       }
       Ok(Got::Shared(url)) => {
-        iv.msg = format!("share link copied: {url}");
+        iv.msg = f("settings.inventory.shared", &[("url", &url)]);
         copy = Some(url);
       }
-      Ok(Got::Unshared) => iv.msg = "sharing is off: the old link is dead".into(),
+      Ok(Got::Unshared) => iv.msg = t("settings.inventory.unshared").into(),
     }
     if let Some(t) = reload {
       self.inv_load(t);

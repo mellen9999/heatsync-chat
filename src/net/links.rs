@@ -1,4 +1,5 @@
 // auto-multichat: a twitch channel's publicly linked kick/youtube accounts, and their recent history
+use crate::i18n::f;
 use crate::model::ident;
 use serde_json::Value;
 
@@ -9,7 +10,7 @@ use crate::model::{chan, message::Platform};
 
 // the kick / youtube accounts linked to a twitch tab, asked again until heatsync answers (or the tab closes)
 pub async fn discover(http: reqwest::Client, tab: Box<str>, open: Watch, out: Out) {
-  let what = format!("{tab}'s linked accounts");
+  let what = f("net2.links.accounts", &[("tab", &tab)]);
   let url = format!("{ORIGIN}/api/profile/{tab}?platform=twitch");
   let Some(v) = retry::until(&out, &what, || open.alive(), || fetch(&http, &url)).await else { return };
   let p = v.get("profile").unwrap_or(&Value::Null);
@@ -35,7 +36,7 @@ pub async fn backfill(http: reqwest::Client, platform: Platform, key: Box<str>, 
     return;
   }
   let url = format!("{ORIGIN}/api/recent/{path}/{archive}?limit=50");
-  let what = format!("{path} history for {key}");
+  let what = f("net2.links.history", &[("platform", path), ("key", &key)]);
   if let Some(v) = retry::until_n(&out, &what, BACKFILL_TRIES, || true, || fetch(&http, &url)).await {
     let msgs = relay::batch(v.get("messages"), parse);
     if !msgs.is_empty() {

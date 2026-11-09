@@ -1,6 +1,7 @@
 // heatsync feed posts (ext social.js buildFeedMessageDiv): `>>id [OP] [T] name  heat° ▲ ↩n: text`.
 // pure: parsing the server's json, the heat ladder, the row a post becomes. the server escapes
 // post text on store, so it is unescaped here and drawn as plain text
+use crate::i18n::{f, t};
 use serde_json::Value;
 
 use super::color;
@@ -336,14 +337,14 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
   if let Some(PaintId::Twitch(n)) = &p.paint {
     m.user_id = n.to_string().into();
   }
-  m.nick = if p.anon { "Anonymous".into() } else { p.user.clone() };
+  m.nick = if p.anon { t("chat2.post.anonymous").into() } else { p.user.clone() };
   m.color = if p.anon { theme::WHITE } else { p.color };
   // the words with their **bold** and *underline* markers cut out; the runs ride on the line (model::markup)
   let (words, marks): (Box<str>, Vec<Mark>) = match markup::parse(&p.text) {
     Some((w, marks)) => (w.into(), marks),
     None => (p.text.clone(), Vec::new()),
   };
-  m.body = if p.edited { format!("{words} (edited)").into() } else { words };
+  m.body = if p.edited { f("chat2.post.edited", &[("words", &words)]).into() } else { words };
   m.hs = p.refs.clone();
   m.x = Some(Box::new(Extra {
     chan: "".into(),
@@ -364,16 +365,16 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
 // ext inlineMediaTag: img / gif / vid, `media` when they differ, a count when there are several
 fn tag(p: &Post) -> Box<str> {
   let word = |k: MediaKind| match k {
-    MediaKind::Image => "img",
-    MediaKind::Gif => "gif",
-    MediaKind::Video => "vid",
+    MediaKind::Image => t("chat2.post.tag_img"),
+    MediaKind::Gif => t("chat2.post.tag_gif"),
+    MediaKind::Video => t("chat2.post.tag_vid"),
   };
   let label = match p.media.split_first() {
     Some((a, rest)) if rest.iter().all(|b| b.kind == a.kind) => word(a.kind),
-    Some(_) => "media",
-    None if p.video => "vid",
-    None if p.media_count > 1 => "media",
-    None => "img",
+    Some(_) => t("chat2.post.tag_media"),
+    None if p.video => t("chat2.post.tag_vid"),
+    None if p.media_count > 1 => t("chat2.post.tag_media"),
+    None => t("chat2.post.tag_img"),
   };
   let n = (p.media.len() as u8).max(p.media_count);
   if n > 1 { format!("[{n} {label}]").into() } else { format!("[{label}]").into() }
@@ -385,8 +386,10 @@ pub fn pic(p: &Post, inline: bool, reveal: Option<Reveal>) -> Option<Pic> {
   if p.media_count == 0 {
     return None;
   }
-  let hold = content::held(p.cats.iter().map(|c| &**c))
-    .or_else(|| (p.withheld && p.media.is_empty()).then(|| content::Hold { label: "media".into(), can_show: true }));
+  let hold = content::held(p.cats.iter().map(|c| &**c)).or_else(|| {
+    (p.withheld && p.media.is_empty())
+      .then(|| content::Hold { label: t("chat2.post.tag_media").into(), can_show: true })
+  });
   let open = reveal == Some(Reveal::Open) && !p.media.is_empty() && hold.as_ref().is_some_and(|h| h.can_show);
   let items: Box<[_]> = p
     .media
@@ -395,16 +398,16 @@ pub fn pic(p: &Post, inline: bool, reveal: Option<Reveal>) -> Option<Pic> {
     .collect();
   let (hidden, button) = match &hold {
     None => (None, None),
-    Some(_) if open => (None, Some("hide")),
+    Some(_) if open => (None, Some(t("chat2.post.hide"))),
     Some(h) => {
       let b = h.can_show.then_some(match reveal {
-        Some(Reveal::Asking) => "loading...",
-        Some(Reveal::Denied) => "log in as an adult to view",
-        Some(Reveal::Unavailable) => "not available to your account",
-        Some(Reveal::Failed) => "retry",
-        _ => "show",
+        Some(Reveal::Asking) => t("chat2.post.loading"),
+        Some(Reveal::Denied) => t("chat2.post.denied"),
+        Some(Reveal::Unavailable) => t("chat2.post.unavailable"),
+        Some(Reveal::Failed) => t("chat2.post.retry"),
+        _ => t("chat2.post.show"),
       });
-      (Some(format!("[media hidden — {}]", h.label).into()), b)
+      (Some(f("chat2.post.hidden", &[("label", &h.label)]).into()), b)
     }
   };
   let peek = if p.pending { None } else { p.media.first().and_then(Media::pic).map(Into::into) };

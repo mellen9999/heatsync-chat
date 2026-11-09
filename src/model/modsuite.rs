@@ -2,6 +2,7 @@
 // and /shield [on|off] (bare flips it). heatsync's server makes the helix calls (/api/mod/warn,
 // /shoutout, /shield) and is the real moderator check
 use super::ident;
+use crate::i18n::t;
 
 pub const MAX_REASON: usize = 500;
 
@@ -30,18 +31,18 @@ pub fn command(text: &str) -> Option<Result<Cmd, &'static str>> {
       let reason: String = why.trim().chars().take(MAX_REASON).collect();
       match login(who) {
         Some(user) if !reason.is_empty() => Ok(Cmd::Warn { user, reason }),
-        _ => Err("usage: /warn <user> <reason>"),
+        _ => Err(t("chat1.modsuite.usage_warn")),
       }
     }
     "shoutout" | "so" => match login(arg) {
       Some(u) if !arg.contains(char::is_whitespace) => Ok(Cmd::Shoutout(u)),
-      _ => Err("usage: /shoutout <user>"),
+      _ => Err(t("chat1.modsuite.usage_shoutout")),
     },
     "shield" => match arg.to_ascii_lowercase().as_str() {
       "" => Ok(Cmd::Shield(None)),
       "on" => Ok(Cmd::Shield(Some(true))),
       "off" => Ok(Cmd::Shield(Some(false))),
-      _ => Err("usage: /shield [on|off]"),
+      _ => Err(t("chat1.modsuite.usage_shield")),
     },
     _ => return None,
   })

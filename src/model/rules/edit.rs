@@ -2,6 +2,7 @@
 // trying a rule on the lines you already have before it is saved (the form's "matches n of the last 200").
 // every change rebuilds the rule's compiled form from its raw json, and a change that would leave the rule
 // unusable, or the list too big to sync, is refused and leaves everything as it was
+use crate::i18n::t;
 use serde_json::{Value, json};
 
 use super::{Line, MAX_JSON, Rules, compile};
@@ -63,29 +64,29 @@ impl Rules {
   // one place's raw json replaced by `change`'s result; refused (Err) when the rule would no longer compile or
   // the list no longer fits the setting
   fn amend(&mut self, key: &str, change: impl FnOnce(&mut serde_json::Map<String, Value>)) -> Result<(), &'static str> {
-    let i = self.find(key).ok_or("no such rule. /rule list shows the numbers")?;
+    let i = self.find(key).ok_or(t("mod.rule.no_such"))?;
     let mut raw = self.list[i].raw.clone();
-    change(raw.as_object_mut().ok_or("that rule isn't valid")?);
+    change(raw.as_object_mut().ok_or(t("mod.rule.invalid"))?);
     // an off rule compiles to nothing; the check is on the same rule switched on
     let mut probe = raw.clone();
     probe["enabled"] = json!(true);
     if compile(&probe).is_none() {
-      return Err("that rule isn't valid");
+      return Err(t("mod.rule.invalid"));
     }
     let old = std::mem::replace(&mut self.list[i].raw, raw);
     if self.json().len() > MAX_JSON {
       self.list[i].raw = old;
-      return Err("rules are full");
+      return Err(t("mod.rule.full"));
     }
     self.list[i].c = compile(&self.list[i].raw);
     Ok(())
   }
 
   fn is_highlight(&self, key: &str) -> Result<(), &'static str> {
-    let i = self.find(key).ok_or("no such rule. /rule list shows the numbers")?;
+    let i = self.find(key).ok_or(t("mod.rule.no_such"))?;
     match self.list[i].raw.get("action").and_then(Value::as_str) {
       Some("highlight") => Ok(()),
-      _ => Err("only a highlight rule has that"),
+      _ => Err(t("mod.rule.highlight_only")),
     }
   }
 
@@ -93,10 +94,10 @@ impl Rules {
   // to hide lets go of what only a highlight owns, one turned to highlight gets the plain colour
   pub fn edit(&mut self, key: &str, action: &str, ty: &str, value: &str) -> Result<(), &'static str> {
     if !matches!(action, "hide" | "highlight") {
-      return Err("a rule hides or highlights");
+      return Err(t("mod.rule.action_kinds"));
     }
     if !matches!(ty, "keyword" | "regex" | "expr" | "user" | "badge" | "msgtype") {
-      return Err("type is keyword, regex, user, badge, msgtype or expr");
+      return Err(t("mod.rule.type_kinds"));
     }
     let value = value.trim();
     self
@@ -112,7 +113,7 @@ impl Rules {
           o.insert("color".into(), json!("#ffff00"));
         }
       })
-      .map_err(|e| if e == "that rule isn't valid" && ty == "expr" { "that expression doesn't parse" } else { e })
+      .map_err(|e| if e == t("mod.rule.invalid") && ty == "expr" { t("mod.rule.expr_bad") } else { e })
   }
 
   // a hit also lands in the mentions tab (the ext's rule `notify`). highlights only
@@ -156,9 +157,9 @@ impl Rules {
   // the rule's own volume, 0..100 (None: the shared mention volume again). needs a sound to apply to
   pub fn set_volume(&mut self, key: &str, pct: Option<u8>) -> Result<(), &'static str> {
     self.is_highlight(key)?;
-    let i = self.find(key).ok_or("no such rule. /rule list shows the numbers")?;
+    let i = self.find(key).ok_or(t("mod.rule.no_such"))?;
     if pct.is_some() && self.list[i].raw.get("sound").and_then(Value::as_str).is_none() {
-      return Err("give it a sound first: /rule sound <number> chime");
+      return Err(t("mod.rule.sound_first"));
     }
     self.amend(key, |o| match pct {
       Some(p) => _ = o.insert("soundVolume".into(), json!(p.min(100))),
@@ -192,15 +193,18 @@ impl Rules {
     let Some(v) = self.view(at).filter(|v| v.action == "highlight") else { return String::new() };
     let mut out = Vec::new();
     if let Some(s) = &v.sound {
-      let what: String =
-        if s == "custom" { v.file.clone().unwrap_or_else(|| "file".into()) } else { s.chars().take(12).collect() };
+      let what: String = if s == "custom" {
+        v.file.clone().unwrap_or_else(|| t("mod.rule.file").into())
+      } else {
+        s.chars().take(12).collect()
+      };
       out.push(match v.volume {
         Some(n) => format!("\u{266a} {what} {n}"),
         None => format!("\u{266a} {what}"),
       });
     }
     if v.notify {
-      out.push("notify".to_owned());
+      out.push(t("mod.rule.notify").to_owned());
     }
     out.join(" \u{b7} ")
   }

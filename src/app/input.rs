@@ -1,6 +1,7 @@
 // the message box: its hint, its mode, sending what is typed, and the slash commands that are ours
 
-use super::{App, LOGIN_HINT, screen};
+use super::{App, login_hint, screen};
+use crate::i18n::{f, t};
 use crate::model::message::Platform;
 use crate::model::settings::{Local, local_cmd};
 use crate::model::tabs::Kind;
@@ -10,31 +11,28 @@ use crate::model::{chan, whisper};
 impl App {
   pub(super) fn hint(&self) -> String {
     if !self.tabs.iter().any(|t| t.kind == Kind::Chat) {
-      let login = if self.me.is_none() { " · ctrl-l log in" } else { "" };
-      return format!(
-        "no channels — click + or press ctrl-t to add one, or /import to add the ones you follow on twitch{login}"
-      );
+      return t(if self.me.is_none() { "app.input.no_channels_login" } else { "app.input.no_channels" }).into();
     }
     if self.kind() == Kind::Mentions {
-      return "enter or a click opens the line in its channel".into();
+      return t("app.input.mentions").into();
     }
     if let Some(l) = self.logs_shown() {
       return l.hint();
     }
     if self.chain_shown() {
-      return "reply thread · t or esc goes back · r replies".into();
+      return t("app.input.thread").into();
     }
     if self.feedish() {
       return self.feed_hint();
     }
     if self.kind() == Kind::Whispers {
       return match self.whisper_label() {
-        Some(to) => format!("type to {to}· /w user msg · /dm user msg"),
-        None => "/w user msg to whisper · /dm user msg to dm".into(),
+        Some(to) => f("app.input.whisper_to", &[("to", &to)]),
+        None => t("app.input.whisper").into(),
       };
     }
-    let lead = if self.set.vi { "i type" } else { "type to chat" };
-    let Some(me) = &self.me else { return format!("{LOGIN_HINT} · {lead}") };
+    let lead = if self.set.vi { t("app.input.lead_vi") } else { t("app.input.lead") };
+    let Some(me) = &self.me else { return format!("{} · {lead}", login_hint()) };
     let Some((p, _)) = self.target() else { return lead.into() };
     // locked out of this room: the box says why (and for how long) instead of inviting you to type
     if let Some(l) = self.lock_here() {
@@ -42,11 +40,11 @@ impl App {
     }
     // every feed the send reaches needs your account on it
     if let Some((unlinked, _)) = self.legs().into_iter().find(|(l, _)| me.name_on(*l).is_none()) {
-      return format!("{} isn't linked · ctrl-l to link it", unlinked.name());
+      return f("app.input.not_linked", &[("platform", unlinked.name())]);
     }
     match me.name_on(p) {
-      Some(name) => format!("{lead} as {name}"),
-      None => format!("{} isn't linked · ctrl-l to link it", p.name()),
+      Some(name) => f("app.input.lead_as", &[("lead", lead), ("name", name)]),
+      None => f("app.input.not_linked", &[("platform", p.name())]),
     }
   }
 
@@ -115,13 +113,11 @@ impl App {
         }
       }
       Local::Tab(Some(k), shown) => self.set_shown(k, shown),
-      Local::Tab(None, shown) => {
-        self.say(format!("usage: /{} feed, whispers or mentions", if shown { "show" } else { "hide" }))
-      }
+      Local::Tab(None, shown) => self.say(f("app.input.usage_show", &[("cmd", if shown { "show" } else { "hide" })])),
       Local::Zoom(Some(pct)) => self.zoom_to(pct),
-      Local::Zoom(None) => self.say("usage: /zoom 1.5 (anything from 0.9 to 3)"),
+      Local::Zoom(None) => self.say(t("app.input.usage_zoom")),
       Local::Side(Some(side)) => self.side_to(side),
-      Local::Side(None) => self.say("usage: /tabs top, bottom, left or right"),
+      Local::Side(None) => self.say(t("app.input.usage_tabs")),
       Local::Pick(id, Some(i)) => {
         if let Some(d) = crate::model::schema::def(id) {
           self.pick_to(d, i);
@@ -131,11 +127,11 @@ impl App {
         if let Some(d) = crate::model::schema::def(id)
           && let (Some(cmd), crate::model::schema::Ctl::Pick(c, ..)) = (d.cmd, d.ctl)
         {
-          self.say(format!("usage: {cmd} {}", c.usage));
+          self.say(f("app.input.usage", &[("cmd", &cmd), ("args", &c.usage)]));
         }
       }
       Local::Counter(Some(c)) => self.counter_to(c),
-      Local::Counter(None) => self.say("usage: /tabcounter unread, heat or off"),
+      Local::Counter(None) => self.say(t("app.input.usage_tabcounter")),
       Local::Settings => self.open_screen(screen::Page::Settings),
       Local::Reset => self.ask_reset(),
       Local::Keys => self.open_screen(screen::Page::Keys),
@@ -162,7 +158,7 @@ impl App {
 
   pub(super) fn send(&mut self) {
     if self.logs_shown().is_some() {
-      return self.say("you're reading chat logs: esc goes back");
+      return self.say(t("app.input.reading_logs"));
     }
     if self.edit.is_some() {
       return self.edit_send();
@@ -233,7 +229,7 @@ impl App {
       return self.after_send();
     }
     if self.kind() == Kind::Mentions {
-      return self.say("mentions is read-only. open a line to answer it");
+      return self.say(t("app.input.mentions_readonly"));
     }
     let legs: Vec<(Platform, Box<str>)> = self.legs().into_iter().map(|(p, k)| (p, k.into())).collect();
     if legs.is_empty() {
@@ -260,13 +256,13 @@ impl App {
     }
     // the network part crashed: a line sent now goes nowhere, so it stays in the box
     if !self.net.alive() {
-      return self.say("not sent: the network part stopped, restart heatsync-chat");
+      return self.say(t("app.input.net_down"));
     }
     if let Some(text) = self.line.take() {
       for (p, k) in &shut {
         if let Some(l) = self.locks.get(*p, k, now) {
           let why = l.text(now);
-          self.say(format!("skipped {}: {why}", p.name()));
+          self.say(f("app.input.skipped", &[("platform", p.name()), ("why", &why)]));
         }
       }
       let reply = self.reply.take();

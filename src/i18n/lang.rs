@@ -50,11 +50,6 @@ pub fn index(code: &str) -> Option<usize> {
   CODES.iter().position(|c| *c == code)
 }
 
-// right-to-left scripts: their text runs are shaped and ordered by the text engine; the layout is not mirrored
-pub fn rtl(i: usize) -> bool {
-  matches!(CODES[i], "ar" | "he")
-}
-
 // a locale tag as the os spells it (`de_AT.UTF-8`, `pt-BR`, `zh_Hant_TW`, `nb_NO@euro`) → the nearest language, or
 // None when it is none of ours (and for `C`/`POSIX`, which say no language at all)
 pub fn map_tag(tag: &str) -> Option<usize> {
@@ -182,7 +177,8 @@ pub fn plural(lang: usize, n: u64) -> &'static str {
   }
 }
 
-// the forms a language needs a string written in, in order (for the completeness test)
+// the forms a language needs a string written in (for the completeness test)
+#[cfg(test)]
 pub fn forms(lang: usize) -> &'static [&'static str] {
   match CODES[lang] {
     "ja" | "ko" | "zh_CN" | "zh_TW" | "th" | "vi" | "id" | "ms" => &["other"],

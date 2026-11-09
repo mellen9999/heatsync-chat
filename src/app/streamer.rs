@@ -4,6 +4,7 @@
 // off and on cost nothing. the hiding lives at the chokepoints (previews/media in `Res`, whisper rows,
 // toasts, `mention_alert`, `line_sound`); this file decides when it is on and rebuilds what changed.
 // tokens are never drawn anywhere, so nothing here has to hide them
+use crate::i18n::t;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -107,7 +108,7 @@ impl App {
     }
     self.streamer.shown = !self.streamer.shown;
     self.whispers_rebuild();
-    self.say(if self.streamer.shown { "whispers shown" } else { "whispers hidden" });
+    self.say(if self.streamer.shown { t("app.streamer.shown") } else { t("app.streamer.hidden") });
   }
 
   // a click on a hidden whisper line shows the whispers, same as space s. true = the click was spent
@@ -153,6 +154,6 @@ impl App {
 
   // the bar's marker
   pub(super) fn streamer_mark(&self) -> Option<&'static str> {
-    self.streamer.on.then_some("● streamer")
+    self.streamer.on.then_some(t("app.streamer.mark"))
   }
 }

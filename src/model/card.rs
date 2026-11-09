@@ -3,6 +3,7 @@
 // and how much the archive has seen of them. every part may be missing; a missing part shows nothing
 // (never a guess: "not following" only when the server said so)
 use super::ident;
+use crate::i18n::{f, t};
 use serde_json::Value;
 
 use crate::util::time::parse_iso;
@@ -45,13 +46,13 @@ pub fn ago(now: i64, then: i64) -> String {
   match (y, mo, d) {
     (0, 0, 0) => {
       let h = (now - then).max(0) / 3_600_000;
-      if h > 0 { format!("{h}h") } else { "just now".into() }
+      if h > 0 { f("chat1.ago.h", &[("n", &h.to_string())]) } else { t("chat1.ago.now").into() }
     }
-    (0, 0, d) => format!("{d}d"),
-    (0, mo, d) if mo < 6 && d > 0 => format!("{mo}mo {d}d"),
-    (0, mo, _) => format!("{mo}mo"),
-    (y, 0, _) => format!("{y}y"),
-    (y, mo, _) => format!("{y}y {mo}mo"),
+    (0, 0, d) => f("chat1.ago.d", &[("d", &d.to_string())]),
+    (0, mo, d) if mo < 6 && d > 0 => f("chat1.ago.mo_d", &[("mo", &mo.to_string()), ("d", &d.to_string())]),
+    (0, mo, _) => f("chat1.ago.mo", &[("mo", &mo.to_string())]),
+    (y, 0, _) => f("chat1.ago.y", &[("y", &y.to_string())]),
+    (y, mo, _) => f("chat1.ago.y_mo", &[("y", &y.to_string()), ("mo", &mo.to_string())]),
   }
 }
 
@@ -93,10 +94,12 @@ pub fn parse(v: &Value, now: i64) -> Info {
       rows.push(("age", ago(now, b)));
     }
     match text(p, "/twitch_broadcaster_type") {
-      Some(t @ ("partner" | "affiliate")) => rows.push(("type", t.into())),
+      Some("partner") => rows.push(("type", t("chat1.card.type.partner").into())),
+      Some("affiliate") => rows.push(("type", t("chat1.card.type.affiliate").into())),
       _ => {
-        if let Some(t @ ("admin" | "staff")) = text(p, "/role") {
-          rows.push(("type", t.into()));
+        if let Some(r @ ("admin" | "staff")) = text(p, "/role") {
+          let key = if r == "admin" { "chat1.card.type.admin" } else { "chat1.card.type.staff" };
+          rows.push(("type", t(key).into()));
         }
       }
     }
@@ -128,16 +131,26 @@ pub fn parse(v: &Value, now: i64) -> Info {
       let you_follow = flag("isFollowing") || flag("followsOnTwitch") || flag("followsOnKick");
       let since = |a: &[&str]| earliest(r, a).map(|t| format!(" {}", ago(now, t))).unwrap_or_default();
       if follows_you && you_follow {
-        rows.push(("rel", format!("mutual{}", since(&["/followsYouSince", "/followedAt"]))));
+        rows.push(("rel", f("chat1.card.mutual", &[("since", &since(&["/followsYouSince", "/followedAt"]))])));
       } else if you_follow {
-        rows
-          .push(("you", format!("follow{}", since(&["/followedAt", "/followsOnTwitchSince", "/followsOnKickSince"]))));
+        rows.push((
+          "you",
+          f(
+            "chat1.card.follow",
+            &[("since", &since(&["/followedAt", "/followsOnTwitchSince", "/followsOnKickSince"]))],
+          ),
+        ));
       } else if follows_you {
-        rows
-          .push(("they", format!("follow you{}", since(&["/followsYouSince", "/profileFollowsViewerOnTwitchSince"]))));
+        rows.push((
+          "they",
+          f("chat1.card.follow_you", &[("since", &since(&["/followsYouSince", "/profileFollowsViewerOnTwitchSince"]))]),
+        ));
       }
       if flag("subscribesToYou") || flag("profileSubbedToViewerOnTwitch") {
-        rows.push(("they", format!("sub to you{}", since(&["/subscribesToYouSince", "/profileTwitchSubSince"]))));
+        rows.push((
+          "they",
+          f("chat1.card.sub_to_you", &[("since", &since(&["/subscribesToYouSince", "/profileTwitchSubSince"]))]),
+        ));
       }
     }
   }
@@ -147,7 +160,7 @@ pub fn parse(v: &Value, now: i64) -> Info {
   {
     match text(f, "/followedAt").and_then(parse_iso) {
       Some(t) => rows.push(("ch follow", ago(now, t))),
-      None => rows.push(("ch follow", "no".into())),
+      None => rows.push(("ch follow", t("chat1.card.no").into())),
     }
   }
   let seen = num(v, "/corpus/messages");
@@ -155,7 +168,10 @@ pub fn parse(v: &Value, now: i64) -> Info {
     let since = text(v, "/corpus/firstDay").and_then(|d| parse_iso(&format!("{d}T00:00:00Z")));
     rows.push((
       "seen",
-      format!("{} msgs{}", count(seen), since.map(|t| format!(" over {}", ago(now, t))).unwrap_or_default()),
+      match since {
+        Some(t) => f("chat1.card.seen_over", &[("n", &count(seen)), ("ago", &ago(now, t))]),
+        None => f("chat1.card.seen", &[("n", &count(seen))]),
+      },
     ));
   }
   let real = profile.filter(|_| !anonymous);
@@ -378,5 +394,12 @@ mod tests {
     assert_eq!(n.rows, vec![("ch follow", "no".to_owned())]);
     assert!(!parse(&json!({ "profile": { "is_anonymous": true } }), NOW).registered);
     assert!(parse(&json!("junk"), NOW).rows.is_empty());
+  }
+
+  #[test]
+  fn every_row_label_has_its_words() {
+    for l in ["age", "type", "heat", "posts", "followers", "following", "rel", "you", "they", "ch follow", "seen"] {
+      assert!(!t(&format!("chat1.card.row.{}", l.replace(' ', "_"))).is_empty(), "{l}");
+    }
   }
 }

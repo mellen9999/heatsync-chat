@@ -5,8 +5,10 @@ use super::canvas::{Canvas, Rect};
 use super::menu::Menu;
 use super::text::{Ink, Span, Text};
 use super::theme;
+use crate::i18n::t;
 
 const PAD: i32 = 8;
+// the label column is at least this many cells wide, and as wide as its longest label (translations run long)
 const LABEL_W: usize = 10;
 const RECENT_MAX: usize = 140;
 // a note is up to 2000 chars; the card shows the first of it (it wraps)
@@ -37,8 +39,20 @@ fn one_line(s: &str) -> String {
   t
 }
 
+// `label` padded with spaces out to `col` px of real laid-out width (at least one space after it)
+fn padded(text: &mut Text, label: &str, col: f32, cell: f32) -> String {
+  let w = text.layout(label, &[], &[], f32::MAX).full_width();
+  format!("{label}{}", " ".repeat((((col - w) / cell).round() as i64).max(1) as usize))
+}
+
 // the card's words: name line, then the label: value rows, then a note when there is one
-pub fn head(v: &View) -> (String, Vec<Span>) {
+pub fn head(text: &mut Text, v: &View) -> (String, Vec<Span>) {
+  let cell = text.layout(" ", &[], &[], f32::MAX).full_width().max(1.0);
+  let mut col = cell * LABEL_W as f32;
+  let mine = t("ui.card.note");
+  for l in v.rows.iter().map(|r| r.0).chain(v.mine.map(|_| mine)) {
+    col = col.max(text.layout(l, &[], &[], f32::MAX).full_width() + cell);
+  }
   let mut s = String::new();
   let mut spans: Vec<Span> = Vec::new();
   let mut put = |s: &mut String, t: &str, ink: u32, bold: bool| {
@@ -63,7 +77,7 @@ pub fn head(v: &View) -> (String, Vec<Span>) {
   }
   s.push('\n');
   for (label, value) in v.rows {
-    put(&mut s, &format!("{label:<LABEL_W$}"), theme::DIM, false);
+    put(&mut s, &padded(text, label, col, cell), theme::DIM, false);
     put(&mut s, value, theme::WHITE, false);
     s.push('\n');
   }
@@ -72,7 +86,7 @@ pub fn head(v: &View) -> (String, Vec<Span>) {
     s.push('\n');
   }
   if let Some(n) = v.mine {
-    put(&mut s, &format!("{:<LABEL_W$}", "note"), theme::DIM, false);
+    put(&mut s, &padded(text, mine, col, cell), theme::DIM, false);
     let shown: String = n.chars().take(NOTE_SHOWN).collect();
     put(&mut s, &shown, theme::WHITE, false);
     if shown.len() < n.len() {
@@ -85,19 +99,14 @@ pub fn head(v: &View) -> (String, Vec<Span>) {
 
 // the whole card; returns its rect so the caller can tell a click outside it
 pub fn draw<T: Copy>(c: &mut Canvas, text: &mut Text, area: Rect, v: &View, menu: &mut Menu<T>) -> Rect {
-  let (mut s, mut spans) = head(v);
+  let (mut s, mut spans) = head(text, v);
   let mut put = |s: &mut String, t: &str, ink: u32, bold: bool| {
     let a = s.len();
     s.push_str(t);
     spans.push(Span { range: a..s.len(), ink: Ink(ink), bold });
   };
   s.push('\n');
-  put(
-    &mut s,
-    if v.recent.is_empty() { "nothing seen from them this session" } else { "this session" },
-    theme::DIM,
-    false,
-  );
+  put(&mut s, if v.recent.is_empty() { t("ui.card.none_seen") } else { t("ui.card.this_session") }, theme::DIM, false);
   s.push('\n');
   for (when, body) in v.recent {
     put(&mut s, &format!("{when} "), theme::DIM, false);
@@ -139,9 +148,11 @@ mod tests {
       mine: Some("likes cats"),
       recent: &[],
     };
-    assert!(head(&v).0.contains("note      likes cats\n"));
+    let mut text = Text::new(1.0);
+    let got = head(&mut text, &v).0;
+    assert!(got.contains("note      likes cats\n"), "{got:?}");
     let none = View { mine: None, ..v };
-    assert!(!head(&none).0.contains("note"));
+    assert!(!head(&mut text, &none).0.contains("note"));
   }
 
   #[test]
@@ -158,13 +169,14 @@ mod tests {
       mine: None,
       recent: &[],
     };
-    let (s, spans) = head(&v);
+    let mut text = Text::new(1.0);
+    let (s, spans) = head(&mut text, &v);
     assert!(s.starts_with("bob she/they  [T]\n"), "{s:?}");
     let p = spans.iter().find(|sp| &s[sp.range.clone()] == "she/they").expect("a span of its own");
     assert_eq!((p.ink.0, p.bold), (theme::DIM, false));
-    assert!(head(&View { pronouns: None, ..v }).0.starts_with("bob  [T]\n"));
+    assert!(head(&mut text, &View { pronouns: None, ..v }).0.starts_with("bob  [T]\n"));
     // a plus member: a bold `+` in their tenure color after the pronouns (ext card-render plusBadge)
-    let (s, spans) = head(&View { plus: Some(theme::DIM), ..v });
+    let (s, spans) = head(&mut text, &View { plus: Some(theme::DIM), ..v });
     assert!(s.starts_with("bob she/they +  [T]\n"), "{s:?}");
     let p = spans.iter().find(|sp| &s[sp.range.clone()] == "+").expect("a span of its own");
     assert_eq!((p.ink.0, p.bold), (theme::DIM, true));

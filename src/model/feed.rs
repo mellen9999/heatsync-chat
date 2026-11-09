@@ -1,5 +1,6 @@
 // the feed tab's state (ext social.js feedMessages / activeThread): newest-first posts, one open thread,
 // and the rows they become. pure, so the rules (cap, dedupe, live replies, votes) are tested without a window
+use crate::i18n::t;
 use std::collections::{HashMap, VecDeque};
 
 use super::engage::Marks;
@@ -400,7 +401,7 @@ impl Feed {
 
   // the open thread's rows: the OP, then its replies, media drawn under the words
   pub fn thread_rows(&self, me: Option<&str>, signed_in: bool) -> Vec<Message> {
-    let Some(t) = &self.thread else { return Vec::new() };
+    let Some(th) = &self.thread else { return Vec::new() };
     let line = |t: &str| Message::system(0, Platform::Twitch, t);
     let msg = |p: &Post| {
       let mut m = post::message(p, me, signed_in);
@@ -409,15 +410,15 @@ impl Feed {
       }
       m
     };
-    let mut out: Vec<Message> = t.op.iter().map(msg).collect();
-    if t.loading {
-      out.push(line("loading..."));
-    } else if t.error {
-      out.push(line("thread unavailable — post may have been removed"));
-    } else if t.replies.is_empty() {
-      out.push(line("no replies yet"));
+    let mut out: Vec<Message> = th.op.iter().map(msg).collect();
+    if th.loading {
+      out.push(line(t("chat1.feed.loading")));
+    } else if th.error {
+      out.push(line(t("chat1.feed.thread_gone")));
+    } else if th.replies.is_empty() {
+      out.push(line(t("chat1.feed.no_replies")));
     } else {
-      out.extend(t.replies.iter().map(msg));
+      out.extend(th.replies.iter().map(msg));
     }
     out
   }
@@ -429,14 +430,14 @@ impl Feed {
     let mut out = Vec::new();
     if let Some(cold) = self.hot {
       out.push(line(match (signed_in, cold) {
-        (false, _) => "hot posts · log in at heatsync.org to follow people",
-        (true, true) => "newest posts · follow people to fill your feed",
-        (true, false) => "hot this month · follow people to fill your feed",
+        (false, _) => t("chat1.feed.hot_signed_out"),
+        (true, true) => t("chat1.feed.newest"),
+        (true, false) => t("chat1.feed.hot_month"),
       }));
     }
     out.extend(self.posts.iter().map(msg));
     if self.more {
-      let mut m = line("more");
+      let mut m = line(t("chat1.feed.more"));
       m.id = MORE_ID.into();
       out.push(m);
     }
@@ -446,10 +447,10 @@ impl Feed {
   // what the tab says when there is nothing to list
   pub fn empty_text(&self) -> &'static str {
     match self.failed {
-      Some(401) => "failed to load feed — log in at heatsync.org",
-      Some(_) => "failed to load feed",
-      None if self.loaded => "no posts yet",
-      None => "loading...",
+      Some(401) => t("chat1.feed.fail_login"),
+      Some(_) => t("chat1.feed.fail"),
+      None if self.loaded => t("chat1.feed.empty"),
+      None => t("chat1.feed.loading"),
     }
   }
 

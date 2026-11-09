@@ -3,6 +3,7 @@
 // control bytes out, the post id checked. any other kind is not a row. a row carries what it needs in its
 // id (`hsn-<kind>-<ms>-<post>`), so it survives the mentions file (model::mention_file) and enter finds
 // its post without a side table
+use crate::i18n::{f, t};
 use serde_json::Value;
 
 use super::message::{Extra, Kind, Message, Platform, Seg};
@@ -63,30 +64,38 @@ fn valid_post(s: &str) -> bool {
   (1..=8).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
+// "anonymous: …" when the sender hid their name
+fn who(anon: bool, text: &str) -> String {
+  if anon { f("chat1.inbox.anon", &[("text", text)]) } else { text.to_string() }
+}
+
 // a `notification:new` frame; None = not a kind that becomes a row
 pub fn parse(v: &Value, at: i64) -> Option<Item> {
   // the envelope's own `type` shadows the notification's, so the kind is the only word that says what it is
   let kind = v.get("kind").and_then(Value::as_str)?;
   let content = clean(v.get("content").and_then(Value::as_str).unwrap_or(""), MAX_TEXT);
   let anon = v.get("from_username").and_then(Value::as_str) == Some("Anonymous");
-  let who = if anon { "anonymous: " } else { "" };
   let post = v.get("message_id").and_then(Value::as_str).filter(|s| valid_post(s)).map(Box::<str>::from);
   let (what, text, post) = match kind {
     "mention" => {
-      let t = if content.is_empty() { "you were mentioned in a post" } else { &content };
-      (What::Mention, format!("{who}{t}"), post)
+      let t = if content.is_empty() { t("chat1.inbox.mentioned") } else { &content };
+      (What::Mention, who(anon, t), post)
     }
     "reply" => {
       let to = match v.get("parent_is_op").and_then(Value::as_bool) {
-        Some(true) => "replied to your post",
-        Some(false) => "replied to your reply",
-        None => "replied to you",
+        Some(true) => t("chat1.inbox.reply_post"),
+        Some(false) => t("chat1.inbox.reply_reply"),
+        None => t("chat1.inbox.reply_you"),
       };
-      let t = if content.is_empty() { to.to_string() } else { format!("{to}: {content}") };
-      (What::Reply, format!("{who}{t}"), post)
+      let t = if content.is_empty() {
+        to.to_string()
+      } else {
+        f("chat1.inbox.with_content", &[("lead", to), ("content", &content)])
+      };
+      (What::Reply, who(anon, &t), post)
     }
     // the id it carries is a report's, not a post's
-    "feedback_fixed" => (What::Fixed, if content.is_empty() { "your report was fixed".into() } else { content }, None),
+    "feedback_fixed" => (What::Fixed, if content.is_empty() { t("chat1.inbox.fixed").into() } else { content }, None),
     _ => return None,
   };
   Some(Item { at, what, post, text: text.into() })

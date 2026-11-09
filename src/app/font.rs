@@ -1,6 +1,7 @@
 // the font family: a name in settings, looked up off the ui thread (net/font.rs → util/font.rs), then every line
 // laid out again in it. a font that can't be had says so in plain words and the current one stays
 use super::App;
+use crate::i18n::{f, t};
 use crate::net::Cmd;
 use crate::util::font::Found;
 
@@ -43,14 +44,14 @@ impl App {
           .res
           .text
           .installed_name(&f.family)
-          .ok_or_else(|| format!("no font family called {asked} is installed"))?,
+          .ok_or_else(|| crate::i18n::f("app.font.not_installed", &[("font", &asked)]))?,
       };
       let mut keep = self.set.font_family;
       if !keep.set(&family) {
-        return Err(format!("the font {asked} has a name too long to keep"));
+        return Err(crate::i18n::f("app.font.name_too_long", &[("font", &asked)]));
       }
       if !self.res.text.use_family(&family, f.file.as_deref()) {
-        return Err(format!("couldn't load the font {asked}"));
+        return Err(crate::i18n::f("app.font.cant_load", &[("font", &asked)]));
       }
       Ok(keep)
     });
@@ -60,16 +61,16 @@ impl App {
         self.set.font_family = keep;
         self.set.save();
         self.relayout_all();
-        self.say(format!("font: {}", keep.as_str()));
+        self.say(f("app.font.set", &[("font", keep.as_str())]));
       }
       Err(why) => {
-        let now = self.res.text.family().map_or("the system monospace", |f| f);
+        let now = self.res.text.family().map_or(t("app.font.system"), |f| f);
         if typed {
           // what is set is what is shown: the name that failed goes, the working font stays
           self.set.font_family.set(self.res.text.family().unwrap_or(""));
           self.set.save();
         }
-        self.say(format!("{why}: still using {now}"));
+        self.say(f("app.font.still_using", &[("why", &why), ("font", now)]));
       }
     }
   }

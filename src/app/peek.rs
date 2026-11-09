@@ -3,6 +3,7 @@
 // and closes when the pointer leaves, the chat scrolls or a key goes down. a name already looked up
 // shows at once; a cold one shows its name first and asks heatsync after 50ms of resting (scrolling
 // past names costs nothing). answers are cached 60s and shared with the full card (ext _cardCache)
+use crate::i18n::t;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -78,9 +79,9 @@ impl Cards {
   pub fn put(&mut self, p: Platform, login: &str, res: Result<Info, u16>) -> &Load {
     let load = match res {
       Ok(i) => Load::Done(i),
-      Err(429) => Load::Failed("slow down, try again in a moment"),
-      Err(0) => Load::Failed("heatsync didn't answer"),
-      Err(_) => Load::Failed("couldn't look them up"),
+      Err(429) => Load::Failed(t("app.peek.slow")),
+      Err(0) => Load::Failed(t("app.peek.no_answer")),
+      Err(_) => Load::Failed(t("app.peek.failed")),
     };
     let map = &mut self.by[slot(p)];
     if map.len() >= CAP && !map.contains_key(login) {
@@ -234,7 +235,7 @@ impl App {
       Some(Load::Done(i)) => (&i.rows, i.avatar.as_deref()),
       _ => (&[], None),
     };
-    let note = load.map_or(Some("looking them up…"), note_of);
+    let note = load.map_or(Some(t("app.card.looking_up")), note_of);
     let v = View {
       hint: "",
       nick: &p.nick,

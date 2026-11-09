@@ -1,5 +1,6 @@
 // the one floating menu for choices that are not about an emote or a tab: the login chooser (ctrl-l)
 // and, further on, the actions on a chat line. keyboard j/k/enter/esc and the mouse both drive it
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -130,7 +131,7 @@ pub struct Pop {
 
 impl Pop {
   pub fn confirm(head: String, at: (i32, i32), todo: Todo) -> Self {
-    Self::confirm_as(head, at, (Act::Yes, "yes, ban".to_owned()), todo)
+    Self::confirm_as(head, at, (Act::Yes, t("app.pop.yes_ban").to_owned()), todo)
   }
 
   // the same question with its own "yes" row
@@ -144,7 +145,7 @@ impl Pop {
       };
       rows.push((Act::Why(i as u8), if i < 9 { format!("{} {r}", i + 1) } else { r }));
     }
-    rows.push((Act::No, "cancel".to_owned()));
+    rows.push((Act::No, t("app.cancel").to_owned()));
     Pop { menu: Menu::new(rows, at).titled(head), subject: None, todo: Some(todo) }
   }
 
@@ -168,9 +169,9 @@ fn login_rows() -> Vec<(Act, String)> {
 // "logged in as mellen (kick)"
 fn account_head(me: &Me) -> String {
   if me.platform.is_empty() {
-    format!("logged in as {}", me.username)
+    f("app.logged_in_as", &[("name", &me.username)])
   } else {
-    format!("logged in as {} ({})", me.username, me.platform)
+    f("app.logged_in_as_on", &[("name", &me.username), ("platform", &me.platform)])
   }
 }
 
@@ -182,15 +183,18 @@ fn account_rows(me: &Me, mods: bool) -> Vec<(Act, String)> {
     (Provider::Kick, me.kick.is_some()),
     (Provider::Youtube, me.youtube.is_some()),
   ];
-  let mut rows: Vec<(Act, String)> =
-    linked.into_iter().filter(|(_, on)| !on).map(|(p, _)| (Act::Link(p), format!("link {}", p.name()))).collect();
+  let mut rows: Vec<(Act, String)> = linked
+    .into_iter()
+    .filter(|(_, on)| !on)
+    .map(|(p, _)| (Act::Link(p), f("app.pop.link", &[("platform", p.name())])))
+    .collect();
   if me.youtube.is_some() {
-    rows.push((Act::AllowYoutubePosting, "allow youtube posting".to_owned()));
+    rows.push((Act::AllowYoutubePosting, t("app.pop.allow_youtube").to_owned()));
   }
   if mods && me.twitch.is_some() && !me.has_pack("automod") {
-    rows.push((Act::AllowAutomod, "allow automod holds".to_owned()));
+    rows.push((Act::AllowAutomod, t("app.pop.allow_automod").to_owned()));
   }
-  rows.push((Act::Logout, "log out".to_owned()));
+  rows.push((Act::Logout, t("app.account.logout").to_owned()));
   rows
 }
 
@@ -230,27 +234,27 @@ pub struct Ctx {
 pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
   let mut rows: Vec<(Act, String)> = Vec::new();
   if c.who.is_some() {
-    rows.push((Act::Card, "user card".into()));
+    rows.push((Act::Card, t("app.pop.user_card").into()));
   }
   if c.can_reply {
-    rows.push((Act::Reply, "reply".into()));
+    rows.push((Act::Reply, t("app.pop.reply").into()));
   }
   if c.op {
-    rows.push((Act::OpToFeed, "op to feed".into()));
+    rows.push((Act::OpToFeed, t("app.pop.op_to_feed").into()));
   }
-  rows.push((Act::CopyName, "copy name".into()));
-  rows.push((Act::CopyMessage, "copy message".into()));
+  rows.push((Act::CopyName, t("app.pop.copy_name").into()));
+  rows.push((Act::CopyMessage, t("app.pop.copy_message").into()));
   if c.thread {
-    rows.push((Act::CopyThread, "copy thread".into()));
+    rows.push((Act::CopyThread, t("app.pop.copy_thread").into()));
   }
   if c.link {
-    rows.push((Act::CopyLink, "copy link".into()));
+    rows.push((Act::CopyLink, t("app.pop.copy_link").into()));
   }
-  rows.push((Act::Quote, "copy \u{2192} input".into()));
+  rows.push((Act::Quote, t("app.pop.quote").into()));
   rows.extend(person);
   match c.pin {
-    Some(false) => rows.push((Act::Pin, "pin message".into())),
-    Some(true) => rows.push((Act::Unpin, "unpin".into())),
+    Some(false) => rows.push((Act::Pin, t("app.pop.pin").into())),
+    Some(true) => rows.push((Act::Unpin, t("app.pop.unpin").into())),
     None => {}
   }
   let post = |rows: &mut Vec<(Act, String)>, f: fn(&PostCtx) -> Vec<(Act, String)>| {
@@ -261,19 +265,19 @@ pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
     post(&mut rows, own_rows);
     return rows;
   };
-  rows.push((Act::Note, if w.noted { "edit note" } else { "add note" }.into()));
+  rows.push((Act::Note, if w.noted { t("app.pop.edit_note") } else { t("app.pop.add_note") }.into()));
   post(&mut rows, engage_rows);
   if let Some(hidden) = c.paint {
-    let verb = if hidden { "show" } else { "hide" };
-    rows.push((Act::Paint, format!("{verb} {}\u{2019}s paint", w.nick)));
+    let key = if hidden { "app.pop.show_paint" } else { "app.pop.hide_paint" };
+    rows.push((Act::Paint, f(key, &[("nick", &w.nick)])));
   }
   if w.platform == Platform::Twitch && w.chan && !w.own {
-    rows.push((Act::Viewer, "report / gift sub".into()));
+    rows.push((Act::Viewer, t("app.pop.viewer").into()));
   }
   if c.chat_tab {
-    rows.push((Act::FilterTo, format!("filter to {}", w.nick)));
+    rows.push((Act::FilterTo, f("app.pop.filter_to", &[("nick", &w.nick)])));
   }
-  rows.push((Act::Logs, "chat logs".into()));
+  rows.push((Act::Logs, t("app.pop.chat_logs").into()));
   post(&mut rows, own_rows);
   rows
 }
@@ -291,7 +295,7 @@ impl App {
     let at = (b.x + b.w / 2 - 80, b.y);
     let menu = match &self.me {
       Some(me) => Menu::new(account_rows(me, !self.mod_in.is_empty()), at).titled(account_head(me)),
-      None => Menu::new(login_rows(), at).titled("log in with"),
+      None => Menu::new(login_rows(), at).titled(t("app.pop.log_in_with")),
     };
     self.overlay = Some(Overlay::Pop(Pop { menu, subject: None, todo: None }));
     self.pop_changed();
@@ -317,15 +321,15 @@ impl App {
   pub(super) fn act(&mut self, act: Act, who: Option<Subject>, todo: Option<Todo>) {
     match (act, who, todo) {
       (Act::Login(provider), ..) => {
-        self.say(format!("finish logging in with {} in your browser…", provider.name()));
+        self.say(f("app.pop.finish_login", &[("platform", provider.name())]));
         self.net.send(Cmd::Login(provider));
       }
       (Act::Link(provider), ..) => {
-        self.say(format!("finish linking {} in your browser…", provider.name()));
+        self.say(f("app.pop.finish_link", &[("platform", provider.name())]));
         self.net.send(Cmd::Link(provider));
       }
       (Act::AllowYoutubePosting, ..) => {
-        self.say(format!("youtube posting needs a permission: {}", super::feed::ALLOW_IT));
+        self.say(f("app.pop.youtube_needs", &[("allow", super::feed::allow_it())]));
         self.net.send(Cmd::AllowYoutubePosting);
       }
       (Act::AllowAutomod, ..) => {
@@ -354,7 +358,7 @@ impl App {
         let reason = t.reasons.get(usize::from(i)).cloned().or(t.reason);
         self.mod_send(t.verb, t.who, reason)
       }
-      (Act::No, ..) => self.say("cancelled"),
+      (Act::No, ..) => self.say(t("app.pop.cancelled")),
       (Act::Reply, ..) if self.feedish() && self.selected_row_post_id().is_some() => self.feed_reply(),
       (Act::Reply, ..) => self.reply_selected(),
       (Act::Upvote, ..) => self.feed_vote(),
@@ -395,7 +399,7 @@ impl App {
     let cos = &mut self.res.cosmetics;
     let was = cos.hidden.has(id);
     if cos.hidden.toggle(id) == was {
-      return self.say("too many hidden paints");
+      return self.say(t("app.pop.too_many_paints"));
     }
     cos.hidden.save();
     self.paints_edited();
@@ -411,7 +415,7 @@ impl App {
   fn viewer_card(&mut self, who: &Subject) {
     let url = viewer_url(&who.chan, &who.login);
     if let Err(e) = crate::util::open::open_url(&url) {
-      self.say(format!("couldn't open the browser: {e}"));
+      self.say(f("app.pop.cant_open_browser", &[("why", &e.to_string())]));
     }
   }
 
@@ -430,48 +434,52 @@ impl App {
     if w.own {
       return rows;
     }
-    rows.push((Act::Mention, "mention".into()));
+    rows.push((Act::Mention, t("app.pop.mention").into()));
     if w.platform == Platform::Twitch && self.me.is_some() {
-      rows.push((Act::Whisper, "whisper".into()));
+      rows.push((Act::Whisper, t("app.pop.whisper").into()));
     }
     let key = filter::key(&w.login);
     let (muted, blocked) = filter::with(|f| (f.muted(&key, now_ms()), f.blocked(&key)));
-    rows.push(if muted { (Act::Unmute, "unmute".into()) } else { (Act::Mute, "mute".into()) });
-    rows.push(if blocked { (Act::Unblock, "unblock".into()) } else { (Act::Block, "block".into()) });
+    rows.push(if muted { (Act::Unmute, t("app.pop.unmute").into()) } else { (Act::Mute, t("app.pop.mute").into()) });
+    rows.push(if blocked {
+      (Act::Unblock, t("app.emote.unblock").into())
+    } else {
+      (Act::Block, t("app.emote.block").into())
+    });
     if self.kind() == Kind::Chat {
       let hidden = self.tabs.get(self.active).is_some_and(|t| t.view.hidden_user(&w.login));
       rows.push(if hidden {
-        (Act::HideInTab(false), "unhide in tab".into())
+        (Act::HideInTab(false), t("app.pop.unhide_in_tab").into())
       } else {
-        (Act::HideInTab(true), "hide in tab".into())
+        (Act::HideInTab(true), t("app.pop.hide_in_tab").into())
       });
     }
     if self.can_mod(w.platform, &w.chan) {
       if !w.msg_id.is_empty() {
-        rows.push((Act::Do(Verb::Delete), "delete message".into()));
+        rows.push((Act::Do(Verb::Delete), t("app.pop.delete_message").into()));
       }
       for (label, secs) in DURATIONS {
-        rows.push((Act::Do(Verb::Timeout(secs)), format!("timeout {label}")));
+        rows.push((Act::Do(Verb::Timeout(secs)), f("app.pop.timeout", &[("duration", &label)])));
       }
       // kick's shortest timeout is a minute, so a purge there would only be a timeout
       if w.platform == Platform::Twitch {
-        rows.push((Act::Do(Verb::Purge), "purge".into()));
+        rows.push((Act::Do(Verb::Purge), t("app.pop.purge").into()));
       }
-      rows.push((Act::Do(Verb::Ban), "ban".into()));
-      rows.push((Act::Do(Verb::Unban), "unban".into()));
+      rows.push((Act::Do(Verb::Ban), t("app.pop.ban").into()));
+      rows.push((Act::Do(Verb::Unban), t("app.pop.unban").into()));
       if w.platform == Platform::Twitch {
-        rows.push((Act::Warn, "warn".into()));
-        rows.push((Act::Shoutout, "shoutout".into()));
+        rows.push((Act::Warn, t("app.pop.warn").into()));
+        rows.push((Act::Shoutout, t("app.pop.shoutout").into()));
       }
       if w.platform == Platform::Twitch {
-        rows.push((Act::BlockedTerms, "blocked terms".into()));
+        rows.push((Act::BlockedTerms, t("app.pop.blocked_terms").into()));
       }
     }
     if w.platform == Platform::Twitch && self.is_caster(&w.chan) {
-      rows.push((Act::Vip(true), "vip".into()));
-      rows.push((Act::Vip(false), "unvip".into()));
-      rows.push((Act::Mod(true), "mod".into()));
-      rows.push((Act::Mod(false), "unmod".into()));
+      rows.push((Act::Vip(true), t("app.pop.vip").into()));
+      rows.push((Act::Vip(false), t("app.pop.unvip").into()));
+      rows.push((Act::Mod(true), t("app.pop.mod").into()));
+      rows.push((Act::Mod(false), t("app.pop.unmod").into()));
     }
     rows
   }
@@ -527,7 +535,13 @@ impl App {
     let mut rows = line_rows(&ctx, person);
     // an automod hold: allow / deny first
     if self.held_selected().is_some() {
-      rows.splice(0..0, [(Act::Held(true), "allow".to_owned()), (Act::Held(false), "deny".to_owned())]);
+      rows.splice(
+        0..0,
+        [
+          (Act::Held(true), crate::i18n::t("app.pop.allow").to_owned()),
+          (Act::Held(false), crate::i18n::t("app.pop.deny").to_owned()),
+        ],
+      );
     }
     self.overlay = Some(Overlay::Pop(Pop { menu: Menu::new(rows, at).titled(head), subject: who, todo: None }));
     self.pop_changed();

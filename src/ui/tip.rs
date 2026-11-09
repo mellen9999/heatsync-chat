@@ -10,6 +10,7 @@ use super::res::{EMOTE_PX, Res};
 use super::text::{Ink, Span, TextLayout};
 use super::theme;
 use crate::emotes::block::Scope;
+use crate::i18n::{f, t};
 use crate::images::{ImgId, url};
 
 const PAD: i32 = 6;
@@ -68,10 +69,10 @@ pub struct Tip {
 // the source chip for an emote: `owned` = in your own heatsync set, `hs` = a heatsync inventory
 pub fn source(url: &str, owned: bool, hs: bool, blocked: bool) -> (&'static str, Chip) {
   if blocked {
-    return ("blocked (click to unblock)", Chip::Border(theme::RED));
+    return (t("ui.tip.blocked"), Chip::Border(theme::RED));
   }
   if owned {
-    return ("inventory", Chip::Plain);
+    return (t("ui.tip.inventory"), Chip::Plain);
   }
   let host = url::host(url).unwrap_or("").to_ascii_lowercase();
   let by = |d: &str| host == d || host.ends_with(&format!(".{d}"));
@@ -88,7 +89,7 @@ pub fn source(url: &str, owned: bool, hs: bool, blocked: bool) -> (&'static str,
   } else if by("kick.com") {
     ("kick", Chip::Border(theme::GREEN))
   } else {
-    ("unknown", Chip::Plain)
+    (t("ui.tip.unknown"), Chip::Plain)
   }
 }
 
@@ -172,7 +173,7 @@ impl Tip {
       push(&mut text, &p.name, piece_ink(&p.url, p.hs), i == 0);
     }
     if self.pieces.len() > NAMED_MAX {
-      push(&mut text, &format!(" +{} more", self.pieces.len() - NAMED_MAX), theme::WHITE, false);
+      push(&mut text, &f("ui.tip.more", &[("n", &(self.pieces.len() - NAMED_MAX).to_string())]), theme::WHITE, false);
     }
     (text, spans)
   }

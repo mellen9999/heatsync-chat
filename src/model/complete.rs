@@ -2,6 +2,7 @@
 // cursor matches names that start with it, then ones that hold it, any case. emotes come from the
 // channel, your heatsync inventory, then globals; an exact name leads, then what you use (frecency),
 // then the nearer tier. bare words put people who spoke here lately first; `@` completes people
+use crate::i18n::{f, t};
 use std::cmp::Ordering;
 
 const MAX: usize = 200;
@@ -49,9 +50,20 @@ impl Complete {
   // the tooltip over the box: "2/14 PogU · channel · 7tv users", plus "searching…" while a catalog page is out
   pub fn tip(&self) -> Option<String> {
     let busy = self.remote.as_ref().is_some_and(|r| r.pending);
-    let Some(m) = self.matches.get(self.at) else { return busy.then(|| "searching 7tv · ffz…".to_string()) };
-    let wait = if busy { " · searching…" } else { "" };
-    Some(format!("{}/{} {} · {}{wait}", self.at + 1, self.matches.len(), m.shown(), m.what))
+    let Some(m) = self.matches.get(self.at) else {
+      return busy.then(|| t("chat1.complete.searching_both").to_string());
+    };
+    let wait = if busy { t("chat1.complete.searching") } else { "" };
+    Some(f(
+      "chat1.complete.tip",
+      &[
+        ("at", &(self.at + 1).to_string()),
+        ("total", &self.matches.len().to_string()),
+        ("name", &m.shown()),
+        ("what", m.what),
+        ("wait", wait),
+      ],
+    ))
   }
 }
 
@@ -94,7 +106,12 @@ fn hit(name: &str, low: &str) -> Option<(bool, bool)> {
 pub fn emoji(query: &str) -> Vec<Pick> {
   super::emoji::search(query, super::emoji::MAX)
     .into_iter()
-    .map(|(code, glyph)| Pick { name: glyph.into(), what: "emoji", emote: false, code: Some(code) })
+    .map(|(code, glyph)| Pick {
+      name: glyph.into(),
+      what: t("chat1.complete.what.emoji"),
+      emote: false,
+      code: Some(code),
+    })
     .collect()
 }
 
@@ -148,7 +165,7 @@ pub fn commands(query: &str, groups: impl IntoIterator<Item = Vec<&'static str>>
   let mut out: Vec<Pick> = Vec::new();
   for c in groups.into_iter().flatten() {
     if c.starts_with(&low) && !out.iter().any(|o| *o.name == *c) {
-      out.push(Pick { name: c.into(), what: "command", emote: false, code: None });
+      out.push(Pick { name: c.into(), what: t("chat1.complete.what.command"), emote: false, code: None });
     }
   }
   out

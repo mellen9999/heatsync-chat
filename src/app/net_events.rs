@@ -2,6 +2,7 @@
 
 use super::{App, FLOOD_TAB, Tab};
 use crate::cosmetics::id::PaintId;
+use crate::i18n::{f, t};
 use crate::model::message::{Message, Platform, flag};
 use crate::model::origin::RACE_MS;
 use crate::model::settings::Counter;
@@ -226,8 +227,12 @@ impl App {
         let row = removed(Platform::Twitch, Removed::Line(&login));
         self.chatlog.log(Platform::Twitch, ch, &row);
         tab.push(row);
-        let who = if login.is_empty() { "a message".to_owned() } else { format!("{login}'s message") };
-        self.mod_log(Platform::Twitch, ch, format!("deleted {who}"));
+        let said = if login.is_empty() {
+          t("app.net.deleted_a_message").to_owned()
+        } else {
+          f("app.net.deleted_message_of", &[("login", &login)])
+        };
+        self.mod_log(Platform::Twitch, ch, said);
       }
       Chat::ClearUser { login, secs } => {
         tab.clear_user(&login);
@@ -480,7 +485,7 @@ impl App {
           self.wake();
         }
         if let Some(m) = &me {
-          self.say(format!("logged in as {}", m.username));
+          self.say(f("app.logged_in_as", &[("name", &m.username)]));
         }
         // a different login starts with a clean whispers tab
         let switched = self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username);
@@ -686,14 +691,18 @@ impl App {
           _ => {}
         }
         let line = match &*status {
-          "not-live" => "youtube: not live right now",
-          "ended" => "youtube: stream ended",
-          "chat-off" => "youtube: chat is off",
-          "no-slot" => "youtube: relay is full, retrying later",
+          "not-live" => t("app.net.yt_not_live"),
+          "ended" => t("app.net.yt_ended"),
+          "chat-off" => t("app.net.yt_chat_off"),
+          "no-slot" => t("app.net.yt_no_slot"),
           _ => return,
         };
         for i in self.tabs_with(Platform::Youtube, &key) {
-          self.tabs[i].chat().push(Message::system(now_ms(), Platform::Youtube, format!("{line} ({key})")));
+          self.tabs[i].chat().push(Message::system(
+            now_ms(),
+            Platform::Youtube,
+            f("app.net.yt_line", &[("line", line), ("key", &key)]),
+          ));
           self.touched(i);
         }
       }
@@ -719,11 +728,11 @@ pub(super) enum Removed<'a> {
 
 pub(super) fn removed(p: Platform, what: Removed) -> Message {
   let (text, ink) = match what {
-    Removed::Line("") => ("message deleted".to_owned(), theme::RED),
-    Removed::Line(who) => (format!("message from {who} deleted"), theme::RED),
-    Removed::User(who, Some(s)) => (format!("{who} timed out for {s}s"), theme::GREEN),
-    Removed::User(who, None) => (format!("{who} was permanently banned"), theme::RED),
-    Removed::All => ("chat cleared".to_owned(), theme::RED),
+    Removed::Line("") => (t("app.net.removed_line").to_owned(), theme::RED),
+    Removed::Line(who) => (f("app.net.removed_line_of", &[("who", who)]), theme::RED),
+    Removed::User(who, Some(s)) => (f("app.net.timed_out", &[("who", who), ("secs", &s.to_string())]), theme::GREEN),
+    Removed::User(who, None) => (f("app.net.banned", &[("who", who)]), theme::RED),
+    Removed::All => (t("app.net.cleared").to_owned(), theme::RED),
   };
   let run = match what {
     Removed::User(who, secs) => Some(Box::new(crate::model::runs::Run::new(who, &text, secs.is_none()))),

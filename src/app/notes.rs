@@ -3,6 +3,7 @@
 // a real heatsync account syncs: the server's note wins when the card opens, a local-only one uploads
 // once, a save or delete writes through. the text is never logged
 use super::App;
+use crate::i18n::{f, t};
 use crate::model::card::Info;
 use crate::model::message::Platform;
 use crate::model::notes::{self, Cmd};
@@ -21,7 +22,7 @@ impl App {
       return self.note_delete(platform, &login, false);
     }
     if !self.notes.set(platform, &login, &text, pid) {
-      return self.say("too many notes: delete one first");
+      return self.say(t("app.notes.too_many"));
     }
     self.notes.save();
     let n = self.notes.get(platform, &login).cloned();
@@ -29,7 +30,7 @@ impl App {
       self.put_note(platform, &login, id, n.text);
     }
     self.card_changed();
-    self.say(format!("note on {tag} saved"));
+    self.say(f("app.notes.saved", &[("tag", &tag)]));
   }
 
   // drop a note here and, signed in, on the server (an empty put). `del` = the /delnote wording (ext copy)
@@ -45,10 +46,10 @@ impl App {
     self.card_changed();
     let tag = notes::tag(platform, login);
     self.say(match (existed, del) {
-      (true, true) => format!("note removed for {tag}"),
-      (false, true) => format!("no note for {tag}"),
-      (true, false) => "note deleted".to_owned(),
-      (false, false) => format!("no note on {tag}"),
+      (true, true) => f("app.notes.removed", &[("tag", &tag)]),
+      (false, true) => f("app.notes.none_for", &[("tag", &tag)]),
+      (true, false) => t("app.notes.deleted").to_owned(),
+      (false, false) => f("app.notes.none_on", &[("tag", &tag)]),
     })
   }
 

@@ -1,4 +1,5 @@
 // recent twitch history on join, via heatsync's robotty proxy (raw irc lines)
+use crate::i18n::f;
 use crate::model::ident;
 use std::collections::HashMap;
 
@@ -45,7 +46,7 @@ async fn get(http: &reqwest::Client, ch: &str, limit: usize) -> Result<Vec<Chat>
 
 // the history a tab opens with, asked again until it comes (or the tab closes)
 pub async fn fetch(http: reqwest::Client, ch: Box<str>, tab: Watch, out: Out) {
-  let what = format!("{ch}'s recent chat");
+  let what = f("net2.recent.what", &[("channel", &ch)]);
   if let Some(evs) = retry::until(&out, &what, || tab.alive(), || get(&http, &ch, LIMIT)).await {
     out.send(NetEvent::Backfill(ch, evs));
   }
@@ -67,7 +68,7 @@ pub async fn catch_up(http: reqwest::Client, chans: Vec<Box<str>>, limit: usize,
         Err(e) => {
           eprintln!("catching up on {ch}: {e}");
           if attempt == CATCH_TRIES {
-            out.status(format!("couldn't fetch what you missed in {ch}"));
+            out.status(f("net2.recent.missed", &[("channel", &ch)]));
           } else {
             sleep(super::backoff(attempt)).await;
           }

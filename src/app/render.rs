@@ -1,6 +1,7 @@
 // the frame: what a redraw paints, how it reaches the window, and the canvas following the window's size
 
-use super::{ANIM_MIN_MS, App, LOGIN_HINT, Tab, screen};
+use super::{ANIM_MIN_MS, App, Tab, login_hint, screen};
+use crate::i18n::t;
 use crate::model::message::Platform;
 use crate::model::settings::Counter;
 use crate::model::tabs::Kind;
@@ -37,7 +38,7 @@ impl App {
     let segs = mode_label::segs(self.set.vi, self.mode, self.selecting(), short);
     let cmd = match self.chord {
       _ if segs.is_empty() || self.mode != Mode::Normal => String::new(),
-      Some(' ') => "space".into(),
+      Some(' ') => t("app.render.space").into(),
       _ => Some(self.vi.showcmd()).filter(|c| !c.is_empty()).unwrap_or_default(),
     };
     (segs, cmd)
@@ -70,19 +71,17 @@ impl App {
       let prompt = self.prompt.as_ref().filter(|_| open);
       let show_hint = self.line.text.is_empty() && (!self.set.vi || self.mode == Mode::Normal);
       let hint = match prompt {
-        Some(_) if self.find.on && self.logs_shown().is_some() => {
-          "type a search · enter finds it · esc cancels".to_owned()
-        }
-        Some(_) if self.find.on => "type to filter · @name for one person · enter keeps it · esc clears".to_owned(),
-        Some(_) => "type or drop a file path · tab completes · enter uploads · esc cancels".to_owned(),
+        Some(_) if self.find.on && self.logs_shown().is_some() => t("app.render.prompt_logs").to_owned(),
+        Some(_) if self.find.on => t("app.render.prompt_filter").to_owned(),
+        Some(_) => t("app.render.prompt_path").to_owned(),
         None if show_hint || locked.is_some() => self.hint(),
         None => String::new(),
       };
       // the picture view is no place to type (ext): the box steps aside
       let hidden = self.hidden() || self.img_view.is_some();
       let tag = match prompt {
-        Some(_) if self.find.on => vec![("find: ", crate::ui::theme::YELLOW)],
-        Some(_) => vec![("path: ", crate::ui::theme::YELLOW)],
+        Some(_) if self.find.on => vec![(t("app.render.tag_find"), crate::ui::theme::YELLOW)],
+        Some(_) => vec![(t("app.render.tag_path"), crate::ui::theme::YELLOW)],
         None => self.send_tag(),
       };
       let reply = self.reply.as_ref().filter(|_| prompt.is_none()).map(|r| &*r.nick);
@@ -108,7 +107,11 @@ impl App {
         hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
         over,
         count: count.as_ref().map(|(t, f)| (t.as_str(), count_ink(*f))),
-        link: if prompt.is_none() && self.me.is_none() && hint.starts_with(LOGIN_HINT) { LOGIN_HINT.len() } else { 0 },
+        link: if prompt.is_none() && self.me.is_none() && hint.starts_with(login_hint()) {
+          login_hint().len()
+        } else {
+          0
+        },
         link_on: self.hover.link,
         reply,
         edit: self.edit.is_some() && prompt.is_none(),
@@ -186,7 +189,13 @@ impl App {
           };
           // a tab something took over reads `← back` while you look at it (ext takeover.js)
           let back = (t.under.is_some() || self.img_view.is_some()) && i == self.active;
-          let name = if back { "← back" } else { &t.name };
+          let name = if back {
+            crate::i18n::t("app.render.back")
+          } else if t.kind == Kind::Chat {
+            &t.name
+          } else {
+            t.kind.label()
+          };
           let count = if back { "" } else { count.as_str() };
           let cursor = self.rover.as_ref().is_some_and(|r| r.at == i);
           let live = t.sources.iter().any(|(p, k)| self.live.has(*p, k));

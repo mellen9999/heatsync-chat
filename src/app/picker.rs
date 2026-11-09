@@ -1,4 +1,5 @@
 // the emote picker: ctrl-; or the logo button. filter box, then a grid of local emotes
+use crate::i18n::f;
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -108,7 +109,7 @@ impl App {
     // what adds it to your inventory. anything local is the emote you mean by that name
     let remote = self.picker.as_ref().and_then(|p| p.selected_hit()).cloned();
     if self.res.blocked.contains(&name, &url) {
-      self.say(format!("{name} is blocked (right-click it in chat to unblock)"));
+      self.say(f("app.picker.blocked", &[("name", &name)]));
       self.bar_dirty = true;
       return self.wake();
     }

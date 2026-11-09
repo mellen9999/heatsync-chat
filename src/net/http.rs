@@ -1,22 +1,23 @@
 // the one place a network body or socket frame gets its size cap. every server byte is hostile:
 // nothing reads `.bytes()` / `.json()` / `.text()` unbounded, nothing opens a ws on tungstenite's 64MiB default
+use crate::i18n::t;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 // a failed request for the screen: plain words, the technical reason goes to stderr
 pub fn offline(what: &str, why: impl std::fmt::Display) -> String {
   eprintln!("{what}: {why}");
-  format!("can't reach {what}")
+  crate::i18n::f("net2.http.offline", &[("what", what)])
 }
 
 // an http status as a short, plain sentence for the screen (when the server gave no words of its own)
 pub fn plain_status(code: u16) -> String {
   match code {
-    401 => "you're logged out, log in again (ctrl-l)".into(),
-    403 => "heatsync said no".into(),
-    429 => "slow down, try again in a bit".into(),
-    500.. => "heatsync is having trouble, try again soon".into(),
-    _ => "that didn't work, try again".into(),
+    401 => t("net2.http.logged_out").into(),
+    403 => t("net2.http.said_no").into(),
+    429 => t("net2.http.slow_bit").into(),
+    500.. => t("net2.http.trouble").into(),
+    _ => t("net2.http.failed").into(),
   }
 }
 
@@ -31,13 +32,13 @@ pub fn server_words(raw: &str) -> String {
   if low.is_empty() {
     String::new()
   } else if has(&["rate limit", "too many", "slow down"]) {
-    "slow down, try again in a minute".into()
+    t("net2.http.slow_minute").into()
   } else if has(&["unauthorized", "login required", "not authenticated", "invalid session", "no twitch token"]) {
-    "you're logged out, log in again (ctrl-l)".into()
+    t("net2.http.logged_out").into()
   } else if has(&["not linked"]) {
-    "link that account on heatsync.org first".into()
+    t("net2.http.link_first").into()
   } else if has(&["not a member", "not moderator", "not a moderator"]) {
-    "you're not a mod here".into()
+    t("net2.http.not_mod").into()
   } else if has(&[
     "internal server error",
     "upstream error",
@@ -48,11 +49,11 @@ pub fn server_words(raw: &str) -> String {
     "busy",
   ]) || low.starts_with("failed to")
   {
-    "heatsync is having trouble, try again soon".into()
+    t("net2.http.trouble").into()
   } else if low.starts_with("invalid") || low.starts_with("bad ") {
-    "that didn't look right, check it and try again".into()
+    t("net2.http.bad_input").into()
   } else if low.contains("not found") {
-    "couldn't find that".into()
+    t("net2.http.not_found").into()
   } else {
     low.to_owned()
   }

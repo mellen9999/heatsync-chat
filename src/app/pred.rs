@@ -4,6 +4,7 @@
 // the clock, who won). asking: twitch's public gql every 15s while one is up and a slow look otherwise,
 // only for the tab on screen while the window shows, one request at a time; nothing when no twitch tab
 // is up, the window is hidden, or `prediction banner` is off (opening the view asks regardless)
+use crate::i18n::{f, t};
 use std::time::{Duration, Instant};
 
 use winit::keyboard::Key;
@@ -149,7 +150,7 @@ impl App {
   pub(super) fn pred_here(&mut self) {
     match self.twitch_here() {
       Some(chan) => self.pred_open(chan),
-      None => self.say("/predictions needs a twitch channel tab"),
+      None => self.say(t("mod.pred.need_tab")),
     }
   }
 
@@ -167,7 +168,7 @@ impl App {
   // the view's lines, read fresh from what twitch last said
   pub(super) fn pred_refresh(&mut self) {
     let Some(s) = self.screen.as_ref().filter(|s| s.page() == Page::Pred) else { return };
-    let (title, lines) = (format!("predictions · {}", s.of), lines(self.pred_bar.preds.get(&s.of), now_ms()));
+    let (title, lines) = (f("mod.pred.title", &[("chan", &s.of)]), lines(self.pred_bar.preds.get(&s.of), now_ms()));
     if let Some(s) = &mut self.screen {
       (s.shown, s.title) = (lines, title);
       let (l, _) = s.lines(&self.set);
@@ -192,32 +193,39 @@ impl App {
 fn lines(e: Option<&Entry>, now: i64) -> Vec<L> {
   let row = |a: &str| L::Row { a: a.into(), b: String::new(), pill: None };
   let Some(pred) = e.and_then(|e| e.pred.as_ref()) else {
-    let msg = if e.is_some_and(Entry::failed) { "couldn't reach twitch: trying again" } else { "loading…" };
+    let msg = if e.is_some_and(Entry::failed) { t("mod.pred.retrying") } else { t("mod.tools.loading") };
     return vec![row(msg)];
   };
   let mut out = Vec::new();
   let Some(p) = pred.as_ref().filter(|p| p.fresh(now)) else {
-    out.push(row("no prediction right now"));
-    out.push(row("one shows here while bets are open or locked, and for 5 minutes after it ends"));
+    out.push(row(t("mod.pred.none")));
+    out.push(row(t("mod.pred.none_hint")));
     return out;
   };
   let state = p.when(now);
   out.push(L::Row { a: p.title.to_string(), b: state, pill: None });
-  out.push(L::Row { a: format!("{} pts · {}", points(p.points()), bettors(p.users())), b: String::new(), pill: None });
+  out.push(L::Row {
+    a: f("mod.pred.pts", &[("pts", &points(p.points())), ("bettors", &bettors(p.users()))]),
+    b: String::new(),
+    pill: None,
+  });
   for (i, o) in p.outcomes.iter().enumerate() {
-    let win = if o.won { " ✓ winner" } else { "" };
-    out.push(L::Tint { a: format!("{}{win}", o.title), b: format!("{}%", p.pct(i)), ink: o.ink });
+    let name = if o.won { f("mod.pred.winner", &[("title", &o.title)]) } else { o.title.to_string() };
+    out.push(L::Tint { a: name, b: format!("{}%", p.pct(i)), ink: o.ink });
     out.push(L::Tint {
-      a: format!("  {} {} pts · {}", bar(p.share(i, pred::BAR as u64)), points(o.points), bettors(o.users)),
+      a: f(
+        "mod.pred.outcome",
+        &[("bar", &bar(p.share(i, pred::BAR as u64))), ("pts", &points(o.points)), ("bettors", &bettors(o.users))],
+      ),
       b: String::new(),
       ink: o.ink,
     });
   }
   if e.is_some_and(Entry::failed) {
-    out.push(row("couldn't reach twitch: this may be old, trying again"));
+    out.push(row(t("mod.pred.stale")));
   }
   if p.state == State::Canceled {
-    out.push(row("canceled: points were refunded"));
+    out.push(row(t("mod.pred.canceled")));
   }
   out
 }

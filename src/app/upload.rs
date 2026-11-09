@@ -1,5 +1,6 @@
 // picture/video upload: ctrl-o or the + button opens a file dialog (zenity/kdialog) or, with none
 // installed, a path prompt in the input bar; a dropped file uploads at once. the link lands in the box
+use crate::i18n::{f, t};
 use std::path::PathBuf;
 
 use winit::keyboard::{Key, NamedKey};
@@ -33,11 +34,11 @@ impl App {
   // can an upload start now? says why not
   pub(super) fn upload_ok(&mut self) -> bool {
     if self.me.is_none() {
-      self.say("log in to upload (ctrl-l)");
+      self.say(t("app.upload.login"));
       return false;
     }
     if self.uploading {
-      self.say("one upload at a time");
+      self.say(t("app.upload.one_at_a_time"));
       return false;
     }
     true
@@ -51,7 +52,7 @@ impl App {
       return;
     }
     self.uploading = true;
-    self.say("choose a picture or video…");
+    self.say(t("app.upload.choose"));
     self.net.send(Cmd::Pick);
     self.input_dirty = true;
   }
@@ -62,7 +63,7 @@ impl App {
       return;
     }
     self.uploading = true;
-    self.say("uploading…");
+    self.say(t("app.upload.uploading"));
     self.net.send(Cmd::Upload(path));
     self.input_dirty = true;
   }
@@ -91,7 +92,7 @@ impl App {
       Upload::NoChooser => {
         self.uploading = false;
         self.prompt = Some(Line::default());
-        self.say("no file dialog found: type a path");
+        self.say(t("app.upload.no_dialog"));
       }
       Upload::Cancelled => {
         self.uploading = false;
@@ -100,7 +101,7 @@ impl App {
       Upload::Completed { seq, input, text, many } => self.on_completed(seq, &input, text, &many),
       Upload::Failed(e) => {
         self.uploading = false;
-        self.say(format!("upload failed: {e}"));
+        self.say(f("app.upload.failed", &[("why", &e.to_string())]));
       }
       Upload::EmotePicked(_) | Upload::EmoteDone(_) | Upload::EmoteFailed(_) => {}
       Upload::Url(url) => {
@@ -110,7 +111,7 @@ impl App {
         if self.mode != crate::model::vi::Mode::Insert {
           self.enter_insert();
         }
-        self.say("upload done");
+        self.say(t("app.upload.done"));
       }
     }
   }

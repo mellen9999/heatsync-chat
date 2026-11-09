@@ -2,6 +2,7 @@
 // opens its heatsync tag page; resting the pointer on it shows the tag's posts, followers, when it was
 // last used and (signed in) whether you follow it, from GET /api/tags/:tag/card. a tag heatsync
 // doesn't know shows nothing. answers (unknown tags too) are kept a minute
+use crate::i18n::{f, t as t_};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::time::{Duration, Instant};
@@ -55,13 +56,21 @@ pub fn card(v: &Value, now_ms: i64) -> Option<Card> {
     return None;
   }
   let n = |k: &str| v.get(k).and_then(Value::as_f64).filter(|f| f.is_finite() && *f > 0.0).map_or(0, |f| f as u64);
-  let mut rows = vec![("posts", compact(n("post_count"))), ("followers", compact(n("follower_count")))];
+  let mut rows = vec![
+    (t_("chat2.tagcard.posts"), compact(n("post_count"))),
+    (t_("chat2.tagcard.followers"), compact(n("follower_count"))),
+  ];
   if let Some(t) = v.get("last_used_at").and_then(Value::as_str).and_then(crate::util::time::parse_iso) {
-    rows.push(("last", format!("{} ago", super::card::ago(now_ms, t)).replace("just now ago", "just now")));
+    let when = super::card::ago(now_ms, t);
+    let shown = if when == t_("chat1.ago.now") { when } else { f("chat2.tagcard.ago", &[("when", &when)]) };
+    rows.push((t_("chat2.tagcard.last"), shown));
   }
   // only a signed-in ask carries it
-  if let Some(f) = v.get("following").and_then(Value::as_bool) {
-    rows.push(("you", if f { "following" } else { "not following" }.into()));
+  if let Some(fol) = v.get("following").and_then(Value::as_bool) {
+    rows.push((
+      t_("chat2.tagcard.you"),
+      t_(if fol { "chat2.tagcard.following" } else { "chat2.tagcard.not_following" }).into(),
+    ));
   }
   Some(Card { name: name.into(), rows })
 }

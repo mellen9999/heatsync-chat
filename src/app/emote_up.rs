@@ -1,5 +1,6 @@
 // upload your own emote from the picker (alt-u): a file dialog, a name, one upload. the form lives on the
 // picker's top row (`model::emote_up`); the grid then shows the emote at once. the net side is `net::upload::emote`
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -35,10 +36,10 @@ impl App {
       self.picker_tab(Some(Tab::Emotes));
     }
     if self.me.is_none() {
-      return self.up_note("log in to upload your own emote (ctrl-l)");
+      return self.up_note(t("app.emote_up.login"));
     }
     if self.uploading {
-      return self.up_note("one upload at a time");
+      return self.up_note(t("app.upload.one_at_a_time"));
     }
     self.uploading = true;
     if let Some(p) = &mut self.picker {
@@ -144,7 +145,7 @@ impl App {
         if let Some(up) = self.picker.as_mut().and_then(|p| p.up.as_mut()) {
           up.stage = Stage::Path;
         }
-        self.up_note("no file dialog found: type where the picture is");
+        self.up_note(t("app.emote_up.no_dialog"));
       }
       Upload::EmoteDone(d) => self.emote_done(d),
       Upload::EmoteFailed(f) => self.emote_failed(f),
@@ -166,10 +167,11 @@ impl App {
 
   fn emote_done(&mut self, d: &Done) {
     self.uploading = false;
-    let mut note = format!("added {}", d.name);
-    if !d.kept.flagged.is_empty() {
-      note.push_str(&format!(" (flagged: {})", d.kept.flagged.join(", ")));
-    }
+    let note = if d.kept.flagged.is_empty() {
+      f("app.emote_up.added", &[("name", &d.name)])
+    } else {
+      f("app.emote_up.added_flagged", &[("name", &d.name), ("flags", &d.kept.flagged.join(", "))])
+    };
     let Some(p) = &mut self.picker else { return self.say(note) };
     p.up = None;
     p.add_mine(Item {
@@ -187,7 +189,7 @@ impl App {
 
   fn emote_failed(&mut self, f: &Failed) {
     self.uploading = false;
-    let told = format!("couldn't upload your emote: {}", f.why);
+    let told = crate::i18n::f("app.emote_up.failed", &[("why", &f.why.to_string())]);
     let Some(p) = &mut self.picker else { return self.say(told) };
     let Some(u) = p.up.as_mut() else { return self.say(told) };
     match &f.kept {

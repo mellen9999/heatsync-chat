@@ -48,6 +48,7 @@ pub mod upload;
 mod youtube;
 pub(crate) mod ytdel;
 
+use crate::i18n::{f, t};
 use crate::model::ident;
 use std::sync::Arc;
 use std::time::Duration;
@@ -499,7 +500,7 @@ pub fn secs(d: Duration) -> u64 {
 // outage is a few lines in the chat, not a wall of them
 pub fn retrying(out: &Out, why: &str, attempt: u32, wait: Duration) {
   if attempt <= 3 || attempt.is_multiple_of(5) {
-    out.status(format!("{why}, trying again in {}s", secs(wait)));
+    out.status(f("net1.retrying", &[("why", why), ("secs", &secs(wait).to_string())]));
   }
 }
 
@@ -671,7 +672,7 @@ fn hand_to_decoder(dec: &std::sync::mpsc::Sender<DecodeJob>, job: DecodeJob, out
   if dec.send(job).is_err() {
     out.send(NetEvent::Image(id, h, Err("decoder stopped".into())));
     if !DECODER_GONE_SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
-      out.status("pictures stopped loading: restart heatsync-chat");
+      out.status(t("net1.decoder_gone"));
     }
   }
 }
@@ -921,7 +922,7 @@ impl Net {
         Ok(rt) => rt,
         Err(e) => {
           eprintln!("network runtime: {e}");
-          return out.status("can't start the network, restart heatsync-chat");
+          return out.status(t("net1.no_network"));
         }
       };
       let o = out.clone();
@@ -985,7 +986,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
     Ok(c) => c,
     Err(e) => {
       eprintln!("http client: {e}");
-      return out.status("can't start the network, restart heatsync-chat");
+      return out.status(t("net1.no_network"));
     }
   };
   let open = retry::Open::default();
@@ -1013,10 +1014,10 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
   watch("7tv", seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()), out.clone());
   let Some(dec) = spawn_decoder(out.clone()) else {
-    return out.status("can't start the picture decoder, restart heatsync-chat");
+    return out.status(t("net1.no_decoder"));
   };
   let Some(img_http) = image_client() else {
-    return out.status("can't start the picture loader, restart heatsync-chat");
+    return out.status(t("net1.no_loader"));
   };
   let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
   let reads = Arc::new(Semaphore::new(personal::IN_FLIGHT));

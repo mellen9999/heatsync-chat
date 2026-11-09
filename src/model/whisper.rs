@@ -3,6 +3,7 @@
 // EventSub subscription) and pushes `whisper:new`; sends go through /api/twitch/whisper. dms are
 // `dm:new` pushes and POST /api/dm. pure: parsing, dedupe, caps, row text
 use super::ident;
+use crate::i18n::{f, t};
 use std::collections::{HashSet, VecDeque};
 
 use serde_json::Value;
@@ -366,30 +367,33 @@ pub fn current(tag: Option<u32>, now: u32) -> bool {
   tag.is_none_or(|t| t == now)
 }
 
-pub fn fail_text(f: &Fail) -> String {
-  match f {
-    Fail::Relink => "twitch whispers not enabled. re-link on heatsync.org".into(),
-    Fail::Auth => "log in to heatsync.org to send whispers and dms".into(),
-    Fail::Follow(login) => format!("dms need a follow both ways. /follow {login} first"),
-    Fail::Server => "heatsync server unreachable".into(),
+pub fn fail_text(fail: &Fail) -> String {
+  match fail {
+    Fail::Relink => t("chat2.whisper.relink").into(),
+    Fail::Auth => t("chat2.whisper.auth").into(),
+    Fail::Follow(login) => f("chat2.whisper.follow", &[("login", login)]),
+    Fail::Server => t("chat2.whisper.server").into(),
     Fail::Other(e) => e.to_string(),
   }
 }
 
 // `hide`: streamer mode keeps the words off the row (who and when stay)
 pub fn message(w: &Whisper, hide: bool) -> Message {
-  let (arrow, to_name, to_ink) =
-    if w.out { (theme::HEATSYNC, w.who.name.clone(), w.who.color) } else { (theme::CYAN, "you".into(), theme::WHITE) };
-  let mut body = if hide { super::streamer::HIDDEN.to_string() } else { w.text.to_string() };
+  let (arrow, to_name, to_ink) = if w.out {
+    (theme::HEATSYNC, w.who.name.clone(), w.who.color)
+  } else {
+    (theme::CYAN, t("chat2.whisper.you").into(), theme::WHITE)
+  };
+  let mut body = if hide { super::streamer::hidden().to_string() } else { w.text.to_string() };
   let mut flags = if w.out { flag::BRAND } else { flag::HIGHLIGHTED };
   match &w.status {
     Status::Sent => {}
     Status::Pending => body.push_str(" …"),
-    Status::Failed(f) => {
+    Status::Failed(fail) => {
       flags = flag::ALERT;
-      let how = match f {
-        Fail::Relink => "enable twitch whispers: enter to re-link".to_string(),
-        other => format!("{}: enter to retry", fail_text(other)),
+      let how = match fail {
+        Fail::Relink => t("chat2.whisper.relink_enter").to_string(),
+        other => f("chat2.whisper.retry", &[("why", &fail_text(other))]),
       };
       body.push_str(&format!(" ⚠ {how}"));
     }
@@ -407,7 +411,7 @@ pub fn message(w: &Whisper, hide: bool) -> Message {
   if !w.out {
     m.user_id = w.who.id.clone();
   }
-  m.nick = if w.out { "you".into() } else { w.who.name.clone() };
+  m.nick = if w.out { t("chat2.whisper.you").into() } else { w.who.name.clone() };
   m.color = if w.out { theme::WHITE } else { w.who.color };
   m.body = body.into();
   m.x = Some(Box::new(Extra {

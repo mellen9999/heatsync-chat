@@ -1,7 +1,7 @@
 # god-file ceilings: <max lines> <path>  # why. raise only with a reason in the same commit
 1518 src/ui/name_art/scene_cat.rs  # baseline
-1475 src/net/mod.rs  # baseline
-1334 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity)
-1330 src/model/schema.rs  # three settings rows: mention sound when, remember sent (ext parity); language
-1266 src/net/hs_ws.rs  # baseline
+1480 src/net/mod.rs  # baseline; i18n keys
+1340 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity); i18n keys
+1400 src/model/schema.rs  # three settings rows: mention sound when, remember sent (ext parity); language; i18n text accessors + parity test
+1270 src/net/hs_ws.rs  # baseline; i18n keys
 1231 src/model/vi.rs  # baseline

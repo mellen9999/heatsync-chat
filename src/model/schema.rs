@@ -1,6 +1,7 @@
 // the one table of every setting: the settings screen, the slash commands and the settings file
 // all read it. labels and tips are the ext's (settings-schema.js + locale strings), lowercase.
 // adding a switch = one Settings field and one row here
+use crate::i18n::t;
 use crate::model::settings::{Choice, Settings};
 use crate::model::tabs::Kind;
 
@@ -25,6 +26,18 @@ impl Cat {
       Cat::Filters => "filters",
       Cat::System => "system",
     }
+  }
+
+  // the name as the screen shows it, in the language in use (`name` stays the search word)
+  pub fn title(self) -> &'static str {
+    t(match self {
+      Cat::Display => "settings.cat.display",
+      Cat::Chat => "settings.cat.chat",
+      Cat::Notifs => "settings.cat.notifications",
+      Cat::Mod => "settings.cat.mod",
+      Cat::Filters => "settings.cat.filters",
+      Cat::System => "settings.cat.system",
+    })
   }
 }
 
@@ -100,8 +113,6 @@ pub enum Ctl {
 pub struct Words {
   // `/cmd <usage>`
   pub usage: &'static str,
-  // what an empty value means, for the settings screen
-  pub none: &'static str,
   pub get: fn(&Settings) -> &str,
   // false = refused: too long, or holds a control character
   pub put: fn(&mut Settings, &str) -> bool,
@@ -113,7 +124,6 @@ pub struct Words {
 
 static FONT: Words = Words {
   usage: "<family|off>",
-  none: "system monospace",
   get: |s| s.font_family.as_str(),
   put: |s, v| s.font_family.set(v),
   show: |v| v,
@@ -123,7 +133,6 @@ static FONT: Words = Words {
 
 static PING_FILE: Words = Words {
   usage: "<path|off>",
-  none: "none",
   get: |s| s.ping_file.as_str(),
   put: |s, v| s.ping_file.set(v),
   show: |v| v.rsplit(std::path::is_separator).next().unwrap_or(v),
@@ -154,6 +163,11 @@ impl Wire {
       Wire::Bool(k) | Wire::Name(k) | Wire::Level(k) | Wire::Flag(k, _) | Wire::Hidden(k, _) => Some(k),
     }
   }
+}
+
+// the key part for a section's name: its letters and digits, joined by underscores
+fn section_key(s: &str) -> String {
+  s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join("_")
 }
 
 pub struct Def {
@@ -1148,6 +1162,37 @@ impl Def {
     }
   }
 
+  // the row's words in the language in use: the english fields stay as the source and search words, the locale
+  // files hold the text the screen shows (a test keeps them equal)
+  pub fn label_t(&self) -> &'static str {
+    t(self.label_key())
+  }
+
+  // the label's i18n key, built once per row
+  pub fn label_key(&self) -> &'static str {
+    static KEYS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    let keys = KEYS
+      .get_or_init(|| DEFS.iter().map(|d| &*Box::leak(format!("settings.{}.label", d.id).into_boxed_str())).collect());
+    DEFS.iter().position(|d| d.id == self.id).map_or("", |i| keys[i])
+  }
+
+  pub fn tip_t(&self) -> &'static str {
+    t(&format!("settings.{}.tip", self.id))
+  }
+
+  pub fn section_t(&self) -> &'static str {
+    t(&format!("settings.section.{}", section_key(self.section)))
+  }
+
+  // a words row's `<usage>` and what an empty value means, shown
+  pub fn usage_t(&self) -> &'static str {
+    t(&format!("settings.{}.usage", self.id))
+  }
+
+  pub fn none_t(&self) -> &'static str {
+    t(&format!("settings.{}.none", self.id))
+  }
+
   // set a words row from the file or a command; false when it isn't one or the words don't fit
   pub fn text_put(&self, s: &mut Settings, words: &str) -> bool {
     match self.ctl {
@@ -1198,8 +1243,20 @@ impl Def {
 
   // every word of the query must appear in the label, tip, section, category, key or alias (the ext's search)
   pub fn matches(&self, query: &str) -> bool {
-    let hay = format!("{} {} {} {} {} {}", self.label, self.tip, self.section, self.cat.name(), self.id, self.alias)
-      .to_lowercase();
+    let hay = format!(
+      "{} {} {} {} {} {} {} {} {} {}",
+      self.label,
+      self.tip,
+      self.section,
+      self.cat.name(),
+      self.id,
+      self.alias,
+      self.label_t(),
+      self.tip_t(),
+      self.section_t(),
+      self.cat.title()
+    )
+    .to_lowercase();
     query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()))
   }
 }
@@ -1207,6 +1264,21 @@ impl Def {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // the english in the table and in the locale file are the same words, and every row has its entries
+  #[test]
+  fn every_row_has_its_words_in_the_locale() {
+    for d in DEFS.iter() {
+      assert_eq!(d.label_t(), d.label, "{}", d.id);
+      assert_eq!(d.tip_t(), d.tip, "{}", d.id);
+      assert_eq!(d.section_t(), d.section, "{}", d.id);
+      assert_eq!(d.cat.title(), d.cat.name());
+      if let Ctl::Text(w) = d.ctl {
+        assert_eq!(d.usage_t(), w.usage, "{}", d.id);
+        assert!(!d.none_t().is_empty(), "{}", d.id);
+      }
+    }
+  }
 
   #[test]
   fn ids_and_commands_are_unique_and_lowercase() {

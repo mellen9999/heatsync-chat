@@ -1,5 +1,6 @@
 // image/video upload to heatsync (the ext's attach button): pick or drop a file, validate it by its
 // bytes, post it with the session token, hand back the absolute url. runs on the net thread
+use crate::i18n::{f, t};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -17,7 +18,7 @@ pub const MAX_IMG: u64 = 5 << 20;
 pub const MAX_VID: u64 = 45 << 20;
 const MAX_REPLY: usize = 64 << 10;
 const TIMEOUT: Duration = Duration::from_secs(120);
-const KINDS: &str = "that isn't a picture or video heatsync takes (png jpg gif webp avif bmp tiff mp4 webm mov)";
+const KINDS: &str = "net2.upload.kinds";
 
 pub enum Upload {
   Url(String),
@@ -60,13 +61,13 @@ const fn vid(mime: &'static str, ext: &'static str) -> Media {
 
 // what the bytes really are, never what the name claims
 pub fn sniff(b: &[u8]) -> Result<Media, String> {
-  let bad = || Err(KINDS.to_string());
+  let bad = || Err(t(KINDS).to_string());
   if b.starts_with(&[0xff, 0xd8, 0xff]) {
     return Ok(img("image/jpeg", "jpg"));
   }
   if b.starts_with(b"\x89PNG\r\n\x1a\n") {
     if animated_png(b) {
-      return Err("animated png isn't supported, turn it into a gif or webp first".into());
+      return Err(t("net2.upload.apng").into());
     }
     return Ok(img("image/png", "png"));
   }
@@ -112,8 +113,9 @@ fn animated_png(b: &[u8]) -> bool {
 }
 
 pub fn too_big(m: &Media, len: u64) -> Option<String> {
-  let (cap, what) = if m.video { (MAX_VID, "videos") } else { (MAX_IMG, "pictures") };
-  (len > cap).then(|| format!("too big ({}MB max for {what})", cap >> 20))
+  let (cap, key) =
+    if m.video { (MAX_VID, "net2.upload.too_big_videos") } else { (MAX_IMG, "net2.upload.too_big_pictures") };
+  (len > cap).then(|| f(key, &[("mb", &(cap >> 20).to_string())]))
 }
 
 // a file the user can name: ~/ expanded, quotes from a drag or paste stripped
@@ -147,19 +149,22 @@ pub fn expand_as(s: &str, home: Option<&str>, win: bool) -> PathBuf {
 
 // read the file (bounded) off the async threads, then check it by its bytes
 fn load(path: &Path) -> Result<(Vec<u8>, Media), String> {
-  let meta = std::fs::metadata(path).map_err(|e| format!("can't open that file ({})", e.kind()))?;
+  let meta = std::fs::metadata(path).map_err(|e| f("net2.upload.cant_open", &[("why", &e.kind().to_string())]))?;
   if !meta.is_file() {
-    return Err("that's not a file".into());
+    return Err(t("net2.upload.not_file").into());
   }
   if meta.len() == 0 {
-    return Err("that file is empty".into());
+    return Err(t("net2.upload.empty").into());
   }
   if meta.len() > MAX_VID {
-    return Err(format!("too big ({}MB max)", MAX_VID >> 20));
+    return Err(f("net2.upload.too_big", &[("mb", &(MAX_VID >> 20).to_string())]));
   }
   let mut buf = Vec::with_capacity(meta.len() as usize);
-  let f = std::fs::File::open(path).map_err(|e| format!("can't open that file ({})", e.kind()))?;
-  f.take(MAX_VID + 1).read_to_end(&mut buf).map_err(|e| format!("can't read that file ({})", e.kind()))?;
+  let file = std::fs::File::open(path).map_err(|e| f("net2.upload.cant_open", &[("why", &e.kind().to_string())]))?;
+  file
+    .take(MAX_VID + 1)
+    .read_to_end(&mut buf)
+    .map_err(|e| f("net2.upload.cant_read", &[("why", &e.kind().to_string())]))?;
   checked(buf, true)
 }
 
@@ -168,7 +173,7 @@ fn load(path: &Path) -> Result<(Vec<u8>, Media), String> {
 fn checked(buf: Vec<u8>, video_ok: bool) -> Result<(Vec<u8>, Media), String> {
   let m = sniff(&buf)?;
   if m.video && !video_ok {
-    return Err("that isn't a picture".into());
+    return Err(t("net2.upload.not_picture").into());
   }
   if let Some(e) = too_big(&m, buf.len() as u64) {
     return Err(e);
@@ -214,9 +219,9 @@ pub fn absolute(u: &str) -> Option<String> {
 
 fn why(code: u16, v: &Value) -> String {
   match code {
-    401 | 403 => "log in to upload (ctrl-l)".into(),
-    413 => "too big for heatsync".into(),
-    429 => "slow down, try again in a minute".into(),
+    401 | 403 => t("net2.upload.login").into(),
+    413 => t("net2.upload.too_big_server").into(),
+    429 => t("net2.http.slow_minute").into(),
     _ => match super::http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")) {
       w if w.is_empty() => super::http::plain_status(code),
       w => w,
@@ -237,10 +242,7 @@ async fn post_picture(http: &reqwest::Client, token: &str, bytes: Vec<u8>) -> Re
 
 async fn send(http: &reqwest::Client, token: &str, bytes: Vec<u8>, m: Media) -> Result<String, String> {
   let v = send_form(http, token, bytes, m, false).await?;
-  v.get("url")
-    .and_then(Value::as_str)
-    .and_then(absolute)
-    .ok_or_else(|| "heatsync sent back a link i don't trust".into())
+  v.get("url").and_then(Value::as_str).and_then(absolute).ok_or_else(|| t("net2.upload.bad_link").into())
 }
 
 // the whole answer of a good upload (capped, json), or why not in our words
@@ -263,13 +265,13 @@ async fn send_form(
     .send()
     .await
     .map_err(
-      |e| if e.is_timeout() { "heatsync took too long".to_string() } else { "couldn't reach heatsync".into() },
+      |e| if e.is_timeout() { t("net2.upload.timeout").to_string() } else { t("net2.upload.unreachable").into() },
     )?;
   let code = r.status().as_u16();
   let mut buf = Vec::new();
-  while let Some(c) = r.chunk().await.map_err(|_| "the connection dropped".to_string())? {
+  while let Some(c) = r.chunk().await.map_err(|_| t("net2.upload.dropped").to_string())? {
     if buf.len() + c.len() > MAX_REPLY {
-      return Err("heatsync sent a reply that's too big".into());
+      return Err(t("net2.upload.reply_big").into());
     }
     buf.extend_from_slice(&c);
   }

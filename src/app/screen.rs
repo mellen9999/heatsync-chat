@@ -5,6 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use super::lists::Kind;
+use crate::i18n::{f, t};
 use crate::model::keys::KEYS;
 use crate::model::line::Line;
 use crate::model::schema::{Ctl, DEFS, Def, Fx};
@@ -99,9 +100,9 @@ pub(super) enum Target {
 
 // what the reset row answers to in the search, and what it says
 const RESET_WORDS: &str = "reset to defaults restore default settings";
-const RESET_LABEL: &str = "reset to defaults";
-const RESET_TIP: &str = "puts every look and behaviour setting back to its default. keeps your login, your tabs and which built-in tabs show, filter rules, muted and blocked people, mention rules, notes and everything saved";
-const RESET_ASK: &str = "reset every look and behaviour setting to its default? your login, tabs, filter rules, people lists, mention rules and notes stay · y resets · any other key keeps";
+const RESET_LABEL: &str = "settings.screen.reset_label";
+const RESET_TIP: &str = "settings.screen.reset_tip";
+const RESET_ASK: &str = "settings.screen.reset_ask";
 
 // what a key asks of the app, once the screen's own state is updated
 enum Do {
@@ -184,9 +185,11 @@ fn keys_lines(vi: bool, cols: usize) -> (Vec<L>, Vec<Target>) {
   for g in &KEYS {
     let all = g.all_vi();
     let mixed = !all && g.rows.iter().any(|r| r.vi);
-    lines.push(L::Head(if all { format!("{} · vi", g.name) } else { g.name.to_owned() }));
+    let name = t(g.name);
+    lines.push(L::Head(if all { format!("{name} · vi") } else { name.to_owned() }));
     let lead = if mixed { 4 } else { 0 };
     for r in g.rows {
+      let does = t(r.does);
       let a = match (mixed, r.vi) {
         (true, true) => format!("vi  {}", r.keys),
         (true, false) => format!("    {}", r.keys),
@@ -195,12 +198,12 @@ fn keys_lines(vi: bool, cols: usize) -> (Vec<L>, Vec<Target>) {
       let row = |a: String, b: String| {
         if r.vi && !vi { L::Tint { a, b, ink: theme::DIM } } else { L::Row { a, b, pill: None } }
       };
-      if a.chars().count() + 2 + r.does.chars().count() <= cols {
-        lines.push(row(a, r.does.to_owned()));
+      if a.chars().count() + 2 + does.chars().count() <= cols {
+        lines.push(row(a, does.to_owned()));
         continue;
       }
       lines.push(row(a, String::new()));
-      for part in wrap(r.does, cols.saturating_sub(lead + 2)) {
+      for part in wrap(does, cols.saturating_sub(lead + 2)) {
         lines.push(L::Tint { a: format!("{:1$}{part}", "", lead + 2), b: String::new(), ink: theme::DIM });
       }
     }
@@ -226,11 +229,7 @@ fn wrap(s: &str, width: usize) -> Vec<String> {
 
 // under the key map: what the `vi` rows need
 fn keys_tip(vi: bool) -> &'static str {
-  if vi {
-    "vi rows work in normal mode: esc leaves typing first"
-  } else {
-    "dim vi rows need vi mode: /vi turns it on, then esc leaves typing and they work"
-  }
+  if vi { t("settings.screen.keys_tip_vi") } else { t("settings.screen.keys_tip_plain") }
 }
 
 // a row whose enter opens a list of its own says so on the row itself
@@ -247,7 +246,7 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
   for d in DEFS.iter().filter(|d| d.matches(q)) {
     if last != Some((d.cat, d.section)) {
       last = Some((d.cat, d.section));
-      lines.push(L::Head(format!("{} · {}", d.cat.name(), d.section)));
+      lines.push(L::Head(f("settings.screen.head", &[("cat", d.cat.title()), ("section", d.section_t())])));
       targets.push(Target::None);
     }
     let (b, pill) = match d.ctl {
@@ -255,51 +254,70 @@ fn settings_lines(q: &str, set: &Settings) -> (Vec<L>, Vec<Target>) {
       Ctl::Zoom => (format!("{}%", set.zoom), None),
       Ctl::Side => (set.tab_side.name().to_owned(), None),
       Ctl::Counter => (set.tab_counter.name().to_owned(), None),
-      Ctl::Pick(..) => (d.picked(set).unwrap_or_default().to_owned(), None),
+      Ctl::Pick(..) => (pick_shown(d, set), None),
       Ctl::Rules => {
         let n = crate::model::filter::with(|f| f.rules().len());
-        (opens(if n == 0 { "none".to_owned() } else { n.to_string() }), None)
+        (opens(if n == 0 { t("settings.screen.none").to_owned() } else { n.to_string() }), None)
       }
       Ctl::Alerts | Ctl::Commands => (OPENS.to_owned(), None),
       Ctl::People => {
         let (m, b) = crate::model::filter::with(|f| (f.mutes().len(), f.blocks_sorted().len()));
-        (opens(if m + b == 0 { "nobody".to_owned() } else { format!("{m} muted · {b} blocked") }), None)
+        (
+          opens(if m + b == 0 {
+            t("settings.screen.nobody").to_owned()
+          } else {
+            f("settings.screen.muted_blocked", &[("muted", &m.to_string()), ("blocked", &b.to_string())])
+          }),
+          None,
+        )
       }
       Ctl::Buttons(get, _) => {
         let m = get(set);
-        (opens(if m == 0 { "none".to_owned() } else { crate::model::modbar::labels(m) }), None)
+        (opens(if m == 0 { t("settings.screen.none").to_owned() } else { crate::model::modbar::labels(m) }), None)
       }
       Ctl::Reasons => {
         let n = crate::model::filter::with(|f| f.reasons().len());
-        (opens(if n == 0 { "none".to_owned() } else { n.to_string() }), None)
+        (opens(if n == 0 { t("settings.screen.none").to_owned() } else { n.to_string() }), None)
       }
       Ctl::Text(w) => {
         let v = (w.get)(set);
-        (if v.is_empty() { w.none.to_owned() } else { (w.show)(v).to_owned() }, None)
+        (if v.is_empty() { d.none_t().to_owned() } else { (w.show)(v).to_owned() }, None)
       }
     };
     // a row with nothing to do yet reads dim, and says when it will
     lines.push(if d.idle(set) {
-      L::Tint { a: d.label.to_owned(), b: format!("{b} \u{b7} custom only"), ink: theme::DIM }
+      L::Tint { a: d.label_t().to_owned(), b: f("settings.screen.custom_only", &[("value", &b)]), ink: theme::DIM }
     } else {
-      L::Row { a: d.label.to_owned(), b, pill }
+      L::Row { a: d.label_t().to_owned(), b, pill }
     });
     targets.push(Target::Def(d));
   }
   // last, away from the cursor's start: it touches every setting
-  if q.split_whitespace().all(|w| RESET_WORDS.contains(&w.to_lowercase())) {
-    lines.push(L::Head("reset".into()));
+  let reset_words = format!("{RESET_WORDS} {}", t(RESET_LABEL).to_lowercase());
+  if q.split_whitespace().all(|w| reset_words.contains(&w.to_lowercase())) {
+    lines.push(L::Head(t("settings.screen.reset_head").into()));
     targets.push(Target::None);
-    lines.push(L::Row { a: RESET_LABEL.to_owned(), b: "enter asks first".to_owned(), pill: None });
+    lines.push(L::Row { a: t(RESET_LABEL).to_owned(), b: t("settings.screen.enter_asks").to_owned(), pill: None });
     targets.push(Target::Reset);
   }
   (lines, targets)
 }
 
+// a Pick row's value as the screen shows it: its name, and for the language its own name beside the code
+fn pick_shown(d: &Def, set: &Settings) -> String {
+  let name = d.picked(set).unwrap_or_default();
+  match (d.id, d.at(set)) {
+    ("language", Some(i)) if i > 0 && i <= crate::i18n::lang::NATIVE.len() => {
+      f("settings.screen.lang_native", &[("code", name), ("name", crate::i18n::lang::NATIVE[i - 1])])
+    }
+    _ => name.to_owned(),
+  }
+}
+
 // the status line when chat logs start: the folder, with the home folder as ~
 pub(super) fn logs_said(dir: Option<std::path::PathBuf>) -> String {
-  let Some(dir) = dir else { return "saving chat logs on this computer".to_owned() };
-  format!("saving chat logs to {}", crate::util::dirs::show(&dir))
+  let Some(dir) = dir else { return t("settings.screen.logs_here").to_owned() };
+  f("settings.screen.logs_to", &[("dir", &crate::util::dirs::show(&dir))])
 }
 
 impl App {
@@ -367,6 +385,7 @@ impl App {
       Fx::Lang => {
         crate::i18n::apply(self.set.language as usize);
         self.res.apply_look(&self.set);
+        self.refresh_empties();
         self.relayout_where(None);
       }
     }
@@ -398,17 +417,20 @@ impl App {
     let cmd = d.cmd.unwrap_or("/set");
     let now = (w.get)(&self.set);
     if arg.is_empty() {
-      let shown = if now.is_empty() { w.none } else { (w.show)(now) };
-      return self.say(format!("{}: {shown} \u{b7} {cmd} {}", d.label, w.usage));
+      let shown = if now.is_empty() { d.none_t() } else { (w.show)(now) };
+      return self.say(f(
+        "settings.screen.words_now",
+        &[("label", d.label_t()), ("shown", shown), ("cmd", cmd), ("usage", d.usage_t())],
+      ));
     }
     let to = if matches!(arg.to_lowercase().as_str(), "off" | "none") { "" } else { arg };
     let mut next = self.set;
     if !(w.put)(&mut next, to) {
-      return self.say(format!("{} is too long or has odd characters", d.label));
+      return self.say(f("settings.screen.words_bad", &[("label", d.label_t())]));
     }
     // a font that failed to load at start is still the saved one: typing it again tries again
     if next == self.set && !(d.fx == Fx::Font && self.font_stale()) {
-      return self.say(format!("{} is already that", d.label));
+      return self.say(f("settings.screen.words_same", &[("label", d.label_t())]));
     }
     if !to.is_empty()
       && let Err(why) = (w.check)(to)
@@ -424,11 +446,11 @@ impl App {
   pub(super) fn buttons_to(&mut self, d: &'static Def, arg: &str) {
     use crate::model::modbar;
     let Ctl::Buttons(get, set) = d.ctl else { return };
-    let usage = "usage: /modbuttons x 1m 10m 1h 24h 7d purge ban unban (or off)";
+    let usage = t("settings.screen.modbuttons_usage");
     let cur = get(&self.set);
     if arg.is_empty() {
-      let now = if cur == 0 { "none".to_owned() } else { modbar::labels(cur) };
-      return self.say(format!("mod toolbar: {now} \u{b7} {usage}"));
+      let now = if cur == 0 { t("settings.screen.none").to_owned() } else { modbar::labels(cur) };
+      return self.say(f("settings.screen.modbuttons_now", &[("now", &now), ("usage", usage)]));
     }
     let (mask, bad) = if matches!(arg, "off" | "none") { (0, 0) } else { modbar::parse(arg) };
     if bad > 0 && mask == 0 {
@@ -441,8 +463,12 @@ impl App {
       self.set.save();
       self.wake();
     }
-    let now = if mask == 0 { "off".to_owned() } else { modbar::labels(mask) };
-    self.say(if bad > 0 { format!("mod toolbar: {now} ({bad} not buttons)") } else { format!("mod toolbar: {now}") });
+    let now = if mask == 0 { t("settings.screen.modbuttons_off").to_owned() } else { modbar::labels(mask) };
+    self.say(if bad > 0 {
+      f("settings.screen.modbuttons_bad", &[("now", &now), ("bad", &bad.to_string())])
+    } else {
+      f("settings.screen.modbuttons_set", &[("now", &now)])
+    });
   }
 
   pub(super) fn set_switch(&mut self, d: &'static Def, on: bool) {
@@ -473,7 +499,7 @@ impl App {
       self.applied(f);
     }
     self.set.save();
-    self.say("settings are back to their defaults");
+    self.say(t("settings.screen.reset_done"));
   }
 
   // /reset and the settings row: open the settings and ask first
@@ -732,9 +758,9 @@ impl App {
     let (lines, targets) = s.lines(&self.set);
     s.st.settle(&lines);
     let tip = match targets.get(s.st.at) {
-      _ if s.ask_reset => RESET_ASK,
-      Some(Target::Def(d)) => d.tip,
-      Some(Target::Reset) => RESET_TIP,
+      _ if s.ask_reset => t(RESET_ASK),
+      Some(Target::Def(d)) => d.tip_t(),
+      Some(Target::Reset) => t(RESET_TIP),
       Some(Target::Account(step)) => step.tip(),
       _ if s.page == Page::Following => self.following.tip(match targets.get(s.st.at) {
         Some(Target::Live(i)) => Some(*i),
@@ -746,90 +772,78 @@ impl App {
     let imp_title = self.import.title();
     let fol_title = self.following.title(self.me.is_some(), !s.q.text.trim().is_empty(), shown);
     let bt_title = s.bt.as_ref().map(|b| b.title(&s.q.text)).unwrap_or_default();
-    let mt_title = s.mt.as_ref().map(|m| format!("mod tools · {}", m.chan)).unwrap_or_default();
+    let mt_title = s.mt.as_ref().map(|m| f("settings.screen.mt_title", &[("chan", &m.chan)])).unwrap_or_default();
     let inv_title = s.inv.as_ref().map(|v| v.title()).unwrap_or_default();
     let ls_title = s.ls.as_ref().map(|l| l.title()).unwrap_or_default();
     let ls_mark = s.ls.as_ref().map(|l| l.prompt()).unwrap_or_default();
-    let keys_title = format!("keys · heatsync-chat {}", env!("CARGO_PKG_VERSION"));
+    let keys_title = f("settings.screen.keys_title", &[("version", env!("CARGO_PKG_VERSION"))]);
     let (title, search, keys) = match (s.page, s.bt.as_deref()) {
       (Page::Blocked, Some(b)) => (
         bt_title.as_str(),
         Some(if b.adding {
           (b.add.text.as_str(), true, "", "+ ")
         } else {
-          (s.q.text.as_str(), s.typing, "/ filter · a add", "/ ")
+          (s.q.text.as_str(), s.typing, t("settings.screen.prompt_filter_add"), "/ ")
         }),
         if b.adding {
-          "type a term · enter adds · esc stops"
+          t("settings.screen.hint_add_term")
         } else if s.typing {
-          "type to filter · enter or esc stops"
+          t("settings.screen.hint_filter")
         } else if b.confirm.is_some() {
-          "y deletes · n keeps"
+          t("settings.screen.hint_blocked_confirm")
         } else {
-          "j k move · x delete · a add · / filter · esc closes"
+          t("settings.screen.hint_blocked")
         },
       ),
       (Page::Settings, _) => (
-        "settings",
-        Some((s.q.text.as_str(), s.typing, "/ search", "/ ")),
-        if s.typing {
-          "type to filter · enter or esc stops · up down moves"
-        } else {
-          "j k move · space change · / search · ? keys · esc"
-        },
+        t("settings.screen.title_settings"),
+        Some((s.q.text.as_str(), s.typing, t("settings.screen.prompt_search"), "/ ")),
+        if s.typing { t("settings.screen.hint_settings_typing") } else { t("settings.screen.hint_settings") },
       ),
       (Page::Inventory, _) => match s.inv.as_deref() {
         Some(v) => (
           inv_title.as_str(),
           Some(match v.ask {
             Some(a) => (v.input.text.as_str(), true, "", a.mark()),
-            None => (s.q.text.as_str(), s.typing, "/ filter", "/ "),
+            None => (s.q.text.as_str(), s.typing, t("settings.screen.prompt_filter"), "/ "),
           }),
           v.keys(s.typing),
         ),
-        None => ("emotes", None, "esc closes"),
+        None => (t("settings.screen.title_emotes"), None, t("settings.screen.hint_esc_closes")),
       },
       (Page::List, _) => match s.ls.as_deref() {
         Some(l) => (ls_title.as_str(), l.adding.then_some((l.add.text.as_str(), true, "", ls_mark.as_str())), l.keys()),
-        None => ("list", None, "esc closes"),
+        None => (t("settings.screen.title_list"), None, t("settings.screen.hint_esc_closes")),
       },
-      (Page::Pred, _) => (s.title.as_str(), None, "read only · j k scroll · r refresh · esc closes"),
-      (Page::Account, _) => ("account", None, "j k move · enter picks · esc closes"),
+      (Page::Pred, _) => (s.title.as_str(), None, t("settings.screen.hint_pred")),
+      (Page::Account, _) => (t("settings.screen.title_account"), None, t("settings.screen.hint_account")),
       (Page::Following, _) => (
         fol_title.as_str(),
-        Some((s.q.text.as_str(), s.typing, "/ filter", "/ ")),
-        if s.typing {
-          "type to filter · enter or esc stops"
-        } else {
-          "j k move · enter opens a tab · w watches · r refreshes · / filter · esc closes"
-        },
+        Some((s.q.text.as_str(), s.typing, t("settings.screen.prompt_filter"), "/ ")),
+        if s.typing { t("settings.screen.hint_filter") } else { t("settings.screen.hint_following") },
       ),
       (Page::Import, _) => (
         imp_title.as_str(),
-        Some((s.q.text.as_str(), s.typing, "/ filter", "/ ")),
-        if s.typing {
-          "type to filter · enter or esc stops"
-        } else {
-          "space picks · enter adds · s picks live · r reloads · / filter · esc"
-        },
+        Some((s.q.text.as_str(), s.typing, t("settings.screen.prompt_filter"), "/ ")),
+        if s.typing { t("settings.screen.hint_filter") } else { t("settings.screen.hint_import") },
       ),
-      (Page::Summary, _) => (s.title.as_str(), None, "counted live from when this window joined · esc closes"),
+      (Page::Summary, _) => (s.title.as_str(), None, t("settings.screen.hint_summary")),
       (Page::ModTools, _) => (
         mt_title.as_str(),
-        Some((s.q.text.as_str(), s.typing, "/ filter", "/ ")),
+        Some((s.q.text.as_str(), s.typing, t("settings.screen.prompt_filter"), "/ ")),
         if s.typing {
-          "type to filter · enter or esc stops"
+          t("settings.screen.hint_filter")
         } else if s.mt.as_ref().is_some_and(|m| m.confirm.is_some()) {
-          "y yes · n no"
+          t("settings.screen.hint_modtools_confirm")
         } else {
-          "j k move · enter flips · h l level · y approve · x deny · r reload · esc"
+          t("settings.screen.hint_modtools")
         },
       ),
       (Page::Status, _) if s.marks.iter().any(|t| matches!(t, Target::BlockedTerms)) => {
-        (s.title.as_str(), None, "j k move · enter flips · h l wait · esc closes")
+        (s.title.as_str(), None, t("settings.screen.hint_status_blocked"))
       }
-      (Page::Status, _) => (s.title.as_str(), None, "j k move · enter opens · esc closes"),
-      _ => (keys_title.as_str(), None, "j k scroll · ? settings · esc closes"),
+      (Page::Status, _) => (s.title.as_str(), None, t("settings.screen.hint_status")),
+      _ => (keys_title.as_str(), None, t("settings.screen.hint_keys")),
     };
     let tip = match (s.bt.as_deref(), s.mt.as_deref()) {
       (Some(b), _) if s.page == Page::Blocked => b.msg.as_str(),

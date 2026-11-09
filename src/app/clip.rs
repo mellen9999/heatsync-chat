@@ -1,6 +1,7 @@
 // the system clipboard (util/clip.rs: wl-copy / wl-paste, or xclip), run off the ui thread by the net
 // thread. paste = ctrl-v or shift-insert; vi yanks and ctrl-c on a selected chat line copy out; a
 // picture on the clipboard (and no text) uploads like a dropped file. every failure is a status line
+use crate::i18n::t;
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -44,7 +45,7 @@ impl App {
   pub(super) fn copy_selected(&mut self) {
     let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.selected()) else { return };
     let s = line_text(m);
-    self.copy(&s, "message copied");
+    self.copy(&s, t("app.clip.message_copied"));
   }
 
   // a line's public heatsync log permalink (ext buildRowPermalink): its room, its id, its own utc day.
@@ -61,7 +62,7 @@ impl App {
     let Some(url) = self.tabs.get(self.active).and_then(|t| t.view.selected()).and_then(|m| self.link_of(m)) else {
       return;
     };
-    self.copy(&url, "link copied");
+    self.copy(&url, t("app.clip.link_copied"));
   }
 
   // copy name: the selected line's sender
@@ -69,7 +70,7 @@ impl App {
     let Some(n) = self.tabs.get(self.active).and_then(|t| t.view.selected()).map(|m| m.nick.to_string()) else {
       return;
     };
-    self.copy(&n, "name copied");
+    self.copy(&n, t("app.clip.name_copied"));
   }
 
   // copy → input: the selected line's words into the message box
@@ -112,7 +113,7 @@ impl App {
     match got {
       Ok(Paste::Text(t)) => self.paste_text(&t, to_picker),
       Ok(Paste::Image(bytes)) if !to_picker => self.paste_picture(bytes),
-      Ok(Paste::Image(_) | Paste::Nothing) => self.say("nothing to paste"),
+      Ok(Paste::Image(_) | Paste::Nothing) => self.say(t("app.clip.nothing_to_paste")),
       Err(e) => self.say(e),
     }
   }
@@ -154,7 +155,7 @@ impl App {
       return;
     }
     self.uploading = true;
-    self.say("uploading pasted picture…");
+    self.say(t("app.clip.uploading_pasted"));
     self.net.send(Cmd::Picture(bytes));
     self.input_dirty = true;
   }

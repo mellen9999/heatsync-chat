@@ -27,10 +27,10 @@ impl Miss {
   // one plain line for the status bar
   pub fn said(&self, asked: &str) -> String {
     match self {
-      Miss::NoTool => format!("looking up fonts needs fc-match: paru -S {PKG}"),
-      Miss::Slow => "the font lookup didn't answer: try again".to_owned(),
-      Miss::Absent(near) => format!("no font family called {asked} is installed (the closest is {near})"),
-      Miss::Odd => "the font lookup gave an answer i can't read".to_owned(),
+      Miss::NoTool => crate::i18n::f("misc.font.no_tool", &[("pkg", PKG)]),
+      Miss::Slow => crate::i18n::t("misc.font.slow").to_owned(),
+      Miss::Absent(near) => crate::i18n::f("misc.font.absent", &[("asked", asked), ("near", near)]),
+      Miss::Odd => crate::i18n::t("misc.font.odd").to_owned(),
     }
   }
 }

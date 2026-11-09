@@ -4,6 +4,7 @@
 use super::canvas::{Canvas, Rect};
 use super::text::{Ink, Span, Text};
 use super::theme;
+use crate::i18n::{f, t};
 
 // the ext's offsets: 12px above the bottom, 4px / 12px of padding
 const LIFT: i32 = 12;
@@ -11,7 +12,7 @@ const PAD_Y: i32 = 4;
 const PAD_X: i32 = 12;
 
 pub fn label(unread: usize) -> String {
-  if unread == 0 { "▼ resume".into() } else { format!("▼ {unread} new") }
+  if unread == 0 { t("ui.jump.resume").into() } else { f("ui.jump.new", &[("n", &unread.to_string())]) }
 }
 
 // where the bar sits in the chat `area`; empty when the area is too small to hold it

@@ -163,6 +163,27 @@ impl Text {
     self.layout_at(text, spans, boxes, width, self.line_px, (0..0, 1))
   }
 
+  // `s` cut to fit `max` px of real laid-out width, ending in `…` when it had to be (a translation can run twice as
+  // long as english, and cjk glyphs are wider than latin: boxes with a fixed size elide instead of overflowing)
+  pub fn elide(&mut self, s: &str, max: i32) -> String {
+    let fits = |t: &mut Self, s: &str| t.layout(s, &[], &[], f32::MAX).full_width().ceil() as i32 <= max;
+    if s.is_empty() || fits(self, s) {
+      return s.to_owned();
+    }
+    let cuts: Vec<usize> = s.char_indices().map(|(i, _)| i).collect();
+    // the most chars that fit with the mark after them (width grows with length, so binary search)
+    let (mut lo, mut hi) = (0, cuts.len());
+    while lo < hi {
+      let mid = (lo + hi).div_ceil(2);
+      if fits(self, &format!("{}…", s[..cuts[mid]].trim_end())) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    format!("{}…", s[..cuts[lo]].trim_end())
+  }
+
   // the same with each line `line` px tall (chat rows: the line-height setting)
   // `emoji` = (range, k): emoji inside the range draw k× the font size and their line grows to fit
   pub fn layout_at(
@@ -484,6 +505,20 @@ mod tests {
     let l = t.layout("hello there", &[], &[], w);
     assert_eq!(l.lines().count(), 2);
     assert_eq!(l.lines().next().map(|x| x.text_range()), Some(0..6));
+  }
+
+  #[test]
+  fn elide_cuts_by_laid_out_width_and_only_when_needed() {
+    let mut t = Text::new(1.0);
+    let w = |t: &mut Text, s: &str| t.layout(s, &[], &[], f32::MAX).full_width().ceil() as i32;
+    assert_eq!(t.elide("short", 1000), "short");
+    assert_eq!(t.elide("", 5), "");
+    for s in ["a long label that will not fit", "日本語のとても長いラベルです", "ممممممممممممممممممم"]
+    {
+      let max = w(&mut t, s) / 2;
+      let e = t.elide(s, max);
+      assert!(e.ends_with('…') && w(&mut t, &e) <= max, "{e:?} is {} of {max}", w(&mut t, &e));
+    }
   }
 
   fn scaled(s: &str) -> Vec<&str> {

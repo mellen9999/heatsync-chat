@@ -4,6 +4,7 @@
 // tiles live and die with this struct: nothing here can reach the render path
 // a second tab holds gifs (model::gifs): the same grid, one section, filled by heatsync's search
 // instead of filtered, and picking inserts a link rather than an emote
+use crate::i18n::t;
 use std::cell::{Ref, RefCell};
 use std::ops::Range;
 
@@ -35,13 +36,13 @@ pub enum Sec {
 impl Sec {
   pub fn label(self) -> &'static str {
     match self {
-      Sec::Recent => "recent",
-      Sec::Mine => "my emotes",
-      Sec::Channel => "channel",
-      Sec::Global => "global",
-      Sec::Gif => "gifs",
-      Sec::Remote => "catalog",
-      Sec::Emoji => "emoji",
+      Sec::Recent => t("chat2.picker.sec_recent"),
+      Sec::Mine => t("chat2.picker.sec_mine"),
+      Sec::Channel => t("chat2.picker.sec_channel"),
+      Sec::Global => t("chat2.picker.sec_global"),
+      Sec::Gif => t("chat2.picker.sec_gifs"),
+      Sec::Remote => t("chat2.picker.sec_catalog"),
+      Sec::Emoji => t("chat2.picker.sec_emoji"),
     }
   }
 }
@@ -59,9 +60,9 @@ impl Tab {
 
   pub fn label(self) -> &'static str {
     match self {
-      Tab::Emotes => "emotes",
-      Tab::Gifs => "gifs",
-      Tab::Emoji => "emoji",
+      Tab::Emotes => t("chat2.picker.tab_emotes"),
+      Tab::Gifs => t("chat2.picker.tab_gifs"),
+      Tab::Emoji => t("chat2.picker.tab_emoji"),
     }
   }
 

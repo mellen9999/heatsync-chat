@@ -11,6 +11,7 @@
 //   /rule sound <number|id> <off|ping|blip|knock|chime|a .wav path>   /rule volume <number|id> <0-100|off>
 //   /rule del|on|off|up|down <number|id>
 //   /mutes  /blocks                           who is muted / blocked
+use crate::i18n::t;
 use crate::model::modcmd::name;
 use crate::util::time::span;
 
@@ -57,8 +58,6 @@ pub enum RuleCmd {
 
 const RULE_TYPES: [&str; 6] = ["keyword", "regex", "user", "badge", "msgtype", "expr"];
 
-const RULE_USAGE: &str = "usage: /rule add <hide|highlight> <word>, or with a kind first: user, badge, msgtype, regex, expr \u{b7} /rule edit|notify|sound|volume <number> ... \u{b7} /rule del|on|off|up|down <number> \u{b7} /rule lists them";
-
 // `<hide|highlight> [kind] <value>` as an add and an edit both take it: no kind named = a keyword, and a kind
 // word with nothing after it is not a keyword
 fn spec(tail: &str) -> Option<(String, String, String)> {
@@ -83,44 +82,44 @@ fn rule(rest: &str) -> Cmd {
     "" | "list" if tail.is_empty() => RuleCmd::List,
     "add" => match spec(tail) {
       Some((action, ty, value)) => RuleCmd::Add { action, ty, value },
-      None => return Cmd::Usage(RULE_USAGE),
+      None => return Cmd::Usage(t("mod.filter.rule_usage")),
     },
     "edit" => {
       let (key, rest) = tail.split_once(char::is_whitespace).unwrap_or((tail, ""));
       match spec(rest.trim()) {
         Some((action, ty, value)) if !key.is_empty() => RuleCmd::Edit { key: key.to_owned(), action, ty, value },
-        _ => return Cmd::Usage(RULE_USAGE),
+        _ => return Cmd::Usage(t("mod.filter.rule_usage")),
       }
     }
     "notify" => match tail.split_whitespace().collect::<Vec<_>>()[..] {
       [k, "on"] => RuleCmd::Notify(k.to_owned(), true),
       [k, "off"] => RuleCmd::Notify(k.to_owned(), false),
-      _ => return Cmd::Usage(RULE_USAGE),
+      _ => return Cmd::Usage(t("mod.filter.rule_usage")),
     },
     "sound" => match tail.split_once(char::is_whitespace) {
       Some((k, what)) if !what.trim().is_empty() => RuleCmd::Sound(k.to_owned(), what.trim().to_owned()),
-      _ => return Cmd::Usage(RULE_USAGE),
+      _ => return Cmd::Usage(t("mod.filter.rule_usage")),
     },
     "volume" => match tail.split_whitespace().collect::<Vec<_>>()[..] {
       [k, "off" | "default"] => RuleCmd::Volume(k.to_owned(), None),
       [k, n] => match n.parse::<u8>().ok().filter(|n| *n <= 100) {
         Some(n) => RuleCmd::Volume(k.to_owned(), Some(n)),
-        None => return Cmd::Usage(RULE_USAGE),
+        None => return Cmd::Usage(t("mod.filter.rule_usage")),
       },
-      _ => return Cmd::Usage(RULE_USAGE),
+      _ => return Cmd::Usage(t("mod.filter.rule_usage")),
     },
     "del" | "rm" | "remove" => match key() {
       Some(k) => RuleCmd::Del(k),
-      None => return Cmd::Usage(RULE_USAGE),
+      None => return Cmd::Usage(t("mod.filter.rule_usage")),
     },
     v @ ("on" | "off" | "up" | "down") => match key() {
       Some(k) => match v {
         "on" | "off" => RuleCmd::Enable(k, v == "on"),
         _ => RuleCmd::Shift(k, v == "up"),
       },
-      None => return Cmd::Usage(RULE_USAGE),
+      None => return Cmd::Usage(t("mod.filter.rule_usage")),
     },
-    _ => return Cmd::Usage(RULE_USAGE),
+    _ => return Cmd::Usage(t("mod.filter.rule_usage")),
   };
   Cmd::Rule(r)
 }
@@ -129,8 +128,8 @@ fn rule(rest: &str) -> Cmd {
 const MAX_SPAN: u64 = 365 * 86400;
 
 pub fn command(text: &str) -> Option<Cmd> {
-  let t = text.trim();
-  let (cmd, rest) = t.split_once(char::is_whitespace).unwrap_or((t, ""));
+  let text = text.trim();
+  let (cmd, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
   let rest = rest.trim();
   let cmd = cmd.strip_prefix('/')?.to_ascii_lowercase();
   let (first, tail) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
@@ -138,24 +137,24 @@ pub fn command(text: &str) -> Option<Cmd> {
   let term = (!rest.is_empty()).then(|| rest.to_owned());
   Some(match cmd.as_str() {
     "mute" => match name(first) {
-      None => Cmd::Usage("usage: /mute <user> [10m|2h|3d|perm]"),
+      None => Cmd::Usage(t("mod.filter.mute_usage")),
       Some(u) => match tail.trim() {
         "" => Cmd::Mute(u, Span::Default),
         "perm" | "forever" => Cmd::Mute(u, Span::Forever),
         l => match span(l).filter(|&s| s > 0 && s <= MAX_SPAN) {
           Some(s) => Cmd::Mute(u, Span::For(s as i64 * 1000)),
-          None => Cmd::Usage("usage: /mute <user> [10m|2h|3d|perm]"),
+          None => Cmd::Usage(t("mod.filter.mute_usage")),
         },
       },
     },
-    "unmute" => user("usage: /unmute <user>", &Cmd::Unmute),
-    "block" => user("usage: /block <user> (toggles)", &Cmd::Block),
-    "unblock" => user("usage: /unblock <user>", &Cmd::Unblock),
-    "hide" => user("usage: /hide <user> (this tab only)", &|u| Cmd::Hide(u, true)),
-    "unhide" => user("usage: /unhide <user>", &|u| Cmd::Hide(u, false)),
+    "unmute" => user(t("mod.filter.unmute_usage"), &Cmd::Unmute),
+    "block" => user(t("mod.filter.block_usage"), &Cmd::Block),
+    "unblock" => user(t("mod.filter.unblock_usage"), &Cmd::Unblock),
+    "hide" => user(t("mod.filter.hide_usage"), &|u| Cmd::Hide(u, true)),
+    "unhide" => user(t("mod.filter.unhide_usage"), &|u| Cmd::Hide(u, false)),
     "banreason" => Cmd::Reason { add: true, text: term },
     "unbanreason" if term.is_some() => Cmd::Reason { add: false, text: term },
-    "unbanreason" => Cmd::Usage("usage: /unbanreason <reason>"),
+    "unbanreason" => Cmd::Usage(t("mod.filter.unbanreason_usage")),
     "rule" => rule(rest),
     // the lists
     "mutes" if rest.is_empty() => Cmd::Mutes,

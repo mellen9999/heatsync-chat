@@ -1,6 +1,7 @@
 // upload your own emote (the ext's picker upload): the file goes up as `type=emote` (the server makes the
 // emote picture and its smaller copies), then the add puts it in your set under the name you gave it.
 // two calls, like the site makes. a name that is taken keeps the upload (`Kept`) so another name is one call
+use crate::i18n::{f, t};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -16,7 +17,7 @@ const MAX_DIM: u64 = 8192;
 const MAX_REPLY: usize = 64 << 10;
 // the pictures the ext's upload takes
 const TYPES: [&str; 5] = ["image/png", "image/gif", "image/webp", "image/jpeg", "image/avif"];
-const NOT_EMOTE: &str = "an emote has to be a png, gif, webp, jpg or avif picture";
+const NOT_EMOTE: &str = "net2.upload.not_emote";
 
 // an upload the server holds, waiting for a name that works
 #[derive(Clone, Debug, PartialEq)]
@@ -57,9 +58,9 @@ pub fn default_name(path: &Path) -> String {
 // why a name won't do, or none. the word you type in chat
 pub fn name_problem(name: &str) -> Option<&'static str> {
   if name.is_empty() {
-    Some("type a name")
+    Some(t("net2.emote.type_name"))
   } else if !valid_name(name) {
-    Some("a name is one word: no spaces, and it can't start with / or .")
+    Some(t("net2.emote.bad_name"))
   } else {
     None
   }
@@ -67,29 +68,32 @@ pub fn name_problem(name: &str) -> Option<&'static str> {
 
 // read the file (bounded) off the async threads: a picture by its bytes, never a video, within the server's cap
 fn load(path: &Path) -> Result<(Vec<u8>, Media), String> {
-  let meta = std::fs::metadata(path).map_err(|e| format!("can't open that file ({})", e.kind()))?;
+  let meta = std::fs::metadata(path).map_err(|e| f("net2.upload.cant_open", &[("why", &e.kind().to_string())]))?;
   if !meta.is_file() {
-    return Err("that's not a file".into());
+    return Err(t("net2.upload.not_file").into());
   }
   if meta.len() == 0 {
-    return Err("that file is empty".into());
+    return Err(t("net2.upload.empty").into());
   }
   if meta.len() > MAX_EMOTE {
-    return Err(format!("too big ({}MB max)", MAX_EMOTE >> 20));
+    return Err(f("net2.upload.too_big", &[("mb", &(MAX_EMOTE >> 20).to_string())]));
   }
   let mut buf = Vec::with_capacity(meta.len() as usize);
-  let f = std::fs::File::open(path).map_err(|e| format!("can't open that file ({})", e.kind()))?;
-  f.take(MAX_EMOTE + 1).read_to_end(&mut buf).map_err(|e| format!("can't read that file ({})", e.kind()))?;
+  let file = std::fs::File::open(path).map_err(|e| f("net2.upload.cant_open", &[("why", &e.kind().to_string())]))?;
+  file
+    .take(MAX_EMOTE + 1)
+    .read_to_end(&mut buf)
+    .map_err(|e| f("net2.upload.cant_read", &[("why", &e.kind().to_string())]))?;
   checked(buf)
 }
 
 fn checked(buf: Vec<u8>) -> Result<(Vec<u8>, Media), String> {
   let m = sniff(&buf)?;
   if !TYPES.contains(&m.mime) {
-    return Err(NOT_EMOTE.into());
+    return Err(t(NOT_EMOTE).into());
   }
   if buf.len() as u64 > MAX_EMOTE {
-    return Err(format!("too big ({}MB max)", MAX_EMOTE >> 20));
+    return Err(f("net2.upload.too_big", &[("mb", &(MAX_EMOTE >> 20).to_string())]));
   }
   Ok((strip::clean(m.mime, buf)?, m))
 }
@@ -133,10 +137,10 @@ fn add_body(name: &str, k: &Kept) -> Value {
 fn add_failed(code: u16, v: &Value, k: Kept) -> Failed {
   let said = v.get("error").and_then(Value::as_str).unwrap_or("").to_lowercase();
   if code == 409 || said.contains("already in inventory") || said.contains("held by your upload") {
-    return Failed { why: "you already have an emote with that name, pick another".into(), kept: Some(k) };
+    return Failed { why: t("net2.emote.name_taken").into(), kept: Some(k) };
   }
   if said.contains("slot_limit") || said.contains("slot limit") {
-    return Failed { why: "your emote set is full, remove one first".into(), kept: None };
+    return Failed { why: t("net2.emote.set_full").into(), kept: None };
   }
   Failed { why: why(code, v), kept: None }
 }
@@ -181,7 +185,7 @@ pub async fn run(http: reqwest::Client, token: String, path: PathBuf, name: Stri
   let res = async {
     let (bytes, m) = loaded.map_err(|e| bad(e.to_string()))?.map_err(bad)?;
     let v = send_form(&http, &token, bytes, m, true).await.map_err(bad)?;
-    let k = kept(&v).ok_or_else(|| bad("heatsync sent back a link i don't trust"))?;
+    let k = kept(&v).ok_or_else(|| bad(t("net2.upload.bad_link")))?;
     add(&http, &token, &name, k).await
   }
   .await;
@@ -227,7 +231,7 @@ mod tests {
   #[test]
   fn only_the_ext_s_five_pictures_are_emotes() {
     assert!(checked(b"\0\0\0\x14ftypisom\0\0\0\0isom".to_vec()).is_err(), "a video is no emote");
-    assert_eq!(checked(b"BM\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0".to_vec()).unwrap_err(), NOT_EMOTE);
+    assert_eq!(checked(b"BM\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0".to_vec()).unwrap_err(), t(NOT_EMOTE));
     assert!(checked(b"<svg/>".to_vec()).is_err());
     let mut big = vec![0xff, 0xd8, 0xff];
     big.resize(MAX_EMOTE as usize + 1, 0);

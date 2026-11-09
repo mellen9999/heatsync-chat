@@ -3,6 +3,7 @@
 // a channel down or up the bar, d or x closes a channel, a or o adds one, esc q t leave. moving never
 // switches tabs: only enter does, which is what makes `d` safe on one key. the cursor is underlined;
 // the input bar says where it is and what the keys do
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -42,7 +43,7 @@ impl App {
     let shown = self.shown_tabs();
     let n = shown.iter().position(|&i| i == r.at)? + 1;
     let name = &self.tabs[r.at].name;
-    Some(format!("{n}/{} {name} · jk move · enter open · JK reorder · d close · a add · esc", shown.len()))
+    Some(f("app.rover.note", &[("n", &n.to_string()), ("total", &shown.len().to_string()), ("name", name)]))
   }
 
   fn rover_take_count(&mut self) -> usize {
@@ -64,7 +65,7 @@ impl App {
   fn rover_carry(&mut self, down: bool) {
     let Some(at) = self.rover.as_ref().map(|r| r.at) else { return };
     if self.tabs[at].kind != Kind::Chat {
-      self.say("that tab is fixed");
+      self.say(t("app.rover.fixed"));
       return;
     }
     if let Some(to) = self.carry_tab(at, down)
@@ -102,7 +103,7 @@ impl App {
   fn rover_remove(&mut self) {
     let Some(at) = self.rover.as_ref().map(|r| r.at) else { return };
     if self.tabs[at].kind != Kind::Chat {
-      self.say("that tab can't be closed");
+      self.say(t("app.rover.cant_close"));
       return;
     }
     let p = self.shown_tabs().iter().position(|&i| i == at).unwrap_or(0);

@@ -3,6 +3,7 @@
 // (model::sendto). this file picks the feeds, builds each feed's copy of the line and folds the echoes back
 // into one row
 use super::{App, Tab};
+use crate::i18n::f;
 use crate::model::message::{Message, Platform};
 use crate::model::sendto::{self, Targets};
 use crate::model::tabs::Kind;
@@ -100,7 +101,7 @@ impl App {
     }
     match t.send.toggled(&linked, p) {
       Some(next) => self.set_send(next),
-      None => self.say(format!("{} has to stay on: it's the only one left", p.name())),
+      None => self.say(f("app.sendto.last", &[("platform", p.name())])),
     }
     true
   }

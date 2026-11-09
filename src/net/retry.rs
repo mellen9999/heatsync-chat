@@ -1,6 +1,7 @@
 // a fetch that fails because we're offline or a server is down is tried again with backoff, not given
 // up on until a restart. every status line lands in the chat on screen, so an outage says it once
 // (and again when it's over), not once per channel per provider
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -116,7 +117,7 @@ where
     match f().await {
       Ok(v) => {
         if told {
-          out.status(format!("{what} loaded"));
+          out.status(crate::i18n::f("net2.retry.loaded", &[("what", what)]));
         }
         return Some(v);
       }
@@ -125,7 +126,7 @@ where
         eprintln!("{what}: {e}");
         // asking again can't change a "no" or a body that is too big: stop instead of every minute forever
         if tries >= max || permanent(&e) {
-          out.status(format!("couldn't load {what}"));
+          out.status(crate::i18n::f("net2.retry.gave_up", &[("what", what)]));
           return None;
         }
         let wait = wait_for(tries);
@@ -134,7 +135,7 @@ where
           && now - last >= QUIET_MS
           && last_said.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_ok()
         {
-          out.status(format!("can't load {what}, trying again in {}s", secs(wait)));
+          out.status(crate::i18n::f("net2.retry.again", &[("what", what), ("secs", &secs(wait).to_string())]));
           told = true;
         }
         sleep(wait).await;

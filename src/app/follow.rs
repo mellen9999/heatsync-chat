@@ -2,6 +2,7 @@
 // the follow decides whose posts fill your feed; it doesn't follow them on twitch or kick
 use super::App;
 use super::card::Load;
+use crate::i18n::{f, t};
 use crate::model::ident;
 use crate::model::message::Platform;
 use crate::net::Cmd;
@@ -12,7 +13,7 @@ impl App {
   pub(super) fn follow_slash(&mut self, name: &str, want: bool) {
     let login = name.trim().trim_start_matches('@').to_ascii_lowercase();
     if !ident::twitch_login(&login) {
-      return self.say(if want { "usage: /follow <name>" } else { "usage: /unfollow <name>" });
+      return self.say(if want { t("app.follow.usage_follow") } else { t("app.follow.usage_unfollow") });
     }
     let platform = self.tabs.get(self.active).and_then(|t| t.sources.first()).map_or(Platform::Twitch, |s| s.0);
     self.follow(platform, login.into(), want);
@@ -20,11 +21,11 @@ impl App {
 
   pub(super) fn follow(&mut self, platform: Platform, login: Box<str>, want: bool) {
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("app.login_first_ctrl_l"));
     }
     let profile_id = match self.cards.get(platform, &login) {
       Some(Load::Done(i)) if i.follow == Some(want) => {
-        return self.say(format!("{} {login}", if want { "already following" } else { "not following" }));
+        return self.say(f(if want { "app.follow.already" } else { "app.follow.not_following" }, &[("login", &login)]));
       }
       Some(Load::Done(i)) => i.profile_id.clone(),
       _ => None,
@@ -42,16 +43,16 @@ impl App {
           self.card_refresh(platform, &login);
         }
         match (res, want) {
-          (Err(_), true) => format!("already following {login}"),
-          (Err(_), false) => format!("not following {login}"),
-          (Ok(()), true) => format!("following {login} on heatsync"),
-          (Ok(()), false) => format!("unfollowed {login}"),
+          (Err(_), true) => f("app.follow.already", &[("login", &login)]),
+          (Err(_), false) => f("app.follow.not_following", &[("login", &login)]),
+          (Ok(()), true) => f("app.follow.done", &[("login", &login)]),
+          (Ok(()), false) => f("app.follow.undone", &[("login", &login)]),
         }
       }
-      Err(FollowFail::Auth) => "log in first (ctrl-l)".into(),
-      Err(FollowFail::NotOnHeatsync) => format!("{login} isn't on heatsync"),
-      Err(FollowFail::Limited) => "slow down: try again in a moment".into(),
-      Err(FollowFail::Other) => "couldn't reach heatsync: try again".into(),
+      Err(FollowFail::Auth) => t("app.login_first_ctrl_l").into(),
+      Err(FollowFail::NotOnHeatsync) => f("app.follow.not_on_heatsync", &[("login", &login)]),
+      Err(FollowFail::Limited) => t("app.follow.limited").into(),
+      Err(FollowFail::Other) => t("app.follow.other").into(),
     };
     self.say(line);
     self.wake();

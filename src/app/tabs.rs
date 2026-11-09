@@ -1,5 +1,6 @@
 // adding, editing and removing tabs while running: the + button / ctrl-t form, /join, /part, the
 // right-click menu on a tab. every change joins or leaves live and is saved at once
+use crate::i18n::{f, t, tn};
 use winit::keyboard::{Key, NamedKey};
 
 use super::overlay::Overlay;
@@ -136,14 +137,18 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
 // twitch channel, summary
 fn form_acts(src: &[(Platform, Box<str>)]) -> Vec<(Act, String)> {
   let mut v: Vec<(Act, String)> = match src.len() {
-    1 => vec![(Act::Watch(0), "watch".into())],
-    _ => src.iter().enumerate().map(|(n, (p, _))| (Act::Watch(n), format!("watch {}", p.name()))).collect(),
+    1 => vec![(Act::Watch(0), t("app.tabs.watch").into())],
+    _ => src
+      .iter()
+      .enumerate()
+      .map(|(n, (p, _))| (Act::Watch(n), f("app.tabs.watch_on", &[("platform", p.name())])))
+      .collect(),
   };
   if src.iter().any(|s| s.0 == Platform::Twitch) {
-    v.push((Act::Status, "status".into()));
-    v.push((Act::Pred, "predictions".into()));
+    v.push((Act::Status, t("app.tabs.status").into()));
+    v.push((Act::Pred, t("app.tabs.predictions").into()));
   }
-  v.push((Act::Summary, "summary".into()));
+  v.push((Act::Summary, t("app.tabs.summary").into()));
   v
 }
 
@@ -356,18 +361,18 @@ impl App {
       }
       ChanCmd::Keep => match self.temp_at().filter(|&i| i == self.active) {
         Some(i) => self.keep_tab(i),
-        None => self.say("nothing to keep: only a temporary tab can be kept"),
+        None => self.say(t("app.tabs.nothing_to_keep")),
       },
       ChanCmd::Share => self.share_lineup(),
       ChanCmd::Open(Some(link)) => self.open_layout(&link),
-      ChanCmd::Open(None) => self.say("paste a heatsync.org/m/ link after /layout"),
+      ChanCmd::Open(None) => self.say(t("app.tabs.paste_layout")),
       ChanCmd::Part if self.tabs.get(self.active).is_some_and(|t| !t.sources.is_empty()) => {
         self.remove_tab(self.active)
       }
-      ChanCmd::Part => self.say("no channel to leave"),
+      ChanCmd::Part => self.say(t("app.tabs.no_channel_to_leave")),
       ChanCmd::Watch => match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()) {
         Some(t) => self.watch(self.active, t.focus()),
-        None => self.say("no channel to watch here"),
+        None => self.say(t("app.no_channel_to_watch")),
       },
     }
   }
@@ -375,17 +380,22 @@ impl App {
   // /share: every channel tab as one heatsync.org/m/ link, on the clipboard
   fn share_lineup(&mut self) {
     let specs = self.other_specs(None);
-    let Some(l) = layout_link::link(&specs) else { return self.say("no channel tabs to share") };
+    let Some(l) = layout_link::link(&specs) else { return self.say(t("app.tabs.nothing_to_share")) };
     // the copy runs off the ui thread and reports itself; the line says how much of the lineup fit
     let n = layout_link::parse(l.rsplit('/').next().unwrap_or("")).len();
-    let cut = if n < specs.len() { format!(" (first {n} of {})", specs.len()) } else { String::new() };
-    self.copy(&l, format!("copied your lineup, {n} tab{}{cut}", if n == 1 { "" } else { "s" }));
+    let all = specs.len().to_string();
+    let said = if n < specs.len() {
+      tn("app.tabs.copied_cut", n as u64, &[("all", &all)])
+    } else {
+      tn("app.tabs.copied", n as u64, &[])
+    };
+    self.copy(&l, said);
   }
 
   // /open <link>: add the lineup's tabs, minus whatever is already open
   pub(super) fn open_layout(&mut self, input: &str) {
     let Some(layout) = layout_link::extract(input) else {
-      return self.say("that isn't a heatsync.org/m/ link");
+      return self.say(t("app.tabs.not_a_link"));
     };
     let (specs, skipped) = layout_link::to_specs(&layout_link::parse(&layout));
     let mut have = self.other_specs(None);
@@ -397,14 +407,26 @@ impl App {
         self.push_tab(&s);
       }
     }
-    let note = if skipped > 0 { format!(", skipped {skipped} it can't open") } else { String::new() };
     if names.is_empty() {
-      return self.say(if specs.is_empty() { format!("nothing to open there{note}") } else { "already open".into() });
+      return self.say(if specs.is_empty() {
+        if skipped > 0 {
+          f("app.tabs.nothing_skipped", &[("skipped", &skipped.to_string())])
+        } else {
+          t("app.tabs.nothing_to_open").into()
+        }
+      } else {
+        t("app.tabs.already_open").into()
+      });
     }
     self.save_tabs();
     self.activate(self.tabs.len() - names.len());
     let n = names.len();
-    self.say(format!("added {n} tab{}: {}{note}", if n == 1 { "" } else { "s" }, names.join(", ")));
+    let list = names.join(", ");
+    self.say(if skipped > 0 {
+      tn("app.tabs.added_skipped", n as u64, &[("names", &list), ("skipped", &skipped.to_string())])
+    } else {
+      tn("app.tabs.added", n as u64, &[("names", &list)])
+    });
   }
 
   // ---- the form ----
@@ -580,9 +602,9 @@ impl App {
     let area = self.chat_area();
     let f = self.form.as_ref()?;
     let title = match f.edit.and_then(|i| self.tabs.get(i)) {
-      Some(t) => format!("edit {}", t.name),
-      None if f.welcome => "add your first channel".to_owned(),
-      None => "add channel".to_owned(),
+      Some(t) => crate::i18n::f("app.tabs.edit_title", &[("name", &t.name)]),
+      None if f.welcome => t("app.tabs.add_first").to_owned(),
+      None => t("app.tabs.add_channel").to_owned(),
     };
     let (caret, _) = form::draw(&mut self.canvas, &mut self.res.text, area, f, &title, self.form_hover);
     self.ime_win.area = Some(caret);
@@ -672,15 +694,21 @@ impl App {
     let at = self.off_bar(self.bar_hits[p]);
     let items: Vec<(TabAct, String)> = match self.tabs[i].kind {
       Kind::Chat if self.tabs[i].sources.is_empty() => return,
-      Kind::Chat if self.tabs[i].temp => vec![(TabAct::Keep, "keep".into()), (TabAct::Remove, "remove".into())],
-      Kind::Chat => vec![(TabAct::Edit, "edit".into()), (TabAct::Remove, "remove".into())],
-      _ => vec![(TabAct::Hide, "hide".into())],
+      Kind::Chat if self.tabs[i].temp => {
+        vec![(TabAct::Keep, t("app.tabs.keep").into()), (TabAct::Remove, t("app.tabs.remove").into())]
+      }
+      Kind::Chat => vec![(TabAct::Edit, t("app.tabs.edit").into()), (TabAct::Remove, t("app.tabs.remove").into())],
+      _ => vec![(TabAct::Hide, t("app.tabs.hide").into())],
     };
     let mut items = items;
     if self.tabs[i].kind == Kind::Chat {
       // moving, named for where the strip really runs; a channel at an end has nowhere to go that way
       let column = matches!(self.set.tab_side, Side::Left | Side::Right);
-      let (before, after) = if column { ("move up", "move down") } else { ("move left", "move right") };
+      let (before, after) = if column {
+        (t("app.tabs.move_up"), t("app.tabs.move_down"))
+      } else {
+        (t("app.tabs.move_left"), t("app.tabs.move_right"))
+      };
       let mut slot = 1;
       for (down, label) in [(false, before), (true, after)] {
         if self.carry_target(i, down).is_some() {
@@ -688,24 +716,27 @@ impl App {
           slot += 1;
         }
       }
-      items.push((TabAct::Lclear, "clear lines".into()));
-      items.push((TabAct::Bell, format!("bell: {}", self.tab_bell(i).label())));
-      items.push((TabAct::Mute, if self.tab_muted(i) { "unmute pings" } else { "mute pings" }.into()));
+      items.push((TabAct::Lclear, t("app.tabs.clear_lines").into()));
+      items.push((TabAct::Bell, f("app.tabs.bell", &[("state", self.tab_bell(i).label())])));
+      items.push((
+        TabAct::Mute,
+        if self.tab_muted(i) { t("app.tabs.unmute_pings") } else { t("app.tabs.mute_pings") }.into(),
+      ));
       items.extend(self.plat_rows(i).into_iter().map(|(p, l)| (TabAct::Show(p), l)));
       let chan = self.tabs[i].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
       if let Some(c) = chan.filter(|_| self.me.is_some()) {
         let caster = self.is_caster(&c);
         if caster || self.can_mod(Platform::Twitch, &c) {
-          items.push((TabAct::Announce, "announce…".into()));
+          items.push((TabAct::Announce, t("app.tabs.announce").into()));
         }
         if caster {
-          items.push((TabAct::Poll, "poll…".into()));
-          items.push((TabAct::Predict, "prediction…".into()));
+          items.push((TabAct::Poll, t("app.tabs.poll").into()));
+          items.push((TabAct::Predict, t("app.tabs.prediction").into()));
         }
       }
     }
-    items.push((TabAct::Share, "share layout".into()));
-    items.push((TabAct::UseLayout, "use a shared layout…".into()));
+    items.push((TabAct::Share, t("app.tabs.share").into()));
+    items.push((TabAct::UseLayout, t("app.tabs.use_layout").into()));
     self.overlay = Some(Overlay::Tab(TabMenu { menu: Menu::new(items, at), tab: i }));
     self.tab_menu_changed();
   }
@@ -760,17 +791,17 @@ impl App {
       Some(TabAct::Mute) => self.toggle_tab_mute(m.tab),
       Some(TabAct::Show(p)) => self.toggle_plat(m.tab, p),
       Some(TabAct::Announce) => {
-        self.type_in_tab(m.tab, "/announce ", "type the announcement, then enter");
+        self.type_in_tab(m.tab, "/announce ", t("app.tabs.hint_announce"));
       }
       Some(TabAct::Poll) => {
-        self.type_in_tab(m.tab, "/poll ", "title | choice | choice | seconds (optional), then enter");
+        self.type_in_tab(m.tab, "/poll ", t("app.tabs.hint_poll"));
       }
       Some(TabAct::Predict) => {
-        self.type_in_tab(m.tab, "/prediction ", "title | outcome | outcome | seconds (optional), then enter");
+        self.type_in_tab(m.tab, "/prediction ", t("app.tabs.hint_predict"));
       }
       Some(TabAct::Share) => self.share_lineup(),
       Some(TabAct::UseLayout) => {
-        self.type_in_tab(m.tab, "/layout ", "paste a heatsync.org/m/ link, then enter");
+        self.type_in_tab(m.tab, "/layout ", t("app.tabs.hint_layout"));
       }
       None => {}
     }

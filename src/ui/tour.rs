@@ -4,6 +4,7 @@ use super::canvas::{Canvas, Rect};
 use super::form::{boxed, button, put};
 use super::text::Text;
 use super::theme;
+use crate::i18n::{f, t as tr};
 use crate::model::tour::{CARDS, SWITCHES, Tour};
 
 const PAD: i32 = 6;
@@ -81,9 +82,13 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, tour: &Tour, rows: &[(&str
   let card = &CARDS[tour.at];
   c.fill(area, theme::BLACK);
   boxed(c, g.panel, theme::BLACK);
-  put(c, t, &format!("{}/{}  {}", tour.at + 1, CARDS.len(), card.title), g.title, theme::WHITE, true, g.panel);
+  let head = f(
+    "settings.tour.counter",
+    &[("n", &(tour.at + 1).to_string()), ("total", &CARDS.len().to_string()), ("title", tr(card.title))],
+  );
+  put(c, t, &head, g.title, theme::WHITE, true, g.panel);
   for (i, l) in card.lines.iter().enumerate() {
-    put(c, t, l, (g.lines.0, g.lines.1 + i as i32 * line), theme::WHITE, false, g.panel);
+    put(c, t, tr(l), (g.lines.0, g.lines.1 + i as i32 * line), theme::WHITE, false, g.panel);
   }
   if tour.last() {
     for (i, (label, on)) in rows.iter().enumerate() {
@@ -93,22 +98,18 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, tour: &Tour, rows: &[(&str
       boxed(c, r, bg);
       let at_y = r.y + (r.h - line) / 2;
       put(c, t, label, (r.x + PAD, at_y), fg, false, r);
-      let state = if *on { "on" } else { "off" };
+      let state = tr(if *on { "settings.tour.on" } else { "settings.tour.off" });
       let sw = t.layout(state, &[], &[], f32::MAX).full_width().ceil() as i32;
       put(c, t, state, (r.right() - PAD - sw, at_y), fg, true, r);
     }
   }
-  let word = if tour.last() { "done" } else { "next" };
+  let word = tr(if tour.last() { "settings.tour.done" } else { "settings.tour.next" });
   if tour.at > 0 {
-    button(c, t, g.back, "back", under == Some(Hit::Back), line);
+    button(c, t, g.back, tr("settings.tour.back"), under == Some(Hit::Back), line);
   }
   button(c, t, g.next, word, under == Some(Hit::Next), line);
-  button(c, t, g.skip, "skip", under == Some(Hit::Skip), line);
-  let hint = if tour.last() {
-    "space switch · enter done · ← back · esc skip"
-  } else {
-    "enter next · ← back · esc skip"
-  };
+  button(c, t, g.skip, tr("settings.tour.skip"), under == Some(Hit::Skip), line);
+  let hint = tr(if tour.last() { "settings.tour.hint_last" } else { "settings.tour.hint" });
   put(c, t, hint, g.hint, theme::DIM, false, g.panel);
 }
 

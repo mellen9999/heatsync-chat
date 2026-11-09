@@ -2,6 +2,7 @@
 // the go-live bell (default follows the desktop notifications switch, on always tells you, off never does)
 // and muted pings (a mention there still lands in the mentions tab but makes no sound, flash or popup).
 // kept in one small file, `platform:channel \t bell \t mute` per line; a bad line is skipped, never an error
+use crate::i18n::t;
 use std::collections::BTreeMap;
 
 use crate::model::message::Platform;
@@ -20,11 +21,20 @@ pub enum Bell {
 }
 
 impl Bell {
-  pub fn label(self) -> &'static str {
+  // the persisted word (never translated)
+  fn id(self) -> &'static str {
     match self {
       Bell::Default => "default",
       Bell::On => "on",
       Bell::Off => "off",
+    }
+  }
+
+  pub fn label(self) -> &'static str {
+    match self {
+      Bell::Default => t("chat2.pings.bell_default"),
+      Bell::On => t("chat2.pings.bell_on"),
+      Bell::Off => t("chat2.pings.bell_off"),
     }
   }
 
@@ -96,7 +106,7 @@ impl Pings {
   pub fn render(&self) -> String {
     let mut s = String::new();
     for (k, r) in &self.by {
-      s.push_str(&format!("{k}\t{}\t{}\n", r.bell.label(), u8::from(r.mute)));
+      s.push_str(&format!("{k}\t{}\t{}\n", r.bell.id(), u8::from(r.mute)));
     }
     s
   }

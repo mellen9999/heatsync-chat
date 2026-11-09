@@ -1,6 +1,7 @@
 // links in chat: a click opens it in the browser (a video plays: mpv when it is installed), `o` on a
 // picked line opens its first one, the pointer turns into a hand over one. failures land in the chat.
 // a tab's stream plays the same way (its menu's watch, /watch, space w)
+use crate::i18n::t;
 use winit::window::{Cursor, CursorIcon};
 
 use super::App;
@@ -36,7 +37,7 @@ impl App {
     let url = self.tabs.get(tab).and_then(|t| t.sources.get(n)).and_then(|(p, k)| video::stream(*p, k));
     match url {
       Some(u) => self.play(&u),
-      None => self.say("no channel to watch here"),
+      None => self.say(t("app.no_channel_to_watch")),
     }
   }
 
@@ -44,7 +45,7 @@ impl App {
   pub(super) fn watch_here(&mut self) {
     match self.tabs.get(self.active).filter(|t| !t.sources.is_empty()).map(|t| t.focus()) {
       Some(n) => self.watch(self.active, n),
-      None => self.say("no channel to watch here"),
+      None => self.say(t("app.no_channel_to_watch")),
     }
   }
 
@@ -74,7 +75,7 @@ impl App {
     match url {
       Some(u) => self.open_link(&u),
       None => {
-        self.say("no link on that line");
+        self.say(t("app.link.none"));
         self.bar_dirty = true;
         self.wake();
       }

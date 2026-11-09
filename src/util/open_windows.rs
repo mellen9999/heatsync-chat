@@ -70,7 +70,7 @@ pub fn browse(url: &str) -> Result<(), String> {
     Ok(())
   } else {
     eprintln!("open link: shell error {}", r as usize);
-    Err("couldn't open your browser".into())
+    Err(crate::i18n::t("misc.open.no_browser").into())
   }
 }
 

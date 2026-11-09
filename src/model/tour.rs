@@ -7,6 +7,7 @@ use crate::store;
 const SEEN: &str = "tour";
 
 pub struct Card {
+  // locale keys (`t` them where shown)
   pub title: &'static str,
   // short lines (the card is ~44 characters wide)
   pub lines: &'static [&'static str],
@@ -14,20 +15,17 @@ pub struct Card {
 
 pub const CARDS: [Card; 6] = [
   Card {
-    title: "right-click a line",
-    lines: &["a menu opens: reply, copy, mute and more.", "no mouse? alt-r picks a line, then enter."],
+    title: "settings.tour.right_click.title",
+    lines: &["settings.tour.right_click.line1", "settings.tour.right_click.line2"],
   },
+  Card { title: "settings.tour.slash.title", lines: &["settings.tour.slash.line1", "settings.tour.slash.line2"] },
+  Card { title: "settings.tour.find.title", lines: &["settings.tour.find.line1", "settings.tour.find.line2"] },
+  Card { title: "settings.tour.channel.title", lines: &["settings.tour.channel.line1", "settings.tour.channel.line2"] },
   Card {
-    title: "type / for commands",
-    lines: &["in the box at the bottom, a list pops up.", "/help lists every key."],
+    title: "settings.tour.settings.title",
+    lines: &["settings.tour.settings.line1", "settings.tour.settings.line2", "settings.tour.settings.line3"],
   },
-  Card { title: "find a line", lines: &["ctrl-f, then a word or @name.", "only the matching lines stay. esc clears."] },
-  Card { title: "add a channel", lines: &["click + or type /join name.", "alt-1 to alt-9 jump between tabs."] },
-  Card {
-    title: "settings",
-    lines: &["click the gear or press ctrl-, for settings.", "the ? or f1 shows every key.", "/tour brings this back."],
-  },
-  Card { title: "these start off", lines: &["j k pick one, space turns it on."] },
+  Card { title: "settings.tour.off.title", lines: &["settings.tour.off.line1"] },
 ];
 
 pub const LAST: usize = CARDS.len() - 1;
@@ -88,6 +86,7 @@ pub fn mark_seen() {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::i18n::t;
 
   #[test]
   fn next_walks_the_six_cards_then_is_done() {
@@ -127,11 +126,11 @@ mod tests {
   #[test]
   fn every_card_is_lowercase_short_and_every_switch_is_a_real_bool_row() {
     for c in &CARDS {
-      assert_eq!(c.title, c.title.to_lowercase());
+      assert_eq!(t(c.title), t(c.title).to_lowercase());
       assert!(!c.lines.is_empty() && c.lines.len() <= 3);
       for l in c.lines {
-        assert!(l.chars().count() <= 44, "{l}");
-        assert_eq!(*l, l.to_lowercase());
+        assert!(t(l).chars().count() <= 44, "{l}");
+        assert_eq!(t(l), t(l).to_lowercase());
       }
     }
     let set = crate::model::settings::Settings::default();

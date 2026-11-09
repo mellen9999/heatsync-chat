@@ -2,7 +2,7 @@
 // a chip adds your reaction or takes it back, shown at once and put back if the server says no. while a thread
 // is open its room is joined, so other people's reactions and votes arrive as they happen
 use super::App;
-use super::feed::{LOGIN_FIRST, TRY_AGAIN};
+use super::feed::{login_first, try_again};
 use crate::model::reaction::Frame;
 use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::{Cmd, social};
@@ -26,7 +26,7 @@ impl App {
 
   pub(super) fn react_toggle(&mut self, id: Box<str>, emote: u64) {
     if self.me.is_none() {
-      return self.say(LOGIN_FIRST);
+      return self.say(login_first());
     }
     let Some((on, _)) = self.feed.react_flip(&id, emote) else { return };
     self.net.send(Cmd::Social(social::Cmd::React { id: id.clone(), emote, on }));
@@ -49,7 +49,7 @@ impl App {
       // the press showed at once: a refusal puts it back
       Err(status) => {
         self.feed.react_set(&id, &chip, !on);
-        why = Some(if status == 401 { LOGIN_FIRST } else { TRY_AGAIN });
+        why = Some(if status == 401 { login_first() } else { try_again() });
       }
     }
     self.react_shown(&id);

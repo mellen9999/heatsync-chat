@@ -2,6 +2,7 @@
 // POST /api/twitch/clip {channel} with the bearer. the server holds the twitch token and makes the
 // clip; we get back where to watch it and where to edit it. both links are hostile: only https twitch
 // pages are ever copied or opened
+use crate::i18n::t;
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out, social};
@@ -31,7 +32,7 @@ pub async fn run(http: reqwest::Client, token: Option<String>, login: Box<str>, 
   let res = match token {
     None => Err(Fail::Auth),
     // the server only takes a twitch login here: nothing that could bend the body
-    Some(_) if !ident::twitch_login(&chan) => Err(Fail::Other("not a twitch channel".into())),
+    Some(_) if !ident::twitch_login(&chan) => Err(Fail::Other(t("net2.modact.not_twitch").into())),
     Some(t) => ask(&http, &t, &chan).await,
   };
   out.send(NetEvent::Clip { login, res });
@@ -60,7 +61,7 @@ pub fn classify(status: u16, v: &Value) -> Result<Made, Fail> {
   }
   let words = super::http::server_words(v.get("error").and_then(Value::as_str).unwrap_or(""));
   Err(Fail::Other(match (status, words.as_str()) {
-    (0, _) => "no answer from heatsync".into(),
+    (0, _) => t("net2.http.no_answer").into(),
     (_, "") => super::http::plain_status(status),
     (_, w) => w.chars().take(MAX_WORDS).collect(),
   }))

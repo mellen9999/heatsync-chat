@@ -2,6 +2,8 @@
 // minutes), /unban <user> (also /untimeout, /unto), /delete <msg-id>, plus /purge <user> (the ext's
 // purge button: a 1 second timeout, which clears their lines), and /nuke <term> [seconds]
 
+use crate::i18n::{f, t};
+
 // what a toolbar button does, and its label in the "did it" line (ext mc_mod_label_*)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Verb {
@@ -42,11 +44,22 @@ impl Verb {
   // past tense, as the ext toasts it ("banned bob", "timed out 600s bob")
   pub fn done(self) -> String {
     match self {
-      Verb::Delete => "deleted".into(),
-      Verb::Timeout(s) => format!("timed out {s}s"),
-      Verb::Purge => "purged".into(),
-      Verb::Ban => "banned".into(),
-      Verb::Unban => "unbanned".into(),
+      Verb::Delete => t("mod.verb.deleted").into(),
+      Verb::Timeout(s) => f("mod.verb.timed_out", &[("n", &s.to_string())]),
+      Verb::Purge => t("mod.verb.purged").into(),
+      Verb::Ban => t("mod.verb.banned").into(),
+      Verb::Unban => t("mod.verb.unbanned").into(),
+    }
+  }
+
+  // the action as a word in a status line (the slash command stays `name`)
+  pub fn word(self) -> &'static str {
+    match self {
+      Verb::Delete => t("mod.verb.delete"),
+      Verb::Timeout(_) => t("mod.verb.timeout"),
+      Verb::Purge => t("mod.verb.purge"),
+      Verb::Ban => t("mod.verb.ban"),
+      Verb::Unban => t("mod.verb.unban"),
     }
   }
 
@@ -76,7 +89,6 @@ pub const NUKE_MIN_TERM: usize = 2;
 pub const NUKE_MAX: usize = 100;
 pub const NUKE_SECS: u32 = 30;
 pub const NUKE_MAX_SECS: u32 = 300;
-pub const NUKE_USAGE: &str = "usage: /nuke <term> [seconds] \u{2014} term must be 2+ chars";
 
 // "<term> [seconds]": the ext's /^(.+?)(?:\s+(\d+))?$/ - a trailing number is the lookback, the rest the term
 fn nuke(rest: &str) -> Option<(String, u32)> {
@@ -111,15 +123,15 @@ fn reason(r: &str) -> Option<String> {
 }
 
 pub fn command(text: &str) -> Option<Cmd> {
-  let t = text.trim();
-  let (cmd, rest) = t.split_once(char::is_whitespace).unwrap_or((t, ""));
+  let text = text.trim();
+  let (cmd, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
   let rest = rest.trim();
   let cmd = cmd.strip_prefix('/')?.to_ascii_lowercase();
   let (first, tail) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
   Some(match cmd.as_str() {
     "ban" | "b" => match name(first) {
       Some(u) => Cmd::Do(Verb::Ban, u, reason(tail)),
-      None => Cmd::Usage("usage: /ban <user> [reason]"),
+      None => Cmd::Usage(t("mod.cmd.ban_usage")),
     },
     "timeout" | "to" => match name(first) {
       Some(u) => {
@@ -130,21 +142,21 @@ pub fn command(text: &str) -> Option<Cmd> {
           None => Cmd::Do(Verb::Timeout(DEFAULT_TIMEOUT), u, reason(tail)),
         }
       }
-      None => Cmd::Usage("usage: /timeout <user> [seconds] [reason]"),
+      None => Cmd::Usage(t("mod.cmd.timeout_usage")),
     },
     "purge" => match name(first) {
       Some(u) => Cmd::Do(Verb::Purge, u, None),
-      None => Cmd::Usage("usage: /purge <user>"),
+      None => Cmd::Usage(t("mod.cmd.purge_usage")),
     },
     "unban" | "untimeout" | "unto" => match name(first) {
       Some(u) => Cmd::Do(Verb::Unban, u, None),
-      None => Cmd::Usage("usage: /unban <user>"),
+      None => Cmd::Usage(t("mod.cmd.unban_usage")),
     },
     "delete" | "del" => {
       if !first.is_empty() && first.len() <= 128 && first.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
         Cmd::Do(Verb::Delete, first.to_owned(), None)
       } else {
-        Cmd::Usage("usage: /delete <message-id> (select a line and press m)")
+        Cmd::Usage(t("mod.cmd.delete_usage"))
       }
     }
     "nuke" => Cmd::Nuke(nuke(rest)),

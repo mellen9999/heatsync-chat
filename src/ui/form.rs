@@ -3,10 +3,14 @@
 use super::canvas::{Canvas, Rect};
 use super::text::{Ink, Span, Text};
 use super::theme;
+use crate::i18n::t as t_;
 use crate::model::chan::Form;
 
 const LABELS: [&str; 3] = ["twitch", "kick", "youtube"];
-const HOLD: [&str; 3] = ["channel name, like forsen", "channel name, like forsen", "channel name or link"];
+// the greyed hint in an empty row
+fn hold(i: usize) -> &'static str {
+  t_(if i == 2 { "ui.form.hold_youtube" } else { "ui.form.hold_name" })
+}
 const PAD: i32 = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -92,6 +96,8 @@ pub(super) fn boxed(c: &mut Canvas, r: Rect, bg: u32) {
 pub(super) fn button(c: &mut Canvas, t: &mut Text, r: Rect, label: &str, on: bool, line: i32) {
   let (bg, fg) = if on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
   boxed(c, r, bg);
+  // a translation can outgrow the box: elide it rather than spill over the edge
+  let label = &t.elide(label, r.w - 4);
   let w = t.layout(label, &[], &[], f32::MAX).full_width() as i32;
   put(c, t, label, (r.x + (r.w - w) / 2, r.y + (r.h - line) / 2), fg, true, r);
 }
@@ -103,7 +109,8 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hov
   let g = geo(area, line, em, f.acts.len());
   c.fill(area, theme::BLACK);
   boxed(c, g.panel, theme::BLACK);
-  put(c, t, title, g.title, theme::WHITE, true, g.panel);
+  let title = t.elide(title, g.panel.w - 2 * PAD);
+  put(c, t, &title, g.title, theme::WHITE, true, g.panel);
   let mut caret = Rect::new(g.fields[0].x, g.fields[0].y, 1, line);
   for i in 0..3 {
     let on = f.focus == i;
@@ -114,7 +121,8 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hov
     let ln = &f.fields[i];
     let at_y = r.y + (r.h - line) / 2;
     if ln.text.is_empty() {
-      put(c, t, HOLD[i], (r.x + PAD, at_y), theme::DIM, false, inner);
+      let h = t.elide(hold(i), inner.w - 2 * PAD);
+      put(c, t, &h, (r.x + PAD, at_y), theme::DIM, false, inner);
     }
     // scroll the text so the caret stays inside the box
     let cx = t.layout(&ln.text[..ln.cursor], &[], &[], f32::MAX).full_width().ceil() as i32;
@@ -125,30 +133,27 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hov
       c.fill(caret.intersect(inner), theme::WHITE);
     }
   }
+  // one line each in a panel of fixed width: elide what runs past it
+  let room = g.panel.w - 2 * PAD;
   match (f.err, f.welcome) {
-    (Some(e), _) => put(c, t, e, g.err, theme::RED, false, g.panel),
-    (None, true) => put(c, t, "type a name in any row, then press enter", g.err, theme::DIM, false, g.panel),
+    (Some(e), _) => {
+      let e = t.elide(e, room);
+      put(c, t, &e, g.err, theme::RED, false, g.panel)
+    }
+    (None, true) => {
+      let w = t.elide(t_("ui.form.welcome"), room);
+      put(c, t, &w, g.err, theme::DIM, false, g.panel)
+    }
     _ => {}
   }
   for (i, (_, label)) in f.acts.iter().enumerate() {
     button(c, t, g.acts[i], label, f.focus == 3 + i || hover == Some(Hit::Act(i)), line);
   }
-  let go = if f.edit.is_some() { "save" } else { "add" };
+  let go = t_(if f.edit.is_some() { "ui.form.save" } else { "ui.form.add" });
   button(c, t, g.ok, go, hover == Some(Hit::Ok), line);
-  button(c, t, g.cancel, "cancel", hover == Some(Hit::Cancel), line);
-  put(
-    c,
-    t,
-    if f.acts.is_empty() {
-      "tab next field · enter confirms · esc cancels"
-    } else {
-      "tab next · hjkl on buttons · esc cancels"
-    },
-    g.hint,
-    theme::DIM,
-    false,
-    g.panel,
-  );
+  button(c, t, g.cancel, t_("ui.form.cancel"), hover == Some(Hit::Cancel), line);
+  let hint = t.elide(t_(if f.acts.is_empty() { "ui.form.hint_fields" } else { "ui.form.hint_buttons" }), room);
+  put(c, t, &hint, g.hint, theme::DIM, false, g.panel);
   (caret, g.panel)
 }
 

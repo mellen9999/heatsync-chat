@@ -1,6 +1,7 @@
 // the user card (ext profile-card.js): click a name, or `c` on a selected line. name, what heatsync
 // knows (one request, shown when it lands), what they said here this session, and actions (mention,
 // whisper, mute, block, and the mod actions when you moderate the room). esc closes
+use crate::i18n::t;
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -28,9 +29,9 @@ pub(super) enum Load {
 // what a card says in place of rows while there are none to show
 pub(super) fn note_of(l: &Load) -> Option<&'static str> {
   match l {
-    Load::Loading => Some("looking them up…"),
+    Load::Loading => Some(t("app.card.looking_up")),
     Load::Failed(why) => Some(why),
-    Load::Done(i) if !i.registered => Some("not on heatsync"),
+    Load::Done(i) if !i.registered => Some(t("app.card.not_registered")),
     Load::Done(_) => None,
   }
 }
@@ -101,11 +102,11 @@ impl App {
 
   // the ext's card has its logs cell first, then follow / unfollow once heatsync says which
   fn card_rows(&self, who: &Subject, info: &Load, clip: &Clip) -> Vec<(Act, String)> {
-    let mut rows = vec![(Act::Logs, "chat logs".to_owned())];
+    let mut rows = vec![(Act::Logs, t("app.card.chat_logs").to_owned())];
     if let Load::Done(i) = info
       && let Some(f) = i.follow.filter(|_| self.me.is_some() && !who.own)
     {
-      rows.push((Act::Follow(!f), if f { "unfollow" } else { "follow" }.into()));
+      rows.push((Act::Follow(!f), if f { t("app.card.unfollow") } else { t("app.card.follow") }.into()));
     }
     rows.extend(self.person_rows(who));
     rows.extend(self.clip_row(who, info, clip));
@@ -264,7 +265,7 @@ impl App {
     };
     let recent: Vec<(String, &str)> = c.recent.iter().map(|(ts, body)| (hhmm(*ts), &**body)).collect();
     let v = view::View {
-      hint: "esc closes",
+      hint: t("app.card.esc_closes"),
       nick: &c.who.nick,
       color: c.who.color,
       pronouns: pronouns.as_deref(),

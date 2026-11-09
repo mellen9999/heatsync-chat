@@ -5,19 +5,19 @@ use super::text::{Ink, Span, Text};
 use super::theme;
 use crate::model::pred::Banner;
 
-const LABEL: &str = "prediction ";
-
 pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &Banner) {
   c.fill(area, theme::BLACK);
   let tail = format!(" {} ", b.tail);
   // locked and closing are the warnings; a running clock is plain
-  let ink = if b.tail == "locked" || b.tail == "closing" { theme::YELLOW } else { theme::WHITE };
+  // a countdown starts with a digit; `locked` and `closing` (in any language) are the words
+  let ink = if b.tail.starts_with(|c: char| c.is_ascii_digit()) { theme::WHITE } else { theme::YELLOW };
   let t = text.layout(&tail, &[Span { range: 0..tail.len(), ink: Ink(ink), bold: true }], &[], f32::MAX);
   let w = t.full_width().ceil() as i32;
   let x = Rect::new(area.right() - w, area.y, w, area.h);
   text.draw(&t, c, x.x as f32, x.y as f32, x, |_, _| {});
-  let s = format!("{LABEL}{}", b.body);
-  let l = text.layout(&s, &[Span { range: 0..LABEL.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
+  let label = crate::i18n::t("ui.pred.label");
+  let s = format!("{label}{}", b.body);
+  let l = text.layout(&s, &[Span { range: 0..label.len(), ink: Ink(theme::DIM), bold: false }], &[], f32::MAX);
   let clip = Rect::new(area.x, area.y, (area.w - w).max(0), area.h);
   text.draw(&l, c, area.x as f32 + theme::PAD_X, area.y as f32, clip, |_, _| {});
 }

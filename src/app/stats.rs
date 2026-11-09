@@ -3,6 +3,7 @@
 // starts the count over and going offline titles it "ended". /summary (or the tab's menu) shows it
 use super::App;
 use super::screen::Page;
+use crate::i18n::{f, t};
 use crate::model::message::{Message, Platform, flag};
 use crate::model::stats::{self, MAX_WORD, MAX_WORDS, Stats};
 use crate::ui::sheet::L;
@@ -55,7 +56,7 @@ impl App {
         let name = t.name.clone();
         self.summary_open(name);
       }
-      None => self.say("/summary needs a channel tab"),
+      None => self.say(t("app.stats.needs_tab")),
     }
   }
 
@@ -81,22 +82,33 @@ impl App {
 fn summary(name: &str, c: Option<&Count>, twelve: bool) -> (String, Vec<L>) {
   let row = |a: String, b: String| L::Row { a, b, pill: None };
   let ended = c.is_some_and(|c| c.ended);
-  let title = format!("{name} stream {}", if ended { "ended" } else { "summary" });
+  let title = f(if ended { "app.stats.title_ended" } else { "app.stats.title" }, &[("name", name)]);
   let Some(s) = c.and_then(|c| c.stats.as_deref()).filter(|s| s.msgs > 0) else {
-    return (title, vec![row("no chat counted yet: it fills in as messages arrive".into(), String::new())]);
+    return (title, vec![row(t("app.stats.empty").into(), String::new())]);
   };
   let n = |v: u64| stats::group(v);
   let mut lines = vec![
     row(
-      format!("{} msgs · {} chatters · {} mentions · {}/s peak", n(s.msgs), s.chatters(), n(s.mentions), s.peak),
+      f(
+        "app.stats.totals",
+        &[
+          ("msgs", &n(s.msgs)),
+          ("chatters", &s.chatters().to_string()),
+          ("mentions", &n(s.mentions)),
+          ("peak", &s.peak.to_string()),
+        ],
+      ),
       String::new(),
     ),
     row(
-      format!("since {} · {}", crate::util::time::clock(s.since, twelve, false), stats::span(now_ms() - s.since)),
+      f(
+        "app.stats.since",
+        &[("clock", &crate::util::time::clock(s.since, twelve, false)), ("span", &stats::span(now_ms() - s.since))],
+      ),
       String::new(),
     ),
   ];
-  for (head, top) in [("top chatters", s.top_chatters()), ("top emotes", s.top_emotes())] {
+  for (head, top) in [(t("app.stats.top_chatters"), s.top_chatters()), (t("app.stats.top_emotes"), s.top_emotes())] {
     if top.is_empty() {
       continue;
     }

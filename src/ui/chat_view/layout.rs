@@ -5,6 +5,7 @@ use super::{EmoteBox, Frame, Laid, MARK_W, Mention, Opts, PaintedName, Words, ro
 use crate::cosmetics::id::PaintId;
 use crate::emotes::resolve::find_word;
 use crate::heatsync::content;
+use crate::i18n::{f, t};
 use crate::images::ImgId;
 use crate::model::filter;
 use crate::model::find::Find;
@@ -47,7 +48,6 @@ pub(super) fn one_line(res: &mut Res, head: &str, words: &str, w: f32) -> String
 }
 
 // the ext's words over a first message
-const FIRST_LABEL: &str = "\u{25c7} first message in this channel";
 
 // a small word in a 1px box of its own color, a space after it (ext's ::before chips)
 fn chip(
@@ -95,20 +95,27 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   let mut frames = Vec::new();
   // an announcement opens with the ext's `announce` chip (::before on the row)
   if m.notice() == Notice::Announce {
-    chip(&mut s, &mut spans, &mut frames, "announce", ink_of(theme::YELLOW), true);
+    chip(&mut s, &mut spans, &mut frames, t("ui.chat.chip_announce"), ink_of(theme::YELLOW), true);
   }
   // the twitch tags the row wears as chips before everything else (ext ::before): `new here` for an intro,
   // `fx:name` for a message effect, `shared` / `shared:name` for a line said in a partner's room
   if let Some(x) = x {
     if x.intro {
-      chip(&mut s, &mut spans, &mut frames, "new here", ink_of(theme::MAGENTA), true);
+      chip(&mut s, &mut spans, &mut frames, t("ui.chat.chip_new_here"), ink_of(theme::MAGENTA), true);
     }
     if !x.fx.is_empty() {
-      chip(&mut s, &mut spans, &mut frames, &format!("fx:{}", x.fx), ink_of(theme::MAGENTA), false);
+      chip(&mut s, &mut spans, &mut frames, &f("ui.chat.chip_fx", &[("name", &x.fx)]), ink_of(theme::MAGENTA), false);
     }
     if !x.shared.is_empty() {
-      let named = res.rooms.login(&x.shared).map(|n| format!("shared:{n}"));
-      chip(&mut s, &mut spans, &mut frames, named.as_deref().unwrap_or("shared"), ink_of(theme::CYAN), false);
+      let named = res.rooms.login(&x.shared).map(|n| f("ui.chat.chip_shared_in", &[("room", n)]));
+      chip(
+        &mut s,
+        &mut spans,
+        &mut frames,
+        named.as_deref().unwrap_or(t("ui.chat.chip_shared")),
+        ink_of(theme::CYAN),
+        false,
+      );
     }
   }
   if let Some(sys) = &m.system {
@@ -160,7 +167,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   // twitch's first message in this channel says so in its ring's color (ext .hs-mc-first-label)
   if m.has(flag::FIRST) && m.kind.said() {
     let a = s.len();
-    s.push_str(FIRST_LABEL);
+    s.push_str(t("ui.chat.first_message"));
     spans.push(Span { range: a..s.len(), ink: Ink(ink_of(theme::MAGENTA)), bold: true });
     s.push('\n');
   }
@@ -235,7 +242,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
     // a cheer's amount (ext .hs-mc-bits-badge): twitch-colored words in a 1px twitch-colored box
     if let Some(n) = x.map(|x| x.bits).filter(|&n| n > 0) {
       let a = s.len();
-      s.push_str(&format!(" {n} bits "));
+      s.push_str(&f("ui.chat.bits", &[("n", &n.to_string())]));
       spans.push(Span { range: a..s.len(), ink: Ink(theme::TWITCH), bold: true });
       frames.push((a..s.len(), Frame::Bits));
       s.push(' ');
@@ -512,7 +519,7 @@ pub(super) fn held_row(
   s.push('\n');
   match &h.state {
     State::Busy => {
-      text(s, "resolving…", theme::YELLOW);
+      text(s, t("ui.chat.resolving"), theme::YELLOW);
     }
     State::Ended(e) => {
       text(s, &e.text(), theme::YELLOW);
@@ -522,9 +529,9 @@ pub(super) fn held_row(
         text(s, why, theme::RED);
         s.push(' ');
       }
-      let allow = text(s, " allow ", theme::WHITE);
+      let allow = text(s, t("ui.chat.allow"), theme::WHITE);
       s.push(' ');
-      let deny = text(s, " deny ", theme::WHITE);
+      let deny = text(s, t("ui.chat.deny"), theme::WHITE);
       frames.push((allow.clone(), Frame::Hold));
       frames.push((deny.clone(), Frame::Hold));
       return (allow, deny);
@@ -688,7 +695,8 @@ pub(super) fn picture(
     Some(embed::Found::Pic(e)) => e,
     Some(embed::Found::Preview(url)) => {
       let Some(p) = res.previews.get(&url) else { return (None, None, None) };
-      let held = content::held(p.flagged.iter().map(|c| &**c)).map(|h| format!("[media hidden — {}]", h.label).into());
+      let held =
+        content::held(p.flagged.iter().map(|c| &**c)).map(|h| f("ui.chat.media_hidden", &[("what", &h.label)]).into());
       // the picture itself, or a video's still that plays it (the file when mpv can take it straight)
       let pic = match p.kind {
         _ if held.is_some() => None,

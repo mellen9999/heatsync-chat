@@ -2,6 +2,7 @@
 // read only: the open one, else the locked one, else one that ended in the last 5 minutes. twitch's
 // public web gql answers this without a login; every field is bounded and a junk answer reads as nothing.
 // polls have no public query (the ext only sees them in twitch's own page traffic), so there are none here
+use crate::i18n::{f, t, tn};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -211,9 +212,9 @@ impl Pred {
   pub fn when(&self, now: i64) -> String {
     match self.state {
       State::Active => left(self.closes() - now),
-      State::Locked => "locked".into(),
-      State::Resolved => "ended".into(),
-      State::Canceled => "refunded".into(),
+      State::Locked => t("mod.pred.locked").into(),
+      State::Resolved => t("mod.pred.ended").into(),
+      State::Canceled => t("mod.pred.refunded").into(),
     }
   }
 
@@ -228,7 +229,7 @@ impl Pred {
 pub fn left(ms: i64) -> String {
   let s = ms.saturating_add(999).div_euclid(1000);
   match s {
-    ..=0 => "closing".into(),
+    ..=0 => t("mod.pred.closing").into(),
     1..=59 => format!("{s}s"),
     _ => format!("{}:{:02}", s / 60, s % 60),
   }
@@ -252,7 +253,7 @@ pub fn points(n: u64) -> String {
 }
 
 pub fn bettors(n: u64) -> String {
-  format!("{} bettor{}", points(n), if n == 1 { "" } else { "s" })
+  tn("mod.pred.bettors", n, &[("count", &points(n))])
 }
 
 // the share bar: `n` of BAR cells filled
@@ -273,7 +274,7 @@ pub fn banner(p: &Pred, now: i64) -> Option<Banner> {
     return None;
   }
   let parts: Vec<String> = p.outcomes.iter().enumerate().map(|(i, o)| format!("{} {}%", o.title, p.pct(i))).collect();
-  Some(Banner { body: format!("{} · {}", p.title, parts.join(" vs ")), tail: p.when(now) })
+  Some(Banner { body: format!("{} · {}", p.title, parts.join(t("mod.pred.vs"))), tail: p.when(now) })
 }
 
 // what we know about one channel's prediction and when to ask again
@@ -349,7 +350,7 @@ impl Preds {
     }
     self.told.insert(chan.into(), id);
     let p = p.filter(|p| seen && p.state == State::Active)?;
-    Some(format!("new prediction up — {}", p.title))
+    Some(f("mod.pred.new", &[("title", &p.title)]))
   }
 
   // an answer came (Err = twitch didn't make sense)

@@ -4,6 +4,7 @@
 // gets (msg_banned, msg_timedout, msg_followersonly*, msg_subsonly, msg_emoteonly, msg_slowmode) and kick's
 // refusal text. cleared by: the time running out, ROOMSTATE turning that mode off, or a line of yours getting through.
 // every number comes off the wire, so each is clamped
+use crate::i18n::{f, t};
 use std::collections::HashMap;
 
 use super::message::Platform;
@@ -84,16 +85,16 @@ impl Lock {
   pub fn text(&self, now: i64) -> String {
     let left = self.until.map(|u| left(u - now));
     match (self.cause, left) {
-      (Cause::Banned, _) => "you are banned from this channel".into(),
-      (Cause::Timeout(_), Some(l)) => format!("you are timed out · {l} left"),
-      (Cause::Timeout(_), None) => "you are timed out".into(),
-      (Cause::Followers, _) => "followers-only mode — follow the channel to chat".into(),
-      (Cause::FollowLonger, _) => "follow the channel a bit longer to chat".into(),
-      (Cause::FollowFirst, _) => "followers-only — you need to follow first".into(),
-      (Cause::Subs, _) => "subscribers-only — sub to chat here".into(),
-      (Cause::Emote, _) => "emote-only mode — message must be all emotes".into(),
-      (Cause::Slow, Some(l)) => format!("slow mode — wait {l}"),
-      (Cause::Slow, None) => "slow mode — please wait a moment".into(),
+      (Cause::Banned, _) => t("chat1.lock.banned").into(),
+      (Cause::Timeout(_), Some(l)) => f("chat1.lock.timeout_left", &[("left", &l)]),
+      (Cause::Timeout(_), None) => t("chat1.lock.timeout").into(),
+      (Cause::Followers, _) => t("chat1.lock.followers").into(),
+      (Cause::FollowLonger, _) => t("chat1.lock.follow_longer").into(),
+      (Cause::FollowFirst, _) => t("chat1.lock.follow_first").into(),
+      (Cause::Subs, _) => t("chat1.lock.subs").into(),
+      (Cause::Emote, _) => t("chat1.lock.emote").into(),
+      (Cause::Slow, Some(l)) => f("chat1.lock.slow_left", &[("left", &l)]),
+      (Cause::Slow, None) => t("chat1.lock.slow").into(),
     }
   }
 

@@ -1,6 +1,7 @@
 // stream lines (went live, switched game, went offline) of tabbed and followed channels in every chat tab
 // (ext stream-event + follow_stream_event handlers), and the chat-spike line in every tab (ext
 // handleMomentSpike: personal, so only for channels you have a tab for)
+use crate::i18n::f;
 use std::collections::HashMap;
 
 use super::App;
@@ -129,12 +130,13 @@ impl App {
     if self.focused || bell == Bell::Off || !(self.set.notify || bell == Bell::On && l.tone == Tone::Online) {
       return None;
     }
-    let what = match l.tone {
-      Tone::Online => "went live",
-      Tone::Switch => "switched game",
+    let name = notify::name(&l.channel);
+    let title = match l.tone {
+      Tone::Online => f("app.stream.went_live", &[("name", &name)]),
+      Tone::Switch => f("app.stream.switched_game", &[("name", &name)]),
       _ => return None,
     };
-    Some((format!("{} {what}", notify::name(&l.channel)), l.game.to_string()))
+    Some((title, l.game.to_string()))
   }
 
   // a burst of go-lives held back by the 3s limit: one popup says how many

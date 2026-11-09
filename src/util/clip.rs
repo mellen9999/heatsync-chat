@@ -5,6 +5,8 @@
 #[cfg_attr(windows, path = "clip_windows.rs")]
 mod os;
 
+use crate::i18n::{f, t};
+
 // what one paste or copy may carry
 pub const MAX_TEXT: usize = 1 << 20;
 pub const MAX_IMAGE: usize = 20 << 20;
@@ -39,16 +41,16 @@ pub enum Act {
 impl Fail {
   // one plain status line: what went wrong and, if it is a missing tool, the command that fixes it
   pub fn said(&self, act: Act) -> String {
-    let (ing, verb) = match act {
-      Act::Copy => ("copying", "copy"),
-      Act::Paste => ("pasting", "paste"),
-    };
+    let copy = matches!(act, Act::Copy);
     match self {
-      Fail::Missing(pkg) => format!("{ing} needs {pkg}: paru -S {pkg}"),
-      Fail::NoDisplay => format!("couldn't {verb}: no display found"),
-      Fail::Timeout => format!("couldn't {verb}: the clipboard didn't answer"),
-      Fail::TooBig(n) => format!("couldn't {verb}: too big ({}MB max)", (n >> 20).max(1)),
-      Fail::Tool(prog) => format!("couldn't {verb}: {prog} failed"),
+      Fail::Missing(pkg) => f(if copy { "misc.clip.copy_needs" } else { "misc.clip.paste_needs" }, &[("pkg", pkg)]),
+      Fail::NoDisplay => t(if copy { "misc.clip.copy_no_display" } else { "misc.clip.paste_no_display" }).to_owned(),
+      Fail::Timeout => t(if copy { "misc.clip.copy_timeout" } else { "misc.clip.paste_timeout" }).to_owned(),
+      Fail::TooBig(n) => {
+        let mb = (n >> 20).max(1).to_string();
+        f(if copy { "misc.clip.copy_too_big" } else { "misc.clip.paste_too_big" }, &[("mb", &mb)])
+      }
+      Fail::Tool(prog) => f(if copy { "misc.clip.copy_failed" } else { "misc.clip.paste_failed" }, &[("tool", prog)]),
     }
   }
 }

@@ -4,6 +4,7 @@
 // order: the first hide wins outright, otherwise the first highlight lights the line up, in its colour and
 // with its sound. a rule scoped to a channel (the ext's tab id: the tab's twitch name, else its kick slug)
 // applies only to lines of the tab with that id; every other rule applies everywhere
+use crate::i18n::{f, t};
 use std::cell::OnceCell;
 use std::collections::HashSet;
 
@@ -757,11 +758,13 @@ impl Rules {
         let m = r.raw.get("match");
         let ms = |k: &str| m.and_then(|m| m.get(k)).and_then(Value::as_str).unwrap_or("?").to_owned();
         let state = match (&r.c, truthy(r.raw.get("enabled"))) {
-          (Some(Compiled { scope: Scope::Chan(c), .. }), _) => format!("in {}", c.chars().take(40).collect::<String>()),
-          (Some(Compiled { scope: Scope::Nowhere, .. }), _) => "no channel".to_owned(),
-          (Some(_), _) => "on".to_owned(),
-          (None, false) => "off".to_owned(),
-          (None, true) => "invalid".to_owned(),
+          (Some(Compiled { scope: Scope::Chan(c), .. }), _) => {
+            f("mod.rule.state_in", &[("chan", &c.chars().take(40).collect::<String>())])
+          }
+          (Some(Compiled { scope: Scope::Nowhere, .. }), _) => t("mod.rule.state_nowhere").to_owned(),
+          (Some(_), _) => t("mod.rule.state_on").to_owned(),
+          (None, false) => t("mod.rule.state_off").to_owned(),
+          (None, true) => t("mod.rule.state_invalid").to_owned(),
         };
         let val: String = ms("value").chars().take(60).collect();
         format!("{} {state} {} {} {val}", i + 1, s("action"), ms("type"))
@@ -772,13 +775,13 @@ impl Rules {
   // /rule add: a new rule at the end. Err = why not
   pub fn add(&mut self, id: String, action: &str, ty: &str, value: &str) -> Result<(), &'static str> {
     if self.list.len() >= MAX_RULES {
-      return Err("too many rules");
+      return Err(t("mod.rule.too_many"));
     }
     if !matches!(action, "hide" | "highlight") {
-      return Err("a rule hides or highlights");
+      return Err(t("mod.rule.action_kinds"));
     }
     if !matches!(ty, "keyword" | "regex" | "expr" | "user" | "badge" | "msgtype") {
-      return Err("type is keyword, regex, user, badge, msgtype or expr");
+      return Err(t("mod.rule.type_kinds"));
     }
     let mut raw = json!({
       "id": id,
@@ -791,12 +794,12 @@ impl Rules {
       raw["color"] = json!("#ffff00");
     }
     let Some(c) = compile(&raw) else {
-      return Err(if ty == "expr" { "that expression doesn't parse" } else { "that rule isn't valid" });
+      return Err(t(if ty == "expr" { "mod.rule.expr_bad" } else { "mod.rule.invalid" }));
     };
     self.list.push(Rule { raw, c: Some(c) });
     if self.json().len() > MAX_JSON {
       self.list.pop();
-      return Err("rules are full");
+      return Err(t("mod.rule.full"));
     }
     Ok(())
   }
@@ -1180,7 +1183,7 @@ mod tests {
     for i in 0..MAX_RULES {
       let _ = r.add(format!("i{i}"), "hide", "keyword", "w");
     }
-    assert_eq!(r.add("z".into(), "hide", "keyword", "w"), Err("too many rules"));
+    assert_eq!(r.add("z".into(), "hide", "keyword", "w"), Err(t("mod.rule.too_many")));
   }
 
   // 10k lines x 50 rules of every kind: the number goes in the commit message

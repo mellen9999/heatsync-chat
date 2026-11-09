@@ -1,4 +1,3 @@
-#![allow(dead_code)] // until the strings move over
 // every word the app shows, in the language of the machine (or the one picked in settings).
 // `t("area.key")` looks a string up; `f` fills `{name}` holes; `tn` picks the plural form for a count.
 // the strings live in `locales/<code>.json`, embedded, flat `key → text`. a key a language lacks falls back to
@@ -16,6 +15,8 @@ static CURRENT: AtomicUsize = AtomicUsize::new(lang::EN);
 static TABLES: [OnceLock<Table>; 34] = [const { OnceLock::new() }; 34];
 
 mod locales;
+#[cfg(test)]
+mod tests;
 use locales::SOURCES;
 
 fn table(i: usize) -> &'static Table {
@@ -34,12 +35,22 @@ pub fn set(i: usize) {
 
 // settings value → the language in use: 0 is `auto` (the os's), then `lang::CODES` in order
 pub fn apply(setting: usize) {
-  set(if setting == 0 { lang::os() } else { setting - 1 });
+  // tests read english whatever the machine says: only `set` moves them
+  set(resolve(setting, if cfg!(test) { lang::EN } else { lang::os() }));
+}
+
+// what the setting picks: itself, or the os's language when it is `auto`. the setting wins over the os
+pub fn resolve(setting: usize, os: usize) -> usize {
+  if setting == 0 { os } else { setting - 1 }
 }
 
 fn lookup(key: &str) -> Option<&'static str> {
-  let cur = current();
-  table(cur).get(key).or_else(|| table(lang::EN).get(key)).map(String::as_str).filter(|s| !s.is_empty())
+  lookup_in(current(), key)
+}
+
+// the text for `key` in language `l`, english where that language has none
+pub fn lookup_in(l: usize, key: &str) -> Option<&'static str> {
+  table(l).get(key).or_else(|| table(lang::EN).get(key)).map(String::as_str).filter(|s| !s.is_empty())
 }
 
 // the text for `key`

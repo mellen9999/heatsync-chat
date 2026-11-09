@@ -2,9 +2,10 @@
 // person loses it too and there is no undo. heatsync's answer takes the row out of the list, and so does its
 // `dm:message-deleted` push, which also reaches the other person's window and your other windows
 use super::App;
-use super::feed::LOGIN_FIRST;
+use super::feed::login_first;
 use super::overlay::Overlay;
 use super::pop::{Act, Pop};
+use crate::i18n::{f, t};
 use crate::model::tabs::Kind;
 use crate::model::whisper::{self, Status, Via};
 use crate::net::dmdel::Fail;
@@ -18,21 +19,21 @@ impl App {
   pub(super) fn dm_delete_ask(&mut self) {
     let Some(w) = self.selected_whisper() else { return };
     let refuse = if w.who.via != Via::Heatsync {
-      "twitch whispers can't be deleted"
+      t("app.dmdel.refuse_twitch")
     } else if !w.out {
-      "you can only delete your own dms"
+      t("app.dmdel.refuse_own_only")
     } else if matches!(w.status, Status::Failed(_)) {
-      "that dm never sent, so there's nothing to delete"
+      t("app.dmdel.refuse_never_sent")
     } else if w.status != Status::Sent || w.dm_id().is_none() || w.who.id.is_empty() {
       // heatsync's id for the dm lands just before its answer: until the answer, who it went to is not settled
-      "that dm isn't on heatsync yet: try again in a moment"
+      t("app.dmdel.refuse_not_yet")
     } else {
       self.whisper.pending_delete = Some(w.key);
       let name: String = w.who.name.chars().take(NAME_SHOWN).collect();
       let chat = self.chat_area();
-      let rows = vec![(Act::DeleteDm, "yes, delete for both".to_owned()), (Act::No, "cancel".to_owned())];
+      let rows = vec![(Act::DeleteDm, t("app.dmdel.yes").to_owned()), (Act::No, t("app.cancel").to_owned())];
       let at = (chat.x + 24, chat.y + chat.h / 4);
-      self.overlay = Some(Overlay::Pop(Pop::ask(format!("delete dm to {name}?"), at, rows)));
+      self.overlay = Some(Overlay::Pop(Pop::ask(f("app.dmdel.ask", &[("name", &name)]), at, rows)));
       self.pop_changed();
       return;
     };
@@ -45,8 +46,8 @@ impl App {
     if self.selected_whisper().is_none_or(|w| w.dm_id().is_none()) {
       return;
     }
-    let rows = vec![(Act::DmAsk, "delete dm".to_owned())];
-    self.overlay = Some(Overlay::Pop(Pop::ask("dm".to_owned(), at, rows)));
+    let rows = vec![(Act::DmAsk, t("app.dmdel.delete").to_owned())];
+    self.overlay = Some(Overlay::Pop(Pop::ask(t("app.dmdel.title").to_owned(), at, rows)));
     self.pop_changed();
   }
 
@@ -57,7 +58,7 @@ impl App {
     let Some(w) = self.whisper.timeline.get(key) else { return };
     let Some(id) = w.dm_id() else { return };
     self.net.send(Cmd::Social(social::Cmd::DmDelete { with: w.who.id.clone(), id: id.into() }));
-    self.say("deleting dm…");
+    self.say(t("app.dmdel.deleting"));
   }
 
   // heatsync's answer to our delete: gone, or why not
@@ -65,17 +66,17 @@ impl App {
     let words = match res {
       Ok(()) => {
         self.dm_drop(&whisper::dm_key(id));
-        "dm deleted"
+        t("app.dmdel.deleted")
       }
       Err(Fail::Gone) => {
         self.dm_drop(&whisper::dm_key(id));
-        "that dm was already gone"
+        t("app.dmdel.gone")
       }
-      Err(Fail::Auth) => LOGIN_FIRST,
-      Err(Fail::Refused) => "heatsync won't let you delete that dm",
-      Err(Fail::NoThread) => "couldn't find that conversation on heatsync",
-      Err(Fail::Limited) => "slow down: try again in a moment",
-      Err(Fail::Other) => "couldn't delete the dm: try again",
+      Err(Fail::Auth) => login_first(),
+      Err(Fail::Refused) => t("app.dmdel.refused"),
+      Err(Fail::NoThread) => t("app.dmdel.no_thread"),
+      Err(Fail::Limited) => t("app.dmdel.limited"),
+      Err(Fail::Other) => t("app.dmdel.other"),
     };
     self.say(words);
   }

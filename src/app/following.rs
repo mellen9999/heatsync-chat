@@ -6,6 +6,7 @@
 // uptime moves once a minute, only while the screen shows. the poll is also how a kick or youtube go-live
 // is ever seen (heatsync pushes twitch's): someone none of whose channels was live at the last ask gets
 // one went-live line (ext announceWentLive). the first answer after sign-in is only the baseline
+use crate::i18n::{f, t};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -55,12 +56,12 @@ pub(super) struct Following {
 // why the screen has no rows to show, in plain words
 fn nothing(me: bool, loaded: bool, failed: Option<Fail>, q: &str) -> &'static str {
   match (me, failed) {
-    (false, _) => "log in to see who you follow (ctrl-l)",
-    (_, Some(Fail::Auth)) => "sign in to heatsync again (ctrl-l)",
-    (_, Some(_)) if !loaded => "couldn't reach heatsync: r tries again",
-    _ if !loaded => "loading…",
-    _ if !q.is_empty() => "nothing matches",
-    _ => "nobody you follow is live right now",
+    (false, _) => t("app.following.login"),
+    (_, Some(Fail::Auth)) => t("app.following.auth"),
+    (_, Some(_)) if !loaded => t("app.following.unreachable"),
+    _ if !loaded => t("app.following.loading"),
+    _ if !q.is_empty() => t("app.following.nomatch"),
+    _ => t("app.following.nobody"),
   }
 }
 
@@ -90,9 +91,9 @@ impl Following {
   pub(super) fn title(&self, me: bool, filtering: bool, shown: usize) -> String {
     let n = self.list.rows().len();
     match (me && n > 0, filtering) {
-      (false, _) => "following".into(),
-      (true, false) => format!("following · {n} live"),
-      (true, true) => format!("following · {shown} of {n} live"),
+      (false, _) => t("app.following.title").into(),
+      (true, false) => f("app.following.title_live", &[("n", &n.to_string())]),
+      (true, true) => f("app.following.title_shown", &[("shown", &shown.to_string()), ("n", &n.to_string())]),
     }
   }
 
@@ -102,7 +103,7 @@ impl Following {
       return &l.title;
     }
     match self.failed {
-      Some(_) if self.loaded => "couldn't refresh: this is the last list. r tries again",
+      Some(_) if self.loaded => t("app.following.stale"),
       _ => "",
     }
   }
@@ -284,9 +285,9 @@ impl App {
   fn following_watch(&mut self, i: usize) {
     let Some(l) = self.following.list.rows().get(i).cloned() else { return };
     let (p, key) = l.primary();
-    let Some(url) = video::stream(*p, key) else { return self.say("no stream to watch there") };
+    let Some(url) = video::stream(*p, key) else { return self.say(t("app.following.no_stream")) };
     self.close_screen();
-    self.say(format!("watching {}", l.name));
+    self.say(f("app.following.watching", &[("name", &l.name)]));
     self.play(&url);
   }
 
@@ -299,7 +300,7 @@ impl App {
       return if self.visible(t) {
         self.select(t)
       } else {
-        self.say(format!("the {} tab is hidden: /show {}", l.name, l.primary().1))
+        self.say(f("app.tab_hidden", &[("name", &l.name), ("key", &l.primary().1)]))
       };
     }
     let key = |p: Platform| l.legs.iter().find(|g| g.0 == p).map_or("", |g| &*g.1);

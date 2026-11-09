@@ -163,7 +163,7 @@ fn slash_tour_brings_it_back_from_the_first_card() {
 fn the_slash_command_and_the_help_both_name_it() {
   assert_eq!(crate::model::settings::local_cmd("/tour"), Some(Local::Tour));
   assert!(crate::model::slash::all().iter().any(|c| c.name == "/tour"));
-  let help = crate::model::keys::KEYS.iter().flat_map(|g| g.rows).any(|r| r.does.contains("/tour"));
+  let help = crate::model::keys::KEYS.iter().flat_map(|g| g.rows).any(|r| crate::i18n::t(r.does).contains("/tour"));
   assert!(help, "the help says where the tour is");
 }
 

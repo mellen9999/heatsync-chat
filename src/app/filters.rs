@@ -1,6 +1,7 @@
 // the chat filters (ext hideBots / hideCommands / hideDuplicates, keyword hide + highlight, mutes,
 // blocks, /hide). the rules live in model::filter; here are the slash commands, the server sync of
 // your mutes, and redoing every tab's lines when a rule changes
+use crate::i18n::{f, t};
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -85,16 +86,16 @@ impl App {
         let changed = self.tabs.get_mut(self.active).is_some_and(|t| t.view.hide_user(&who, hide));
         self.wake();
         self.say(match (changed, hide) {
-          (true, true) => format!("hid {who} in this tab"),
-          (true, false) => format!("{who} is back in this tab"),
-          (false, true) => format!("{who} is already hidden here"),
-          (false, false) => format!("{who} isn't hidden here"),
+          (true, true) => f("mod.filter.hid", &[("who", &who)]),
+          (true, false) => f("mod.filter.unhid", &[("who", &who)]),
+          (false, true) => f("mod.filter.already_hidden", &[("who", &who)]),
+          (false, false) => f("mod.filter.not_hidden", &[("who", &who)]),
         });
       }
       Cmd::Reason { add, text } => self.ban_reason(add, text),
       Cmd::Rule(r) => self.rule(r),
       Cmd::Mutes => {
-        self.list_people("muted", filter::with(|f| f.mutes().into_iter().map(|(n, _)| n.to_owned()).collect()))
+        self.list_people(true, filter::with(|f| f.mutes().into_iter().map(|(n, _)| n.to_owned()).collect()))
       }
       Cmd::Blocks => self.list_blocks(),
     }
@@ -103,16 +104,22 @@ impl App {
   fn list_blocks(&mut self) {
     // a plain list: blocks have no expiry
     let blocks = filter::with(|f| f.blocks_sorted());
-    self.list_people("blocked", blocks);
+    self.list_people(false, blocks);
   }
 
-  fn list_people(&mut self, what: &str, names: Vec<String>) {
-    self.say(if names.is_empty() { format!("nobody {what}") } else { format!("{what}: {}", names.join(", ")) });
+  fn list_people(&mut self, muted: bool, names: Vec<String>) {
+    let list = names.join(", ");
+    self.say(match (names.is_empty(), muted) {
+      (true, true) => t("mod.filter.nobody_muted").to_owned(),
+      (true, false) => t("mod.filter.nobody_blocked").to_owned(),
+      (false, true) => f("mod.filter.muted_list", &[("names", &list)]),
+      (false, false) => f("mod.filter.blocked_list", &[("names", &list)]),
+    });
   }
 
   pub(super) fn mute(&mut self, who: &str, until: Option<i64>) {
     if !filter::edit(|f| f.mute(who, until)) {
-      return self.say("couldn't mute that name");
+      return self.say(t("mod.filter.mute_failed"));
     }
     let name = filter::key(who);
     if mutes::syncable(&name) && self.me.is_some() {
@@ -120,87 +127,83 @@ impl App {
     }
     self.saved();
     self.say(match until {
-      None => format!("muted {name}"),
-      Some(u) => format!("muted {name} ({})", span_text((u - now_ms()).max(0) / 1000)),
+      None => f("mod.filter.muted", &[("name", &name)]),
+      Some(u) => f("mod.filter.muted_for", &[("name", &name), ("span", &span_text((u - now_ms()).max(0) / 1000))]),
     });
   }
 
   pub(super) fn unmute(&mut self, who: &str) {
     let name = filter::key(who);
     if !filter::edit(|f| f.unmute(&name)) {
-      return self.say(format!("{name} isn't muted"));
+      return self.say(f("mod.filter.not_muted", &[("name", &name)]));
     }
     if mutes::syncable(&name) && self.me.is_some() {
       self.net.send(NetCmd::Mute(Op::Remove(name.clone())));
     }
     self.saved();
-    self.say(format!("unmuted {name}"));
+    self.say(f("mod.filter.unmuted", &[("name", &name)]));
   }
 
   pub(super) fn block(&mut self, who: &str) {
     let name = filter::key(who);
     if !filter::edit(|f| f.block(&name)) {
-      return self.say(format!("{name} is already blocked"));
+      return self.say(f("mod.filter.already_blocked", &[("name", &name)]));
     }
     self.saved();
-    self.say(format!("blocked {name}"));
+    self.say(f("mod.filter.blocked", &[("name", &name)]));
   }
 
   pub(super) fn unblock(&mut self, who: &str) {
     let name = filter::key(who);
     if !filter::edit(|f| f.unblock(&name)) {
-      return self.say(format!("{name} isn't blocked"));
+      return self.say(f("mod.filter.not_blocked", &[("name", &name)]));
     }
     self.saved();
-    self.say(format!("unblocked {name}"));
+    self.say(f("mod.filter.unblocked", &[("name", &name)]));
   }
 
   fn ban_reason(&mut self, add: bool, text: Option<String>) {
     let Some(text) = text else {
       let list = filter::with(|f| f.reasons().iter().map(|p| p.to_string()).collect::<Vec<_>>());
       return self.say(if list.is_empty() {
-        "no ban reasons. /banreason <reason> adds one".to_owned()
+        t("mod.filter.no_reasons").to_owned()
       } else {
-        format!("ban reasons: {}", list.join("  "))
+        f("mod.filter.reasons", &[("list", &list.join("  "))])
       });
     };
     if !filter::edit(|f| f.reason(add, &text)) {
       return self.say(if add {
-        "couldn't add that reason (empty, a repeat, too long, or too many)".to_owned()
+        t("mod.filter.reason_add_failed").to_owned()
       } else {
-        format!("{text} isn't a ban reason")
+        f("mod.filter.not_reason", &[("text", &text)])
       });
     }
     self.texts_edited();
     self.saved();
-    self.say(format!("{} ban reason {}", if add { "added" } else { "removed" }, text.trim()));
+    self.say(f(if add { "mod.filter.reason_added" } else { "mod.filter.reason_removed" }, &[("text", text.trim())]));
   }
 
   fn rule(&mut self, cmd: RuleCmd) {
     let done = match cmd {
       RuleCmd::List => {
         let rows = filter::with(|f| f.rules().describe());
-        return self.say(if rows.is_empty() {
-          "no rules yet. add one: /rule add hide spoilers".to_owned()
-        } else {
-          rows.join(" · ")
-        });
+        return self.say(if rows.is_empty() { t("mod.filter.no_rules").to_owned() } else { rows.join(" · ") });
       }
       RuleCmd::Add { action, ty, value } => {
         let id = format!("{:x}{:x}", now_ms(), filter::with(|f| f.rules().len()));
         match filter::edit(|f| f.rules_mut().add(id, &action, &ty, &value)) {
-          Ok(()) => Some("added rule"),
+          Ok(()) => Some(t("mod.filter.rule_added")),
           Err(why) => return self.say(why),
         }
       }
       RuleCmd::Edit { key, action, ty, value } => {
         match filter::edit(|f| f.rules_mut().edit(&key, &action, &ty, &value)) {
-          Ok(()) => Some("rule changed"),
+          Ok(()) => Some(t("mod.filter.rule_changed")),
           Err(why) => return self.say(why),
         }
       }
       RuleCmd::Notify(k, on) => match filter::edit(|f| f.rules_mut().set_notify(&k, on)) {
-        Ok(()) => Some(if on { "hits land in mentions" } else { "hits stay in the chat" }),
+        Ok(()) => Some(t(if on { "mod.filter.notify_on" } else { "mod.filter.notify_off" })),
         Err(why) => return self.say(why),
       },
       RuleCmd::Sound(k, what) => match self.rule_sound_set(&k, &what) {
@@ -211,15 +214,19 @@ impl App {
         Ok(said) => Some(said),
         Err(why) => return self.say(why),
       },
-      RuleCmd::Del(k) => filter::edit(|f| f.rules_mut().remove(&k)).then_some("removed rule"),
-      RuleCmd::Enable(k, on) => {
-        filter::edit(|f| f.rules_mut().enable(&k, on)).then_some(if on { "rule on" } else { "rule off" })
-      }
-      RuleCmd::Shift(k, up) => {
-        filter::edit(|f| f.rules_mut().shift(&k, up)).then_some(if up { "moved up" } else { "moved down" })
-      }
+      RuleCmd::Del(k) => filter::edit(|f| f.rules_mut().remove(&k)).then_some(t("mod.filter.rule_removed")),
+      RuleCmd::Enable(k, on) => filter::edit(|f| f.rules_mut().enable(&k, on)).then_some(t(if on {
+        "mod.filter.rule_on"
+      } else {
+        "mod.filter.rule_off"
+      })),
+      RuleCmd::Shift(k, up) => filter::edit(|f| f.rules_mut().shift(&k, up)).then_some(t(if up {
+        "mod.filter.moved_up"
+      } else {
+        "mod.filter.moved_down"
+      })),
     };
-    let Some(done) = done else { return self.say("no such rule. /rule list shows the numbers") };
+    let Some(done) = done else { return self.say(t("mod.rule.no_such")) };
     self.texts_edited();
     self.saved();
     self.say(done);

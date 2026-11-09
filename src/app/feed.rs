@@ -2,6 +2,7 @@
 // enter (or a click on its >>id) opens a thread, u upvotes, r replies, typing posts (a reply while a thread is open), esc or h goes back.
 // logged out it still reads: the hot posts, with the nudge to log in
 use super::App;
+use crate::i18n::{f, t};
 use crate::model::engage;
 use crate::model::feed::{Feed, MORE_ID};
 use crate::model::message::Message;
@@ -16,16 +17,29 @@ use crate::util::time::now_ms;
 // a thread's rows at most (the OP and its replies)
 const THREAD_ROWS: usize = 1000;
 
-pub(super) const LOGIN_FIRST: &str = "log in at heatsync.org first";
+pub(super) fn login_first() -> &'static str {
+  t("app.feed.login_first")
+}
 
 // the one way every "twitch has to allow this first" line ends
+pub(super) fn allow_it() -> &'static str {
+  t("app.feed.allow_it")
+}
+// the english copy, for tests that read the line
+#[cfg(test)]
 pub(super) const ALLOW_IT: &str = "allow it in your browser, then try again";
 
 // "moderating needs a twitch permission: allow it in your browser, then try again"
+// `what` is the english name of the feature the callers pass; its words come from `app.feed.what.<name>` when
+// there are some (a name without them shows as given)
 pub(super) fn needs_twitch(what: &str) -> String {
-  format!("{what} needs a twitch permission: {ALLOW_IT}")
+  let key = format!("app.feed.what.{}", what.replace(' ', "_"));
+  let said = crate::i18n::lookup_in(crate::i18n::current(), &key).unwrap_or(what);
+  f("app.feed.needs_twitch", &[("what", said), ("allow", allow_it())])
 }
-pub(super) const TRY_AGAIN: &str = "that didn't work — try again";
+pub(super) fn try_again() -> &'static str {
+  t("app.feed.try_again")
+}
 
 impl App {
   fn feed_tab(&self) -> Option<usize> {
@@ -180,7 +194,7 @@ impl App {
         if let Some(was) = prior {
           self.feed.voted(&id, was, None);
         }
-        self.say(if status == 401 { LOGIN_FIRST } else { TRY_AGAIN });
+        self.say(if status == 401 { login_first() } else { try_again() });
       }
     }
     self.refresh_inline(&id);
@@ -191,7 +205,7 @@ impl App {
     let text = self.pending_post.take().unwrap_or_default();
     match res {
       Ok(p) => {
-        self.say("posted to feed");
+        self.say(t("app.feed.posted"));
         self.feed_inline(&p);
         self.feed.live(p);
         self.feed_show();
@@ -203,10 +217,10 @@ impl App {
         }
         self.input_dirty = true;
         self.say(match status {
-          401 => "log in first",
-          429 => "slow down",
-          409 => "duplicate message",
-          _ => "failed to post",
+          401 => t("app.feed.post_login"),
+          429 => t("app.feed.post_slow"),
+          409 => t("app.feed.post_duplicate"),
+          _ => t("app.feed.post_failed"),
         });
       }
     }
@@ -356,7 +370,7 @@ impl App {
   pub(super) fn feed_vote(&mut self) {
     let Some(id) = self.selected_row_post_id() else { return };
     if self.me.is_none() {
-      return self.say(LOGIN_FIRST);
+      return self.say(login_first());
     }
     let own = self.feed.find(&id).is_some_and(|p| self.my_name().is_some_and(|n| n.eq_ignore_ascii_case(&p.user)));
     if own || !self.feed.begin_vote(&id) {
@@ -385,9 +399,9 @@ impl App {
   // send a post. `restore` is what goes back in the box if it can't go (logged out, too long) or fails
   pub(super) fn publish(&mut self, text: String, reply_to: Option<Box<str>>, restore: String) {
     let why = if self.me.is_none() {
-      Some(LOGIN_FIRST)
+      Some(login_first())
     } else if engage::too_long(&text) {
-      Some("posts are 500 characters at most")
+      Some(t("app.engage.too_long"))
     } else {
       None
     };
@@ -402,9 +416,9 @@ impl App {
 
   pub(super) fn feed_hint(&self) -> String {
     match (&self.feed.thread, &self.me) {
-      (_, None) => "ctrl-l log in to post".into(),
-      (Some(t), _) => format!("type to reply to >>{}", crate::model::post::short(&t.id)),
-      (None, _) => "post to heatsync...".into(),
+      (_, None) => t("app.feed.hint_login").into(),
+      (Some(t), _) => f("app.feed.hint_reply", &[("id", &crate::model::post::short(&t.id).to_string())]),
+      (None, _) => t("app.feed.hint_post").into(),
     }
   }
 }

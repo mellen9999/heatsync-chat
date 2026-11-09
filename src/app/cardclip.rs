@@ -4,6 +4,7 @@
 use super::App;
 use super::card::Load;
 use super::pop::Act;
+use crate::i18n::t;
 use crate::net::Cmd;
 use crate::net::twclip::{Fail, Made};
 
@@ -19,10 +20,10 @@ impl Clip {
   // the row's words
   pub(super) fn label(&self) -> &'static str {
     match self {
-      Clip::Idle => "clip",
-      Clip::Busy => "clipping\u{2026}",
-      Clip::Made(m) if m.clip_url.is_some() => "url copied",
-      Clip::Made(_) => "clip created",
+      Clip::Idle => t("app.cardclip.clip"),
+      Clip::Busy => t("app.cardclip.clipping"),
+      Clip::Made(m) if m.clip_url.is_some() => t("app.cardclip.url_copied"),
+      Clip::Made(_) => t("app.cardclip.clip_created"),
     }
   }
 }
@@ -48,12 +49,12 @@ impl App {
             self.say(e);
           }
         }
-        (None, Some(url)) => self.net.send(Cmd::Copy { text: url.into(), done: "url copied".into() }),
+        (None, Some(url)) => self.net.send(Cmd::Copy { text: url.into(), done: t("app.cardclip.url_copied").into() }),
         (None, None) => {}
       },
       Clip::Idle => {
         if self.me.is_none() {
-          return self.say("log in first (ctrl-l)");
+          return self.say(t("app.login_first_ctrl_l"));
         }
         let (login, chan) = (c.who.login.clone(), c.who.chan.clone());
         // the ext clips the channel the card was opened in; a card from nowhere clips the person's own
@@ -77,8 +78,8 @@ impl App {
     match res {
       Ok(m) => {
         match &m.clip_url {
-          Some(url) => self.net.send(Cmd::Copy { text: url.to_string(), done: "url copied".into() }),
-          None => self.say("clip created"),
+          Some(url) => self.net.send(Cmd::Copy { text: url.to_string(), done: t("app.cardclip.url_copied").into() }),
+          None => self.say(t("app.cardclip.clip_created")),
         }
         if here {
           self.card_clip_set(Clip::Made(m));
@@ -89,12 +90,12 @@ impl App {
           self.card_clip_set(Clip::Idle);
         }
         match f {
-          Fail::Auth => self.say("log in first (ctrl-l)"),
+          Fail::Auth => self.say(t("app.login_first_ctrl_l")),
           Fail::Relink => {
             self.say(super::feed::needs_twitch("clipping"));
             self.net.send(Cmd::Relink("clips"));
           }
-          Fail::Other(e) => self.say(format!("clip failed: {e}")),
+          Fail::Other(e) => self.say(crate::i18n::f("app.cardclip.failed", &[("why", &e.to_string())])),
         }
       }
     }

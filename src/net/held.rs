@@ -2,6 +2,7 @@
 // /api/mod/automod-watch asks the server to watch a room you moderate (and hands back what twitch still
 // holds there); POST /api/mod/automod-action allows or denies one. both need the twitch `automod`
 // permission pack; the server says `relink_required` when it is missing
+use crate::i18n::t;
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
@@ -62,7 +63,7 @@ async fn post(http: &reqwest::Client, token: &str, route: &str, body: Value) -> 
     .body(body.to_string())
     .send()
     .await
-    .map_err(|_| Fail::Other("no answer from heatsync".into()))?;
+    .map_err(|_| Fail::Other(t("net2.http.no_answer").into()))?;
   let status = r.status().as_u16();
   let mut buf = Vec::new();
   if r.content_length().is_none_or(|n| n <= MAX_BODY as u64) {
@@ -91,7 +92,7 @@ pub fn classify(status: u16, v: Value) -> Result<Value, Fail> {
     // an action on a hold twitch no longer has
     400 | 404 => Fail::Gone,
     403 => Fail::NotMod,
-    429 => Fail::Other("slow down".into()),
+    429 => Fail::Other(t("net2.modact.slow").into()),
     _ => Fail::Other(super::http::plain_status(status).into()),
   })
 }

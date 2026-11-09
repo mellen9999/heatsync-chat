@@ -1,5 +1,6 @@
 // the ↑ button: a newer release was found; one click downloads it, checks its signature, swaps the
 // binary and starts the app again. a copy owned by the package manager opens the release page instead
+use crate::i18n::{f, t};
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -27,7 +28,11 @@ impl App {
 
   pub(super) fn update_label(&self) -> Option<String> {
     let r = self.upd.release.as_ref()?;
-    Some(if self.upd.installing { "↑ updating…".into() } else { format!("↑ {}", r.version) })
+    Some(if self.upd.installing {
+      t("app.update.updating").into()
+    } else {
+      f("app.update.label", &[("version", &r.version.to_string())])
+    })
   }
 
   pub(super) fn on_update(&mut self, r: Release) {
@@ -50,7 +55,7 @@ impl App {
     }
     self.upd.installing = true;
     self.bar_dirty = true;
-    self.say(format!("downloading {}…", r.version));
+    self.say(f("app.update.downloading", &[("version", &r.version.to_string())]));
     self.net.send(Cmd::Update(update::Cmd::Install(r)));
   }
 
@@ -64,7 +69,7 @@ impl App {
         self.flush_to_disk();
         // restart only returns when the new copy couldn't start
         eprintln!("update restart: {}", update::restart());
-        self.say("updated · close the app and open it again to use the new version");
+        self.say(t("app.update.done"));
         self.upd.release = None;
       }
       Err(e) => self.say(&e),
@@ -76,8 +81,8 @@ impl App {
 // what the update button says when a package manager owns this copy
 fn package_manager_line(opened: &Result<(), String>) -> String {
   match opened {
-    Ok(()) => "installed by a package manager: update it there (the release page is open)".into(),
-    Err(e) => format!("installed by a package manager: update it there ({e})"),
+    Ok(()) => t("app.update.package").into(),
+    Err(e) => f("app.update.package_err", &[("why", e)]),
   }
 }
 

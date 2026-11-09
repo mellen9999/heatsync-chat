@@ -3,6 +3,7 @@
 // allow / deny (click, or the line menu); it settles when you or another mod act, or lapses after
 // twitch's hour. the watch is renewed every half hour and again after the socket reconnects (holds
 // pushed while it was down come back with the answer)
+use crate::i18n::t;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -18,7 +19,9 @@ const RENEW: Duration = Duration::from_secs(30 * 60);
 // how often lapsed holds and due renewals are looked for
 const TICK: Duration = Duration::from_secs(60);
 const MAX_OPEN: usize = 500;
-pub(super) const NEED_PACK: &str = "automod holds need a twitch permission: ctrl-l → allow automod holds";
+pub(super) fn need_pack() -> &'static str {
+  t("app.held.need_pack")
+}
 
 #[derive(Default)]
 pub(super) struct Queue {
@@ -100,7 +103,7 @@ impl App {
       self.rooms.iter().filter(|(ch, _)| self.can_mod(Platform::Twitch, ch)).map(|r| r.0.clone()).collect();
     for ch in rooms {
       for i in self.tabs_with(Platform::Twitch, &ch) {
-        self.tabs[i].chat().push(crate::model::message::Message::system(now_ms(), Platform::Twitch, NEED_PACK));
+        self.tabs[i].chat().push(crate::model::message::Message::system(now_ms(), Platform::Twitch, need_pack()));
         self.touched(i);
       }
     }
@@ -187,11 +190,11 @@ impl App {
       Err(Fail::Relink) => {
         self.say(super::feed::needs_twitch("automod holds"));
         self.net.send(Cmd::Relink("automod"));
-        "needs a twitch permission"
+        t("app.held.needs_permission")
       }
-      Err(Fail::Auth) => "log in again (ctrl-l)",
-      Err(Fail::NotMod) => "you're not a mod here",
-      Err(Fail::Other(_)) => "action failed",
+      Err(Fail::Auth) => t("app.held.login_again"),
+      Err(Fail::NotMod) => t("app.held.not_mod"),
+      Err(Fail::Other(_)) => t("app.held.failed"),
     };
     if self.held.open.contains_key(&id) {
       self.held_set(&id, Some(&chan), &State::Failed(why.into()));
@@ -352,7 +355,7 @@ mod tests {
     assert!(watches(&mut asked).is_empty());
     let said = |app: &mut App| app.tabs[tab].chat().len();
     assert_eq!(said(&mut app), 1);
-    assert_eq!(&*app.tabs[tab].chat().last_msg().unwrap().body, NEED_PACK);
+    assert_eq!(&*app.tabs[tab].chat().last_msg().unwrap().body, need_pack());
     // the server can say so too (permissions unknown here): told once, then quiet until a new login
     app.me = Some(me(&[]));
     app.held.reset();

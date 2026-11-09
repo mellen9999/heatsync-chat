@@ -3,6 +3,7 @@
 // underneath, so new replies land at the bottom). esc / h / the `← back` tab / pressing again goes back.
 // it is a takeover like the chat logs: the view is a sibling of the tab's (same room, look, filters) and
 // the data lives in model::chain
+use crate::i18n::t;
 use std::collections::HashSet;
 
 use winit::keyboard::Key;
@@ -86,9 +87,9 @@ impl App {
     if self.takeover_tab().is_some() {
       self.takeover_close();
     }
-    let Some(f) = self.chain_of(id) else { return self.say("that line can't be threaded") };
+    let Some(f) = self.chain_of(id) else { return self.say(t("app.chain.cant_thread")) };
     if f.lines.len() < 2 {
-      return self.say("no thread on that line");
+      return self.say(t("app.chain.no_thread"));
     }
     let (h, w) = (self.chat_area().h, self.body().w);
     let Some(t) = self.tabs.get_mut(self.active) else { return };
@@ -119,8 +120,8 @@ impl App {
   pub(super) fn copy_thread(&mut self) {
     let Some(id) = self.tabs.get(self.active).and_then(|t| t.view.selected()).map(|m| m.id.clone()) else { return };
     match self.chain_of(&id).and_then(|f| chain::copy_text(&f.lines)) {
-      Some(text) => self.copy(&text, "thread copied"),
-      None => self.say("no thread on that line"),
+      Some(text) => self.copy(&text, t("app.chain.copied")),
+      None => self.say(t("app.chain.no_thread")),
     }
   }
 

@@ -1,6 +1,7 @@
 // the ext's small composer commands: /set, /tab, /user, /lclear (the faces live in model::quick)
 use super::App;
 use super::pop::Subject;
+use crate::i18n::{f, t};
 use crate::model::ident;
 use crate::model::message::Platform;
 use crate::model::quick;
@@ -12,26 +13,26 @@ impl App {
   // /set <setting> <value>: a switch takes on / off, the rest go through their own command
   pub(super) fn set_cmd(&mut self, key: &str, val: &str) {
     if key.is_empty() || val.is_empty() {
-      return self.say("usage: /set <setting> <value>  (e.g. /set timestamps on)");
+      return self.say(t("app.quick.usage_set"));
     }
     let Some(d) = quick::setting(key) else {
-      return self.say(format!("no setting called {key}: /settings lists them"));
+      return self.say(f("app.quick.no_setting", &[("key", key)]));
     };
     match d.ctl {
       Ctl::Pill(..) => match quick::switch(val) {
         Some(on) => {
           self.set_switch(d, on);
-          self.say(format!("{} {}", d.label, if on { "on" } else { "off" }));
+          self.say(f(if on { "app.quick.is_on" } else { "app.quick.is_off" }, &[("label", d.label_t())]));
         }
-        None => self.say(format!("use on or off for {}", d.label)),
+        None => self.say(f("app.quick.use_on_off", &[("label", d.label_t())])),
       },
       Ctl::Rules | Ctl::Reasons | Ctl::People | Ctl::Alerts | Ctl::Commands | Ctl::Buttons(..) => match d.cmd {
-        Some(c) => self.say(format!("{} is a list: {c} adds to it", d.label)),
-        None => self.say(format!("{} is a list: change it in /settings", d.label)),
+        Some(c) => self.say(f("app.quick.is_list_cmd", &[("label", d.label_t()), ("cmd", c)])),
+        None => self.say(f("app.quick.is_list", &[("label", d.label_t())])),
       },
       _ => match d.cmd.and_then(|c| local_cmd(&format!("{c} {val}"))) {
         Some(cmd) => self.local(cmd),
-        None => self.say(format!("change {} in /settings", d.label)),
+        None => self.say(f("app.quick.change_in_settings", &[("label", d.label_t())])),
       },
     }
   }
@@ -40,7 +41,7 @@ impl App {
   pub(super) fn goto_tab(&mut self, q: &str) {
     let q = q.trim().trim_start_matches('#').to_ascii_lowercase();
     if q.is_empty() {
-      return self.say("usage: /tab <channel|feed|mentions|whispers|modlog>");
+      return self.say(t("app.quick.usage_tab"));
     }
     let hit = self
       .tabs
@@ -48,8 +49,8 @@ impl App {
       .position(|t| t.name.eq_ignore_ascii_case(&q) || t.sources.iter().any(|s| s.1.eq_ignore_ascii_case(&q)));
     match hit {
       Some(i) if self.visible(i) => self.select(i),
-      Some(_) => self.say(format!("the {q} tab is hidden: /show {q}")),
-      None => self.say(format!("no tab called {q}")),
+      Some(_) => self.say(f("app.tab_hidden", &[("name", &q), ("key", &q)])),
+      None => self.say(f("app.quick.no_tab", &[("name", &q)])),
     }
   }
 
@@ -57,7 +58,7 @@ impl App {
   pub(super) fn user_cmd(&mut self, name: &str) {
     let login = name.trim().trim_start_matches('@').to_ascii_lowercase();
     if !ident::twitch_login(&login) {
-      return self.say("usage: /user <name>");
+      return self.say(t("app.quick.usage_user"));
     }
     let Some(t) = self.tabs.get(self.active) else { return };
     let (platform, chan) = t.sources.first().cloned().unwrap_or((Platform::Twitch, "".into()));
@@ -82,9 +83,9 @@ impl App {
     match self.tabs.get_mut(self.active) {
       Some(t) if t.kind == Kind::Chat && !t.sources.is_empty() => {
         t.chat().clear();
-        self.say("cleared this tab's lines (only for you)");
+        self.say(crate::i18n::t("app.quick.lclear"));
       }
-      _ => self.say("/lclear needs a channel tab"),
+      _ => self.say(t("app.quick.lclear_needs")),
     }
   }
 

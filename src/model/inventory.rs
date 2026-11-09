@@ -3,6 +3,7 @@
 // takes its inventory only through the sender sets (emotes::resolve). server rows are hostile: bounded,
 // names clean of control bytes, ids checked
 use super::ident;
+use crate::i18n::t;
 use serde_json::Value;
 
 // the server's inventory cap, and so the first slot number it refuses
@@ -117,16 +118,16 @@ pub fn saved(v: &Value) -> Vec<Saved> {
 pub fn rename_ok(list: &[Slot], slot: u32, typed: &str) -> Result<Box<str>, &'static str> {
   let name = typed.trim();
   if name.is_empty() {
-    return Err("type a name");
+    return Err(t("chat1.inventory.err.name_empty"));
   }
   if name.chars().count() > MAX_NAME {
-    return Err("a name is 100 characters at most");
+    return Err(t("chat1.inventory.err.name_long"));
   }
   if !crate::heatsync::valid_name(name) {
-    return Err("one word, no spaces, not starting with / or .");
+    return Err(t("chat1.inventory.err.name_form"));
   }
   if list.iter().any(|s| s.slot != slot && *s.name == *name) {
-    return Err("you already have an emote by that name");
+    return Err(t("chat1.inventory.err.name_taken"));
   }
   Ok(name.into())
 }
@@ -135,18 +136,14 @@ pub fn rename_ok(list: &[Slot], slot: u32, typed: &str) -> Result<Box<str>, &'st
 pub fn slot_number(typed: &str) -> Result<u32, &'static str> {
   match typed.trim().parse::<u32>() {
     Ok(n) if n < MAX_SLOTS => Ok(n),
-    _ => Err("a slot is a number from 0 to 4999"),
+    _ => Err(t("chat1.inventory.err.slot")),
   }
 }
 
 // a channel for the import: the server's rule, 1-50 of a-z A-Z 0-9 _ -
 pub fn channel(typed: &str) -> Result<Box<str>, &'static str> {
   let c = typed.trim().trim_start_matches('#');
-  if ident::slug(c, MAX_CHANNEL) {
-    Ok(c.to_ascii_lowercase().into())
-  } else {
-    Err("a channel is letters, numbers, - and _")
-  }
+  if ident::slug(c, MAX_CHANNEL) { Ok(c.to_ascii_lowercase().into()) } else { Err(t("chat1.inventory.err.channel")) }
 }
 
 // the slot that swapping row `at` with the one below (down) or above it means: the neighbour's slot

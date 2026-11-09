@@ -4,6 +4,7 @@
 // emotes on, also `entitlement.create|delete` per open twitch room (which chatters own a personal set) and
 // `emote_set.update` per set heard (net/personal.rs reads the sets themselves).
 // docs/contract.md bounds apply: every frame is hostile, subscriptions capped
+use crate::i18n::t;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
@@ -148,7 +149,7 @@ pub(super) const API: &str = "https://7tv.io";
 
 // the events socket can't be reached: a few plain lines for an outage, not one per try
 fn down(out: &Out, attempt: u32, wait: Duration) {
-  retrying(out, "can't reach 7tv", attempt, wait);
+  retrying(out, t("net1.stv.unreachable"), attempt, wait);
 }
 
 enum End {
@@ -405,7 +406,7 @@ async fn session(
       }
       _ = dog.tick() => {
         if last_rx.elapsed() > beat * 3 {
-          out.status("can't reach 7tv, trying again");
+          out.status(t("net1.stv.retry"));
           return End::Reconnect;
         }
       }

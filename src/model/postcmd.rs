@@ -7,8 +7,9 @@ pub enum Cmd {
   Re(String),
 }
 
-pub const OP_USAGE: &str = "usage: /op <text> posts to your feed";
-pub const RE_USAGE: &str = "usage: /re <text> answers the last heatsync post in chat";
+// the keys of the usage lines; show them through `t(OP_USAGE)`
+pub const OP_USAGE: &str = "chat2.postcmd.op_usage";
+pub const RE_USAGE: &str = "chat2.postcmd.re_usage";
 
 pub fn command(text: &str) -> Option<Cmd> {
   let t = text.trim();

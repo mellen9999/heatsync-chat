@@ -300,7 +300,7 @@ impl App {
     self.reply_to(None);
     // the hover button is off until asked for: said once per run, after a reply from the menu or the key
     if self.reply.is_some() && !self.set.hover_reply && !std::mem::replace(&mut self.reply_nudged, true) {
-      self.say("replying \u{b7} want a reply button on hover? /hoverreply turns it on");
+      self.say(crate::i18n::t("keys.reply.nudge"));
     }
   }
 
@@ -315,7 +315,7 @@ impl App {
       return;
     };
     if m.id.is_empty() {
-      return self.say("that line can't be replied to");
+      return self.say(crate::i18n::t("keys.reply.cannot"));
     }
     let p = m.platform;
     let reply = Reply { platform: p, id: m.id.clone(), nick: m.nick.clone(), text: m.body.clone() };

@@ -3,6 +3,7 @@
 // fill behind text is off-palette here). click or Enter jumps to the line in its room's tab. while the
 // window is away a mention also pings (util::sound) and flashes the title with who it was, like the ext, and
 // lights the taskbar entry (a web page has no taskbar, so that part has no ext key)
+use crate::i18n::{f, t};
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -239,7 +240,7 @@ impl App {
   // custom with no file picked yet says what is missing instead
   pub(super) fn ping_preview(&mut self) {
     if self.set.ping_sound == PingSound::Custom && self.set.ping_file.is_empty() {
-      return self.say("custom plays a wav file of yours: pick it in settings \u{203a} custom sound file");
+      return self.say(t("app.mentions.custom_hint"));
     }
     if !self.sound_muted() {
       crate::util::sound::preview(self.ping_voice(), self.set.mention_volume.percent());
@@ -320,19 +321,19 @@ impl App {
     if inbox::is_row(m) {
       return match inbox::post_of(m).map(Box::<str>::from) {
         Some(post) => self.notif_open(&post),
-        None => self.say("that one has nothing to open"),
+        None => self.say(crate::i18n::t("app.mentions.nothing_to_open")),
       };
     }
     let (p, id) = (m.platform, m.id.clone());
     let Some(room) = m.x.as_ref().map(|x| x.chan.clone()) else { return };
     let Some(i) = self.tabs_with(p, &room).first().copied() else {
-      return self.say(format!("{room} is not open as a tab"));
+      return self.say(f("app.mentions.not_open", &[("room", &room)]));
     };
     self.select(i);
     let h = self.chat_area().h;
     let res = &mut self.res;
     if !self.tabs[i].view.select_id(&id, res, h) {
-      self.say("that line has scrolled out of its tab");
+      self.say(crate::i18n::t("app.mentions.scrolled_out"));
     }
     self.wake();
   }

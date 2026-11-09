@@ -2,6 +2,7 @@
 // the prediction verbs (model::chantools). a line's menu offers vip / mod to the broadcaster. the answer
 // lands on the status line. asks for the twitch permission when it's missing
 use super::App;
+use crate::i18n::{f, t};
 use crate::model::chantools::Cmd;
 use crate::net::Cmd as NetCmd;
 use crate::net::blocked::Fail;
@@ -20,66 +21,66 @@ impl App {
       Ok(c) if c.roomless() => self.chan_tools_run("".into(), c),
       Ok(c) => match self.twitch_here() {
         Some(chan) => self.chan_tools_run(chan, c),
-        None => self.say("that needs a twitch channel tab"),
+        None => self.say(t("mod.suite.need_tab")),
       },
     }
   }
 
   pub(super) fn chan_tools_run(&mut self, chan: Box<str>, cmd: Cmd) {
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("mod.common.login_first"));
     }
     if matches!(cmd, Cmd::Announce { .. })
       && !self.can_mod(crate::model::message::Platform::Twitch, &chan)
       && !self.is_caster(&chan)
     {
-      return self.say(format!("that needs mod on {chan}"));
+      return self.say(f("mod.suite.needs_mod", &[("chan", &chan)]));
     }
     self.net.send(NetCmd::Chan(chan, cmd));
   }
 
   pub(super) fn on_chan_tools(&mut self, chan: Box<str>, cmd: Cmd, res: Result<Done, Oops>) {
     let what = match &cmd {
-      Cmd::Announce { .. } => "announce",
-      Cmd::Vip(..) => "vip",
-      Cmd::Mod(..) => "mod",
-      Cmd::Color(_) => "color",
-      Cmd::Poll { .. } => "poll",
-      Cmd::EndPoll => "end poll",
-      Cmd::Prediction { .. } => "prediction",
-      Cmd::Lock => "lock",
-      Cmd::Resolve(_) => "resolve",
-      Cmd::Cancel => "cancel",
+      Cmd::Announce { .. } => t("mod.chan.noun_announce"),
+      Cmd::Vip(..) => t("mod.chan.noun_vip"),
+      Cmd::Mod(..) => t("mod.chan.noun_mod"),
+      Cmd::Color(_) => t("mod.chan.noun_color"),
+      Cmd::Poll { .. } => t("mod.chan.noun_poll"),
+      Cmd::EndPoll => t("mod.chan.noun_end_poll"),
+      Cmd::Prediction { .. } => t("mod.chan.noun_prediction"),
+      Cmd::Lock => t("mod.chan.noun_lock"),
+      Cmd::Resolve(_) => t("mod.chan.noun_resolve"),
+      Cmd::Cancel => t("mod.chan.noun_cancel"),
     };
     let line = match (res, &cmd) {
-      (Ok(Done::Color(c)), _) => format!("chat color set to {c}"),
-      (Ok(Done::Poll(t)), _) => format!("poll started: {t}"),
-      (Ok(Done::Ended(t)), _) => format!("poll ended: {t}"),
-      (Ok(Done::Predicted(t)), _) => format!("prediction started: {t}"),
-      (Ok(Done::Locked(t)), _) => format!("prediction locked: {t}"),
-      (Ok(Done::Resolved(t)), _) => format!("prediction resolved: {t} won"),
-      (Ok(Done::Canceled(t)), _) => format!("prediction canceled: {t}"),
+      (Ok(Done::Color(c)), _) => f("mod.chan.color_set", &[("color", &c)]),
+      (Ok(Done::Poll(title)), _) => f("mod.chan.poll_started", &[("title", &title)]),
+      (Ok(Done::Ended(title)), _) => f("mod.chan.poll_ended", &[("title", &title)]),
+      (Ok(Done::Predicted(title)), _) => f("mod.chan.pred_started", &[("title", &title)]),
+      (Ok(Done::Locked(title)), _) => f("mod.chan.pred_locked", &[("title", &title)]),
+      (Ok(Done::Resolved(title)), _) => f("mod.chan.pred_resolved", &[("title", &title)]),
+      (Ok(Done::Canceled(title)), _) => f("mod.chan.pred_canceled", &[("title", &title)]),
       (Ok(Done::Plain), Cmd::Vip(u, add)) => {
-        format!("{u} {} in {chan}", if *add { "is now a vip" } else { "is no longer a vip" })
+        f(if *add { "mod.chan.vip_on" } else { "mod.chan.vip_off" }, &[("user", u), ("chan", &chan)])
       }
       (Ok(Done::Plain), Cmd::Mod(u, add)) => {
-        format!("{u} {} in {chan}", if *add { "is now a moderator" } else { "is no longer a moderator" })
+        f(if *add { "mod.chan.mod_on" } else { "mod.chan.mod_off" }, &[("user", u), ("chan", &chan)])
       }
-      (Ok(Done::Plain), _) => format!("announced in {chan}"),
-      (Err(Oops(Fail::Auth, _)), _) => "log in first (ctrl-l)".into(),
+      (Ok(Done::Plain), _) => f("mod.chan.announced", &[("chan", &chan)]),
+      (Err(Oops(Fail::Auth, _)), _) => t("mod.common.login_first").into(),
       (Err(Oops(Fail::Relink, _)), _) => {
         self.net.send(NetCmd::Relink(cmd.pack()));
         super::feed::needs_twitch(what)
       }
-      (Err(Oops(Fail::NotMod, _)), Cmd::Announce { .. }) => format!("you are not a moderator of {chan}"),
-      (Err(Oops(Fail::NotMod, _)), _) => "only the broadcaster can do this".into(),
-      (Err(Oops(Fail::Gone, _)), Cmd::Vip(u, _) | Cmd::Mod(u, _)) => format!("no twitch user named {u}"),
-      (Err(Oops(Fail::Gone, _)), Cmd::EndPoll) => "no poll is running".into(),
-      (Err(Oops(Fail::Gone, _)), Cmd::Lock) => "no prediction is open".into(),
-      (Err(Oops(Fail::Gone, _)), Cmd::Resolve(_) | Cmd::Cancel) => "no prediction is open or locked".into(),
-      (Err(Oops(Fail::Limited, _)), _) => "slow down: try again in a moment".into(),
-      (Err(Oops(_, why)), _) if !why.is_empty() => format!("{what} failed: {why}"),
-      (Err(_), _) => format!("{what} failed: try again"),
+      (Err(Oops(Fail::NotMod, _)), Cmd::Announce { .. }) => f("mod.suite.not_mod", &[("chan", &chan)]),
+      (Err(Oops(Fail::NotMod, _)), _) => t("mod.chan.caster_only").into(),
+      (Err(Oops(Fail::Gone, _)), Cmd::Vip(u, _) | Cmd::Mod(u, _)) => f("mod.suite.no_user", &[("user", u)]),
+      (Err(Oops(Fail::Gone, _)), Cmd::EndPoll) => t("mod.chan.no_poll").into(),
+      (Err(Oops(Fail::Gone, _)), Cmd::Lock) => t("mod.chan.no_pred_open").into(),
+      (Err(Oops(Fail::Gone, _)), Cmd::Resolve(_) | Cmd::Cancel) => t("mod.chan.no_pred_locked").into(),
+      (Err(Oops(Fail::Limited, _)), _) => t("mod.common.slow_down").into(),
+      (Err(Oops(_, why)), _) if !why.is_empty() => f("mod.chan.failed_why", &[("what", what), ("why", &why)]),
+      (Err(_), _) => f("mod.chan.failed", &[("what", what)]),
     };
     self.say(line);
     self.wake();

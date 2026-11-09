@@ -1,6 +1,7 @@
 // mod actions through heatsync (POST /api/mod/action). the server holds the twitch / kick mod
 // tokens; we only name the room, the person and what to do. twitch wants numeric ids, kick takes
 // the channel slug and the login. youtube is not here: heatsync has no youtube moderation to call
+use crate::i18n::t;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -37,7 +38,7 @@ pub struct Done {
 }
 
 // what a 429 reads as (the server's bucket: 30 actions, one more a second)
-pub const SLOW: &str = "slow down";
+pub const SLOW: &str = "net2.modact.slow";
 
 // what the ui is told when a /nuke settles: the deletes that landed (room, message id), out of `total`,
 // and why the first failure failed (if any did)
@@ -127,7 +128,7 @@ pub async fn nuke(http: reqwest::Client, token: Option<String>, reqs: Vec<Req>, 
         Some(t) => act(&http, t, &r).await,
       };
       match res {
-        Err(Fail::Other(e)) if e == SLOW && tries < RETRIES && Instant::now() < end => {
+        Err(Fail::Other(e)) if e == t(SLOW) && tries < RETRIES && Instant::now() < end => {
           tries += 1;
           tokio::time::sleep(PACE + PACE / 2).await;
         }
@@ -192,9 +193,9 @@ pub fn classify(status: u16, v: &Value) -> Result<(), Fail> {
   }
   Err(match status {
     401 => Fail::Auth,
-    429 => Fail::Other(SLOW.into()),
-    0 => Fail::Other("no answer from heatsync".into()),
-    403 => Fail::Other("you're not a mod here".into()),
+    429 => Fail::Other(t(SLOW).into()),
+    0 => Fail::Other(t("net2.http.no_answer").into()),
+    403 => Fail::Other(t("net2.http.not_mod").into()),
     _ if err.is_empty() => Fail::Other(http::plain_status(status)),
     _ => Fail::Other(http::server_words(err)),
   })

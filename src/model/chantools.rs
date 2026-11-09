@@ -4,6 +4,7 @@
 // predictions are the broadcaster's. heatsync's server is the real check
 use super::ident;
 use super::modsuite::login;
+use crate::i18n::t;
 
 pub const MAX_ANNOUNCE: usize = 500;
 pub const MAX_POLL_TITLE: usize = 60;
@@ -125,19 +126,19 @@ pub fn command(text: &str) -> Option<Result<Cmd, &'static str>> {
         _ => ("primary", arg),
       };
       if body.is_empty() || !clean(body) {
-        Err("usage: /announce [primary|blue|green|orange|purple] <message>")
+        Err(t("mod.chan.announce_usage"))
       } else if body.chars().count() > MAX_ANNOUNCE {
-        Err("announcements are 500 characters at most")
+        Err(t("mod.chan.announce_long"))
       } else {
         Ok(Cmd::Announce { color, text: body.to_owned() })
       }
     }
     "vip" | "unvip" | "mod" | "unmod" => {
       let usage = match word.as_str() {
-        "vip" => "usage: /vip <user>",
-        "unvip" => "usage: /unvip <user>",
-        "mod" => "usage: /mod <user>",
-        _ => "usage: /unmod <user>",
+        "vip" => t("mod.chan.vip_usage"),
+        "unvip" => t("mod.chan.unvip_usage"),
+        "mod" => t("mod.chan.mod_usage"),
+        _ => t("mod.chan.unmod_usage"),
       };
       match login(arg) {
         Some(u) if !arg.contains(char::is_whitespace) => {
@@ -147,23 +148,19 @@ pub fn command(text: &str) -> Option<Result<Cmd, &'static str>> {
         _ => Err(usage),
       }
     }
-    "color" => color(arg).map(Cmd::Color).ok_or("usage: /color <name|#hex>, like /color coral or /color #ff8800"),
+    "color" => color(arg).map(Cmd::Color).ok_or(t("mod.chan.color_usage")),
     "poll" | "prediction" | "pred" | "predict" => {
       let poll = word == "poll";
-      let usage = if poll {
-        "usage: /poll title | choice | choice [| up to 5] [| seconds]"
-      } else {
-        "usage: /prediction title | outcome | outcome [| up to 10] [| seconds]"
-      };
+      let usage = if poll { t("mod.chan.poll_usage") } else { t("mod.chan.pred_usage") };
       let (title, items, secs) = pieces(arg);
       let (max_title, max_items, min_secs) =
         if poll { (MAX_POLL_TITLE, MAX_CHOICES, 15) } else { (MAX_PRED_TITLE, MAX_OUTCOMES, 30) };
       if title.is_empty() || items.len() < 2 || items.len() > max_items || !clean(arg) {
         Err(usage)
       } else if title.chars().count() > max_title {
-        Err(if poll { "a poll title is 60 characters at most" } else { "a prediction title is 45 characters at most" })
+        Err(t(if poll { "mod.chan.poll_title_long" } else { "mod.chan.pred_title_long" }))
       } else if items.iter().any(|i| i.chars().count() > MAX_CHOICE) {
-        Err("each choice is 25 characters at most")
+        Err(t("mod.chan.choice_long"))
       } else {
         let secs = secs.unwrap_or(DEFAULT_SECS).clamp(min_secs, MAX_SECS);
         Ok(if poll {
@@ -178,7 +175,7 @@ pub fn command(text: &str) -> Option<Result<Cmd, &'static str>> {
     "cancelprediction" | "cancelpred" => Ok(Cmd::Cancel),
     "resolveprediction" | "resolvepred" => match arg.parse::<usize>() {
       Ok(n) if (1..=MAX_OUTCOMES).contains(&n) => Ok(Cmd::Resolve(n)),
-      _ => Err("usage: /resolveprediction <n>, the winning outcome's number"),
+      _ => Err(t("mod.chan.resolve_usage")),
     },
     _ => return None,
   })

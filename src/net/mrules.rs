@@ -1,6 +1,7 @@
 // your mention rules through heatsync (ext multichat/mention-rules.js): GET / POST /api/mention-rules and
 // PUT / DELETE /api/mention-rules/<id>. the answer is read as hostile json (model::mrules). the heatsync
 // session's token is the only credential; it never reaches a log or a screen
+use crate::i18n::t;
 use reqwest::Method;
 use serde_json::{Value, json};
 
@@ -37,11 +38,11 @@ pub enum Fail {
 
 pub fn words(f: &Fail) -> String {
   match f {
-    Fail::Auth => "log in to heatsync.org to keep mention rules".into(),
+    Fail::Auth => t("net2.mrules.auth").into(),
     Fail::Said(s) => s.clone(),
-    Fail::Gone => "that rule is already gone".into(),
-    Fail::Limited => "slow down a little, then try again".into(),
-    Fail::Other => "heatsync did not answer".into(),
+    Fail::Gone => t("net2.mrules.gone").into(),
+    Fail::Limited => t("net2.mrules.limited").into(),
+    Fail::Other => t("net2.mrules.other").into(),
   }
 }
 

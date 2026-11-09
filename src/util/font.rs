@@ -26,7 +26,7 @@ pub struct Found {
 fn askable(name: &str) -> Result<&str, String> {
   let n = name.trim();
   if n.is_empty() || n.len() > MAX_NAME || n.chars().any(char::is_control) {
-    return Err("that isn't a font name i can look up".to_owned());
+    return Err(crate::i18n::t("misc.font.bad_name").to_owned());
   }
   Ok(n)
 }

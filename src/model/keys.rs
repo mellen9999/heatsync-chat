@@ -6,11 +6,13 @@
 // one line of the map: the keys, what they do, and whether they need vi mode (the vi keys, normal mode)
 pub struct Row {
   pub keys: &'static str,
+  // the i18n key of the text, shown through `t`
   pub does: &'static str,
   pub vi: bool,
 }
 
 pub struct Group {
+  // the i18n key of the heading, shown through `t`
   pub name: &'static str,
   pub rows: &'static [Row],
 }
@@ -34,319 +36,283 @@ const fn v(keys: &'static str, does: &'static str) -> Row {
 
 pub static KEYS: [Group; 19] = [
   Group {
-    name: "anywhere",
+    name: "keys.anywhere.name",
     rows: &[
-      k("f1", "this screen · the ? button · /keys · /tour shows the first-run tour again"),
-      k("ctrl-,", "settings · the ⚙ button"),
-      k(
-        "/reset",
-        "every look and behaviour setting back to its default; asks y first, keeps your login, tabs, lists and rules",
-      ),
-      k("ctrl-t", "add a channel · the + button"),
-      k("ctrl-l", "log in · account menu (link, log out)"),
-      k("ctrl-shift-l", "log out"),
-      k("/login /logout", "like ctrl-l and ctrl-shift-l"),
-      k("/account", "who you're logged in as · log out"),
-      k("ctrl-b", "who you follow is live, as a list (also /following, /live)"),
-      k("/import", "your twitch follows, live first: space picks, enter adds them as tabs"),
-      k("ctrl-p", "your emotes: rename, reorder, remove, undo, sets, share (/emotes)"),
-      k("ctrl-o", "upload a picture or video"),
-      k("ctrl-;", "emote picker"),
-      k("ctrl-v  shift-insert", "paste text or a picture"),
-      k("ctrl-= ctrl-- ctrl-0", "zoom in, out, reset"),
-      k("ctrl-wheel", "zoom"),
-      k("pageup pagedown", "scroll a page"),
-      v("?", "this screen"),
+      k("f1", "keys.anywhere.01"),
+      k("ctrl-,", "keys.anywhere.02"),
+      k("/reset", "keys.anywhere.03"),
+      k("ctrl-t", "keys.anywhere.04"),
+      k("ctrl-l", "keys.anywhere.05"),
+      k("ctrl-shift-l", "keys.anywhere.06"),
+      k("/login /logout", "keys.anywhere.07"),
+      k("/account", "keys.anywhere.08"),
+      k("ctrl-b", "keys.anywhere.09"),
+      k("/import", "keys.anywhere.10"),
+      k("ctrl-p", "keys.anywhere.11"),
+      k("ctrl-o", "keys.anywhere.12"),
+      k("ctrl-;", "keys.anywhere.13"),
+      k("ctrl-v  shift-insert", "keys.anywhere.14"),
+      k("ctrl-= ctrl-- ctrl-0", "keys.anywhere.15"),
+      k("ctrl-wheel", "keys.anywhere.16"),
+      k("pageup pagedown", "keys.anywhere.17"),
+      v("?", "keys.anywhere.18"),
     ],
   },
   Group {
-    name: "chat",
+    name: "keys.chat.name",
     rows: &[
-      k(
-        "click",
-        "pick a line; a reply's ↳ line opens its thread; a went-live line opens that channel (its tab, else a temporary one)",
-      ),
-      k("right-click", "line menu: reply, copy, note, mute, block, mod, pin"),
-      k("click  ctrl-f", "filter this tab: a word or @name (/pattern/ works too), enter keeps, esc clears"),
-      k("ctrl-g", "next match (shift: previous)"),
-      v("ctrl-d ctrl-u", "scroll half a page"),
-      v("space g  space G", "oldest, newest"),
-      v("space r  space R", "jump to the last-read line, clear it"),
-      v("v", "pick a line"),
-      v("/  space /", "filter this tab (the bar at the top)"),
-      v("n  N  space n  space N", "next, previous match"),
-      v("space x", "hide the pinned line (your channel or a twitch mod: unpin for everyone)"),
-      v("space p", "this twitch channel's prediction (also /predictions, or click its banner)"),
-      v("space t", "tab mode: move, reorder, close tabs from the keys"),
-      v("space w", "watch this channel's stream (mpv, else the browser)"),
-      v(
-        "space s",
-        "streamer mode: show or hide the whispers tab for this session (a click on a hidden line shows it too)",
-      ),
-      v("ctrl-w", "close the tab"),
+      k("click", "keys.chat.01"),
+      k("right-click", "keys.chat.02"),
+      k("click  ctrl-f", "keys.chat.03"),
+      k("ctrl-g", "keys.chat.04"),
+      v("ctrl-d ctrl-u", "keys.chat.05"),
+      v("space g  space G", "keys.chat.06"),
+      v("space r  space R", "keys.chat.07"),
+      v("v", "keys.chat.08"),
+      v("/  space /", "keys.chat.09"),
+      v("n  N  space n  space N", "keys.chat.10"),
+      v("space x", "keys.chat.11"),
+      v("space p", "keys.chat.12"),
+      v("space t", "keys.chat.13"),
+      v("space w", "keys.chat.14"),
+      v("space s", "keys.chat.15"),
+      v("ctrl-w", "keys.chat.16"),
     ],
   },
   Group {
-    name: "a picked line",
+    name: "keys.picked_line.name",
     rows: &[
-      v("j k  up down", "move the pick"),
-      v("r", "reply to it (whispers: answer that person)"),
-      v("t", "its reply thread, oldest first (again, esc or h goes back; the menu copies it)"),
-      v(
-        "m",
-        "line menu: copy, note, mute, block, hide; a post: upvote, bookmark, edit, delete; op to feed; whispers: delete dm",
-      ),
-      v("c", "user card"),
-      v("o", "open its first link (a video plays)"),
-      v("ctrl-c", "copy the line"),
-      v(
-        "enter",
-        "open it (mentions, feed; a folded run of timeouts); in whispers: answer that person, or retry a failed send",
-      ),
-      v("u", "upvote (feed)"),
-      v("x", "delete your own dm (whispers; it asks first, and the other person loses it too; also in the m menu)"),
-      v("h backspace", "back out of a thread, like the ← back tab"),
-      v("v esc", "let go"),
+      v("j k  up down", "keys.picked_line.01"),
+      v("r", "keys.picked_line.02"),
+      v("t", "keys.picked_line.03"),
+      v("m", "keys.picked_line.04"),
+      v("c", "keys.picked_line.05"),
+      v("o", "keys.picked_line.06"),
+      v("ctrl-c", "keys.picked_line.07"),
+      v("enter", "keys.picked_line.08"),
+      v("u", "keys.picked_line.09"),
+      v("x", "keys.picked_line.10"),
+      v("h backspace", "keys.picked_line.11"),
+      v("v esc", "keys.picked_line.12"),
     ],
   },
   Group {
-    name: "chat logs (line menu or card → chat logs)",
+    name: "keys.chat_logs.name",
     rows: &[
-      k("j k  up down  click", "pick a line, older / newer"),
-      k("g G  wheel pageup", "oldest, newest (the ▼ chip jumps down too); the top loads older lines"),
-      k("/", "search their lines (enter finds, esc clears)"),
-      k("a", "swap this channel and every channel"),
-      k("y", "copy the picked line's public link"),
-      k("r", "reload"),
-      k("esc q h backspace", "back (esc clears a search first)"),
-      v("c", "user card"),
+      k("j k  up down  click", "keys.chat_logs.01"),
+      k("g G  wheel pageup", "keys.chat_logs.02"),
+      k("/", "keys.chat_logs.03"),
+      k("a", "keys.chat_logs.04"),
+      k("y", "keys.chat_logs.05"),
+      k("r", "keys.chat_logs.06"),
+      k("esc q h backspace", "keys.chat_logs.07"),
+      v("c", "keys.chat_logs.08"),
     ],
   },
   Group {
-    name: "typing",
+    name: "keys.typing.name",
     rows: &[
-      k("enter", "send (with the list open: pick)"),
-      k("tab  shift-tab", "complete emote, name, command; again to cycle"),
-      k(":ka  @  /", "list emotes (then emoji), people, commands"),
-      k(":fire:", "turns into the emoji when sent"),
-      k("up down", "older, newer sent lines (with the list open: move in it)"),
-      k("ctrl-z  ctrl-y  ctrl-shift-z", "undo, redo"),
-      k("click", "put the cursor there"),
-      k("ctrl-n", "merged tab sends to: all feeds, then each alone"),
-      k("alt-t alt-k alt-y", "merged tab: send to twitch, kick, youtube on or off"),
-      k("ctrl-a ctrl-e  home end", "start, end of line"),
-      k("ctrl-left ctrl-right", "jump a word"),
-      k("ctrl-w  ctrl-backspace", "delete the word before"),
-      k("backspace  delete", "erase the letter before, after the cursor"),
-      k("ctrl-u ctrl-k", "delete to start, to end"),
-      k(
-        "esc",
-        "close the list, end a tab cycle, clear the search, drop the reply, let a picked line go (vi: leave typing)",
-      ),
+      k("enter", "keys.typing.01"),
+      k("tab  shift-tab", "keys.typing.02"),
+      k(":ka  @  /", "keys.typing.03"),
+      k(":fire:", "keys.typing.04"),
+      k("up down", "keys.typing.05"),
+      k("ctrl-z  ctrl-y  ctrl-shift-z", "keys.typing.06"),
+      k("click", "keys.typing.07"),
+      k("ctrl-n", "keys.typing.08"),
+      k("alt-t alt-k alt-y", "keys.typing.09"),
+      k("ctrl-a ctrl-e  home end", "keys.typing.10"),
+      k("ctrl-left ctrl-right", "keys.typing.11"),
+      k("ctrl-w  ctrl-backspace", "keys.typing.12"),
+      k("backspace  delete", "keys.typing.13"),
+      k("ctrl-u ctrl-k", "keys.typing.14"),
+      k("esc", "keys.typing.15"),
     ],
   },
   Group {
-    name: "editing the box",
+    name: "keys.editing.name",
     rows: &[
-      v("h l w b e", "move by char or word"),
-      v("0 ^ $", "line start, first word, end"),
-      v("f t F T", "jump to a letter"),
-      v("x X D", "delete"),
-      v("d c y", "delete, change, copy, then a move: dw, c$"),
-      v("p  P", "paste after, before"),
-      v("u  ctrl-r", "undo, redo"),
-      v("i a I A", "start typing here, after, ends"),
-      v("j k", "older, newer sent lines"),
-      v("enter", "send (empty: start typing)"),
-      v("esc", "drop the reply"),
+      v("h l w b e", "keys.editing.01"),
+      v("0 ^ $", "keys.editing.02"),
+      v("f t F T", "keys.editing.03"),
+      v("x X D", "keys.editing.04"),
+      v("d c y", "keys.editing.05"),
+      v("p  P", "keys.editing.06"),
+      v("u  ctrl-r", "keys.editing.07"),
+      v("i a I A", "keys.editing.08"),
+      v("j k", "keys.editing.09"),
+      v("enter", "keys.editing.10"),
+      v("esc", "keys.editing.11"),
     ],
   },
   Group {
-    name: "picker",
+    name: "keys.picker.name",
     rows: &[
-      k("h j k l  arrows", "move"),
-      k("enter", "pick (shift-enter keeps it open)"),
-      k("/ i  tab", "search, switch search and grid"),
-      k(
-        "] [  ctrl-tab",
-        "next, previous tab: emotes, gifs, emoji (gifs: type to search, enter inserts the link; emoji: fuzzy search, enter inserts it)",
-      ),
-      k("alt-1 alt-2 alt-3 alt-4", "search 7tv, ffz, heatsync, exact names only (the chips; kept on this machine)"),
-      k("alt-u", "upload your own emote: pick a picture, name it (one word), it lands in your set. needs a login"),
-      k("g G", "first, last"),
-      k("ctrl-d ctrl-u  pagedown pageup", "page down, up"),
-      k("backspace  ctrl-w", "erase a letter in the search, clear it"),
-      k("esc q ctrl-;", "close"),
+      k("h j k l  arrows", "keys.picker.01"),
+      k("enter", "keys.picker.02"),
+      k("/ i  tab", "keys.picker.03"),
+      k("] [  ctrl-tab", "keys.picker.04"),
+      k("alt-1 alt-2 alt-3 alt-4", "keys.picker.05"),
+      k("alt-u", "keys.picker.06"),
+      k("g G", "keys.picker.07"),
+      k("ctrl-d ctrl-u  pagedown pageup", "keys.picker.08"),
+      k("backspace  ctrl-w", "keys.picker.09"),
+      k("esc q ctrl-;", "keys.picker.10"),
     ],
   },
   Group {
-    name: "your emotes (ctrl-p)",
+    name: "keys.emotes.name",
     rows: &[
-      k("j k  up down", "move"),
-      k("] [  tab", "mine, removed, sets"),
-      k("n  enter", "rename · removed: restore · sets: apply (y yes, n no)"),
-      k("m", "move it to a slot you type (a taken slot trades places)"),
-      k("J K", "carry it down, up one place"),
-      k("x", "remove it (it asks first)"),
-      k("y", "yes to a question it asks (n or esc: no)"),
-      k("u  ctrl-r", "undo, redo your last change"),
-      k("s S", "share your set (copies the link), stop sharing"),
-      k("i", "import a channel's 7tv, bttv and ffz emotes"),
-      k("/  R", "filter, read again"),
-      k("esc q", "close"),
+      k("j k  up down", "keys.emotes.01"),
+      k("] [  tab", "keys.emotes.02"),
+      k("n  enter", "keys.emotes.03"),
+      k("m", "keys.emotes.04"),
+      k("J K", "keys.emotes.05"),
+      k("x", "keys.emotes.06"),
+      k("y", "keys.emotes.07"),
+      k("u  ctrl-r", "keys.emotes.08"),
+      k("s S", "keys.emotes.09"),
+      k("i", "keys.emotes.10"),
+      k("/  R", "keys.emotes.11"),
+      k("esc q", "keys.emotes.12"),
     ],
   },
   Group {
-    name: "tabs",
+    name: "keys.tabs.name",
     rows: &[
-      k("alt-1 .. alt-0", "jump to a tab (alt-0 is the tenth)"),
-      k("ctrl-tab", "next tab (shift for previous)"),
-      k("alt-[ alt-]", "previous, next tab"),
-      k(
-        "alt-r",
-        "row mode (no vi needed): pick a line with j k (g, home: first line; shift-g, end: last), then the picked-line keys; esc lets go",
-      ),
-      k("click", "open a tab; the ⚙ is settings, the ? is this screen"),
-      k(
-        "right-click",
-        "clear a red, cyan or yellow tab; else its menu: edit, remove (a temporary tab: keep; built-ins: hide), clear lines, bell (go-live popups for the channel: default, on, off), mute pings (its mentions still reach the mentions tab, silently), show twitch / kick / youtube on a merged tab (off hides that platform's lines there: not drawn, no pings; kept on this device only), share layout, use a shared layout, and announce, poll, prediction for a twitch room you run",
-      ),
-      k("edit form", "tab to the buttons: watch, status, predictions, summary; j l next, k h back, enter runs"),
-      v("gt  gT  space ] [", "next, previous tab"),
-      v("space 1 .. space 9", "jump to a tab"),
+      k("alt-1 .. alt-0", "keys.tabs.01"),
+      k("ctrl-tab", "keys.tabs.02"),
+      k("alt-[ alt-]", "keys.tabs.03"),
+      k("alt-r", "keys.tabs.04"),
+      k("click", "keys.tabs.05"),
+      k("right-click", "keys.tabs.06"),
+      k("edit form", "keys.tabs.07"),
+      v("gt  gT  space ] [", "keys.tabs.08"),
+      v("space 1 .. space 9", "keys.tabs.09"),
     ],
   },
   Group {
-    name: "mod",
+    name: "keys.mod.name",
     rows: &[
-      k("/ban /timeout /unban", "by name"),
-      k("/delete /purge", "this line, a person's lines"),
-      k("/confirmban", "ask before a ban"),
-      k("/modbuttons", "hover buttons on a line: /modbuttons x 10m ban, off clears"),
-      k("allow  deny", "an automod hold: click, or its line menu"),
-      k("/blocked", "blocked terms: j k move, x delete, a add, / filter"),
-      k("/warn /shoutout /shield", "warn with a reason, shout out, shield mode"),
-      k("/modtools", "shield, automod (h l), unban requests (y approve, x deny), chatters"),
-      k("/status", "stream and chat modes: enter flips a mode, h l its wait"),
-      k("/slow /followers", "a wait, or off: /slow 30, /followers 10m"),
-      k("/emoteonly /subscribers /unique", "on, or off: /emoteonly off"),
-      v("m", "line menu: delete, timeout, ban"),
+      k("/ban /timeout /unban", "keys.mod.01"),
+      k("/delete /purge", "keys.mod.02"),
+      k("/confirmban", "keys.mod.03"),
+      k("/modbuttons", "keys.mod.04"),
+      k("allow  deny", "keys.mod.05"),
+      k("/blocked", "keys.mod.06"),
+      k("/warn /shoutout /shield", "keys.mod.07"),
+      k("/modtools", "keys.mod.08"),
+      k("/status", "keys.mod.09"),
+      k("/slow /followers", "keys.mod.10"),
+      k("/emoteonly /subscribers /unique", "keys.mod.11"),
+      v("m", "keys.mod.12"),
     ],
   },
   Group {
-    name: "tab mode (space t)",
+    name: "keys.tab_mode.name",
     rows: &[
-      v("j k  up down", "move the cursor (3j: three)"),
-      v("g G  home end", "first, last"),
-      v("enter l right", "open the tab"),
-      v("J K", "carry a channel down, up"),
-      v("d x", "close a channel"),
-      v("a o", "add a channel"),
-      v("esc q t", "leave"),
+      v("j k  up down", "keys.tab_mode.01"),
+      v("g G  home end", "keys.tab_mode.02"),
+      v("enter l right", "keys.tab_mode.03"),
+      v("J K", "keys.tab_mode.04"),
+      v("d x", "keys.tab_mode.05"),
+      v("a o", "keys.tab_mode.06"),
+      v("esc q t", "keys.tab_mode.07"),
     ],
   },
   Group {
-    name: "picture",
+    name: "keys.picture.name",
     rows: &[
-      k("click", "a picture in chat fills the pane"),
-      k("click ▶", "a video plays (mpv, else the browser)"),
-      k("+ - 0", "zoom in, out, fit"),
-      k("h j k l  arrows", "move around it · or the wheel"),
-      k("pageup pagedown space", "scroll a page"),
-      k("esc q", "close it · or click, or the ← back tab"),
+      k("click", "keys.picture.01"),
+      k("click ▶", "keys.picture.02"),
+      k("+ - 0", "keys.picture.03"),
+      k("h j k l  arrows", "keys.picture.04"),
+      k("pageup pagedown space", "keys.picture.05"),
+      k("esc q", "keys.picture.06"),
     ],
   },
   Group {
-    name: "settings (ctrl-,)",
+    name: "keys.settings.name",
     rows: &[
-      k("j k  up down", "move"),
-      k("ctrl-d ctrl-u  pageup pagedown", "half a page, a page"),
-      k("gg G  home end", "first, last"),
-      k("/", "filter the list: type, enter stops typing, esc clears"),
-      k("enter space", "flip it, open a list, or ask to reset everything to defaults"),
-      k("h l  left right", "step a choice down, up (zoom, tab side, counter, pickers)"),
-      k("y", "after the reset question: yes (any other key keeps your settings)"),
-      k("?", "the key list"),
-      k("esc q", "close (esc clears the filter first)"),
+      k("j k  up down", "keys.settings.01"),
+      k("ctrl-d ctrl-u  pageup pagedown", "keys.settings.02"),
+      k("gg G  home end", "keys.settings.03"),
+      k("/", "keys.settings.04"),
+      k("enter space", "keys.settings.05"),
+      k("h l  left right", "keys.settings.06"),
+      k("y", "keys.settings.07"),
+      k("?", "keys.settings.08"),
+      k("esc q", "keys.settings.09"),
     ],
   },
   Group {
-    name: "followed (ctrl-b)",
+    name: "keys.followed.name",
     rows: &[
-      k("j k  up down", "move"),
-      k("enter", "open their tab, else an underlined temporary one (one slot; /keep or chatting in it saves it)"),
-      k("w", "watch the stream (mpv, else the browser)"),
-      k("r", "read the list again"),
-      k("/", "filter by name"),
-      k("esc q", "close"),
+      k("j k  up down", "keys.followed.01"),
+      k("enter", "keys.followed.02"),
+      k("w", "keys.followed.03"),
+      k("r", "keys.followed.04"),
+      k("/", "keys.followed.05"),
+      k("esc q", "keys.followed.06"),
     ],
   },
   Group {
-    name: "import (/import)",
+    name: "keys.import.name",
     rows: &[
-      k("j k  up down", "move"),
-      k("space", "pick or unpick a channel"),
-      k("s", "pick everyone who is live"),
-      k("enter", "add the picked ones as tabs"),
-      k("r", "read your follows again"),
-      k("/", "filter by name"),
-      k("esc q", "close"),
+      k("j k  up down", "keys.import.01"),
+      k("space", "keys.import.02"),
+      k("s", "keys.import.03"),
+      k("enter", "keys.import.04"),
+      k("r", "keys.import.05"),
+      k("/", "keys.import.06"),
+      k("esc q", "keys.import.07"),
     ],
   },
   Group {
-    name: "mod tools (/modtools)",
+    name: "keys.mod_tools.name",
     rows: &[
-      k("j k  up down", "move"),
-      k("enter space", "flip shield, run a row, ask about a request"),
-      k("h l  left right", "automod level down, up"),
-      k("y x", "on an unban request: approve, deny (then y or enter sure, n or esc cancel)"),
-      k("r", "read it all again"),
-      k("/", "filter"),
-      k("esc q", "close"),
+      k("j k  up down", "keys.mod_tools.01"),
+      k("enter space", "keys.mod_tools.02"),
+      k("h l  left right", "keys.mod_tools.03"),
+      k("y x", "keys.mod_tools.04"),
+      k("r", "keys.mod_tools.05"),
+      k("/", "keys.mod_tools.06"),
+      k("esc q", "keys.mod_tools.07"),
     ],
   },
   Group {
-    name: "menus and cards",
+    name: "keys.menus.name",
     rows: &[
-      k("j k  up down", "move"),
-      k("enter", "choose"),
-      k("esc", "close (right-click too)"),
-      k("1 .. 9", "a ban's reasons: the number picks it"),
-      k("y", "yes, when it asks to unpin for everyone"),
-      k("q", "close a user card"),
-      k("c", "in a card of a live twitch channel: clip it, copies the link (again: opens the edit page)"),
+      k("j k  up down", "keys.menus.01"),
+      k("enter", "keys.menus.02"),
+      k("esc", "keys.menus.03"),
+      k("1 .. 9", "keys.menus.04"),
+      k("y", "keys.menus.05"),
+      k("q", "keys.menus.06"),
+      k("c", "keys.menus.07"),
     ],
   },
   Group {
-    name: "your lists (settings → muted & blocked people, filter rules…)",
+    name: "keys.lists.name",
     rows: &[
-      k("j k  up down", "move"),
-      k(
-        "enter",
-        "a person: their card · a mention rule or a mod toolbar button: on or off · the add row: type a new entry",
-      ),
-      k("x delete", "remove the picked one (unmute, unblock, unhide, delete)"),
-      k("a", "add an entry: a rule, ban reason or mention rule"),
-      k(
-        "e  n  s  +  -  =",
-        "a filter rule: edit it in place (live match count), notify on or off, pick its sound, volume down or up",
-      ),
-      k("?", "filter rules and mention rules: the other kinds of rule and the syntax"),
-      k("esc q", "close"),
+      k("j k  up down", "keys.lists.01"),
+      k("enter", "keys.lists.02"),
+      k("x delete", "keys.lists.03"),
+      k("a", "keys.lists.04"),
+      k("e  n  s  +  -  =", "keys.lists.05"),
+      k("?", "keys.lists.06"),
+      k("esc q", "keys.lists.07"),
     ],
   },
   Group {
-    name: "little marks on a line (what they mean)",
+    name: "keys.marks.name",
     rows: &[
-      k("new here", "a chatter introducing themselves for the first time"),
-      k("returning", "a white bar: a chatter back after a long time away"),
-      k("first message", "a magenta bar and \u{25c7}: their very first message in this channel"),
-      k(
-        "shared:name",
-        "said in a partner channel's room, in a twitch shared chat (just shared if the room isn't known)",
-      ),
-      k("fx:name", "a twitch power-up: the message plays an effect, like fx:simmer"),
-      k("n/limit", "in the message box near the length limit: yellow close to it, red past it"),
+      k("new here", "keys.marks.01"),
+      k("returning", "keys.marks.02"),
+      k("first message", "keys.marks.03"),
+      k("shared:name", "keys.marks.04"),
+      k("fx:name", "keys.marks.05"),
+      k("n/limit", "keys.marks.06"),
     ],
   },
 ];
@@ -354,6 +320,7 @@ pub static KEYS: [Group; 19] = [
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::i18n::t;
   use std::collections::HashSet;
   use std::path::Path;
 
@@ -378,7 +345,7 @@ mod tests {
   // where a group's keys are answered. one key may mean different things in different layers, and in one
   // layer once with vi keys and once without (ctrl-w closes a tab in vi normal mode, deletes a word typing)
   fn layer(g: &Group) -> &'static str {
-    match g.name {
+    match t(g.name) {
       n if n.starts_with("chat logs") => "logs",
       "a picked line" => "picked",
       "picker" => "picker",
@@ -499,12 +466,12 @@ mod tests {
   fn every_group_is_named_and_lowercase_with_no_empty_cells() {
     let mut names = HashSet::new();
     for g in &KEYS {
-      assert!(!g.name.is_empty() && !g.rows.is_empty());
-      assert_eq!(g.name, g.name.to_lowercase());
-      assert!(names.insert(g.name), "{} twice", g.name);
+      assert!(!t(g.name).is_empty() && !g.rows.is_empty());
+      assert_eq!(t(g.name), t(g.name).to_lowercase());
+      assert!(names.insert(t(g.name)), "{} twice", t(g.name));
       for r in g.rows {
-        assert!(!r.keys.is_empty() && !r.does.is_empty(), "{}", r.keys);
-        assert_eq!(r.does, r.does.to_lowercase(), "{}", r.does);
+        assert!(!r.keys.is_empty() && !t(r.does).is_empty(), "{}", r.keys);
+        assert_eq!(t(r.does), t(r.does).to_lowercase(), "{}", t(r.does));
       }
     }
   }
@@ -530,11 +497,11 @@ mod tests {
       if layer(g) == "marks" {
         continue;
       }
-      let code = handlers(layer(g));
+      let (code, gname) = (handlers(layer(g)), t(g.name));
       for r in g.rows {
         for t in tokens(r.keys) {
           let ok = if t.len() > 1 && t.starts_with('/') { slash.contains(t.as_str()) } else { handled(&code, &t) };
-          assert!(ok, "{t} ({}) has no handler in the {} layer", g.name, layer(g));
+          assert!(ok, "{t} ({}) has no handler in the {} layer", gname, layer(g));
         }
       }
     }
@@ -653,7 +620,7 @@ mod tests {
   // the marks a person sees on a line are explained on the ? screen, in one group of their own
   #[test]
   fn the_key_map_explains_the_chips_and_marks() {
-    let g = KEYS.iter().find(|g| g.name.starts_with("little marks")).expect("a group for the marks");
+    let g = KEYS.iter().find(|g| t(g.name).starts_with("little marks")).expect("a group for the marks");
     let keys: Vec<&str> = g.rows.iter().map(|r| r.keys).collect();
     assert_eq!(keys, ["new here", "returning", "first message", "shared:name", "fx:name", "n/limit"]);
     assert!(g.rows.iter().all(|r| !r.vi));
@@ -665,13 +632,13 @@ mod tests {
     for (group, keys) in
       [("chat", "ctrl-d ctrl-u"), ("chat", "ctrl-w"), ("anywhere", "?"), ("tabs", "gt  gT  space ] [")]
     {
-      let row = KEYS.iter().find(|g| g.name == group).and_then(|g| g.rows.iter().find(|r| r.keys == keys));
+      let row = KEYS.iter().find(|g| t(g.name) == group).and_then(|g| g.rows.iter().find(|r| r.keys == keys));
       assert!(row.expect(keys).vi, "{group}: {keys}");
     }
     // a mixed group lists the plain rows first, then the vi ones
     for g in &KEYS {
       let first_vi = g.rows.iter().position(|r| r.vi).unwrap_or(g.rows.len());
-      assert!(g.rows[first_vi..].iter().all(|r| r.vi), "{}: a plain row after the vi ones", g.name);
+      assert!(g.rows[first_vi..].iter().all(|r| r.vi), "{}: a plain row after the vi ones", t(g.name));
     }
     assert!(KEYS.iter().any(Group::all_vi) && KEYS.iter().any(|g| !g.all_vi() && g.rows.iter().any(|r| r.vi)));
   }

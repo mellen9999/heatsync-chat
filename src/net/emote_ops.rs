@@ -1,5 +1,6 @@
 // the logged-in user's emote writes: block list, add to / remove from their heatsync inventory.
 // every response is hostile: bounded read, validated fields
+use crate::i18n::{f, t};
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
@@ -37,7 +38,7 @@ async fn read(mut r: reqwest::Response, max: usize) -> Result<(u16, Value), Stri
   let mut buf = Vec::new();
   while let Some(c) = r.chunk().await.map_err(|e| super::http::offline("heatsync", e))? {
     if buf.len() + c.len() > max {
-      return Err("heatsync sent back too much".into());
+      return Err(t("net2.emote.too_much").into());
     }
     buf.extend_from_slice(&c);
   }
@@ -92,7 +93,7 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
         .send()
         .await;
       if let Err(e) = result(r).await {
-        out.status(format!("blocked here, but sync failed: {e}"));
+        out.status(f("net2.emote.block_sync", &[("why", &e)]));
       }
     }
     EmoteCmd::Unblock { hash } => {
@@ -108,19 +109,19 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
       if let Err(e) = result(r).await
         && e != super::http::server_words("Block not found")
       {
-        out.status(format!("unblocked here, but sync failed: {e}"));
+        out.status(f("net2.emote.unblock_sync", &[("why", &e)]));
       }
     }
     EmoteCmd::Add { name, url, hash, zero_width } => {
       if !valid_name(&name) || !allowed(&url) {
-        return out.status("can't add that emote");
+        return out.status(t("net2.emote.cant_add"));
       }
       match add(http, token, &name, &url, hash.as_deref(), zero_width, false).await {
         Ok(()) => {
-          out.status(format!("added {name} to your emotes"));
+          out.status(f("net2.emote.added", &[("name", &name)]));
           out.send(NetEvent::Inventory { removed: None });
         }
-        Err(e) => out.status(format!("couldn't add {name}: {e}")),
+        Err(e) => out.status(f("net2.emote.add_failed", &[("name", &name), ("why", &e)])),
       }
     }
     EmoteCmd::Blocked => {
@@ -135,27 +136,25 @@ pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) 
     }
     EmoteCmd::Swap { name, url, zero_width } => {
       if !valid_name(&name) || !allowed(&url) {
-        return out.status("can't add that emote");
+        return out.status(t("net2.emote.cant_add"));
       }
       // one request: the server points your slot at the new emote, so a failure leaves the old one
       match add(http, token, &name, &url, None, zero_width, true).await {
         Ok(()) => {
-          out.status(format!("your {name} is now the one you picked"));
+          out.status(f("net2.emote.swapped", &[("name", &name)]));
           out.send(NetEvent::Inventory { removed: Some(name) });
         }
-        Err(e) if e.contains("held by your upload") => {
-          out.status(format!("kept your own upload as {name}: an upload never gets swapped out"))
-        }
-        Err(e) => out.status(format!("couldn't swap {name}, you still have your old one: {e}")),
+        Err(e) if e.contains("held by your upload") => out.status(f("net2.emote.kept_upload", &[("name", &name)])),
+        Err(e) => out.status(f("net2.emote.swap_failed", &[("name", &name), ("why", &e)])),
       }
     }
     EmoteCmd::PickFile | EmoteCmd::Upload { .. } | EmoteCmd::AddKept { .. } => {}
     EmoteCmd::Remove { name } => match remove(http, token, &name).await {
       Ok(()) => {
-        out.status(format!("removed {name} from your emotes"));
+        out.status(f("net2.emote.removed", &[("name", &name)]));
         out.send(NetEvent::Inventory { removed: Some(name) });
       }
-      Err(e) => out.status(format!("couldn't remove {name}: {e}")),
+      Err(e) => out.status(f("net2.emote.remove_failed", &[("name", &name), ("why", &e)])),
     },
   }
 }
@@ -223,7 +222,7 @@ async fn remove(http: &reqwest::Client, token: &str, name: &str) -> Result<(), S
   let r = http.get(format!("{ORIGIN}/api/user/emotes")).bearer_auth(token).send().await;
   let v = result(r).await?;
   let slot = v.get("emotes").and_then(Value::as_array).and_then(|rows| slot_of(rows, name));
-  let Some(slot) = slot else { return Err("not in your emotes".into()) };
+  let Some(slot) = slot else { return Err(t("net2.emote.not_yours").into()) };
   let r = http.delete(format!("{ORIGIN}/api/user/emotes/{slot}")).bearer_auth(token).send().await;
   match result(r).await {
     Err(e) if e.to_lowercase().contains("not found in your set") => Ok(()),

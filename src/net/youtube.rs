@@ -1,5 +1,6 @@
 // sending to a live youtube chat. heatsync brokers the official data api (POST /api/youtube/chat/send):
 // the line comes back through the heatsync relay like everyone else's, so there is no local echo
+use crate::i18n::{f, t};
 use serde_json::{Value, json};
 
 use super::{ORIGIN, http};
@@ -11,7 +12,6 @@ const MAX_REPLY: usize = 64 << 10;
 pub const MAX: usize = crate::model::message::Platform::Youtube.max_chars();
 
 // the plain line shown when the user has to allow posting first
-pub const NEEDS_PERMISSION: &str = "youtube needs permission to post as you — press ctrl-l → allow youtube posting";
 
 // the request body: a handle key as the tabs hold it (`@name`), and the text as typed
 pub fn body(chan: &str, text: &str) -> Value {
@@ -21,21 +21,21 @@ pub fn body(chan: &str, text: &str) -> Value {
 // what to tell the user for a failure, from the server's `error_code` (or the bare http status)
 pub fn explain(code: Option<&str>, status: u16) -> String {
   match code {
-    Some("not_linked") => "link youtube first — press ctrl-l → link youtube".into(),
-    Some("needs_post_permission") => NEEDS_PERMISSION.into(),
-    Some("not_live") => "that youtube channel isn't live right now".into(),
-    Some("chat_disabled") => "chat is turned off on this youtube stream".into(),
-    Some("quota_exhausted") => "youtube posting is paused for today, try again tomorrow".into(),
-    Some("rate_limited") => "slow down".into(),
-    Some("rejected") => "youtube refused the message (slow mode, members only, or you're banned here)".into(),
-    Some("upstream") => "youtube isn't answering, try again".into(),
-    _ => format!("couldn't send: {}", http::plain_status(status)),
+    Some("not_linked") => t("net1.yt.not_linked").into(),
+    Some("needs_post_permission") => t("net1.yt.needs_permission").into(),
+    Some("not_live") => t("net1.yt.not_live").into(),
+    Some("chat_disabled") => t("net1.yt.chat_disabled").into(),
+    Some("quota_exhausted") => t("net1.yt.quota").into(),
+    Some("rate_limited") => t("net1.slow_down").into(),
+    Some("rejected") => t("net1.yt.rejected").into(),
+    Some("upstream") => t("net1.yt.upstream").into(),
+    _ => f("net1.yt.send_failed", &[("why", &http::plain_status(status))]),
   }
 }
 
 // client-side check before a round trip: None = fine to send
 pub fn too_long(text: &str) -> Option<String> {
-  (text.chars().count() > MAX).then(|| format!("youtube messages are {MAX} characters at most"))
+  (text.chars().count() > MAX).then(|| f("net1.yt.too_long", &[("max", &MAX.to_string())]))
 }
 
 pub async fn send(http: &reqwest::Client, token: &str, chan: &str, text: &str) -> Result<(), String> {

@@ -11,6 +11,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::App;
 use super::pop::Act;
 use super::screen::{Page, Target};
+use crate::i18n::{f, t, tn};
 use crate::model::chan::Spec;
 use crate::model::import::Follow;
 use crate::net::Cmd;
@@ -63,13 +64,13 @@ fn say(a: &str) -> L {
 impl Import {
   pub(super) fn title(&self) -> String {
     if self.phase != Phase::Ready || self.rows.is_empty() {
-      return "import follows".into();
+      return t("settings.import.title").into();
     }
     if self.truncated {
-      return format!("import follows · showing the first {} — live first", self.all);
+      return f("settings.import.title_cut", &[("n", &self.all.to_string())]);
     }
     let live = self.rows.iter().filter(|r| r.live).count();
-    format!("import follows · {} to add · {live} live now", self.rows.len())
+    f("settings.import.title_ready", &[("n", &self.rows.len().to_string()), ("live", &live.to_string())])
   }
 
   fn count(&self) -> usize {
@@ -79,37 +80,40 @@ impl Import {
   // the screen's rows: why there are none, or the two buttons and a row per follow the filter keeps
   fn lines(&self, me: bool, q: &str) -> (Vec<L>, Vec<Target>) {
     let imp = |s| Target::Imp(s);
-    let (l, t): (Vec<L>, Vec<Target>) = match (me, self.phase) {
+    let (l, tg): (Vec<L>, Vec<Target>) = match (me, self.phase) {
       (false, _) | (_, Phase::Failed(Fail::Login)) => (
-        vec![say("log in with twitch to import your follows, sorted by who's live"), say("log in")],
+        vec![say(t("settings.import.login")), say(t("settings.import.login_btn"))],
         vec![Target::None, imp(Step::SignIn)],
       ),
-      (_, Phase::Reading) => (vec![say("reading your twitch follows…")], vec![Target::None]),
+      (_, Phase::Reading) => (vec![say(t("settings.import.reading"))], vec![Target::None]),
       (_, Phase::Failed(Fail::Expired)) => (
-        vec![say("your twitch link expired — reconnect it to import follows"), say("reconnect twitch")],
+        vec![say(t("settings.import.expired")), say(t("settings.import.reconnect"))],
         vec![Target::None, imp(Step::Relink)],
       ),
       (_, Phase::Failed(Fail::Scope)) => (
-        vec![say("your twitch link doesn't include follows — reconnect it to import them"), say("reconnect twitch")],
+        vec![say(t("settings.import.scope")), say(t("settings.import.reconnect"))],
         vec![Target::None, imp(Step::Relink)],
       ),
-      (_, Phase::Failed(Fail::Down)) => (
-        vec![say("couldn't reach twitch — try again in a minute"), say("try again")],
-        vec![Target::None, imp(Step::Retry)],
-      ),
-      (_, Phase::Ready) if self.all == 0 => (vec![say("you don't follow anyone on twitch yet")], vec![Target::None]),
-      (_, Phase::Ready) if self.rows.is_empty() => {
-        (vec![say("every channel you follow is already here")], vec![Target::None])
+      (_, Phase::Failed(Fail::Down)) => {
+        (vec![say(t("settings.import.down")), say(t("settings.import.retry"))], vec![Target::None, imp(Step::Retry)])
       }
+      (_, Phase::Ready) if self.all == 0 => (vec![say(t("settings.import.none"))], vec![Target::None]),
+      (_, Phase::Ready) if self.rows.is_empty() => (vec![say(t("settings.import.all_here"))], vec![Target::None]),
       (_, Phase::Ready) => return self.list(q),
     };
-    (l, t)
+    (l, tg)
   }
 
   fn list(&self, q: &str) -> (Vec<L>, Vec<Target>) {
     let q = q.trim().to_lowercase();
-    let mut lines =
-      vec![L::Row { a: "add selected".into(), b: format!("{} picked", self.count()), pill: None }, say("select live")];
+    let mut lines = vec![
+      L::Row {
+        a: t("settings.import.add_selected").into(),
+        b: f("settings.import.picked", &[("n", &self.count().to_string())]),
+        pill: None,
+      },
+      say(t("settings.import.select_live")),
+    ];
     let mut marks = vec![Target::Imp(Step::Add), Target::Imp(Step::Live)];
     for (i, f) in self.rows.iter().enumerate() {
       let label = f.label();
@@ -118,14 +122,14 @@ impl Import {
       }
       let a = format!("[{}] {label}", if self.picked.contains(&f.login) { 'x' } else { ' ' });
       lines.push(if f.live {
-        L::Tint { a, b: "live".into(), ink: theme::GREEN }
+        L::Tint { a, b: t("settings.import.live").into(), ink: theme::GREEN }
       } else {
         L::Row { a, b: String::new(), pill: None }
       });
       marks.push(Target::Imp(Step::Row(i)));
     }
     if marks.len() == 2 {
-      lines.push(say("nothing matches"));
+      lines.push(say(t("settings.import.no_match")));
       marks.push(Target::None);
     }
     (lines, marks)
@@ -249,7 +253,7 @@ impl App {
       }
       // the screen stays: when the browser is done the login lands and the list is read again
       Step::Relink => {
-        self.import.msg = "finish reconnecting twitch in your browser…".into();
+        self.import.msg = t("settings.import.relinking").into();
         self.net.send(Cmd::Relink("base"));
       }
       Step::Retry => self.import_reload(),
@@ -266,7 +270,7 @@ impl App {
     let picks: Vec<Box<str>> =
       self.import.rows.iter().filter(|r| self.import.picked.contains(&r.login)).map(|r| r.login.clone()).collect();
     if picks.is_empty() {
-      self.import.msg = "pick at least one channel".into();
+      self.import.msg = t("settings.import.pick_one").into();
       return;
     }
     let mut have = self.other_specs(None);
@@ -281,13 +285,13 @@ impl App {
       }
     }
     if added == 0 {
-      self.import.msg = "nothing added — those are already in your tabs".into();
+      self.import.msg = t("settings.import.nothing_added").into();
       return;
     }
     self.save_tabs();
     self.close_screen();
     self.activate(self.tabs.len() - added);
-    self.say(format!("added {added} tab{}", if added == 1 { "" } else { "s" }));
+    self.say(tn("settings.import.added", added as u64, &[]));
   }
 }
 

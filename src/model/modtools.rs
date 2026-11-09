@@ -7,17 +7,17 @@ pub const MAX_UNBANS: usize = 500;
 pub const MAX_CHATTERS: usize = 10_000;
 pub const MAX_LEVEL: u8 = 4;
 
-// helix's names, and how they read: overall first, then the eight categories
+// helix's names, and the key of how they read: overall first, then the eight categories
 pub const LEVELS: [(&str, &str); 9] = [
-  ("overall_level", "overall"),
-  ("disability", "disability"),
-  ("aggression", "aggression"),
-  ("sexuality_sex_or_gender", "sexuality, sex or gender"),
-  ("misogyny", "misogyny"),
-  ("bullying", "bullying"),
-  ("swearing", "swearing"),
-  ("race_ethnicity_or_religion", "race, ethnicity or religion"),
-  ("sex_based_terms", "sex-based terms"),
+  ("overall_level", "mod.level.overall"),
+  ("disability", "mod.level.disability"),
+  ("aggression", "mod.level.aggression"),
+  ("sexuality_sex_or_gender", "mod.level.sexuality"),
+  ("misogyny", "mod.level.misogyny"),
+  ("bullying", "mod.level.bullying"),
+  ("swearing", "mod.level.swearing"),
+  ("race_ethnicity_or_religion", "mod.level.race"),
+  ("sex_based_terms", "mod.level.sex_terms"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,5 +102,13 @@ mod tests {
       chatters(&json!({"total": 2, "chatters": [{"user_login": "zed"}, {"user_login": "Amy"}, {"user_login": "?"}]}));
     assert_eq!((n, c), (2, vec!["amy".into(), "zed".into()]));
     assert!(unbans(&json!("junk")).is_empty());
+  }
+
+  #[test]
+  fn every_level_reads_through_a_key() {
+    for (_, key) in LEVELS {
+      assert!(!crate::i18n::t(key).is_empty(), "{key}");
+    }
+    assert_eq!(crate::i18n::t(LEVELS[0].1), "overall");
   }
 }

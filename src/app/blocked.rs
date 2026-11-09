@@ -1,6 +1,7 @@
 // a twitch room's blocked terms, for its moderators (ext blocked-terms.js): a list screen over the chat
 // from /blocked or a line's menu. j/k move, x deletes the picked term (y yes, n no), a adds, / filters,
 // esc closes. without the twitch permission it offers to ask for it
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -68,27 +69,25 @@ impl Bt {
     let row = |a: &str| L::Row { a: a.into(), b: String::new(), pill: None };
     let say = |a: &str| (vec![row(a)], vec![Target::None]);
     match self.view {
-      View::Loading => say("loading…"),
-      View::NotMod => say("you are not a moderator of this channel"),
-      View::Auth => (vec![row("sign in to heatsync again (ctrl-l)"), row("retry")], vec![Target::None, Target::Retry]),
-      View::Error => (vec![row("couldn't reach twitch"), row("retry")], vec![Target::None, Target::Retry]),
+      View::Loading => say(t("mod.tools.loading")),
+      View::NotMod => say(t("mod.tools.not_mod")),
+      View::Auth => (vec![row(t("mod.tools.sign_in")), row(t("mod.common.retry"))], vec![Target::None, Target::Retry]),
+      View::Error => {
+        (vec![row(t("mod.tools.unreachable")), row(t("mod.common.retry"))], vec![Target::None, Target::Retry])
+      }
       View::Perm => (
-        vec![
-          row("heatsync needs one more twitch permission to manage blocked terms"),
-          row("allow blocked terms"),
-          row("retry"),
-        ],
+        vec![row(t("mod.blocked.perm")), row(t("mod.blocked.allow")), row(t("mod.common.retry"))],
         vec![Target::None, Target::Allow, Target::Retry],
       ),
       View::List => {
         let shown = blocked::visible(&self.terms, q);
         if shown.is_empty() {
-          return say(if self.terms.is_empty() { "no blocked terms yet: a adds one" } else { "nothing matches" });
+          return say(if self.terms.is_empty() { t("mod.blocked.empty") } else { t("mod.tools.nothing_matches") });
         }
         let lines = shown
           .iter()
           .map(|t| match &self.confirm {
-            Some(id) if *id == t.id => row(&format!("delete \"{}\"?  y yes · n no", t.text)),
+            Some(id) if *id == t.id => row(&f("mod.blocked.delete_ask", &[("text", &t.text)])),
             _ => row(&t.text),
           })
           .collect();
@@ -101,11 +100,15 @@ impl Bt {
   pub(super) fn title(&self, q: &str) -> String {
     let n = self.terms.len();
     match self.view {
-      View::List if !q.trim().is_empty() => {
-        format!("blocked terms · {} · {} of {n}", self.chan, blocked::visible(&self.terms, q).len())
-      }
-      View::List => format!("blocked terms · {} · {n}{}", self.chan, if self.more { "+" } else { "" }),
-      _ => format!("blocked terms · {}", self.chan),
+      View::List if !q.trim().is_empty() => f(
+        "mod.blocked.title_found",
+        &[("chan", &self.chan), ("shown", &blocked::visible(&self.terms, q).len().to_string()), ("n", &n.to_string())],
+      ),
+      View::List => f(
+        "mod.blocked.title_count",
+        &[("chan", &self.chan), ("n", &n.to_string()), ("more", if self.more { "+" } else { "" })],
+      ),
+      _ => f("mod.blocked.title", &[("chan", &self.chan)]),
     }
   }
 }
@@ -116,20 +119,20 @@ impl App {
     let chan =
       self.tabs.get(self.active).and_then(|t| t.sources.iter().find(|s| s.0 == Platform::Twitch)).map(|s| s.1.clone());
     match chan {
-      None => self.say("open a twitch channel tab first"),
+      None => self.say(t("mod.blocked.need_tab")),
       Some(c) => self.blocked_open(c),
     }
   }
 
   pub(super) fn blocked_open(&mut self, chan: Box<str>) {
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("mod.common.login_first"));
     }
     if !self.can_mod(Platform::Twitch, &chan) {
-      return self.say("/blocked needs mod on this twitch channel");
+      return self.say(t("mod.blocked.needs_mod"));
     }
     let Some(room) = self.rooms.iter().find(|r| r.0 == chan).map(|r| r.1.clone()) else {
-      return self.say("still joining that channel: try again in a moment");
+      return self.say(t("mod.blocked.joining"));
     };
     self.open_screen(Page::Blocked);
     if let Some(s) = &mut self.screen {
@@ -163,7 +166,7 @@ impl App {
   fn blocked_add(&mut self) {
     let Some(bt) = self.bt() else { return };
     let Some(text) = blocked::addable(&bt.add.text).map(str::to_owned) else {
-      bt.msg = format!("a term is {} to {} characters", blocked::MIN, blocked::MAX);
+      bt.msg = f("mod.blocked.length", &[("min", &blocked::MIN.to_string()), ("max", &blocked::MAX.to_string())]);
       return;
     };
     self.blocked_ask(Asking::Add, Op::Add(text));
@@ -177,10 +180,10 @@ impl App {
   }
 
   // allow (the permission) and retry rows, and enter / click on a term (asks to delete it)
-  pub(super) fn blocked_pick(&mut self, t: Target) {
-    match t {
+  pub(super) fn blocked_pick(&mut self, tg: Target) {
+    match tg {
       Target::Allow => {
-        self.say(super::feed::needs_twitch("blocked terms"));
+        self.say(super::feed::needs_twitch(t("mod.blocked.noun")));
         self.net.send(Cmd::Relink("blockedterms"));
       }
       Target::Retry => self.blocked_load(),
@@ -203,7 +206,7 @@ impl App {
         (bt.terms, bt.more, bt.view) = (terms, more, View::List);
       }
       (Ok(Got::Added(t)), _) => {
-        bt.msg = format!("blocked \"{}\"", t.text);
+        bt.msg = f("mod.blocked.added", &[("text", &t.text)]);
         bt.terms.retain(|x| x.id != t.id);
         bt.terms.insert(0, t);
         bt.add.set_text(String::new());
@@ -212,15 +215,15 @@ impl App {
       // already gone is what the mod wanted
       (Ok(Got::Removed(id)), Some(Asking::Remove(_, text))) | (Err(Fail::Gone), Some(Asking::Remove(id, text))) => {
         bt.terms.retain(|x| x.id != id);
-        bt.msg = format!("unblocked \"{text}\"");
+        bt.msg = f("mod.blocked.removed", &[("text", &text)]);
       }
       (Ok(Got::Removed(id)), _) => bt.terms.retain(|x| x.id != id),
       (Err(Fail::Relink), _) => bt.view = View::Perm,
       (Err(Fail::NotMod), _) => bt.view = View::NotMod,
       (Err(Fail::Auth), _) => bt.view = View::Auth,
-      (Err(Fail::Limited), _) => bt.msg = "slow down: try again in a moment".into(),
+      (Err(Fail::Limited), _) => bt.msg = t("mod.common.slow_down").into(),
       (Err(_), Some(Asking::List)) => bt.view = View::Error,
-      (Err(_), _) => bt.msg = "couldn't reach twitch: try again".into(),
+      (Err(_), _) => bt.msg = t("mod.tools.try_again").into(),
     }
     self.wake();
   }

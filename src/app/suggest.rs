@@ -145,7 +145,7 @@ impl App {
           if let Some((_, e)) = own.iter().find(|(n, _)| **n == **name) {
             row.desc = e;
           } else if let Some(c) = cmds.iter().find(|c| *c.name == **name) {
-            (row.args, row.desc) = (c.args, c.desc);
+            (row.args, row.desc) = (c.args, crate::i18n::t(c.desc));
           }
         }
       }

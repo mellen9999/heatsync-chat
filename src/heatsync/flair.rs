@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::badges::Badge;
+use crate::i18n::{f, t};
 use crate::images::url::allowed;
 
 // the contract's ttl, for a flair and for "has none" alike
@@ -123,7 +124,7 @@ fn badge(v: &Value) -> Option<Badge> {
     .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
     .take(25)
     .collect();
-  let title = if who.is_empty() { "sub".to_owned() } else { format!("{who} sub") };
+  let title = if who.is_empty() { t("misc.flair.sub").to_owned() } else { f("misc.flair.sub_of", &[("who", &who)]) };
   Some(Badge { url: url.into(), title: title.into(), bg: None })
 }
 

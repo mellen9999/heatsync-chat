@@ -91,19 +91,23 @@ const GAP: Duration = Duration::from_secs(3);
 pub struct Coalesce {
   last: Option<Instant>,
   held: u32,
-  // what the follow-up counts, singular and plural: "1 more mention", "5 more mentions"
-  noun: (&'static str, &'static str),
+  // the plural key of what the follow-up counts: "1 more mention", "5 more mentions"
+  noun: &'static str,
 }
 
 impl Default for Coalesce {
   fn default() -> Self {
-    Self::new("mention", "mentions")
+    Self::mentions()
   }
 }
 
 impl Coalesce {
-  pub fn new(one: &'static str, many: &'static str) -> Self {
-    Self { last: None, held: 0, noun: (one, many) }
+  pub fn mentions() -> Self {
+    Self { last: None, held: 0, noun: "misc.notify.more_mentions" }
+  }
+
+  pub fn stream_updates() -> Self {
+    Self { last: None, held: 0, noun: "misc.notify.more_stream_updates" }
   }
 
   // true: show this one now. false: it is counted and rides in the follow-up
@@ -129,7 +133,7 @@ impl Coalesce {
     let n = std::mem::take(&mut self.held);
     // the follow-up is itself a notification: the next window starts here
     self.last = Some(now);
-    Some(if n == 1 { format!("1 more {}", self.noun.0) } else { format!("{n} more {}", self.noun.1) })
+    Some(crate::i18n::tn(self.noun, u64::from(n), &[]))
   }
 }
 
@@ -160,7 +164,7 @@ mod tests {
   #[test]
   fn a_burst_of_go_lives_is_one_popup_and_a_count() {
     let t0 = Instant::now();
-    let mut c = Coalesce::new("stream update", "stream updates");
+    let mut c = Coalesce::stream_updates();
     assert!(c.offer(t0));
     for i in 1..=4 {
       assert!(!c.offer(t0 + Duration::from_millis(i * 100)));

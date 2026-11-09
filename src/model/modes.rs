@@ -2,6 +2,7 @@
 // subs-only, slow and unique chat. what they are comes from twitch's ROOMSTATE (live, free); a mod
 // changes them through heatsync (POST /api/mod/chat-settings, helix's names), since twitch retired
 // the irc commands. /slow 30, /slow off, /slowoff, /followers 10m, /emoteonly, /unique off …
+use crate::i18n::{f, t};
 use serde_json::{Value, json};
 
 // helix's bounds (and the ext's): slow 3-120s, followers up to 90 days in minutes
@@ -27,11 +28,11 @@ pub const ALL: [Mode; 5] = [Mode::Emote, Mode::Followers, Mode::Subs, Mode::Slow
 impl Mode {
   pub fn label(self) -> &'static str {
     match self {
-      Mode::Emote => "emote-only",
-      Mode::Followers => "followers-only",
-      Mode::Subs => "subs-only",
-      Mode::Slow => "slow mode",
-      Mode::Unique => "unique chat",
+      Mode::Emote => t("mod.mode.emote"),
+      Mode::Followers => t("mod.mode.followers"),
+      Mode::Subs => t("mod.mode.subs"),
+      Mode::Slow => t("mod.mode.slow"),
+      Mode::Unique => t("mod.mode.unique"),
     }
   }
 
@@ -112,11 +113,11 @@ impl Set {
   // "slow mode on (30s)", "followers-only on (10m)", "emote-only off"
   pub fn done(self) -> String {
     match (self.mode, self.on) {
-      (m, None) => format!("{} off", m.label()),
-      (Mode::Slow, Some(n)) => format!("{} on ({n}s)", self.mode.label()),
-      (Mode::Followers, Some(0)) => format!("{} on (any follower)", self.mode.label()),
-      (Mode::Followers, Some(n)) => format!("{} on ({})", self.mode.label(), minutes(n)),
-      (m, Some(_)) => format!("{} on", m.label()),
+      (m, None) => f("mod.mode.off", &[("mode", m.label())]),
+      (Mode::Slow, Some(n)) => f("mod.mode.on_secs", &[("mode", self.mode.label()), ("n", &n.to_string())]),
+      (Mode::Followers, Some(0)) => f("mod.mode.on_any", &[("mode", self.mode.label())]),
+      (Mode::Followers, Some(n)) => f("mod.mode.on_span", &[("mode", self.mode.label()), ("span", &minutes(n))]),
+      (m, Some(_)) => f("mod.mode.on", &[("mode", m.label())]),
     }
   }
 }
@@ -132,9 +133,9 @@ pub fn minutes(n: u32) -> String {
 // a status screen row: "slow mode · 30s", "followers-only · any follower", "emote-only"
 pub fn row(m: Mode, v: Option<u32>) -> String {
   match (m, v) {
-    (Mode::Slow, Some(n)) => format!("{} · {n}s", m.label()),
-    (Mode::Followers, Some(0)) => format!("{} · any follower", m.label()),
-    (Mode::Followers, Some(n)) => format!("{} · {}", m.label(), minutes(n)),
+    (Mode::Slow, Some(n)) => f("mod.mode.row_secs", &[("mode", m.label()), ("n", &n.to_string())]),
+    (Mode::Followers, Some(0)) => f("mod.mode.row_any", &[("mode", m.label())]),
+    (Mode::Followers, Some(n)) => f("mod.mode.row_span", &[("mode", m.label()), ("span", &minutes(n))]),
     _ => m.label().into(),
   }
 }
@@ -207,7 +208,7 @@ pub fn command(text: &str) -> Option<Result<Set, String>> {
     Mode::Followers => duration(&arg, false),
     _ => None,
   };
-  let usage = || format!("usage: /{} [duration|off]", mode.cmd());
+  let usage = || f("mod.mode.usage", &[("cmd", mode.cmd())]);
   Some(match on {
     Some(0) if mode == Mode::Slow => Ok(Set::new(mode, None)),
     Some(n) => Ok(Set::new(mode, Some(n))),

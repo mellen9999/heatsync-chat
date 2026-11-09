@@ -41,5 +41,4 @@ pub fn show(dir: &Path) -> String {
 }
 
 // the folders as the --help text names them
-pub const HELP_FOLDERS: &str = "your settings and tabs are in ~/.config/heatsync-chat, the picture cache in
-~/.cache/heatsync-chat. both are private to you.";
+pub const HELP_FOLDERS: [&str; 2] = ["~/.config/heatsync-chat", "~/.cache/heatsync-chat"];

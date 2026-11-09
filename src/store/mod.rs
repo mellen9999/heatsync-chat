@@ -15,6 +15,7 @@ pub use later::{flush, put as write_later};
 pub use link::{bind as bind_wake, ping as wake_running, serve as serve_wake};
 pub use lock::lock_instance;
 
+use crate::i18n::{f, t, tn};
 use crate::util::owner;
 use std::io::{Error, ErrorKind, Result, Write};
 use std::path::{Path, PathBuf};
@@ -95,9 +96,9 @@ pub fn take_notes() -> Vec<String> {
 
 fn what(name: &str) -> String {
   match name {
-    "token" => "your login".into(),
-    "tabs" => "your tabs".into(),
-    n => format!("your {n}"),
+    "token" => t("misc.store.what_login").into(),
+    "tabs" => t("misc.store.what_tabs").into(),
+    n => f("misc.store.what_other", &[("name", n)]),
   }
 }
 
@@ -110,7 +111,8 @@ fn save_failed(name: &str, e: &Error) {
     }
     n.failed.push(name.to_owned());
     if n.say.len() < MAX_NOTES {
-      n.say.push(format!("couldn't save {} ({}): changes may be lost when you quit", what(name), e.kind()));
+      let kind = e.kind().to_string();
+      n.say.push(f("misc.store.save_failed", &[("what", &what(name)), ("kind", &kind)]));
     }
   });
 }
@@ -182,10 +184,9 @@ pub fn set_aside(name: &str, part: Option<usize>) {
   let Some(d) = dir() else { return };
   let moved = std::fs::rename(d.join(name), d.join(format!("{name}.bak"))).is_ok();
   note(match (moved, part) {
-    (true, None) => format!("your {name} file was unreadable; saved a copy as {name}.bak and started fresh"),
-    (true, Some(1)) => format!("1 line in your {name} file wasn't usable; saved a copy as {name}.bak"),
-    (true, Some(n)) => format!("{n} lines in your {name} file weren't usable; saved a copy as {name}.bak"),
-    (false, _) => format!("your {name} file was unreadable and couldn't be set aside; the next save replaces it"),
+    (true, None) => f("misc.store.unreadable_fresh", &[("name", name)]),
+    (true, Some(n)) => tn("misc.store.lines_unusable", n as u64, &[("name", name)]),
+    (false, _) => f("misc.store.unreadable_kept", &[("name", name)]),
   });
 }
 

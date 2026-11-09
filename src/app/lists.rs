@@ -9,6 +9,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::App;
 use super::filters::span_text;
 use super::screen::{Page, Target};
+use crate::i18n::{f, t};
 use crate::model::filter;
 use crate::model::filtercmd::{self, Cmd, RuleCmd};
 use crate::model::line::Line;
@@ -31,15 +32,20 @@ pub(super) enum Kind {
 }
 
 impl Kind {
-  fn title(self) -> &'static str {
+  // the locale key's last part for each kind
+  fn id(self) -> &'static str {
     match self {
-      Kind::People => "muted & blocked people",
-      Kind::Rules => "filter rules",
-      Kind::Reasons => "ban reasons",
-      Kind::Alerts => "mention rules",
-      Kind::Commands => "your commands",
-      Kind::Buttons => "mod toolbar buttons",
+      Kind::People => "people",
+      Kind::Rules => "rules",
+      Kind::Reasons => "reasons",
+      Kind::Alerts => "alerts",
+      Kind::Commands => "commands",
+      Kind::Buttons => "buttons",
     }
+  }
+
+  fn title(self) -> &'static str {
+    t(&format!("settings.lists.title.{}", self.id()))
   }
 
   fn addable(self) -> bool {
@@ -47,43 +53,32 @@ impl Kind {
   }
 
   fn hint(self) -> &'static str {
-    match self {
-      Kind::People => "enter opens their card · x lets them back",
-      Kind::Rules => "type hide or highlight, then a word: hide spoilers \u{b7} ? more",
-      Kind::Reasons => "quick reasons offered when you ban",
-      Kind::Buttons => {
-        "enter turns a button on or off \u{b7} they show on the line under the pointer in rooms you moderate"
-      }
-      Kind::Commands => "type: /name what it says. {1} {2} words · {1+} the rest · {input} all · {channel} · {user}",
-      Kind::Alerts => "the server watches every channel for a word or phrase and pings you here \u{b7} ? more",
-    }
+    t(&format!("settings.lists.hint.{}", self.id()))
   }
 
   // the advanced syntax, behind ?
   fn more(self) -> Option<&'static str> {
     match self {
-      Kind::Rules => Some(
-        "more kinds: put user, badge, msgtype, regex or expr before the value, like highlight user bob or hide regex ^! \u{b7} a highlight can play your own wav: /rule sound <number> <path>",
-      ),
-      Kind::Alerts => Some("more: phrase big news \u{b7} regex ^hi \u{b7} end with #channel to keep it to one channel"),
+      Kind::Rules => Some(t("settings.lists.more.rules")),
+      Kind::Alerts => Some(t("settings.lists.more.alerts")),
       _ => None,
     }
   }
 
   fn adding(self) -> &'static str {
     match self {
-      Kind::Rules => "hide spoilers",
-      Kind::Reasons => "a reason",
-      Kind::Alerts => "a word or phrase",
-      Kind::Commands => "/gg good game {1}",
-      _ => "a word or phrase",
+      Kind::Rules => t("settings.lists.adding.rules"),
+      Kind::Reasons => t("settings.lists.adding.reasons"),
+      Kind::Alerts => t("settings.lists.adding.alerts"),
+      Kind::Commands => t("settings.lists.adding.commands"),
+      _ => t("settings.lists.adding.other"),
     }
   }
 
   fn none(self) -> &'static str {
     match self {
-      Kind::People => "nobody muted, blocked or hidden",
-      _ => "nothing yet",
+      Kind::People => t("settings.lists.none.people"),
+      _ => t("settings.lists.none.other"),
     }
   }
 }
@@ -133,20 +128,22 @@ pub(super) struct Ls {
 impl Ls {
   fn items(&self) -> Vec<Item> {
     let item = |text: &str, detail: &str, del| Item { text: text.to_owned(), detail: detail.to_owned(), del };
-    filter::with(|f| match self.kind {
+    filter::with(|fl| match self.kind {
       Kind::People => {
         let now = now_ms();
-        let mut v: Vec<Item> = f
+        let mut v: Vec<Item> = fl
           .mutes()
           .into_iter()
           .filter(|(_, until)| until.is_none_or(|u| u > now))
           .map(|(n, until)| {
-            let left = until.map_or("forever".to_owned(), |u| format!("{} left", span_text((u - now) / 1000)));
-            item(n, &format!("muted · {left}"), Del::Unmute(n.to_owned()))
+            let left = until.map_or(t("settings.lists.forever").to_owned(), |u| {
+              f("settings.lists.left", &[("span", &span_text((u - now) / 1000))])
+            });
+            item(n, &f("settings.lists.muted", &[("left", &left)]), Del::Unmute(n.to_owned()))
           })
           .collect();
-        v.extend(f.blocks_sorted().iter().map(|n| item(n, "blocked", Del::Unblock(n.clone()))));
-        v.extend(self.hidden.iter().map(|n| item(n, "hidden in this tab", Del::Unhide(n.to_string()))));
+        v.extend(fl.blocks_sorted().iter().map(|n| item(n, t("settings.lists.blocked"), Del::Unblock(n.clone()))));
+        v.extend(self.hidden.iter().map(|n| item(n, t("settings.lists.hidden"), Del::Unhide(n.to_string()))));
         v
       }
       Kind::Buttons => crate::model::modbar::CATALOG
@@ -154,18 +151,18 @@ impl Ls {
         .enumerate()
         .map(|(i, c)| {
           let what = match c.verb {
-            Verb::Delete => "delete the line".to_owned(),
-            Verb::Timeout(s) => format!("time out for {}", span_text(i64::from(s))),
-            Verb::Purge => "clear their lines".to_owned(),
-            Verb::Ban => "ban".to_owned(),
-            Verb::Unban => "unban".to_owned(),
+            Verb::Delete => t("settings.lists.btn.delete").to_owned(),
+            Verb::Timeout(s) => f("settings.lists.btn.timeout", &[("span", &span_text(i64::from(s)))]),
+            Verb::Purge => t("settings.lists.btn.purge").to_owned(),
+            Verb::Ban => t("settings.lists.btn.ban").to_owned(),
+            Verb::Unban => t("settings.lists.btn.unban").to_owned(),
           };
-          let on = if self.mask >> i & 1 == 1 { "on" } else { "off" };
-          item(&format!("{} \u{b7} {what}", c.label), on, Del::Button(i))
+          let on = t(if self.mask >> i & 1 == 1 { "settings.lists.on" } else { "settings.lists.off" });
+          item(&f("settings.lists.btn.row", &[("label", c.label), ("what", &what)]), on, Del::Button(i))
         })
         .collect(),
       Kind::Commands => self.cmds.iter().map(|(n, e)| item(&format!("/{n}"), e, Del::Command(n.clone()))).collect(),
-      Kind::Reasons => f.reasons().iter().map(|r| item(r, "", Del::Reason(r.to_string()))).collect(),
+      Kind::Reasons => fl.reasons().iter().map(|r| item(r, "", Del::Reason(r.to_string()))).collect(),
       Kind::Alerts => self
         .mr
         .iter()
@@ -174,12 +171,12 @@ impl Ls {
           item(&pattern, &detail, Del::Alert(r.id))
         })
         .collect(),
-      Kind::Rules => f
+      Kind::Rules => fl
         .rules()
         .describe()
         .iter()
         .enumerate()
-        .map(|(i, d)| item(d.split_once(' ').map_or(&**d, |x| x.1), &f.rules().extras(i), Del::Rule(i + 1)))
+        .map(|(i, d)| item(d.split_once(' ').map_or(&**d, |x| x.1), &fl.rules().extras(i), Del::Rule(i + 1)))
         .collect(),
     })
   }
@@ -195,7 +192,7 @@ impl Ls {
       marks.push(Target::None);
     }
     if self.kind.addable() {
-      lines.push(row("add…".into(), "a".into()));
+      lines.push(row(t("settings.lists.add").into(), "a".into()));
       marks.push(Target::AddItem);
     }
     (lines, marks)
@@ -203,7 +200,11 @@ impl Ls {
 
   pub(super) fn title(&self) -> String {
     let n = self.items().len();
-    if n == 0 { self.kind.title().to_owned() } else { format!("{} · {n}", self.kind.title()) }
+    if n == 0 {
+      self.kind.title().to_owned()
+    } else {
+      f("settings.lists.title_n", &[("title", self.kind.title()), ("n", &n.to_string())])
+    }
   }
 
   pub(super) fn tip(&self) -> &str {
@@ -212,20 +213,18 @@ impl Ls {
 
   pub(super) fn keys(&self) -> &'static str {
     match (self.adding, self.kind.addable()) {
-      (true, _) if self.editing.is_some() => "enter saves · esc leaves it as it was",
-      (true, _) => "enter adds · esc stops",
-      (_, true) if self.kind == Kind::Alerts => "j k move · a add · enter on or off · x delete · ? more · esc closes",
-      (_, true) if self.kind == Kind::Rules => {
-        "j k move · a add · e edit · n notify · s sound · + - volume · x delete · ? more · esc closes"
-      }
-      (_, true) => "j k move · a add · x delete · esc closes",
-      _ if self.kind == Kind::Buttons => "j k move · enter on or off · esc closes",
-      _ => "j k move · enter opens their card · x lets them back · esc closes",
+      (true, _) if self.editing.is_some() => t("settings.lists.keys.edit"),
+      (true, _) => t("settings.lists.keys.add"),
+      (_, true) if self.kind == Kind::Alerts => t("settings.lists.keys.alerts"),
+      (_, true) if self.kind == Kind::Rules => t("settings.lists.keys.rules"),
+      (_, true) => t("settings.lists.keys.addable"),
+      _ if self.kind == Kind::Buttons => t("settings.lists.keys.buttons"),
+      _ => t("settings.lists.keys.people"),
     }
   }
 
   pub(super) fn prompt(&self) -> String {
-    format!("{} · ", self.kind.adding())
+    f("settings.lists.prompt", &[("what", self.kind.adding())])
   }
 }
 
@@ -331,7 +330,7 @@ impl App {
       // kept in the box when refused, so it can be fixed
       let said = self.mrules_add(&typed);
       let sent = said.is_none();
-      self.list_note(said.unwrap_or_else(|| "adding…".to_owned()));
+      self.list_note(said.unwrap_or_else(|| t("settings.lists.adding_now").to_owned()));
       if let Some(l) = self.ls().filter(|_| sent) {
         l.add.set_text(String::new());
         l.add.home();
@@ -444,10 +443,10 @@ impl App {
         crate::model::rules::Rules::preview(&a, &t, &v, case, rows.into_iter(), "")
       });
       match tried {
-        None => "that isn't a rule yet".to_owned(),
-        Some((_, 0)) => "no lines here to try it on yet".to_owned(),
-        Some((0, n)) => format!("matches none of the last {n} messages"),
-        Some((h, n)) => format!("matches {h} of the last {n} messages"),
+        None => t("settings.lists.try.not_rule").to_owned(),
+        Some((_, 0)) => t("settings.lists.try.no_lines").to_owned(),
+        Some((0, n)) => f("settings.lists.try.none", &[("n", &n.to_string())]),
+        Some((h, n)) => f("settings.lists.try.some", &[("h", &h.to_string()), ("n", &n.to_string())]),
       }
     };
     if let Some(l) = self.ls() {

@@ -3,9 +3,10 @@
 // post shows (the feed tab, an open thread, an inline line in a chat tab). logged out none of the rows
 // show. every change shows at once and a refusal puts it back with a plain line saying so
 use super::App;
-use super::feed::{LOGIN_FIRST, TRY_AGAIN};
+use super::feed::{login_first, try_again};
 use super::overlay::Overlay;
 use super::pop::{Act, Pop};
+use crate::i18n::{f, t};
 use crate::model::engage::{self, CHECK_CHUNK};
 use crate::model::feed::MORE_ID;
 use crate::model::message::Message;
@@ -36,9 +37,9 @@ pub struct PostCtx {
 pub fn engage_rows(c: &PostCtx) -> Vec<(Act, String)> {
   let mut rows = Vec::new();
   if !c.own {
-    rows.push((Act::Upvote, if c.voted { "remove upvote" } else { "upvote" }.into()));
+    rows.push((Act::Upvote, if c.voted { t("app.engage.remove_upvote") } else { t("app.engage.upvote") }.into()));
   }
-  rows.push((Act::Bookmark, if c.marked { "remove bookmark" } else { "bookmark" }.into()));
+  rows.push((Act::Bookmark, if c.marked { t("app.engage.remove_bookmark") } else { t("app.engage.bookmark") }.into()));
   rows
 }
 
@@ -48,10 +49,10 @@ pub fn own_rows(c: &PostCtx) -> Vec<(Act, String)> {
     return Vec::new();
   }
   let edit = match c.left {
-    Some(ms) => format!("edit ({})", engage::clock(ms)),
-    None => "edit (expired)".into(),
+    Some(ms) => f("app.engage.edit_left", &[("left", &engage::clock(ms))]),
+    None => t("app.engage.edit_expired").into(),
   };
-  vec![(Act::Edit, edit), (Act::Delete, "delete".into())]
+  vec![(Act::Edit, edit), (Act::Delete, t("app.engage.delete").into())]
 }
 
 impl App {
@@ -117,7 +118,7 @@ impl App {
   pub(super) fn feed_bookmark(&mut self) {
     let Some(id) = self.selected_row_post_id() else { return };
     if self.me.is_none() {
-      return self.say(LOGIN_FIRST);
+      return self.say(login_first());
     }
     if let Some(on) = self.feed.marks.begin(&id) {
       self.net.send(Cmd::Social(social::Cmd::Bookmark { id, on }));
@@ -127,9 +128,9 @@ impl App {
   pub(super) fn on_bookmarked(&mut self, id: Box<str>, on: bool, res: Result<(), u16>) {
     self.feed.marks.end(&id, on, res.is_ok());
     match res {
-      Ok(()) => self.say(if on { "bookmarked" } else { "bookmark removed" }),
-      Err(401) => self.say(LOGIN_FIRST),
-      Err(_) => self.say(TRY_AGAIN),
+      Ok(()) => self.say(if on { t("app.engage.bookmarked") } else { t("app.engage.bookmark_removed") }),
+      Err(401) => self.say(login_first()),
+      Err(_) => self.say(try_again()),
     }
   }
 
@@ -140,7 +141,7 @@ impl App {
       return;
     }
     if engage::edit_left(p.ts, now_ms()).is_none() {
-      return self.say("can't edit it any more — posts can be edited for 10 minutes");
+      return self.say(t("app.engage.edit_too_late"));
     }
     let draft = match self.edit.take() {
       Some(e) => e.draft,
@@ -169,10 +170,10 @@ impl App {
     let id = e.id.clone();
     let text = self.line.text.trim().to_owned();
     if text.is_empty() {
-      return self.say("a post can't be empty");
+      return self.say(t("app.engage.empty"));
     }
     if engage::too_long(&text) {
-      return self.say("posts are 500 characters at most");
+      return self.say(t("app.engage.too_long"));
     }
     if self.feed.find(&id).is_some_and(|p| p.text.replace('\n', " ") == text) {
       return self.edit_end();
@@ -193,7 +194,7 @@ impl App {
         if mine {
           self.edit_end();
         }
-        self.say("post edited");
+        self.say(t("app.engage.edited"));
       }
       Err(status) => {
         // the words stay in the box so a refused edit is never lost
@@ -201,12 +202,12 @@ impl App {
           e.busy = false;
         }
         self.say(match status {
-          401 => LOGIN_FIRST,
-          400 => "that edit was refused",
-          403 => "can't edit that — the 10 minutes may be up",
-          404 | 410 => "that post is gone",
-          429 => "slow down",
-          _ => TRY_AGAIN,
+          401 => login_first(),
+          400 => t("app.engage.edit_refused"),
+          403 => t("app.engage.edit_late"),
+          404 | 410 => t("app.engage.edit_gone"),
+          429 => t("app.engage.edit_slow"),
+          _ => try_again(),
         });
       }
     }
@@ -220,8 +221,9 @@ impl App {
     }
     self.pending_delete = Some(p.id);
     let chat = self.chat_area();
-    let rows = vec![(Act::DeletePost, "yes, delete".to_owned()), (Act::No, "cancel".to_owned())];
-    self.overlay = Some(Overlay::Pop(Pop::ask("delete post?".into(), (chat.x + 24, chat.y + chat.h / 4), rows)));
+    let rows = vec![(Act::DeletePost, t("app.engage.yes_delete").to_owned()), (Act::No, t("app.cancel").to_owned())];
+    self.overlay =
+      Some(Overlay::Pop(Pop::ask(t("app.engage.delete_ask").into(), (chat.x + 24, chat.y + chat.h / 4), rows)));
     self.pop_changed();
   }
 
@@ -236,11 +238,11 @@ impl App {
       Ok(()) => {
         // an inline line in a chat tab reads as a deleted line, like a mod delete
         self.post_gone(&id);
-        self.say("post deleted");
+        self.say(t("app.engage.deleted"));
       }
-      Err(401) => self.say(LOGIN_FIRST),
-      Err(403) => self.say("that isn't your post"),
-      Err(_) => self.say("couldn't delete — try again"),
+      Err(401) => self.say(login_first()),
+      Err(403) => self.say(t("app.engage.not_yours")),
+      Err(_) => self.say(t("app.engage.delete_failed")),
     }
   }
 
@@ -249,7 +251,7 @@ impl App {
     let Some(m) = self.tabs.get(self.active).and_then(|t| t.view.selected()) else { return };
     match engage::op_line(&m.nick, &m.body) {
       Some(line) => self.type_into_line(&line),
-      None => self.say("nothing to post"),
+      None => self.say(t("app.engage.nothing")),
     }
   }
 
@@ -260,12 +262,12 @@ impl App {
       Slash::Re(t) => ("/re", t, postcmd::RE_USAGE),
     };
     if text.is_empty() {
-      return self.say(usage);
+      return self.say(crate::i18n::t(usage));
     }
     let reply_to = if word == "/re" {
       match self.feed.last_op() {
         Some(id) => Some(id),
-        None => return self.say("no heatsync post in chat yet"),
+        None => return self.say(t("app.engage.no_post")),
       }
     } else {
       None

@@ -2,6 +2,7 @@
 // flips it), automod levels (h l, 0-4), pending unban requests (y approve, x deny, then y / n) and who
 // is in chat (/ filters). /modtools, /unbanrequests, or the status screen's row. asks for the twitch
 // permission when it's missing
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -63,24 +64,23 @@ impl Mt {
   pub(super) fn lines(&self, q: &str) -> (Vec<L>, Vec<Target>) {
     let say = |a: &str| (vec![row(a, "")], vec![Target::None]);
     match self.view {
-      View::Loading => return say("loading…"),
-      View::NotMod => return say("you are not a moderator of this channel"),
+      View::Loading => return say(t("mod.tools.loading")),
+      View::NotMod => return say(t("mod.tools.not_mod")),
       View::Auth => {
         return (
-          vec![row("sign in to heatsync again (ctrl-l)", ""), row("retry", "")],
+          vec![row(t("mod.tools.sign_in"), ""), row(t("mod.common.retry"), "")],
           vec![Target::None, Target::Retry],
         );
       }
       View::Error => {
-        return (vec![row("couldn't reach twitch", ""), row("retry", "")], vec![Target::None, Target::Retry]);
+        return (
+          vec![row(t("mod.tools.unreachable"), ""), row(t("mod.common.retry"), "")],
+          vec![Target::None, Target::Retry],
+        );
       }
       View::Perm => {
         return (
-          vec![
-            row("heatsync needs one more twitch permission for mod tools", ""),
-            row("allow mod tools", ""),
-            row("retry", ""),
-          ],
+          vec![row(t("mod.tools.perm"), ""), row(t("mod.tools.allow"), ""), row(t("mod.common.retry"), "")],
           vec![Target::None, Target::Allow, Target::Retry],
         );
       }
@@ -88,28 +88,28 @@ impl Mt {
     }
     let q = q.trim().to_ascii_lowercase();
     let (mut lines, mut marks) = (Vec::new(), Vec::new());
-    let mut put = |l: L, t: Target| {
+    let mut put = |l: L, tg: Target| {
       lines.push(l);
-      marks.push(t);
+      marks.push(tg);
     };
-    let fail = "couldn't load: r reloads";
-    put(L::Head("shield mode".into()), Target::None);
+    let fail = t("mod.tools.load_failed");
+    put(L::Head(t("mod.tools.shield").into()), Target::None);
     match self.shield {
-      Some(on) => put(L::Row { a: "shield mode".into(), b: String::new(), pill: Some(on) }, Target::Shield),
+      Some(on) => put(L::Row { a: t("mod.tools.shield").into(), b: String::new(), pill: Some(on) }, Target::Shield),
       None => put(row(fail, ""), Target::None),
     }
-    put(L::Head("automod · h l set 0-4".into()), Target::None);
+    put(L::Head(t("mod.tools.automod_head").into()), Target::None);
     match &self.levels {
       Some(lv) => {
-        for (i, ((_, label), n)) in LEVELS.iter().zip(lv).enumerate() {
-          put(row(*label, n.map_or_else(|| "-".to_owned(), |n| n.to_string())), Target::Level(i as u8));
+        for (i, ((_, key), n)) in LEVELS.iter().zip(lv).enumerate() {
+          put(row(t(key), n.map_or_else(|| "-".to_owned(), |n| n.to_string())), Target::Level(i as u8));
         }
       }
       None => put(row(fail, ""), Target::None),
     }
     match &self.unbans {
       Some(u) => {
-        put(L::Head(format!("unban requests · {} pending", u.len())), Target::None);
+        put(L::Head(f("mod.tools.unban_head", &[("n", &u.len().to_string())])), Target::None);
         let now = now_ms();
         let shown: Vec<(usize, &Unban)> = u
           .iter()
@@ -117,38 +117,44 @@ impl Mt {
           .filter(|(_, r)| q.is_empty() || r.login.contains(&q) || r.text.to_lowercase().contains(&q))
           .collect();
         if shown.is_empty() {
-          put(row(if u.is_empty() { "none waiting" } else { "nothing matches" }, ""), Target::None);
+          put(
+            row(if u.is_empty() { t("mod.tools.none_waiting") } else { t("mod.tools.nothing_matches") }, ""),
+            Target::None,
+          );
         }
         for (i, r) in shown {
           let a = match &self.confirm {
             Some((id, yes)) if *id == r.id => {
-              format!("{} {}?  y yes · n no", if *yes { "approve" } else { "deny" }, r.name)
+              f(if *yes { "mod.tools.approve_ask" } else { "mod.tools.deny_ask" }, &[("name", &r.name)])
             }
             _ if r.text.is_empty() => r.name.to_string(),
             _ => format!("{}: {}", r.name, r.text),
           };
-          let ago = if r.at > 0 { format!("{} ago", stats::span(now - r.at)) } else { String::new() };
+          let ago = if r.at > 0 { f("mod.tools.ago", &[("span", &stats::span(now - r.at))]) } else { String::new() };
           put(row(a, ago), Target::Unban(i));
         }
       }
       None => {
-        put(L::Head("unban requests".into()), Target::None);
+        put(L::Head(t("mod.tools.unban_head_plain").into()), Target::None);
         put(row(fail, ""), Target::None);
       }
     }
     match &self.chatters {
       Some((total, c)) => {
-        put(L::Head(format!("chatters · {}", stats::group(*total))), Target::None);
+        put(L::Head(f("mod.tools.chatters_head", &[("n", &stats::group(*total))])), Target::None);
         let hits: Vec<&Box<str>> = c.iter().filter(|l| q.is_empty() || l.contains(&q)).collect();
         for l in hits.iter().take(SHOWN_CHATTERS) {
           put(row(&***l, ""), Target::None);
         }
         if hits.len() > SHOWN_CHATTERS {
-          put(row(format!("{} more: / filters", stats::group((hits.len() - SHOWN_CHATTERS) as u64)), ""), Target::None);
+          put(
+            row(f("mod.tools.more", &[("n", &stats::group((hits.len() - SHOWN_CHATTERS) as u64))]), ""),
+            Target::None,
+          );
         }
       }
       None => {
-        put(L::Head("chatters".into()), Target::None);
+        put(L::Head(t("mod.tools.chatters").into()), Target::None);
         put(row(fail, ""), Target::None);
       }
     }
@@ -161,16 +167,16 @@ impl App {
   pub(super) fn tools_here(&mut self) {
     match self.twitch_here() {
       Some(chan) => self.tools_open(chan),
-      None => self.say("/modtools needs a twitch channel tab"),
+      None => self.say(t("mod.tools.need_tab")),
     }
   }
 
   pub(super) fn tools_open(&mut self, chan: Box<str>) {
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("mod.common.login_first"));
     }
     if !self.can_mod(Platform::Twitch, &chan) {
-      return self.say(format!("/modtools needs mod on {chan}"));
+      return self.say(f("mod.tools.needs_mod", &[("chan", &chan)]));
     }
     self.open_screen(Page::ModTools);
     if let Some(s) = &mut self.screen {
@@ -201,11 +207,11 @@ impl App {
   }
 
   // enter / click, and h / l (Some(up))
-  pub(super) fn tools_pick(&mut self, t: Target, adjust: Option<bool>) {
+  pub(super) fn tools_pick(&mut self, tg: Target, adjust: Option<bool>) {
     let Some(mt) = self.mt() else { return };
-    let op = match (t, adjust) {
+    let op = match (tg, adjust) {
       (Target::Allow, None) => {
-        self.say(super::feed::needs_twitch("mod tools"));
+        self.say(super::feed::needs_twitch(t("mod.tools.noun")));
         return self.net.send(Cmd::Relink("modsuite"));
       }
       (Target::Retry, None) => return self.tools_load(),
@@ -244,11 +250,11 @@ impl App {
       }
       Ok(Got::Shield(on)) => {
         mt.shield = Some(on);
-        mt.msg = format!("shield mode {}", if on { "on" } else { "off" });
+        mt.msg = t(if on { "mod.tools.shield_on" } else { "mod.tools.shield_off" }).into();
       }
       Ok(Got::Levels(l)) => {
         mt.levels = Some(l);
-        mt.msg = "automod updated".into();
+        mt.msg = t("mod.tools.automod_updated").into();
       }
       Ok(Got::Resolved(id, approve)) => {
         let who = mt.unbans.as_ref().and_then(|u| u.iter().find(|r| r.id == id)).map(|r| r.name.to_string());
@@ -256,12 +262,13 @@ impl App {
           u.retain(|r| r.id != id);
         }
         mt.confirm = None;
-        mt.msg = format!("{} {}", if approve { "unbanned" } else { "denied" }, who.unwrap_or_default());
+        mt.msg =
+          f(if approve { "mod.tools.unbanned" } else { "mod.tools.denied" }, &[("name", &who.unwrap_or_default())]);
       }
       Err(Fail::Relink) => mt.view = View::Perm,
       Err(Fail::NotMod) => mt.view = View::NotMod,
       Err(Fail::Auth) => mt.view = View::Auth,
-      Err(Fail::Limited) => mt.msg = "slow down: try again in a moment".into(),
+      Err(Fail::Limited) => mt.msg = t("mod.common.slow_down").into(),
       Err(_) if mt.view == View::Loading => mt.view = View::Error,
       // a request someone else settled already
       Err(Fail::Gone) => {
@@ -270,9 +277,9 @@ impl App {
         {
           u.retain(|r| r.id != id);
         }
-        mt.msg = "already settled".into();
+        mt.msg = t("mod.tools.settled").into();
       }
-      Err(Fail::Other) => mt.msg = "couldn't reach twitch: try again".into(),
+      Err(Fail::Other) => mt.msg = t("mod.tools.try_again").into(),
     }
     self.wake();
   }

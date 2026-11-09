@@ -4,6 +4,7 @@
 use super::App;
 use super::overlay::Overlay;
 use super::pop::{Act, Pop};
+use crate::i18n::t;
 use crate::model::message::Platform;
 use crate::model::pin::{Pin, Pins};
 use crate::net::Cmd;
@@ -93,8 +94,11 @@ impl App {
     }
     self.pin_bar.ask = Some((p, room));
     let area = self.pin_area();
-    let rows = vec![(Act::UnpinYes, "yes, unpin".to_owned()), (Act::No, "cancel".to_owned())];
-    let head = "unpin for everyone? y / enter, esc to cancel".to_owned();
+    let rows = vec![
+      (Act::UnpinYes, crate::i18n::t("app.pin.yes").to_owned()),
+      (Act::No, crate::i18n::t("app.cancel").to_owned()),
+    ];
+    let head = crate::i18n::t("app.pin.ask").to_owned();
     self.overlay = Some(Overlay::Pop(Pop::ask(head, (area.x + 24, area.y + area.h), rows)));
     self.pop_changed();
   }
@@ -164,16 +168,16 @@ impl App {
       Ok(pin) => {
         // the ws echo repaints too; this is the sure path for a socket that is down
         self.on_pin(platform, &chan, if set { pin } else { None });
-        self.say(if set { "pinned" } else { "unpinned" });
+        self.say(if set { t("app.pin.pinned") } else { t("app.pin.unpinned") });
       }
-      Err(Fail::Auth) => self.say("log in to heatsync again (ctrl-l)"),
+      Err(Fail::Auth) => self.say(t("app.pin.login")),
       Err(Fail::Relink) => {
-        self.say("link heatsync to set this");
+        self.say(t("app.pin.link"));
         self.net.send(Cmd::Relink("mod"));
       }
-      Err(Fail::Denied) => self.say("only mods can pin here"),
-      Err(Fail::NotArchived) => self.say("not in the archive yet \u{2014} try again in a moment"),
-      Err(Fail::Other) => self.say("couldn't pin"),
+      Err(Fail::Denied) => self.say(t("app.pin.denied")),
+      Err(Fail::NotArchived) => self.say(t("app.pin.not_archived")),
+      Err(Fail::Other) => self.say(t("app.pin.failed")),
     }
     self.wake();
   }

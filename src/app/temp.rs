@@ -4,6 +4,7 @@
 // that lists tabs to save skips `temp` (store_tabs, tabsync::is_channel, other_specs)
 use super::tabs::{make_tab, seat_hosts, sources_of};
 use super::{App, Tab};
+use crate::i18n::{f, t};
 use crate::model::chan::Spec;
 use crate::model::message::Platform;
 
@@ -50,7 +51,7 @@ impl App {
     let spec = match p {
       Platform::Twitch => Spec::parse(chan, "", ""),
       Platform::Kick => Spec::parse("", chan, ""),
-      Platform::Youtube => return self.say(format!("{chan} has no tab")),
+      Platform::Youtube => return self.say(f("app.temp.no_tab", &[("chan", chan)])),
     };
     match spec.and_then(|s| s.check(&self.other_specs(None)).map(|_| s)) {
       Ok(s) => self.open_look(&s),
@@ -76,7 +77,7 @@ impl App {
       return if self.visible(i) {
         self.select(i)
       } else {
-        self.say(format!("the {} tab is hidden: /show {}", spec.name(), sources_of(spec)[0].1))
+        self.say(f("app.tab_hidden", &[("name", &spec.name()), ("key", &sources_of(spec)[0].1)]))
       };
     }
     self.drop_temp_if(|_| true);
@@ -87,7 +88,7 @@ impl App {
     self.tabs.push(tab);
     self.live_soon();
     self.activate(self.tabs.len() - 1);
-    self.say("temporary tab: opening another stream takes its slot · /keep keeps it");
+    self.say(t("app.temp.note"));
   }
 
   // the temp tab becomes a saved one, at the end of the bar
@@ -97,7 +98,7 @@ impl App {
     let name = t.name.clone();
     self.save_tabs();
     self.bar_dirty = true;
-    self.say(format!("kept {name}"));
+    self.say(f("app.temp.kept", &[("name", &name)]));
     self.wake();
   }
 }

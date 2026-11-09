@@ -2,6 +2,7 @@
 // "switched to game", "went offline", and the chat-spike line. pure, clock passed in, so the pairing
 // and the ext's anti-wall guards are testable. the ui decides which kinds to show (ext toggles)
 use super::ident;
+use crate::i18n::{f, t};
 use std::collections::{HashMap, HashSet};
 
 use crate::model::message::Platform;
@@ -74,7 +75,13 @@ pub struct Line {
 impl Line {
   // `what` is the words after the diamond (`went live — game`): the verb in the tone's color, the game white
   pub fn new(platform: Platform, channel: &str, name: &str, color: Option<u32>, tone: Tone, what: &str) -> Line {
-    let at = ["went live — ", "switched to "].iter().find_map(|v| what.strip_prefix(v).map(|g| (v.len(), g)));
+    // the verb is the words before the game in the language in use; a language that puts the game first keeps the
+    // whole line in the tone's color
+    let at = ["chat2.stream.went_live_game", "chat2.stream.switched_to"].iter().find_map(|k| {
+      let (pre, post) = t(k).split_once("{game}")?;
+      let g = what.strip_prefix(pre).filter(|_| !pre.is_empty())?.strip_suffix(post)?;
+      Some((pre.len(), g))
+    });
     let (verb, game) = match at {
       Some((n, g)) => (&what[..n], g),
       None => (what, ""),
@@ -188,10 +195,10 @@ pub fn clean(s: &str) -> Box<str> {
 fn body(kind: Kind, game: &str, prev: &str) -> Option<String> {
   match kind {
     Kind::Update if game.is_empty() || prev == game => None,
-    Kind::Update => Some(format!("switched to {game}")),
-    Kind::Online if game.is_empty() => Some("went live".into()),
-    Kind::Online => Some(format!("went live — {game}")),
-    Kind::Offline => Some("went offline".into()),
+    Kind::Update => Some(f("chat2.stream.switched_to", &[("game", game)])),
+    Kind::Online if game.is_empty() => Some(t("chat2.stream.went_live").into()),
+    Kind::Online => Some(f("chat2.stream.went_live_game", &[("game", game)])),
+    Kind::Offline => Some(t("chat2.stream.went_offline").into()),
   }
 }
 
@@ -252,7 +259,11 @@ impl Gate {
       return None;
     }
     let cost = v.get("cost").and_then(serde_json::Value::as_u64).unwrap_or(0).min(100_000_000);
-    let what = if cost > 0 { format!("redeemed \"{title}\" ({cost})") } else { format!("redeemed \"{title}\"") };
+    let what = if cost > 0 {
+      f("chat2.stream.redeemed_cost", &[("title", &title), ("cost", &cost.to_string())])
+    } else {
+      f("chat2.stream.redeemed", &[("title", &title)])
+    };
     let e = Ev {
       kind: Kind::Update,
       platform,
@@ -348,10 +359,10 @@ pub fn news_text(v: &serde_json::Value, raid: bool) -> Option<String> {
   let name = |k: &str| clean(v.get(k).and_then(serde_json::Value::as_str).unwrap_or(""));
   if raid {
     let to = name("target");
-    (!to.is_empty()).then(|| format!("raided {to} with {} viewers", count("viewers")))
+    (!to.is_empty()).then(|| f("chat2.stream.raided", &[("to", &to), ("viewers", &count("viewers").to_string())]))
   } else {
     let who = name("user");
-    (!who.is_empty()).then(|| format!("{who} gifted {} subs", count("count")))
+    (!who.is_empty()).then(|| f("chat2.stream.gifted", &[("who", &who), ("count", &count("count").to_string())]))
   }
 }
 
@@ -359,7 +370,10 @@ pub fn news_text(v: &serde_json::Value, raid: bool) -> Option<String> {
 pub fn moment_text(channel: &str, rate: f64, baseline: f64) -> Option<String> {
   let ok = |x: f64| x.is_finite() && (0.0..1e7).contains(&x);
   (ok(rate) && ok(baseline)).then(|| {
-    format!("{channel} chat is exploding — {} msgs/30s (usually ~{})", rate.round(), baseline.round().max(1.0))
+    f(
+      "chat2.stream.exploding",
+      &[("channel", channel), ("rate", &rate.round().to_string()), ("usual", &baseline.round().max(1.0).to_string())],
+    )
   })
 }
 

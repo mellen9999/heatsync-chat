@@ -6,8 +6,9 @@ use super::overlay::Overlay;
 use super::pop::Act;
 use super::pop::{Pop, Subject, Todo};
 use crate::cosmetics::id::PaintId;
+use crate::i18n::{f, t, tn};
 use crate::model::message::{Message, Platform};
-use crate::model::modcmd::{Cmd as Slash, NUKE_MAX, NUKE_USAGE, Verb};
+use crate::model::modcmd::{Cmd as Slash, NUKE_MAX, Verb};
 use crate::model::modlog_file;
 use crate::net::Cmd;
 use crate::net::modact::{Done, Fail, NukeDone, Req};
@@ -67,7 +68,7 @@ impl App {
   pub(super) fn mod_log(&mut self, p: Platform, chan: &str, what: String) {
     let Some(i) = self.tab_of(crate::model::tabs::Kind::ModLog) else { return };
     let what = match self.mod_actor(chan, &what) {
-      Some(by) => format!("{what} \u{b7} by {by}"),
+      Some(by) => f("mod.log.by", &[("what", &what), ("by", &by)]),
       None => what,
     };
     self.tabs[i].chat().push(Message::system(now_ms(), p, format!("{chan} \u{b7} {what}")));
@@ -185,7 +186,7 @@ impl App {
     // the ext asks before a ban when confirming is on or it has reasons to offer
     let reasons: Vec<String> = crate::model::filter::with(|f| f.reasons().iter().map(|r| r.to_string()).collect());
     if verb == Verb::Ban && (self.set.confirm_ban || !reasons.is_empty()) {
-      let head = format!("ban {} in #{}?", who[0].nick, who[0].chan);
+      let head = f("mod.ban.ask", &[("nick", &who[0].nick), ("chan", &who[0].chan)]);
       let at = (self.pointer.0.min(self.canvas.w - 160), self.pointer.1.min(self.canvas.h - 80));
       let todo = Todo { verb, who, reason, reasons };
       self.overlay = Some(Overlay::Pop(Pop::confirm(head, at, todo)));
@@ -199,22 +200,22 @@ impl App {
       let req = self.req(w, verb, reason.clone());
       self.net.send(Cmd::Mod(req));
     }
-    self.say(format!("{} {}…", verb.name(), who[0].nick));
+    self.say(f("mod.send", &[("verb", verb.word()), ("who", &who[0].nick)]));
   }
 
   // the twitch and kick feeds of the channel tab on screen that a mod command acts on; says why when there are none
   fn mod_srcs(&mut self, what: &str) -> Option<Vec<(Platform, Box<str>)>> {
-    let Some(t) = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat) else {
-      self.say(format!("/{what} needs a channel tab"));
+    let Some(tab) = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat) else {
+      self.say(f("mod.needs_tab", &[("cmd", what)]));
       return None;
     };
     if self.me.is_none() {
-      self.say("log in first (ctrl-l)");
+      self.say(t("mod.common.login_first"));
       return None;
     }
-    let srcs: Vec<(Platform, Box<str>)> = t.sources.iter().filter(|s| s.0 != Platform::Youtube).cloned().collect();
+    let srcs: Vec<(Platform, Box<str>)> = tab.sources.iter().filter(|s| s.0 != Platform::Youtube).cloned().collect();
     if srcs.is_empty() {
-      self.say(format!("/{what} needs a twitch or kick channel"));
+      self.say(f("mod.needs_channel", &[("cmd", what)]));
       return None;
     }
     Some(srcs)
@@ -228,7 +229,7 @@ impl App {
       Slash::Do(v, n, r) => (v, n, r),
     };
     let Some(mut srcs) = self.mod_srcs(verb.name()) else { return };
-    let Some(t) = self.tabs.get(self.active) else { return };
+    let Some(tab) = self.tabs.get(self.active) else { return };
     // a message id lives on one platform: twitch first, as the ext does
     if verb == Verb::Delete {
       srcs.truncate(1);
@@ -236,7 +237,7 @@ impl App {
     let who: Vec<Subject> = srcs
       .into_iter()
       .map(|(platform, chan)| {
-        let id = (platform == Platform::Twitch).then(|| t.view.user_id_of(&name)).flatten().unwrap_or_default();
+        let id = (platform == Platform::Twitch).then(|| tab.view.user_id_of(&name)).flatten().unwrap_or_default();
         let (login, msg_id) =
           if verb == Verb::Delete { ("".into(), name.as_str().into()) } else { (name.as_str().into(), "".into()) };
         Subject {
@@ -255,7 +256,7 @@ impl App {
     if verb == Verb::Delete {
       // no name to show: the id stands in for it
       let mut who = who;
-      who[0].nick = "message".into();
+      who[0].nick = t("mod.word.message").into();
       return self.mod_run(verb, who, reason);
     }
     self.mod_run(verb, who, reason);
@@ -264,12 +265,12 @@ impl App {
   // /nuke <term> [seconds]: the lines of this tab that say the term lately, asked about before they go
   fn nuke_slash(&mut self, parsed: Option<(String, u32)>) {
     let Some(srcs) = self.mod_srcs("nuke") else { return };
-    let Some((term, secs)) = parsed else { return self.say(NUKE_USAGE) };
+    let Some((term, secs)) = parsed else { return self.say(t("mod.cmd.nuke_usage")) };
     let (needle, since) = (term.to_lowercase(), now_ms() - i64::from(secs) * 1000);
-    let Some(t) = self.tabs.get(self.active) else { return };
+    let Some(tab) = self.tabs.get(self.active) else { return };
     let mut seen = std::collections::HashSet::new();
     let mut who: Vec<Subject> = Vec::new();
-    for m in t.view.msgs() {
+    for m in tab.view.msgs() {
       // a line of someone's, still standing, in the window, that says the term (a substring, not a pattern)
       if !m.kind.said()
         || m.platform == Platform::Youtube
@@ -286,7 +287,7 @@ impl App {
         platform: m.platform,
         chan,
         login: m.login.clone(),
-        nick: "message".into(),
+        nick: t("mod.word.message").into(),
         user_id: "".into(),
         msg_id: m.id.clone(),
         color: 0,
@@ -296,19 +297,18 @@ impl App {
     }
     let total = who.len();
     if total == 0 {
-      return self.say(format!("/nuke: no messages matching \"{term}\" in the last {secs}s"));
+      return self.say(f("mod.nuke.none", &[("term", &term), ("secs", &secs.to_string())]));
     }
     // the oldest are kept if there are more than the cap: a raid's first lines go first
     who.truncate(NUKE_MAX);
     let n = who.len();
-    let capped = if total > n { format!("+ (capped from {total})") } else { String::new() };
+    let capped = if total > n { f("mod.nuke.capped", &[("total", &total.to_string())]) } else { String::new() };
     let shown: String = term.chars().take(NUKE_TERM_SHOWN).collect();
     let shown = if shown.len() < term.len() { format!("{shown}\u{2026}") } else { shown };
-    let head =
-      format!("delete {n}{capped} message{} matching \"{shown}\" in #{}?", if n == 1 { "" } else { "s" }, srcs[0].1);
+    let head = tn("mod.nuke.ask", n as u64, &[("capped", &capped), ("shown", &shown), ("chan", &srcs[0].1)]);
     let at = (self.pointer.0.min(self.canvas.w - 160), self.pointer.1.min(self.canvas.h - 80));
     let todo = Todo { verb: Verb::Delete, who, reason: Some(term), reasons: Vec::new() };
-    self.overlay = Some(Overlay::Pop(Pop::confirm_as(head, at, (Act::NukeYes, "delete".to_owned()), todo)));
+    self.overlay = Some(Overlay::Pop(Pop::confirm_as(head, at, (Act::NukeYes, t("mod.verb.delete").to_owned()), todo)));
     self.pop_changed();
   }
 
@@ -318,7 +318,7 @@ impl App {
       return;
     }
     let reqs: Vec<Req> = who.iter().map(|w| self.req(w, Verb::Delete, None)).collect();
-    self.say(format!("deleting {} message{}\u{2026}", reqs.len(), if reqs.len() == 1 { "" } else { "s" }));
+    self.say(tn("mod.nuke.deleting", reqs.len() as u64, &[]));
     self.net.send(Cmd::Nuke(reqs, term));
   }
 
@@ -332,18 +332,18 @@ impl App {
       }
     }
     match fail {
-      Some(Fail::Auth) => self.say("log in first (ctrl-l)"),
+      Some(Fail::Auth) => self.say(t("mod.common.login_first")),
       Some(Fail::Relink) => {
-        self.say(super::feed::needs_twitch("moderating"));
+        self.say(super::feed::needs_twitch(t("mod.noun")));
         self.net.send(Cmd::Relink("mod"));
       }
       _ => {
         let n = ok.len();
-        self.say(format!("deleted {n}/{total} matching \"{term}\""));
+        self.say(f("mod.nuke.done", &[("n", &n.to_string()), ("total", &total.to_string()), ("term", &term)]));
         if let Some(Fail::Other(e)) = fail
           && n < total
         {
-          self.say(format!("delete failed: {e}"));
+          self.say(f("mod.nuke.failed", &[("err", &e)]));
         }
       }
     }
@@ -353,19 +353,21 @@ impl App {
 
   pub(super) fn on_mod_done(&mut self, d: Done) {
     let Done { platform, chan, verb, login, msg_id, res } = d;
-    let who = if verb == Verb::Delete { "message".into() } else { login.to_string() };
+    let who = if verb == Verb::Delete { t("mod.word.message").into() } else { login.to_string() };
     match res {
       Ok(()) => {
-        self.say(format!("{} {who}", verb.done()));
+        self.say(f("mod.done", &[("what", &verb.done()), ("who", &who)]));
         // twitch echoes bans, timeouts and deletes back through chat; unban never echoes, and kick echoes nothing
-        let actor = self.me.as_ref().map_or_else(|| "you".to_owned(), |m| m.username.to_string());
+        let actor = self.me.as_ref().map_or_else(|| t("mod.word.you").to_owned(), |m| m.username.to_string());
         let note = match verb {
-          Verb::Unban => Some(format!("{actor} unbanned {login}")),
+          Verb::Unban => Some(f("mod.note.unbanned", &[("actor", &actor), ("login", &login)])),
           _ if platform != Platform::Kick => None,
-          Verb::Ban => Some(format!("{actor} banned {login}")),
-          Verb::Timeout(s) => Some(format!("{actor} timed out {login} for {s}s")),
+          Verb::Ban => Some(f("mod.note.banned", &[("actor", &actor), ("login", &login)])),
+          Verb::Timeout(s) => {
+            Some(f("mod.note.timed_out", &[("actor", &actor), ("login", &login), ("n", &s.to_string())]))
+          }
           Verb::Purge => None,
-          Verb::Delete => Some(format!("{actor} deleted a message")),
+          Verb::Delete => Some(f("mod.note.deleted", &[("actor", &actor)])),
         };
         for i in self.tabs_with(platform, &chan) {
           let v = self.tabs[i].chat();
@@ -387,12 +389,12 @@ impl App {
           None => self.mod_expect(&chan, &login),
         }
       }
-      Err(Fail::Auth) => self.say("log in first (ctrl-l)"),
+      Err(Fail::Auth) => self.say(t("mod.common.login_first")),
       Err(Fail::Relink) => {
-        self.say(super::feed::needs_twitch("moderating"));
+        self.say(super::feed::needs_twitch(t("mod.noun")));
         self.net.send(Cmd::Relink("mod"));
       }
-      Err(Fail::Other(e)) => self.say(format!("{} failed: {e}", verb.name())),
+      Err(Fail::Other(e)) => self.say(f("mod.failed", &[("verb", verb.word()), ("err", &e)])),
     }
     self.bar_dirty = true;
     self.wake();

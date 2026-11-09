@@ -3,6 +3,7 @@
 // of the mentions tab like any ping. the list is the account's: read with GET /api/mention-rules, changed
 // with POST / PUT {enabled} / DELETE, and `mention-rules:changed` says another client changed it. every byte
 // that comes back is hostile: counts, lengths and shapes are held to the server's own bounds here
+use crate::i18n::t;
 use serde_json::{Value, json};
 
 use super::message::Platform;
@@ -165,7 +166,6 @@ fn chan_token(t: &str) -> Option<&str> {
 // what is typed on the add row: `[word|phrase|regex] <pattern> [#channel ...]`. more than one word is a phrase,
 // one is a word; trailing `#channel`s narrow the rule to those rooms
 pub fn parse_add(text: &str) -> Result<Body, &'static str> {
-  const EMPTY: &str = "type a word or phrase";
   let mut rest = clean(text, text.len().min(4 * MAX_PATTERN + 1000));
   let mut channels: Vec<String> = Vec::new();
   loop {
@@ -192,16 +192,16 @@ pub fn parse_add(text: &str) -> Result<Body, &'static str> {
     None => (Ty::Word, rest.clone()),
   };
   if pattern.is_empty() {
-    return Err(EMPTY);
+    return Err(t("mod.mrules.empty"));
   }
   if pattern.chars().count() > MAX_PATTERN {
-    return Err("that is too long (200 at most)");
+    return Err(t("mod.mrules.too_long"));
   }
   if channels.len() > MAX_CHANNELS {
-    return Err("too many channels (50 at most)");
+    return Err(t("mod.mrules.too_many_channels"));
   }
   if channels.iter().any(|c| c.chars().count() > MAX_CHANNEL) {
-    return Err("a channel name is too long");
+    return Err(t("mod.mrules.channel_too_long"));
   }
   Ok(Body { ty, pattern, channels })
 }
@@ -227,15 +227,15 @@ pub fn describe(r: &Rule) -> (String, String) {
   if !r.channels.is_empty() {
     d.push(r.channels.iter().map(|c| format!("#{c}")).collect::<Vec<_>>().join(" "));
   } else if r.platforms.is_empty() {
-    d.push("everywhere".into());
+    d.push(t("mod.mrules.everywhere").into());
   }
   if !r.platforms.is_empty() {
     d.push(r.platforms.iter().map(|p| letter(*p)).collect::<Vec<_>>().join(" "));
   }
   if !r.on {
-    d.push("off".into());
+    d.push(t("mod.mrules.off").into());
   } else if r.dormant {
-    d.push("over your limit, not firing".into());
+    d.push(t("mod.mrules.dormant").into());
   }
   (r.pattern.to_string(), d.join(" · "))
 }
@@ -410,10 +410,10 @@ mod tests {
     for t in ["", "   ", "#forsen", "#a #b"] {
       assert_eq!(parse_add(t), Err("type a word or phrase"), "{t:?}");
     }
-    assert_eq!(parse_add(&"x".repeat(MAX_PATTERN + 1)), Err("that is too long (200 at most)"));
+    assert_eq!(parse_add(&"x".repeat(MAX_PATTERN + 1)), Err(t("mod.mrules.too_long")));
     let many = (0..51).map(|i| format!("#c{i}")).collect::<Vec<_>>().join(" ");
-    assert_eq!(parse_add(&format!("gg {many}")), Err("too many channels (50 at most)"));
-    assert_eq!(parse_add(&format!("gg #{}", "c".repeat(61))), Err("a channel name is too long"));
+    assert_eq!(parse_add(&format!("gg {many}")), Err(t("mod.mrules.too_many_channels")));
+    assert_eq!(parse_add(&format!("gg #{}", "c".repeat(61))), Err(t("mod.mrules.channel_too_long")));
     // control bytes in a typed rule are spaces
     assert_eq!(ok("a\u{7}b").pattern, "a b");
   }

@@ -1,4 +1,5 @@
 // window + event loop glue: tabs of chat views fed by the net thread
+use crate::i18n::t;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -202,7 +203,9 @@ const FLOOD_TAB: &str = "flood";
 const APP_ID: &str = "heatsync-chat";
 const SCROLLBACK: usize = 1000;
 // the empty box's first words while logged out: a button
-const LOGIN_HINT: &str = "ctrl-l log in";
+fn login_hint() -> &'static str {
+  t("app.hint.login")
+}
 // animation repaint ceiling: 30fps — smooth for emotes, ~35% fewer wakeups than native gif timing
 const ANIM_MIN_MS: u32 = 33;
 const TRIM_AFTER: Duration = Duration::from_secs(2);
@@ -630,7 +633,7 @@ impl App {
       attention: false,
       font_ask: None,
       notify_pace: Default::default(),
-      live_pace: crate::util::notify::Coalesce::new("stream update", "stream updates"),
+      live_pace: crate::util::notify::Coalesce::stream_updates(),
       dpi: 1.0,
       zoom_acc: 0.0,
       picker: None,

@@ -1,5 +1,7 @@
 // the built-in tabs, in the ext's order (tab-registry.js): feed, whispers, mentions, mod log, then your channels.
 // the names are the reserved ids a channel may never take
+
+use crate::i18n::t;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
   Chat,
@@ -20,6 +22,17 @@ impl Kind {
       Kind::Whispers => "whispers",
       Kind::Mentions => "mentions",
       Kind::ModLog => "modlog",
+    }
+  }
+
+  // what a tab of this kind is called on screen (`name` is the id that is typed and saved)
+  pub fn label(self) -> &'static str {
+    match self {
+      Kind::Chat => "",
+      Kind::Feed => t("chat2.tabs.feed"),
+      Kind::Whispers => t("chat2.tabs.whispers"),
+      Kind::Mentions => t("chat2.tabs.mentions"),
+      Kind::ModLog => t("chat2.tabs.modlog"),
     }
   }
 

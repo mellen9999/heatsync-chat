@@ -2,6 +2,7 @@
 // list, rename, move, remove, undo, redo, restore, apply a saved set, share, import a channel. each op is
 // one request; the answer is checked and handed to the screen. a change that lands also tells the sender
 // path (`NetEvent::Inventory`), so your own lines draw the new set through the same refetch as ever
+use crate::i18n::{f, t};
 use reqwest::Method;
 use serde_json::{Value, json};
 
@@ -81,14 +82,17 @@ pub fn request(op: &Op) -> Req {
 fn changed(op: &Op, v: &Value) -> String {
   let n = |k: &str| v.get(k).and_then(Value::as_u64);
   match op {
-    Op::Undo => "undone".into(),
-    Op::Redo => "redone".into(),
-    Op::Restore(_) => "restored".into(),
+    Op::Undo => t("net2.inv.undone").into(),
+    Op::Redo => t("net2.inv.redone").into(),
+    Op::Restore(_) => t("net2.inv.restored").into(),
     Op::Apply(_) => match n("applied") {
-      Some(c) => format!("set applied: {c} emotes (your old ones are in removed)"),
-      None => "set applied (your old ones are in removed)".into(),
+      Some(c) => f("net2.inv.applied_n", &[("n", &c.to_string())]),
+      None => t("net2.inv.applied").into(),
     },
-    Op::Import(c) => format!("imported {} from {c}", n("imported").map_or_else(|| "emotes".into(), |i| i.to_string())),
+    Op::Import(c) => match n("imported") {
+      Some(i) => f("net2.inv.imported_n", &[("n", &i.to_string()), ("channel", c)]),
+      None => f("net2.inv.imported", &[("channel", c)]),
+    },
     _ => String::new(),
   }
 }
@@ -107,7 +111,7 @@ fn answer(op: Op, v: &Value) -> Result<Got, String> {
     Op::Rename(slot, _, name) => Got::Renamed(slot, v.get("name").and_then(Value::as_str).map_or(name, Into::into)),
     Op::Move(from, to) => Got::Moved(from, to),
     Op::Remove(slot, name) => Got::Dropped(slot, name),
-    Op::Share => Got::Shared(link(v).ok_or("heatsync sent back no link")?),
+    Op::Share => Got::Shared(link(v).ok_or(t("net2.inv.no_link"))?),
     Op::Unshare => Got::Unshared,
     ref o => Got::Changed(changed(o, v)),
   })

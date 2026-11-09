@@ -1,5 +1,6 @@
 // the picker's "upload your own emote" form: no drawing. where it is (a dialog is open, a path is being typed,
 // a name is being typed, the upload is out) and the one line of text the picker's top row shows while it is
+use crate::i18n::t;
 use std::path::PathBuf;
 
 use crate::net::upload::emote::Kept;
@@ -35,11 +36,11 @@ impl EmoteUp {
   // what the top row says before the text
   pub fn prompt(&self) -> &'static str {
     match self.stage {
-      Stage::Choosing => "choose a picture…",
-      Stage::Path => "path to a picture: ",
-      Stage::Name if self.kept.is_some() => "pick another name: ",
-      Stage::Name => "name your emote: ",
-      Stage::Busy => "uploading…",
+      Stage::Choosing => t("chat1.emote_up.choosing"),
+      Stage::Path => t("chat1.emote_up.path"),
+      Stage::Name if self.kept.is_some() => t("chat1.emote_up.rename"),
+      Stage::Name => t("chat1.emote_up.name"),
+      Stage::Busy => t("chat1.emote_up.busy"),
     }
   }
 

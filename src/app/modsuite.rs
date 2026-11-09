@@ -2,6 +2,7 @@
 // [on|off]. a line's menu offers warn (the command typed, for the reason) and shoutout. asks for the
 // twitch permission when it's missing
 use super::App;
+use crate::i18n::{f, t};
 use crate::model::message::Platform;
 use crate::model::modsuite::Cmd;
 use crate::net::Cmd as NetCmd;
@@ -11,44 +12,52 @@ impl App {
   pub(super) fn suite_slash(&mut self, cmd: Result<Cmd, &'static str>) {
     match (cmd, self.twitch_here()) {
       (Err(usage), _) => self.say(usage),
-      (Ok(_), None) => self.say("that needs a twitch channel tab"),
+      (Ok(_), None) => self.say(t("mod.suite.need_tab")),
       (Ok(c), Some(chan)) => self.suite_run(chan, c),
     }
   }
 
   pub(super) fn suite_run(&mut self, chan: Box<str>, cmd: Cmd) {
     if self.me.is_none() {
-      return self.say("log in first (ctrl-l)");
+      return self.say(t("mod.common.login_first"));
     }
     if !self.can_mod(Platform::Twitch, &chan) {
-      return self.say(format!("that needs mod on {chan}"));
+      return self.say(f("mod.suite.needs_mod", &[("chan", &chan)]));
     }
     self.net.send(NetCmd::Suite(chan, cmd));
   }
 
   pub(super) fn on_suite(&mut self, chan: Box<str>, cmd: Cmd, res: Result<Option<bool>, Fail>) {
     let what = match &cmd {
-      Cmd::Warn { .. } => "warn",
-      Cmd::Shoutout(_) => "shoutout",
-      Cmd::Shield(_) => "shield mode",
+      Cmd::Warn { .. } => "mod.suite.noun_warn",
+      Cmd::Shoutout(_) => "mod.suite.noun_shoutout",
+      Cmd::Shield(_) => "mod.tools.shield",
     };
     let line = match (res, &cmd) {
-      (Ok(_), Cmd::Warn { user, .. }) => format!("warned {user} in {chan}"),
-      (Ok(_), Cmd::Shoutout(user)) => format!("shouted out {user} in {chan}"),
-      (Ok(on), Cmd::Shield(want)) => {
-        format!("shield mode {} in {chan}", if on.or(*want).unwrap_or(false) { "on" } else { "off" })
-      }
-      (Err(Fail::Auth), _) => "log in first (ctrl-l)".into(),
+      (Ok(_), Cmd::Warn { user, .. }) => f("mod.suite.warned", &[("user", user), ("chan", &chan)]),
+      (Ok(_), Cmd::Shoutout(user)) => f("mod.suite.shouted", &[("user", user), ("chan", &chan)]),
+      (Ok(on), Cmd::Shield(want)) => f(
+        if on.or(*want).unwrap_or(false) { "mod.suite.shield_on" } else { "mod.suite.shield_off" },
+        &[("chan", &chan)],
+      ),
+      (Err(Fail::Auth), _) => t("mod.common.login_first").into(),
       (Err(Fail::Relink), _) => {
         self.net.send(NetCmd::Relink("modsuite"));
-        super::feed::needs_twitch(what)
+        super::feed::needs_twitch(t(what))
       }
-      (Err(Fail::NotMod), _) => format!("you are not a moderator of {chan}"),
-      (Err(Fail::Gone), Cmd::Warn { user, .. } | Cmd::Shoutout(user)) => format!("no twitch user named {user}"),
-      (Err(Fail::Limited), _) => "slow down: try again in a moment".into(),
+      (Err(Fail::NotMod), _) => f("mod.suite.not_mod", &[("chan", &chan)]),
+      (Err(Fail::Gone), Cmd::Warn { user, .. } | Cmd::Shoutout(user)) => f("mod.suite.no_user", &[("user", user)]),
+      (Err(Fail::Limited), _) => t("mod.common.slow_down").into(),
       // twitch refuses a shoutout while offline, or twice inside its cooldown
-      (Err(_), Cmd::Shoutout(_)) => "shoutout failed: the channel must be live, and twitch spaces shoutouts out".into(),
-      (Err(_), _) => format!("{what} failed: try again"),
+      (Err(_), Cmd::Shoutout(_)) => t("mod.suite.shout_failed").into(),
+      (Err(_), _) => f(
+        match &cmd {
+          Cmd::Warn { .. } => "mod.suite.warn_failed",
+          Cmd::Shoutout(_) => "mod.suite.shout_failed",
+          Cmd::Shield(_) => "mod.suite.shield_failed",
+        },
+        &[],
+      ),
     };
     self.say(line);
     self.wake();

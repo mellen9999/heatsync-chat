@@ -27,7 +27,7 @@ pub fn draw(
   avatar: Option<Pic>,
   side: i32,
 ) -> Rect {
-  let (s, spans) = card::head(v);
+  let (s, spans) = card::head(text, v);
   let side = if avatar.is_some() { side } else { 0 };
   let left = if side > 0 { side + PAD } else { 0 };
   let max = ((text.font_px * 0.62 * COLS) as i32).min(bounds.w - 16).max(120);

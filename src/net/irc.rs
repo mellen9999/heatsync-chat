@@ -1,4 +1,5 @@
 // twitch irc: line parser (pure) + one anonymous websocket session per process
+use crate::i18n::{f, t};
 use crate::model::ident;
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
@@ -324,7 +325,7 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       // a line sent with a channel-point reward (ext .hs-mc-redeem-label): twitch's irc names no reward,
       // so the label is the ext's generic one. still the person's own line
       if l.tag("custom-reward-id").is_some() {
-        m.system = Some("◆ channel point redeem".into());
+        m.system = Some(t("net1.irc.redeem").into());
         m.extra().notice = Notice::Redeem;
       }
       Chat::Msg(m)
@@ -441,11 +442,11 @@ pub async fn run(
   let mut pending: VecDeque<Sent> = VecDeque::new();
   let mut dupes = Dupes::default();
   loop {
-    let mut why = "can't reach twitch";
+    let mut why = t("net1.irc.unreachable");
     match timeout(HANDSHAKE_LIMIT, ws_connect(URL, MAX_FRAME)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
-        out.status(if creds.is_some() { "twitch connected" } else { "twitch connected (read-only)" });
+        out.status(if creds.is_some() { t("net1.irc.connected") } else { t("net1.irc.connected_ro") });
         if let Some(since) = lost.take() {
           let chans: Vec<_> = chans.iter().cloned().collect();
           tokio::spawn(super::recent::catch_up(http.clone(), chans, catch_limit(since.elapsed()), out.clone()));
@@ -465,7 +466,7 @@ pub async fn run(
             attempts = 0;
             continue;
           }
-          End::Reconnect => why = "lost twitch",
+          End::Reconnect => why = t("net1.irc.lost"),
         }
         if started.elapsed() >= STABLE {
           attempts = 0;
@@ -489,7 +490,7 @@ pub async fn run(
             creds = c;
             break;
           }
-          Some(Cmd::Send { chan, .. }) => unsent(&out, chan, "twitch is reconnecting, so that wasn't sent"),
+          Some(Cmd::Send { chan, .. }) => unsent(&out, chan, t("net1.irc.reconnecting_unsent")),
           Some(c) => { apply(&mut chans, c); }
           None => return,
         },
@@ -502,7 +503,7 @@ pub async fn run(
 fn unsure(out: &Out, pending: &mut VecDeque<Sent>) {
   for p in pending.drain(..) {
     let said: String = p.text.chars().take(60).collect();
-    unsent(out, p.chan, &format!("twitch dropped, so this may not have sent: {said}"));
+    unsent(out, p.chan, &f("net1.irc.dropped_unsent", &[("said", &said)]));
   }
 }
 
@@ -576,7 +577,7 @@ async fn session(
             }
             // a bad/expired token: say so and fall back to reading anonymously while the session gets a new one
             "NOTICE" if creds.is_some() && auth_rejected(&line) => {
-              out.status("twitch didn't accept your login, getting a new one (read-only for now)");
+              out.status(t("net1.irc.login_rejected"));
               return End::Refused(creds.take().map(|c| c.token).unwrap_or_default());
             }
             // our line went through: show it the way others see it
@@ -627,7 +628,7 @@ async fn session(
           }
           Some(Cmd::Send { chan, text, reply }) => {
             if creds.is_none() {
-              unsent(out, chan, "twitch isn't linked: link it at heatsync.org, or log in with twitch (ctrl-l)");
+              unsent(out, chan, t("net1.irc.not_linked"));
               continue;
             }
             let Some(l) = privmsg(&chan, &text, reply.as_ref().map(|r| &*r.id), dupes) else { continue };
@@ -648,7 +649,7 @@ async fn session(
       }
       _ = tick.tick() => {
         if last_rx.elapsed() > SILENCE_LIMIT {
-          out.status("twitch went quiet, reconnecting");
+          out.status(t("net1.irc.quiet"));
           return End::Reconnect;
         }
         if tx.send(Ws::text("PING :tmi.twitch.tv")).await.is_err() {

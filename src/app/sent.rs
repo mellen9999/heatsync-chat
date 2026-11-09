@@ -3,6 +3,7 @@
 // it in memory only and removes the file; turning it on starts a fresh list, so the disk only ever holds lines
 // sent while it was on. /clearsent forgets it all, whatever the switch says
 use super::App;
+use crate::i18n::t;
 use crate::model::sent_file;
 use crate::store;
 
@@ -40,6 +41,6 @@ impl App {
   pub(super) fn sent_clear(&mut self) {
     self.line.clear_sent();
     store::remove(sent_file::FILE);
-    self.say("sent history cleared");
+    self.say(t("app.sent.cleared"));
   }
 }

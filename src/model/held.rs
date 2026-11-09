@@ -4,6 +4,7 @@
 // allow / deny until a mod settles it or twitch lets it lapse an hour after holding it.
 // every frame is hostile: ids are checked, words bounded, control chars dropped
 use super::ident;
+use crate::i18n::{f, t};
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -49,11 +50,11 @@ pub enum End {
 impl End {
   pub fn text(&self) -> String {
     match self {
-      End::Allowed(Some(m)) => format!("allowed by {m}"),
-      End::Allowed(None) => "allowed".into(),
-      End::Denied(Some(m)) => format!("denied by {m}"),
-      End::Denied(None) => "denied".into(),
-      End::Expired => "expired".into(),
+      End::Allowed(Some(m)) => f("chat1.held.allowed_by", &[("mod", m)]),
+      End::Allowed(None) => t("chat1.held.allowed").into(),
+      End::Denied(Some(m)) => f("chat1.held.denied_by", &[("mod", m)]),
+      End::Denied(None) => t("chat1.held.denied").into(),
+      End::Expired => t("chat1.held.expired").into(),
     }
   }
 }
@@ -96,7 +97,7 @@ pub fn line(h: &Hold) -> Message {
   let seg = |t: &str, bold| Seg { text: t.into(), ink: theme::YELLOW, bold };
   m.x = Some(Box::new(Extra {
     chan: "".into(),
-    head: Box::new([seg("automod hold", true), seg(&format!("  {}\n", h.why), false)]),
+    head: Box::new([seg(t("chat1.held.head"), true), seg(&format!("  {}\n", h.why), false)]),
     edge: theme::YELLOW,
     held: Some(Box::new(Row { id: h.id.clone(), held_at: h.held_at, state: State::Open })),
     ..Extra::default()
@@ -143,13 +144,16 @@ fn why(v: &Value) -> Box<str> {
       .filter_map(Value::as_str)
       .map(|t| t.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect::<String>())
       .find(|t| !t.trim().is_empty());
-    return term.map_or_else(|| "blocked term".into(), |t| format!("blocked term: {}", t.trim()).into());
+    return term.map_or_else(
+      || t("chat1.held.blocked_term").into(),
+      |w| f("chat1.held.blocked_term_is", &[("term", w.trim())]).into(),
+    );
   }
   let cat = word(v, "category", MAX_NAME);
   let level = v.get("level").and_then(Value::as_u64).filter(|l| (1..=4).contains(l));
   match (cat.is_empty(), level) {
-    (true, _) => "automod".into(),
-    (false, Some(l)) => format!("{cat} (level {l})").into(),
+    (true, _) => t("chat1.held.automod").into(),
+    (false, Some(l)) => f("chat1.held.level", &[("cat", &cat), ("level", &l.to_string())]).into(),
     (false, None) => cat.into(),
   }
 }

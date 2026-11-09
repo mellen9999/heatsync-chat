@@ -19,10 +19,10 @@ impl App {
     let ok = t.sources.iter().all(|(p, k)| self.pings.set_bell(*p, k, to));
     self.pings.save();
     self.say(match (ok, to) {
-      (false, _) => "too many channel rules: clear one first",
-      (_, Bell::On) => "bell on: you hear when this channel goes live",
-      (_, Bell::Off) => "bell off: no popups from this channel",
-      (_, Bell::Default) => "bell default: follows desktop notifications",
+      (false, _) => crate::i18n::t("app.pings.too_many"),
+      (_, Bell::On) => crate::i18n::t("app.pings.bell_on"),
+      (_, Bell::Off) => crate::i18n::t("app.pings.bell_off"),
+      (_, Bell::Default) => crate::i18n::t("app.pings.bell_default"),
     });
   }
 
@@ -34,9 +34,9 @@ impl App {
     self.bar_dirty = true;
     self.wake();
     self.say(match (ok, to) {
-      (false, _) => "too many channel rules: clear one first",
-      (_, true) => "pings muted here: mentions still land in the mentions tab",
-      (_, false) => "pings back on",
+      (false, _) => crate::i18n::t("app.pings.too_many"),
+      (_, true) => crate::i18n::t("app.pings.muted"),
+      (_, false) => crate::i18n::t("app.pings.back_on"),
     });
   }
 }

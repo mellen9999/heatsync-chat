@@ -109,7 +109,7 @@ impl App {
     let area = self.chat_area();
     let t = self.tour.as_ref()?;
     let rows: Vec<(&str, bool)> =
-      SWITCHES.iter().filter_map(|id| def(id)).map(|d| (d.label, d.on(&self.set).unwrap_or(false))).collect();
+      SWITCHES.iter().filter_map(|id| def(id)).map(|d| (d.label_t(), d.on(&self.set).unwrap_or(false))).collect();
     view::draw(&mut self.canvas, &mut self.res.text, area, t, &rows, self.pointer);
     Some(area)
   }

@@ -18,42 +18,24 @@ mod store;
 mod ui;
 mod util;
 
+use i18n::{f, t};
 use winit::event_loop::EventLoop;
 
 fn help() -> String {
-  format!(
-    "heatsync-chat: the heatsync multichat overlay as its own window
-
-usage: heatsync-chat [channel ...]
-
-  channel        a twitch name (forsen), kick:name or yt:@handle. one tab each; quote
-                 several words together to merge them into one tab. they open for this
-                 run only: your saved tabs stay as they were
-  (no channel)   reopen the tabs you had last time
-  -h, --help     show this
-  -V, --version  show the version
-  --bench [n]    check drawing speed without a window, on n fake lines (default 10000)
-  --flood        a window of fake busy chat, for testing
-
-one window at a time: opening a second one brings the first forward (and opens the channel you gave it).
-{}
-",
-    util::dirs::HELP_FOLDERS
-  )
+  let [config, cache] = util::dirs::HELP_FOLDERS;
+  f("misc.cli.help", &[("config", config), ("cache", cache)]) + "\n"
 }
 
 // the second launch's one plain sentence, for when the running window can't be reached (an older
 // version, no socket): said to the terminal and as a desktop notification, since a launcher shows neither
-const RUNNING: &str = "heatsync-chat is already open: look for its window (ctrl-t there adds a channel). \
-only one runs at a time, so two can't overwrite each other's saved tabs";
 
 fn already_open(given: &[Box<str>]) {
   if store::wake_running(given) {
     return;
   }
-  util::notify::send("heatsync-chat", "heatsync-chat is already open", "look for its window");
-  println!("{RUNNING}");
-  util::stdio::alert("heatsync-chat", RUNNING);
+  util::notify::send("heatsync-chat", t("misc.cli.open_title"), t("misc.cli.open_body"));
+  println!("{}", t("misc.cli.open_said"));
+  util::stdio::alert("heatsync-chat", t("misc.cli.open_said"));
   util::notify::shutdown();
 }
 
@@ -69,6 +51,8 @@ fn saved_tabs() -> Vec<Box<str>> {
 
 fn main() {
   util::mem::limit_arenas();
+  // the terminal text (--help, errors) speaks the machine's language until a saved setting says otherwise
+  i18n::apply(0);
   let args: Vec<String> = std::env::args().skip(1).collect();
   if args.iter().any(|a| a.starts_with('-')) {
     util::stdio::attach_terminal();
@@ -80,7 +64,7 @@ fn main() {
       "-h" | "--help" => return print!("{}", help()),
       "-V" | "--version" => return println!("heatsync-chat {}", env!("CARGO_PKG_VERSION")),
       _ => {
-        eprintln!("heatsync-chat: no such option {bad} (heatsync-chat --help lists them)");
+        eprintln!("{}", f("misc.cli.bad_option", &[("option", bad)]));
         std::process::exit(2);
       }
     }
@@ -125,7 +109,7 @@ fn main() {
     Ok(el) => el,
     Err(e) => {
       eprintln!("event loop: {e}");
-      util::stdio::alert("heatsync-chat", "couldn't open a window on this computer");
+      util::stdio::alert("heatsync-chat", t("misc.cli.no_window"));
       std::process::exit(1);
     }
   };

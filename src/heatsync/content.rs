@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use serde_json::Value;
 
+use crate::i18n::t;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cat {
   Sexual,
@@ -18,11 +20,11 @@ impl Cat {
   // what the hidden box says (ext HS_MEDIA_SETTING labels)
   pub fn label(self) -> &'static str {
     match self {
-      Cat::Sexual => "nsfw",
-      Cat::Violence => "violence",
-      Cat::Weapons => "weapons",
-      Cat::Drugs => "drugs",
-      Cat::Hate => "hate speech",
+      Cat::Sexual => t("misc.content.nsfw"),
+      Cat::Violence => t("misc.content.violence"),
+      Cat::Weapons => t("misc.content.weapons"),
+      Cat::Drugs => t("misc.content.drugs"),
+      Cat::Hate => t("misc.content.hate"),
     }
   }
 
@@ -82,7 +84,7 @@ pub fn held<'a>(cats: impl IntoIterator<Item = &'a str>) -> Option<Hold> {
   let mut first = None;
   for c in cats {
     if c == "csam" {
-      return Some(Hold { label: "blocked".into(), can_show: false });
+      return Some(Hold { label: t("misc.content.blocked").into(), can_show: false });
     }
     if first.is_none() && Cat::of(c).is_none_or(|k| !shown(k)) {
       let label: &str = match Cat::of(c) {

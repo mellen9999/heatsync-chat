@@ -1,5 +1,6 @@
 // heatsync's account-bound calls the whispers and feed tabs make. each command is one task; the
 // session hands it the current token (None = logged out). answers go back as NetEvents
+use crate::i18n::{f, t};
 use serde_json::{Value, json};
 
 use super::{NetEvent, ORIGIN, Out};
@@ -527,7 +528,7 @@ async fn history(http: &reqwest::Client, token: &str, me: Option<u64>, epoch: u3
 async fn twitch_history(http: &reqwest::Client, token: &str, me: u64, out: &Out) -> Vec<Whisper> {
   let (status, list) = call(get(http, token, "/api/whispers")).await;
   if status != 200 {
-    out.status(format!("whispers: {}", fail_text(&classify(status, &list))));
+    out.status(f("net1.social.whispers_failed", &[("why", &fail_text(&classify(status, &list)))]));
     return Vec::new();
   }
   let mut all = Vec::new();
@@ -579,7 +580,7 @@ async fn twitch_history(http: &reqwest::Client, token: &str, me: u64, out: &Out)
 async fn dm_history(http: &reqwest::Client, token: &str, out: &Out) -> Vec<Whisper> {
   let (status, list) = call(get(http, token, "/api/dm")).await;
   if status != 200 {
-    out.status(format!("dms: {}", fail_text(&classify_dm(status, &list, ""))));
+    out.status(f("net1.social.dms_failed", &[("why", &fail_text(&classify_dm(status, &list, "")))]));
     return Vec::new();
   }
   let mut all = Vec::new();
@@ -628,7 +629,7 @@ async fn send(http: &reqwest::Client, token: &str, login: &str, id: Option<Box<s
 pub(super) async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, Fail> {
   let (status, v) = call(http.get(format!("{ORIGIN}/api/resolve/twitch/{login}"))).await;
   if status == 404 {
-    return Err(Fail::Other(format!("twitch user \"{login}\" not found").into()));
+    return Err(Fail::Other(f("net1.social.user_not_found", &[("login", login)]).into()));
   }
   let id = v.get("id").and_then(|i| i.as_str().map(String::from).or_else(|| i.as_u64().map(|n| n.to_string())));
   match id.filter(|i| !i.is_empty() && i.len() <= 20 && i.bytes().all(|b| b.is_ascii_digit())) {
@@ -642,7 +643,7 @@ pub(super) async fn resolve(http: &reqwest::Client, login: &str) -> Result<Who, 
         color: theme::WHITE,
       })
     }
-    _ => Err(Fail::Other("failed to resolve twitch user".into())),
+    _ => Err(Fail::Other(t("net1.social.resolve_failed").into())),
   }
 }
 
@@ -665,7 +666,9 @@ async fn send_dm(
         return Err(classify_dm(status, &v, login));
       }
       let info = crate::model::card::parse(&v, crate::util::time::now_ms());
-      let Some(id) = info.profile_id else { return Err(Fail::Other(format!("{login} isn't on heatsync").into())) };
+      let Some(id) = info.profile_id else {
+        return Err(Fail::Other(f("net1.social.not_on_heatsync", &[("login", login)]).into()));
+      };
       let color = info.color.map_or(theme::WHITE, crate::model::color::readable);
       Who { via: Via::Heatsync, id, login: login.into(), name: login.into(), color }
     }

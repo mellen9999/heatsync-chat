@@ -12,6 +12,7 @@ use super::logo::Logo;
 use super::mode_label::{self, Seg};
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
+use crate::i18n::t;
 use crate::images::{Images, ImgId};
 use crate::model::line::{Line, next_break};
 use crate::model::vi::Mode;
@@ -72,7 +73,7 @@ fn gutter(text: &mut Text, b: &Bar) -> f32 {
   if b.label.is_empty() {
     return 0.0;
   }
-  let w = text.layout(mode_label::WIDEST, &[], &[], f32::MAX).full_width();
+  let w = mode_label::widest_px(text);
   // a long label (select hint) only shows over an empty box, so it may outgrow the gutter
   let long = text.layout(&mode_label::text(b.label), &[], &[], f32::MAX).full_width();
   (if b.line.text.is_empty() { long.max(w) } else { w }) + text.line_px * 0.5
@@ -151,7 +152,7 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   }
   if b.edit {
     let a = s.len();
-    s.push_str("\u{270e} editing ");
+    s.push_str(t("ui.input.editing"));
     spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });
   }
   if let Some(nick) = b.reply {

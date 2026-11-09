@@ -1,6 +1,7 @@
 // your mute and block lists on heatsync (ext background.js: fetchServerMutes, fetchServerBlocks,
 // syncMuteToServer). mutes sync both ways while you are logged in; blocks are only read from the
 // server (the ext never writes them there), so a block made here stays on this machine
+use crate::i18n::f;
 use crate::model::ident;
 use serde_json::{Value, json};
 
@@ -82,10 +83,8 @@ async fn send_one(http: &reqwest::Client, token: &str, op: &Op) -> Result<(), Fa
 
 fn gave_up(op: &Op, why: &str) -> String {
   match op {
-    Op::Add { name, .. } => format!("couldn't save your mute of {name} on heatsync: {why}"),
-    Op::Remove(name) => {
-      format!("couldn't save your unmute of {name} on heatsync: {why}, it may come back at your next login")
-    }
+    Op::Add { name, .. } => f("net2.mutes.mute_failed", &[("name", name), ("why", why)]),
+    Op::Remove(name) => f("net2.mutes.unmute_failed", &[("name", name), ("why", why)]),
   }
 }
 

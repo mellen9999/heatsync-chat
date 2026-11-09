@@ -3,6 +3,7 @@
 // argument, after mpv's `--`). mpv gets only https, and none of the user's mpv config or scripts
 use std::process::{Command, Stdio};
 
+use crate::i18n::t;
 use crate::model::video;
 
 // finding programs, hiding their console, and the browser itself differ by platform
@@ -17,7 +18,7 @@ fn check(url: &str) -> Result<(), String> {
   let ok = (lower.starts_with("https://") || lower.starts_with("http://"))
     && url.len() <= 2048
     && !url.chars().any(|c| c.is_control() || c.is_whitespace());
-  if ok { Ok(()) } else { Err("not a link i can open".into()) }
+  if ok { Ok(()) } else { Err(t("misc.open.bad_link").into()) }
 }
 
 // is a program of that name on PATH (looked up each time: installing mpv works without a restart)

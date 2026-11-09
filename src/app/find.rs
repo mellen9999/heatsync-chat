@@ -4,6 +4,7 @@
 // person's lines, `/regex/` (or `/regex/i`) matches by pattern. leaving the tab drops it, like the ext.
 // the typing goes through the same `prompt` line the path box uses (so paste and input methods just work); the
 // chat logs search is still asked in the input bar
+use crate::i18n::{f, t};
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
@@ -35,9 +36,6 @@ pub(super) struct Sig {
   geo: (i32, i32, i32),
 }
 
-const FILTER_HINT: &str = "filter: a word, or @name";
-const SEARCH_HINT: &str = "search messages…";
-
 impl App {
   pub(super) fn find_on(&self) -> bool {
     self.tabs.get(self.active).is_some_and(|t| t.view.searching())
@@ -45,7 +43,7 @@ impl App {
 
   pub(super) fn find_open(&mut self) {
     if !matches!(self.kind(), Kind::Chat | Kind::Mentions) && self.logs_shown().is_none() {
-      return self.say("search works in channel tabs");
+      return self.say(t("app.find.channel_only"));
     }
     if self.picker.is_some() {
       self.close_picker();
@@ -86,7 +84,7 @@ impl App {
       (Some(l), true) => (l.text.as_str(), l.cursor),
       _ => (self.find.query.as_str(), self.find.query.len()),
     };
-    let hint = if self.kind() == Kind::Mentions { SEARCH_HINT } else { FILTER_HINT };
+    let hint = if self.kind() == Kind::Mentions { t("app.find.search_hint") } else { t("app.find.filter_hint") };
     let sig = wanted.then(|| Sig {
       text: text.into(),
       cursor,
@@ -152,9 +150,9 @@ impl App {
     let n = t.view.set_search(q, res, h);
     self.find.note = match (t.view.searching(), n) {
       (false, _) => String::new(),
-      (true, 0) => "no match".into(),
-      (true, 1) => "1 found".into(),
-      (true, n) => format!("{n} found"),
+      (true, 0) => crate::i18n::t("app.find.no_match").into(),
+      (true, 1) => crate::i18n::t("app.find.one_found").into(),
+      (true, n) => f("app.find.found", &[("n", &n.to_string())]),
     };
     self.input_dirty = true;
     self.wake();
@@ -190,7 +188,7 @@ impl App {
     let Some(t) = self.tabs.get_mut(self.active) else { return };
     match t.view.search_step(dir, res, h) {
       Some((at, of)) => self.find.note = format!("{at}/{of}"),
-      None => self.find.note = "no match".into(),
+      None => self.find.note = crate::i18n::t("app.find.no_match").into(),
     }
     self.input_dirty = true;
     self.wake();

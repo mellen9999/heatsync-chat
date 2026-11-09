@@ -3,6 +3,8 @@
 // rows (a person timed out or banned) join a run; a normal chat line between them ends it. what a run
 // keeps is bounded, and the words it came from are cleaned (names are a stranger's)
 
+use crate::i18n::{f, t};
+
 // lines a run keeps to show when opened; more still count, they just are not listed
 pub const MAX_LINES: usize = 200;
 // distinct names kept to count people once
@@ -64,13 +66,15 @@ impl Run {
   }
 
   pub fn header(&self) -> String {
-    let who = if self.people == 1 { "1 person".to_owned() } else { format!("{} people", self.people) };
-    let did = match (self.bans, self.people) {
-      (0, _) => "timed out",
-      (b, p) if b >= p => "banned",
-      _ => "timed out or banned",
-    };
-    format!("{who} {did}")
+    let n = self.people.to_string();
+    match (self.bans, self.people) {
+      (0, 1) => t("chat2.runs.one_timed_out").to_owned(),
+      (0, _) => f("chat2.runs.many_timed_out", &[("n", &n)]),
+      (b, p) if b >= p && p == 1 => t("chat2.runs.one_banned").to_owned(),
+      (b, p) if b >= p => f("chat2.runs.many_banned", &[("n", &n)]),
+      (_, 1) => t("chat2.runs.one_timed_out_or_banned").to_owned(),
+      _ => f("chat2.runs.many_timed_out_or_banned", &[("n", &n)]),
+    }
   }
 
   // what the row says: a lone event is its own line; a run is its header, and when open each event under it
@@ -87,7 +91,8 @@ impl Run {
       s.push_str(l);
     }
     if self.lines.len() < self.people as usize {
-      s.push_str(&format!("\n  and {} more", self.people as usize - self.lines.len()));
+      s.push_str("\n  ");
+      s.push_str(&f("chat2.runs.and_more", &[("n", &(self.people as usize - self.lines.len()).to_string())]));
     }
     s
   }

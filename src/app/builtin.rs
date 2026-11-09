@@ -1,6 +1,7 @@
 // the built-in tabs (feed, whispers, mentions, mod log): created once at boot in the ext's order, shown or
 // hidden with /show and /hide, and the helpers that keep every tab-stepping key off hidden ones
 use super::{App, SCROLLBACK, Tab};
+use crate::i18n::t;
 use crate::model::tabs::{BUILTIN, Kind};
 use crate::ui::chat_view::ChatView;
 
@@ -13,6 +14,31 @@ const MOD_LOG: usize = 300;
 
 pub(super) fn make_all() -> Vec<Tab> {
   BUILTIN.into_iter().map(make).collect()
+}
+
+// what a built-in tab's empty box says
+fn empty_of(kind: Kind) -> &'static str {
+  match kind {
+    Kind::Mentions => t("app.builtin.empty_mentions"),
+    Kind::ModLog => t("app.builtin.empty_modlog"),
+    Kind::Whispers => t("app.builtin.empty_whispers"),
+    Kind::Feed => t("app.builtin.empty_feed"),
+    Kind::Chat => "",
+  }
+}
+
+impl App {
+  // the language changed: the built-in tabs' empty boxes say it in the new one
+  pub(super) fn refresh_empties(&mut self) {
+    for tab in self.tabs.iter_mut().filter(|t| t.kind != Kind::Chat) {
+      tab.view.set_empty(empty_of(tab.kind));
+    }
+    if let Some(i) = self.tab_of(Kind::Feed) {
+      let text = self.feed.empty_text();
+      self.tabs[i].chat().set_empty(text);
+    }
+    self.whisper_empty();
+  }
 }
 
 fn make(kind: Kind) -> Tab {
@@ -30,13 +56,7 @@ fn make(kind: Kind) -> Tab {
   view.top = kind == Kind::Feed;
   view.timestamps = kind != Kind::Feed;
   view.tags = kind == Kind::Mentions;
-  view.set_empty(match kind {
-    Kind::Mentions => "no mentions yet. lines that @ you or reply to you, in any joined channel, and your heatsync notifications land here",
-    Kind::ModLog => "no mod actions yet. bans, timeouts, unbans and deletes in your channels land here",
-    Kind::Whispers => "log in to read and send whispers and dms (ctrl-l)",
-    Kind::Feed => "loading...",
-    Kind::Chat => "",
-  });
+  view.set_empty(empty_of(kind));
   Tab {
     name: name.into(),
     kind,
@@ -113,6 +133,17 @@ impl App {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn every_builtin_empty_box_and_permission_name_has_words() {
+    for kind in BUILTIN {
+      assert!(!empty_of(kind).is_empty(), "{kind:?}");
+    }
+    for what in ["clipping", "blocked terms", "automod holds", "moderating", "mod tools", "chat modes", "whispers"] {
+      let said = super::super::feed::needs_twitch(what);
+      assert!(said.starts_with(what) && said.ends_with(super::super::feed::ALLOW_IT), "{said}");
+    }
+  }
 
   #[test]
   fn builtins_are_in_the_ext_order_and_sized_like_it() {
