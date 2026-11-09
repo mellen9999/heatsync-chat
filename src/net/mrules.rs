@@ -42,7 +42,7 @@ pub fn words(f: &Fail) -> String {
     Fail::Said(s) => s.clone(),
     Fail::Gone => t("net2.mrules.gone").into(),
     Fail::Limited => t("net2.mrules.limited").into(),
-    Fail::Other => t("net2.mrules.other").into(),
+    Fail::Other => t("net2.mrules.misc").into(),
   }
 }
 

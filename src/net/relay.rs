@@ -161,14 +161,10 @@ pub fn kick_event(v: &Value, kicks: bool) -> Option<Message> {
   let (said, notice) = if kicks {
     let amount = v.get("amount").and_then(Value::as_u64).filter(|&n| (1..=10_000_000).contains(&n))?;
     let gift = str_of(v, "giftName").map(|g| format!(" ({})", flat(g, 40))).unwrap_or_default();
-    (
-      f("net1.relay.kicks_gift", &[("who", who.as_ref()), ("amount", &amount.to_string()), ("gift", &gift)]),
-      Notice::Bits,
-    )
+    (f("net1.relay.kicks_gift", &[("who", who), ("amount", &amount.to_string()), ("gift", &gift)]), Notice::Bits)
   } else {
-    let said = str_of(v, "message")
-      .map(|t| flat(t, 200))
-      .unwrap_or_else(|| f("net1.relay.subscribed", &[("who", who.as_ref())]));
+    let said =
+      str_of(v, "message").map(|t| flat(t, 200)).unwrap_or_else(|| f("net1.relay.subscribed", &[("who", who)]));
     (said, Notice::Sub)
   };
   let words = if kicks { str_of(v, "message").map(|t| flat(t, MAX_TEXT)).unwrap_or_default() } else { String::new() };

@@ -142,7 +142,7 @@ impl App {
       return self.say(t("app.logs.already_all"));
     }
     let note = match l.channel() {
-      Some(c) => f("app.logs.only", &[("channel", &c)]),
+      Some(c) => f("app.logs.only", &[("channel", c)]),
       None => t("app.logs.every").into(),
     };
     self.logs_fetch();

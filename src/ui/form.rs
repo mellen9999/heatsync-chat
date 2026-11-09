@@ -112,6 +112,7 @@ pub fn draw(c: &mut Canvas, t: &mut Text, area: Rect, f: &Form, title: &str, hov
   let title = t.elide(title, g.panel.w - 2 * PAD);
   put(c, t, &title, g.title, theme::WHITE, true, g.panel);
   let mut caret = Rect::new(g.fields[0].x, g.fields[0].y, 1, line);
+  #[allow(clippy::needless_range_loop)] // i walks four parallel tables
   for i in 0..3 {
     let on = f.focus == i;
     put(c, t, LABELS[i], g.labels[i], theme::WHITE, on, g.panel);

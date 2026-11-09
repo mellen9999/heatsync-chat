@@ -127,7 +127,7 @@ impl App {
         if let Some(d) = crate::model::schema::def(id)
           && let (Some(cmd), crate::model::schema::Ctl::Pick(c, ..)) = (d.cmd, d.ctl)
         {
-          self.say(f("app.input.usage", &[("cmd", &cmd), ("args", &c.usage)]));
+          self.say(f("app.input.usage", &[("cmd", cmd), ("args", c.usage)]));
         }
       }
       Local::Counter(Some(c)) => self.counter_to(c),

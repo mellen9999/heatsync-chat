@@ -20,7 +20,7 @@ impl App {
       "off" | "none" => (Pick::Off, None),
       w if Preset::parse(w).is_some() => (Pick::Preset(Preset::parse(w).ok_or("")?), None),
       path => {
-        crate::util::wav::read(path).map_err(|b| f("app.rulesound.wont_play", &[("why", &b.said().to_string())]))?;
+        crate::util::wav::read(path).map_err(|b| f("app.rulesound.wont_play", &[("why", b.said())]))?;
         let name = path.rsplit(std::path::is_separator).next().unwrap_or(path).to_owned();
         (Pick::File(name), Some(path.to_owned()))
       }

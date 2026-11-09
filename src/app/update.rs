@@ -31,7 +31,7 @@ impl App {
     Some(if self.upd.installing {
       t("app.update.updating").into()
     } else {
-      f("app.update.label", &[("version", &r.version.to_string())])
+      f("app.update.label", &[("version", r.version.as_ref())])
     })
   }
 
@@ -55,7 +55,7 @@ impl App {
     }
     self.upd.installing = true;
     self.bar_dirty = true;
-    self.say(f("app.update.downloading", &[("version", &r.version.to_string())]));
+    self.say(f("app.update.downloading", &[("version", r.version.as_ref())]));
     self.net.send(Cmd::Update(update::Cmd::Install(r)));
   }
 

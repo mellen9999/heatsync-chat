@@ -71,14 +71,14 @@ impl Kind {
       Kind::Reasons => t("settings.lists.adding.reasons"),
       Kind::Alerts => t("settings.lists.adding.alerts"),
       Kind::Commands => t("settings.lists.adding.commands"),
-      _ => t("settings.lists.adding.other"),
+      _ => t("settings.lists.adding.misc"),
     }
   }
 
   fn none(self) -> &'static str {
     match self {
       Kind::People => t("settings.lists.none.people"),
-      _ => t("settings.lists.none.other"),
+      _ => t("settings.lists.none.misc"),
     }
   }
 }

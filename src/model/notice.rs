@@ -33,7 +33,7 @@ pub fn plain(id: Option<&str>, text: &str) -> String {
     "emote_only_on" => said(t("chat2.notice.emote_only_mode_is_on")),
     "emote_only_off" => said(t("chat2.notice.emote_only_mode_is_off")),
     "followers_on" => match follow_age(text) {
-      Some(a) => f("chat2.notice.followers_only_mode_is_on_follow_for_age", &[("age", &a)]),
+      Some(a) => f("chat2.notice.followers_only_mode_is_on_follow_for_age", &[("age", a)]),
       None => said(t("chat2.notice.followers_only_mode_is_on")),
     },
     "followers_on_zero" => said(t("chat2.notice.followers_only_mode_is_on")),

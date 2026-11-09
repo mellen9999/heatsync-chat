@@ -417,7 +417,7 @@ impl App {
   pub(super) fn feed_hint(&self) -> String {
     match (&self.feed.thread, &self.me) {
       (_, None) => t("app.feed.hint_login").into(),
-      (Some(t), _) => f("app.feed.hint_reply", &[("id", &crate::model::post::short(&t.id).to_string())]),
+      (Some(t), _) => f("app.feed.hint_reply", &[("id", crate::model::post::short(&t.id))]),
       (None, _) => t("app.feed.hint_post").into(),
     }
   }

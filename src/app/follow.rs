@@ -52,7 +52,7 @@ impl App {
       Err(FollowFail::Auth) => t("app.login_first_ctrl_l").into(),
       Err(FollowFail::NotOnHeatsync) => f("app.follow.not_on_heatsync", &[("login", &login)]),
       Err(FollowFail::Limited) => t("app.follow.limited").into(),
-      Err(FollowFail::Other) => t("app.follow.other").into(),
+      Err(FollowFail::Other) => t("app.follow.misc").into(),
     };
     self.say(line);
     self.wake();

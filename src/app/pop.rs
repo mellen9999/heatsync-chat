@@ -459,7 +459,7 @@ impl App {
         rows.push((Act::Do(Verb::Delete), t("app.pop.delete_message").into()));
       }
       for (label, secs) in DURATIONS {
-        rows.push((Act::Do(Verb::Timeout(secs)), f("app.pop.timeout", &[("duration", &label)])));
+        rows.push((Act::Do(Verb::Timeout(secs)), f("app.pop.timeout", &[("duration", label)])));
       }
       // kick's shortest timeout is a minute, so a purge there would only be a timeout
       if w.platform == Platform::Twitch {

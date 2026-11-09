@@ -4,6 +4,8 @@ twitch, kick and youtube chat in one native window, with [heatsync](https://heat
 
 linux (wayland or x11) and windows 10 or newer. MIT.
 
+speaks the same 34 languages as the extension: it follows your system language, `/language de` picks one (`/language auto` goes back). the words live in `src/i18n/locales/<code>.json`.
+
 ## install
 
 **linux, from a release** (x86_64 or aarch64, no root needed):

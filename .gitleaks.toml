@@ -1,0 +1,8 @@
+# the default rules, plus: the locale files are plain translated words, and a long word in one (finnish, say) can
+# look like a key to the generic rule
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "translated ui text"
+paths = ['''src/i18n/locales/[a-zA-Z_]+\.json''']

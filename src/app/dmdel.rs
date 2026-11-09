@@ -76,7 +76,7 @@ impl App {
       Err(Fail::Refused) => t("app.dmdel.refused"),
       Err(Fail::NoThread) => t("app.dmdel.no_thread"),
       Err(Fail::Limited) => t("app.dmdel.limited"),
-      Err(Fail::Other) => t("app.dmdel.other"),
+      Err(Fail::Other) => t("app.dmdel.misc"),
     };
     self.say(words);
   }

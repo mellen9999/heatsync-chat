@@ -558,4 +558,59 @@ mod tests {
     assert_eq!(runs("🏳\u{fe0f}\u{200d}🌈!"), ["🏳\u{fe0f}\u{200d}🌈"]);
     assert_eq!(runs("plain ❤ 🌇 text"), Vec::<&str>::new());
   }
+
+  // every script the 34 languages use draws real glyphs (not the missing-glyph box) with the font setup the app has:
+  // the system monospace, then fontconfig / directwrite fallback per script. a script the machine has no font for
+  // (asked of fontconfig) is skipped, not failed
+  #[test]
+  fn every_script_draws_real_glyphs() {
+    use parley::PositionedLayoutItem;
+    let samples = [
+      ("ar", "مرحبا بالعالم 123 heatsync"),
+      ("he", "שלום עולם 123 heatsync"),
+      ("th", "สวัสดีชาวโลก ตั้งค่า"),
+      ("hi", "नमस्ते दुनिया सेटिंग"),
+      ("el", "γειά σου κόσμε ρυθμίσεις"),
+      ("ru", "привет мир настройки"),
+      ("uk", "привіт світе налаштування ґєї"),
+      ("bg", "здравей свят настройки"),
+      ("ja", "こんにちは世界 設定"),
+      ("ko", "안녕하세요 설정"),
+      ("zh-cn", "你好世界 设置"),
+      ("zh-tw", "你好世界 設定"),
+      ("vi", "xin chào thế giới ặ ữ ỳ"),
+      ("tr", "merhaba dünya ığş"),
+      ("pl", "zażółć gęślą jaźń"),
+    ];
+    let mut t = Text::new(1.0);
+    let mut checked = 0;
+    for (lang, sample) in samples {
+      if cfg!(unix) {
+        let out = std::process::Command::new("fc-list").arg(format!(":lang={lang}")).arg("family").output();
+        if !out.is_ok_and(|o| o.status.success() && !o.stdout.is_empty()) {
+          eprintln!("skipped {lang}: no font for it here");
+          continue;
+        }
+      }
+      let l = t.layout(sample, &[], &[], 600.0);
+      let mut glyphs = 0;
+      let mut rtl = false;
+      for line in l.lines() {
+        for item in line.items() {
+          if let PositionedLayoutItem::GlyphRun(gr) = item {
+            rtl |= gr.run().is_rtl();
+            for g in gr.glyphs() {
+              glyphs += 1;
+              assert_ne!(g.id, 0, "{lang}: a missing-glyph box in {sample:?}");
+            }
+          }
+        }
+      }
+      assert!(glyphs > 0, "{lang}: nothing drawn");
+      // arabic and hebrew are laid out as right-to-left runs (shaped and ordered by the engine)
+      assert_eq!(rtl, matches!(lang, "ar" | "he"), "{lang}: run direction");
+      checked += 1;
+    }
+    assert!(checked > 0 || !cfg!(unix), "no script could be checked");
+  }
 }

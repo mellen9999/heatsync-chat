@@ -134,6 +134,7 @@ fn draw_chips(c: &mut Canvas, text: &mut super::text::Text, p: &Picker, row: Rec
     return out;
   }
   let mut x = row.x + theme::PAD_X as i32;
+  #[allow(clippy::needless_range_loop)] // i is the chip and the slot
   for i in 0..4 {
     let name = chip_name(i);
     let w = text.layout(name, &[], &[], 100_000.0).full_width().ceil() as i32 + 2 * TAB_PAD;
