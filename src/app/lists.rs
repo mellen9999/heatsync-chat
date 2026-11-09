@@ -367,7 +367,7 @@ impl App {
     let refused = editing.is_some() && matches!(cmd, Cmd::Usage(_));
     self.list_run(cmd);
     let said = self.said();
-    let kept = editing.is_some() && !said.starts_with("rule changed");
+    let kept = editing.is_some() && !said.starts_with(crate::i18n::t("mod.filter.rule_changed"));
     if refused || kept {
       return;
     }
