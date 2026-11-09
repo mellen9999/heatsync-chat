@@ -963,8 +963,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "przemoc",
  "misc.content.weapons": "broń",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "nie zainstalowano rodziny czcionek {asked} (najbliższa to {near})",
  "misc.font.bad_name": "to nie jest nazwa czcionki, którą potrafię znaleźć",
  "misc.font.no_tool": "szukanie czcionek wymaga fc-match: paru -S {pkg}",

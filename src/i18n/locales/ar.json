@@ -975,8 +975,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "عنف",
  "misc.content.weapons": "أسلحة",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "لا خط باسم {asked} مثبّت (الأقرب {near})",
  "misc.font.bad_name": "هذا ليس اسم خط يمكنني البحث عنه",
  "misc.font.no_tool": "البحث عن الخطوط يحتاج fc-match: paru -S {pkg}",

@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "violence",
  "misc.content.weapons": "armes",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub de {who}",
  "misc.font.absent": "aucune police nommée {asked} n'est installée (la plus proche est {near})",
  "misc.font.bad_name": "ce n'est pas un nom de police que je peux chercher",
  "misc.font.no_tool": "la recherche de polices nécessite fc-match : paru -S {pkg}",

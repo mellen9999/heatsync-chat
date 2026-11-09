@@ -963,8 +963,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "violență",
  "misc.content.weapons": "arme",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub {who}",
  "misc.font.absent": "nu e instalat niciun font numit {asked} (cel mai apropiat e {near})",
  "misc.font.bad_name": "acesta nu e un nume de font pe care îl pot căuta",
  "misc.font.no_tool": "căutarea fonturilor cere fc-match: paru -S {pkg}",

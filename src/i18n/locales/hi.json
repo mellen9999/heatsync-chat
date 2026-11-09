@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "हिंसा",
  "misc.content.weapons": "हथियार",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "{who} sub",
  "misc.font.absent": "{asked} नाम का कोई फ़ॉन्ट इंस्टॉल नहीं है (सबसे पास का {near} है)",
  "misc.font.bad_name": "यह ऐसा फ़ॉन्ट नाम नहीं जो मैं खोज सकूँ",
  "misc.font.no_tool": "फ़ॉन्ट खोजने के लिए fc-match चाहिए: paru -S {pkg}",

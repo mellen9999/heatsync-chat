@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "bạo lực",
  "misc.content.weapons": "vũ khí",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub của {who}",
  "misc.font.absent": "chưa cài họ phông nào tên {asked} (gần nhất là {near})",
  "misc.font.bad_name": "đó không phải tên phông tôi tra được",
  "misc.font.no_tool": "tra cứu phông cần fc-match: paru -S {pkg}",

@@ -10,9 +10,6 @@ use crate::model::message::Message;
 #[derive(Clone, Debug)]
 pub struct Badge {
   pub url: Box<str>,
-  // hover tooltip (lands with mouse hover)
-  #[allow(dead_code)]
-  pub title: Box<str>,
   // ffz badges are glyphs drawn over a colored tile
   pub bg: Option<u32>,
 }
@@ -137,7 +134,7 @@ mod tests {
   use crate::model::message::{Kind, Platform};
 
   fn b(url: &str) -> Badge {
-    Badge { url: url.into(), title: "".into(), bg: None }
+    Badge { url: url.into(), bg: None }
   }
 
   #[test]

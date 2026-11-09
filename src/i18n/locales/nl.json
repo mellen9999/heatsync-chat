@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "geweld",
  "misc.content.weapons": "wapens",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "{who}-sub",
  "misc.font.absent": "er is geen lettertype {asked} geïnstalleerd (het dichtstbijzijnde is {near})",
  "misc.font.bad_name": "dat is geen lettertypenaam die ik kan opzoeken",
  "misc.font.no_tool": "lettertypen opzoeken vereist fc-match: paru -S {pkg}",

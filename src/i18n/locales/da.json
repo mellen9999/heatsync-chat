@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "vold",
  "misc.content.weapons": "våben",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "{who}-sub",
  "misc.font.absent": "ingen skrifttype ved navn {asked} er installeret (den nærmeste er {near})",
  "misc.font.bad_name": "det er ikke et skrifttypenavn jeg kan slå op",
  "misc.font.no_tool": "opslag af skrifttyper kræver fc-match: paru -S {pkg}",

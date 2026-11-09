@@ -56,7 +56,7 @@ fn seventv_badge_follows_the_cosmetics_answer() {
   // unknown chatter: no badge yet, but the ask is queued
   assert_eq!(n(&mut res), 0);
   assert_eq!(res.cosmetics.take_wanted(), vec![crate::cosmetics::id::PaintId::Twitch(42)]);
-  let badge = Badge { url: "https://cdn.7tv.app/badge/B/2x.webp".into(), title: "t".into(), bg: None };
+  let badge = Badge { url: "https://cdn.7tv.app/badge/B/2x.webp".into(), bg: None };
   res.cosmetics.put(
     &crate::cosmetics::id::PaintId::Twitch(42),
     Some(Cosmetic { paint: None, badge: Some(badge), ..Default::default() }),
@@ -70,7 +70,7 @@ fn seventv_badge_follows_the_cosmetics_answer() {
 fn bttv_badge_shows_for_its_holder_behind_its_switch() {
   use crate::badges::{Badge, Source, UserBadges};
   let mut res = Res::new(1.0);
-  let badge = Badge { url: "https://cdn.betterttv.net/badges/developer.svg".into(), title: "dev".into(), bg: None };
+  let badge = Badge { url: "https://cdn.betterttv.net/badges/developer.svg".into(), bg: None };
   res.badges.set_users(Source::Bttv, UserBadges { list: vec![badge], users: [(42, vec![0])].into() });
   let mut m = Message::system(1, Platform::Twitch, "x");
   m.kind = Kind::Chat;
@@ -1382,7 +1382,7 @@ fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
   res.badges.set_users(
     crate::badges::Source::Ffz,
     crate::badges::UserBadges {
-      list: vec![crate::badges::Badge { url: "https://cdn.frankerfacez.com/x".into(), title: "".into(), bg: None }],
+      list: vec![crate::badges::Badge { url: "https://cdn.frankerfacez.com/x".into(), bg: None }],
       users: [(42, vec![0])].into(),
     },
   );
@@ -1618,7 +1618,7 @@ fn the_marks_come_flair_then_flame_then_bar_and_only_on_twitch() {
   let m = marked("42");
   heated(&mut res, 0, true);
   res.flairs.get(42);
-  let sub = Badge { url: "https://static-cdn.jtvnw.net/badges/v1/a/1".into(), title: "x sub".into(), bg: None };
+  let sub = Badge { url: "https://static-cdn.jtvnw.net/badges/v1/a/1".into(), bg: None };
   res.flairs.put(42, Some(sub));
   let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
   // the flair is a picture at the start of the text; the flame follows it

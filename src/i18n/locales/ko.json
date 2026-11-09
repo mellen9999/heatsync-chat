@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "폭력",
  "misc.content.weapons": "무기",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "{who} sub",
  "misc.font.absent": "{asked}(이)라는 폰트 패밀리가 설치되어 있지 않음 (가장 비슷한 것: {near})",
  "misc.font.bad_name": "조회할 수 있는 폰트 이름이 아님",
  "misc.font.no_tool": "폰트 조회에는 fc-match 필요: paru -S {pkg}",

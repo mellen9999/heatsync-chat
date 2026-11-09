@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "暴力",
  "misc.content.weapons": "武器",
- "misc.flair.sub": "サブ",
- "misc.flair.sub_of": "{who} のサブ",
  "misc.font.absent": "{asked} というフォントファミリーはインストールされていません (最も近いのは {near})",
  "misc.font.bad_name": "検索できないフォント名です",
  "misc.font.no_tool": "フォント検索には fc-match が必要: paru -S {pkg}",

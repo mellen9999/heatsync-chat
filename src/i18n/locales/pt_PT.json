@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "violência",
  "misc.content.weapons": "armas",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub de {who}",
  "misc.font.absent": "não há nenhum tipo de letra chamado {asked} instalado (o mais próximo é {near})",
  "misc.font.bad_name": "isso não é um nome de tipo de letra que eu consiga procurar",
  "misc.font.no_tool": "procurar tipos de letra precisa de fc-match: paru -S {pkg}",

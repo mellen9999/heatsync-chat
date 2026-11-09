@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "våld",
  "misc.content.weapons": "vapen",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "{who} sub",
  "misc.font.absent": "ingen typsnittsfamilj som heter {asked} är installerad (närmast är {near})",
  "misc.font.bad_name": "det är inget typsnittsnamn jag kan slå upp",
  "misc.font.no_tool": "att slå upp typsnitt kräver fc-match: paru -S {pkg}",

@@ -955,8 +955,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "ความรุนแรง",
  "misc.content.weapons": "อาวุธ",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub ของ {who}",
  "misc.font.absent": "ไม่ได้ติดตั้งฟอนต์ชื่อ {asked} (ใกล้เคียงสุดคือ {near})",
  "misc.font.bad_name": "นั่นไม่ใช่ชื่อฟอนต์ที่ค้นหาได้",
  "misc.font.no_tool": "การค้นหาฟอนต์ต้องมี fc-match: paru -S {pkg}",

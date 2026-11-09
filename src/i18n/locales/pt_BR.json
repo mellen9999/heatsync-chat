@@ -959,8 +959,6 @@
  "misc.content.nsfw": "nsfw",
  "misc.content.violence": "violência",
  "misc.content.weapons": "armas",
- "misc.flair.sub": "sub",
- "misc.flair.sub_of": "sub de {who}",
  "misc.font.absent": "nenhuma fonte chamada {asked} está instalada (a mais próxima é {near})",
  "misc.font.bad_name": "isso não é um nome de fonte que eu consiga buscar",
  "misc.font.no_tool": "buscar fontes precisa de fc-match: paru -S {pkg}",
