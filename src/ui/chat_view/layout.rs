@@ -139,7 +139,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
       let uid = p.paint.clone();
       reply = Some(Mention { range: a..s.len(), login, color: p.color, paint: p.paint, art: None });
       if let Some(uid) = uid {
-        super::marks::plus(res, &uid, &mut s, &mut spans, &mut ib);
+        super::marks::after_name(res, &uid, &mut s, &mut spans, &mut ib);
       }
     } else {
       spans.push(Span { range: a..s.len(), ink: Ink(dim_ink), bold: false });
@@ -261,7 +261,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
     let name_ink = res.look.ink(m.color);
     spans.push(Span { range: n0..s.len(), ink: Ink(name_ink | tag), bold: true });
     if let Some(uid) = PaintId::of_message(m) {
-      super::marks::plus(res, &uid, &mut s, &mut spans, &mut ib);
+      super::marks::after_name(res, &uid, &mut s, &mut spans, &mut ib);
     }
     for g in x.map_or(&[][..], |x| &x.tail) {
       seg(&mut s, &mut spans, g);

@@ -31,7 +31,8 @@ pub(super) fn marks(
   let heat = if look.heat_bars { res.heats.get(&m.login) } else { 0 };
   let known = uid.is_some_and(|id| res.senders.known(id));
   let mine = uid.is_some_and(|id| res.senders.is_me(id));
-  let w = wear(look.flame, look.heat_bars, known, mine, heat);
+  let badged = PaintId::of_message(m).is_some_and(|id| res.cosmetics.hs_badge(&id).is_some());
+  let w = wear(look.flame, look.heat_bars, known, mine, badged, heat);
   if let Some(url) = flair {
     push_badge(res, &url, None, s, ib, boxes);
   }
@@ -49,13 +50,22 @@ pub(super) fn marks(
   }
 }
 
-// the plus `+` after a name (ext .hs-plus-tenure: bold, 4px before it, 2px after), on a sender and on a
-// reply's parent, never on an @name in the words. its color is the tenure
-pub(super) fn plus(res: &mut Res, uid: &PaintId, s: &mut String, spans: &mut Vec<Span>, ib: &mut Vec<InlineBox>) {
-  let Some(since) = res.cosmetics.plus(uid) else { return };
-  ib.push(gap(s.len(), res.images.px(4)));
-  let a = s.len();
-  s.push('+');
-  spans.push(Span { range: a..s.len(), ink: Ink(tenure::ink(since, crate::util::time::now_ms())), bold: true });
-  ib.push(gap(s.len(), res.images.px(2)));
+// what trails a name: the plus `+` (ext .hs-plus-tenure: bold, 4px before it, 2px after), then the picked heatsync
+// badge (ext .hs-badge), on a sender and on a reply's parent, never on an @name in the words. the `+` is
+// colored by tenure, the badge by its catalogue entry
+pub(super) fn after_name(res: &mut Res, uid: &PaintId, s: &mut String, spans: &mut Vec<Span>, ib: &mut Vec<InlineBox>) {
+  if let Some(since) = res.cosmetics.plus(uid) {
+    ib.push(gap(s.len(), res.images.px(4)));
+    let a = s.len();
+    s.push('+');
+    spans.push(Span { range: a..s.len(), ink: Ink(tenure::ink(since, crate::util::time::now_ms())), bold: true });
+    ib.push(gap(s.len(), res.images.px(2)));
+  }
+  if let Some(d) = res.cosmetics.hs_badge(uid) {
+    ib.push(gap(s.len(), res.images.px(4)));
+    let a = s.len();
+    s.push_str(d.glyph);
+    spans.push(Span { range: a..s.len(), ink: Ink(d.ink), bold: false });
+    ib.push(gap(s.len(), res.images.px(2)));
+  }
 }

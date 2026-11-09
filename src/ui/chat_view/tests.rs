@@ -1541,6 +1541,33 @@ fn heat_bars_follow_the_ladder_and_draw_in_its_colors() {
   assert_eq!(ink(&mut res, 5000, theme::YELLOW), y0, "and not yellow");
 }
 
+// a picked heatsync badge sits after the name and takes the flame's place; unknown ids draw nothing
+#[test]
+fn a_picked_badge_trails_the_name_and_takes_the_flame() {
+  use crate::cosmetics::{Cosmetic, hsbadge};
+  let mut res = Res::new(1.0);
+  let m = marked("42");
+  heated(&mut res, 0, true);
+  assert_eq!(before_name(&mut res, &m).0, FLAME_W, "known, no badge: the flame");
+  let width = |res: &mut Res| layout_row(res, "c", &m, 0, 400, NO_OPTS).layout.width();
+  let before = width(&mut res);
+  let def = hsbadge::parse(Some(&serde_json::json!("plus_12m")));
+  res.cosmetics.seed(PaintId::Twitch(42), Cosmetic { hs_badge: def, ..Default::default() });
+  assert_eq!(before_name(&mut res, &m).0, 0, "badged: no flame before the name");
+  let l = layout_row(&mut res, "c", &m, 0, 400, NO_OPTS);
+  assert!(l.layout.width() + FLAME_W as f32 > before - 40.0, "the mark trails the name instead");
+  assert!(l.nick.start < l.nick.end);
+  // a badged chatter's heat bar still shows
+  res.heats.put("bob", 120);
+  assert_eq!(before_name(&mut res, &m).0, BAR_W);
+  // someone else's badge never moves this chatter's flame
+  res.heats.put("bob", 0);
+  let mut other = marked("43");
+  other.login = "other".into();
+  assert_eq!(before_name(&mut res, &m).0, 0);
+  assert_eq!(before_name(&mut res, &other).0, 0, "a stranger wears nothing");
+}
+
 #[test]
 fn the_flame_is_for_known_users_without_a_bar_and_never_beside_one() {
   let mut res = Res::new(1.0);
