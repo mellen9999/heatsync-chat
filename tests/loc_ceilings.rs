@@ -13,7 +13,8 @@ fn walk(dir: &Path, root: &Path, out: &mut BTreeMap<String, usize>) {
       walk(&p, root, out);
     } else if p.extension().is_some_and(|x| x == "rs") && p.file_name().is_some_and(|n| n != "tests.rs") {
       let n = fs::read(&p).unwrap().iter().filter(|&&b| b == b'\n').count();
-      out.insert(p.strip_prefix(root).unwrap().to_string_lossy().into(), n);
+      // the list spells paths with `/`, windows with `\`
+      out.insert(p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"), n);
     }
   }
 }
