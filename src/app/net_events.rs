@@ -419,7 +419,14 @@ impl App {
       NetEvent::Gifs { epoch, q, res } => self.on_gifs(epoch, q, res),
       NetEvent::Catalog { epoch, stv, ffz } => self.on_catalog(epoch, stv, ffz),
       NetEvent::PickerSearch { epoch, pages } => self.on_picker_search(epoch, pages),
-      NetEvent::FeedLive(p) => self.on_feed_live(p),
+      NetEvent::FeedLive(p) => {
+        let mine = self.my_name().is_some_and(|n| n.eq_ignore_ascii_case(&p.user));
+        // the `new` room is every post on the site: only the ones for this view go on
+        if self.feed.wants_live(&p, mine) {
+          self.on_feed_live(p)
+        }
+      }
+      NetEvent::FollowedUsers(names) => self.feed.set_follows(names),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),
       NetEvent::StreamHistory(rows) => self.on_stream_history(rows),
@@ -534,12 +541,14 @@ impl App {
           self.relayout_where(None);
         }
         self.me = me;
+        self.feed_room_sync();
         self.list_sync();
         // a relink may have brought the automod permission
         self.held.reset();
         self.held_sweep();
         if self.me.is_some() {
           self.following_arm();
+          self.net.send(Cmd::Social(crate::net::social::Cmd::FollowedUsers));
           self.mrules_ask();
           self.net.send(Cmd::Social(crate::net::social::Cmd::SeenGet));
           self.net.send(Cmd::Emote(crate::net::emote_ops::EmoteCmd::Subs));

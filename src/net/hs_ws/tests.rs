@@ -569,3 +569,37 @@ fn an_emote_broadcast_names_the_sender_to_refetch() {
   assert!(f(json!(7), json!("KEKW"), json!(url)).is_empty());
   assert!(st.unknown.is_empty(), "emote:broadcast is read now");
 }
+
+// a feed room is validated like the server does, joined once, left once, bounded, and kept for the next socket
+#[test]
+fn feed_rooms_join_and_leave_once_and_are_kept() {
+  let mut st = State::default();
+  let join = |st: &mut State, k: &str| apply(st, Cmd::Feed(k.into(), true));
+  let leave = |st: &mut State, k: &str| apply(st, Cmd::Feed(k.into(), false));
+  assert_eq!(join(&mut st, "new"), [json!({"type": "feed:join", "feed": "new"})]);
+  assert!(join(&mut st, "new").is_empty(), "already in it");
+  assert_eq!(join(&mut st, "ulog:twitch:Bob_1"), [json!({"type": "feed:join", "feed": "ulog:twitch:bob_1"})]);
+  assert_eq!(join(&mut st, "ulog:youtube:@Some.Handle").len(), 1);
+  assert_eq!(st.feeds.len(), 3, "kept for the next socket");
+  for bad in [
+    "live",
+    "following",
+    "thread:ab",
+    "ulog:twitch:",
+    "ulog:twitch:a b",
+    "ulog:mixer:a",
+    "ulog:twitch:@abc",
+    "ulog:youtube:abc",
+    "ulog:youtube:@ab",
+    "author:1",
+  ] {
+    assert!(join(&mut st, bad).is_empty(), "{bad}");
+  }
+  assert_eq!(leave(&mut st, "new"), [json!({"type": "feed:leave", "feed": "new"})]);
+  assert!(leave(&mut st, "new").is_empty(), "already out");
+  assert_eq!(st.feeds.len(), 2);
+  for i in 0..20 {
+    join(&mut st, &format!("ulog:kick:p{i}"));
+  }
+  assert!(st.feeds.len() <= 8, "bounded");
+}

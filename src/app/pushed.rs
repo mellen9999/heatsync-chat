@@ -119,6 +119,7 @@ impl App {
     match ask {
       Ask::Follows => {
         self.following_ask_now();
+        self.net.send(Cmd::Social(crate::net::social::Cmd::FollowedUsers));
         self.card_follows_changed();
       }
       Ask::EmoteBlocks => self.net.send(Cmd::Emote(EmoteCmd::Blocked)),

@@ -294,6 +294,8 @@ pub struct App {
   heat_due: Option<Instant>,
   // a feed post's heat moved live: the redraw waits this long so a run of frames is one (react.rs)
   feed_heat_due: Option<Instant>,
+  // the `new` feed room is joined (while signed in with the feed tab shown: feed.rs `feed_room_sync`)
+  feed_room: bool,
   // pushes that mean "ask again" (follows, blocked emotes, blocks), one request per burst (pushed.rs)
   pushed: crate::model::livegate::Gates,
   // your mention rules as the server holds them (app/mrules.rs); empty until read
@@ -565,6 +567,7 @@ impl App {
       tip_next: None,
       heat_due: None,
       feed_heat_due: None,
+      feed_room: false,
       pushed: Default::default(),
       mrules: Vec::new(),
       mrules_read: false,

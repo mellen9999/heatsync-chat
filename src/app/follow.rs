@@ -36,6 +36,8 @@ impl App {
   pub(super) fn on_followed(&mut self, platform: Platform, login: Box<str>, want: bool, res: Result<(), FollowFail>) {
     let line = match res {
       Ok(()) | Err(FollowFail::Already(_)) => {
+        // who the live feed takes posts from just changed
+        self.net.send(crate::net::Cmd::Social(crate::net::social::Cmd::FollowedUsers));
         if let Some(Load::Done(i)) = self.cards.get(platform, &login) {
           let mut i = i.clone();
           i.follow = Some(want);

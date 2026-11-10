@@ -9,6 +9,7 @@ use crate::model::message::Message;
 use crate::model::post::{self, Post};
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
+use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::social::{self, Page};
 use crate::ui::chat_view::ChatView;
 use crate::ui::theme;
@@ -102,6 +103,16 @@ impl App {
   pub(super) fn feed_entered(&mut self) {
     if self.feed.thread.is_none() && self.feed.stale(now_ms()) {
       self.feed_load(1);
+    }
+  }
+
+  // the `new` room (every new post on the site) is joined while you are signed in and the feed tab is up, and
+  // let go when either stops. the posts it brings are filtered to the people you follow (Feed::wants_live)
+  pub(super) fn feed_room_sync(&mut self) {
+    let want = self.me.is_some() && self.set.shown(Kind::Feed);
+    if want != self.feed_room {
+      self.feed_room = want;
+      self.net.send(Cmd::Hs(HsCmd::Feed("new".into(), want)));
     }
   }
 

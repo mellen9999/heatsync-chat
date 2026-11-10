@@ -49,6 +49,9 @@ pub enum Cmd {
   // the feed thread on screen (its root post id), whose live reactions and votes come here; None = none.
   // one room at a time: naming another leaves the last (the ext's feed_thread)
   Thread(Option<Box<str>>),
+  // a feed room (`new`, or `ulog:<platform>:<login>`) joined (true) or left (false): the posts and archive lines
+  // that arrive live while a view that wants them is on screen. kept across reconnects
+  Feed(Box<str>, bool),
   // the emotes a line you just sent names that you picked on purpose (Tab, the picker), so the room draws
   // them from your word while they join your inventory (`emotes:used`). rule 7: a send never waits on that
   Used(Platform, Box<str>, Vec<Vouch>),
@@ -90,6 +93,8 @@ struct State {
   yt: BTreeSet<Box<str>>,
   // the thread room joined (lowercase post id), re-joined on every new socket
   thread: Option<Box<str>>,
+  // the other feed rooms joined (more.rs `feed_key`), re-joined on every new socket
+  feeds: BTreeSet<Box<str>>,
   // last `_seq` seen per kick room, so the server can replay what we missed
   kick_seq: HashMap<Box<str>, u64>,
   yt_status: HashMap<Box<str>, Box<str>>,
@@ -239,6 +244,7 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
       st.thread = id;
       out
     }
+    Cmd::Feed(key, on) => more::feed_cmd(st, key, on),
     Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)).into_iter().collect(),
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
@@ -303,6 +309,7 @@ async fn session(
   }
   hello.extend(st.yt.iter().map(|h| yt_sub(h)));
   hello.extend(st.thread.iter().map(|i| feed_room("feed:join", i)));
+  hello.extend(st.feeds.iter().map(|k| json!({"type": "feed:join", "feed": &**k})));
   st.catching = resubscribed(st);
   st.socket_authed = false;
   for f in hello {

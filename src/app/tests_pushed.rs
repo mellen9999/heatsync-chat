@@ -365,3 +365,44 @@ fn the_open_card_is_read_again_when_its_person_changes() {
   frame(&mut app, json!({"type": "profile:color", "userId": "1", "usernames": ["alice"], "color": "#00ff00"}));
   assert_eq!(cards(&mut asked), 0);
 }
+
+// the live `new` room: joined while you are signed in with the feed tab up, let go otherwise, and its posts are
+// taken only from the people you follow, you, and the thread open now
+#[test]
+fn live_feed_posts_are_the_ones_you_follow() {
+  use crate::net::hs_ws::Cmd as HsCmd;
+  let (mut app, mut asked, _) = boot();
+  let rooms = |asked: &mut Asked| {
+    sent(asked)
+      .into_iter()
+      .filter_map(|c| if let Cmd::Hs(HsCmd::Feed(k, on)) = c { Some((k.to_string(), on)) } else { None })
+      .collect::<Vec<_>>()
+  };
+  app.feed_room_sync();
+  assert_eq!(rooms(&mut asked), [("new".to_string(), true)]);
+  app.feed_room_sync();
+  assert!(rooms(&mut asked).is_empty(), "once");
+  // nothing is taken before the follow list lands
+  let live = |app: &mut App, id: &str, user: &str, to: Option<&str>| {
+    app.on_net(NetEvent::FeedLive(post(id, user, to)));
+    app.feed.find(id).is_some()
+  };
+  assert!(!live(&mut app, "0000b1", "dave", None));
+  app.on_net(NetEvent::FollowedUsers(vec!["dave".into(), "erin".into()]));
+  assert!(live(&mut app, "0000b2", "Dave", None), "a followed name, any case");
+  assert!(!live(&mut app, "0000b3", "frank", None), "not followed");
+  assert!(live(&mut app, "0000b4", "mellen", None), "your own");
+  // a reply in the thread open now comes whoever wrote it
+  app.feed.open("0000a1", None);
+  assert!(live(&mut app, "0000b5", "frank", Some("0000a1")));
+  assert!(!live(&mut app, "0000b6", "frank", Some("0000a2")), "another thread");
+  // the tab put away, or signed out: the room is let go
+  app.set.show(Kind::Feed, false);
+  app.fix_active();
+  assert_eq!(rooms(&mut asked), [("new".to_string(), false)]);
+  app.set.show(Kind::Feed, true);
+  app.fix_active();
+  app.me = None;
+  app.feed_room_sync();
+  assert_eq!(rooms(&mut asked), [("new".to_string(), true), ("new".to_string(), false)]);
+}

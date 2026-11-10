@@ -60,6 +60,8 @@ pub enum Cmd {
   Follow { platform: Platform, login: Box<str>, profile_id: Option<Box<str>>, want: bool },
   // your private note on a heatsync account (empty text clears it)
   PutNote { platform: Platform, login: Box<str>, profile_id: Box<str>, text: String },
+  // the heatsync names you follow (signed in): which live feed posts are for you
+  FollowedUsers,
   // when you last looked at the mentions, whispers and feed tabs, on any client
   SeenGet,
   // you looked at the heatsync notifications in the mentions tab: the account marks them read, for every device
@@ -113,6 +115,11 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
         if status != 200 {
           eprintln!("notifications/mark-read: heatsync said {status}");
         }
+      }
+    }
+    Cmd::FollowedUsers => {
+      if let Some(t) = token {
+        followed_users(&http, &t, &out).await;
       }
     }
     Cmd::SeenGet => {
@@ -238,6 +245,25 @@ async fn feed(http: &reqwest::Client, token: Option<&str>, page: u32, out: &Out)
 }
 
 fn void(_: bool) {}
+
+// `GET /api/user/following` → `{following: [{username}]}`: a failed ask keeps the list we have (stale beats
+// empty, like the ext)
+async fn followed_users(http: &reqwest::Client, token: &str, out: &Out) {
+  let (status, v) = call(get(http, token, "/api/user/following")).await;
+  if status != 200 {
+    return;
+  }
+  let names: Vec<Box<str>> = v
+    .get("following")
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter_map(|f| f.get("username").and_then(Value::as_str))
+    .filter(|n| (1..=64).contains(&n.len()))
+    .map(|n| n.to_ascii_lowercase().into())
+    .collect();
+  void(out.send(NetEvent::FollowedUsers(names)));
+}
 
 // the archive is public (no login): a page of one person's lines, or the status that said why not
 async fn archive(http: &reqwest::Client, req: logs::Req, out: &Out) {

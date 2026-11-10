@@ -107,6 +107,7 @@ impl App {
 
   // after tabs come and go: never rest on a hidden one
   pub(super) fn fix_active(&mut self) {
+    self.feed_room_sync();
     if !self.visible(self.active) {
       let i = self.step_tab(self.active, false);
       self.active = i;

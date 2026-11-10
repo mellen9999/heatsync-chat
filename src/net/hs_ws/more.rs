@@ -11,6 +11,37 @@ use crate::net::NetEvent;
 // distinct unknown types kept: a hostile socket must not grow the table without end
 pub(super) const MAX_UNKNOWN: usize = 64;
 
+// the most feed rooms (beyond the thread) a socket holds: `new` and the logs of the person on screen
+const MAX_FEEDS: usize = 8;
+
+// a feed room the server takes (ws-handlers validateFeedKey): `new`, or `ulog:<platform>:<login>` for one person's
+// archive lines. the login is lowercase `[a-z0-9_]`, or a youtube `@handle`
+pub(crate) fn feed_key(key: &str) -> Option<Box<str>> {
+  let key = key.to_ascii_lowercase();
+  if key == "new" {
+    return Some(key.into());
+  }
+  let (platform, login) = key.strip_prefix("ulog:")?.split_once(':')?;
+  let ok = match (platform, login.strip_prefix('@')) {
+    ("youtube", Some(h)) => {
+      (3..=30).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    }
+    ("twitch" | "kick", None) => {
+      (1..=40).contains(&login.len()) && login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    }
+    _ => false,
+  };
+  ok.then(|| key.into())
+}
+
+// a feed room asked for or let go: the frame to send now (none when it already is as asked)
+pub(super) fn feed_cmd(st: &mut State, key: Box<str>, on: bool) -> Vec<Value> {
+  let Some(key) = feed_key(&key) else { return Vec::new() };
+  let changed = if on { st.feeds.len() < MAX_FEEDS && st.feeds.insert(key.clone()) } else { st.feeds.remove(&key) };
+  let ty = if on { "feed:join" } else { "feed:leave" };
+  if changed { vec![serde_json::json!({"type": ty, "feed": &*key})] } else { Vec::new() }
+}
+
 // a frame with no arm: counted by type, and named on stderr the first time it is seen, so a missing arm shows
 // up in a log without one line per frame
 pub(super) fn unknown(st: &mut State, ty: &str) {

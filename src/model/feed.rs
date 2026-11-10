@@ -1,7 +1,7 @@
 // the feed tab's state (ext social.js feedMessages / activeThread): newest-first posts, one open thread,
 // and the rows they become. pure, so the rules (cap, dedupe, live replies, votes) are tested without a window
 use crate::i18n::t;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::engage::Marks;
 use super::message::{HsEmote, Message, Platform};
@@ -14,6 +14,9 @@ use crate::net::social::Page;
 pub const CAP: usize = 150;
 // a feed older than this reloads when the tab is looked at (ext FEED_STALE_MS)
 pub const STALE_MS: i64 = 120_000;
+
+// the most followed names kept
+const MAX_FOLLOWS: usize = 5000;
 
 pub const MORE_ID: &str = "more";
 // posts shown as lines in the chat tabs, kept so their >>id, tag and peek still resolve
@@ -52,6 +55,9 @@ pub struct Feed {
   reveal: HashMap<Box<str>, Reveal>,
   // posts put into the chat tabs, newest last
   inline: VecDeque<Post>,
+  // the heatsync names you follow (lowercase), as the account says: which live posts are for you. empty until
+  // the list lands, so nothing live is taken before then
+  follows: HashSet<Box<str>>,
 }
 
 impl Feed {
@@ -110,6 +116,17 @@ impl Feed {
     }
     self.inline.push_back(p.clone());
     true
+  }
+
+  // the names you follow, as the account just said
+  pub fn set_follows(&mut self, names: Vec<Box<str>>) {
+    self.follows = names.into_iter().take(MAX_FOLLOWS).collect();
+  }
+
+  // a live post is for this view: someone you follow, a reply in the thread open now, or your own (`mine`)
+  pub fn wants_live(&self, p: &Post, mine: bool) -> bool {
+    let open = p.reply_to.as_deref().is_some_and(|r| self.thread.as_ref().is_some_and(|t| *t.id == *r));
+    mine || open || self.follows.contains(&*p.user.to_ascii_lowercase())
   }
 
   // a post pushed by the server (or your own just posted). true = the visible rows changed
