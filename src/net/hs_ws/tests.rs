@@ -509,3 +509,23 @@ fn a_thread_room_is_joined_alone_and_its_frames_need_it() {
   let f = apply(&mut st, Cmd::Thread(None));
   assert_eq!(f[0]["type"], "feed:leave");
 }
+
+// a frame nothing reads is counted by type (and named once on stderr), and the table is bounded
+#[test]
+fn unknown_frames_are_counted_not_dropped_silently() {
+  let (tx, _rx) = std::sync::mpsc::channel();
+  let out = Out::Pipe(tx);
+  let mut st = State::default();
+  for _ in 0..3 {
+    assert!(dispatch(&json!({"type": "brand:new"}), &mut st, &out).is_none());
+  }
+  assert!(dispatch(&json!({"type": "other:new"}), &mut st, &out).is_none());
+  assert_eq!((st.unknown["brand:new"], st.unknown["other:new"]), (3, 1));
+  // a type this client reads never lands in the table
+  dispatch(&json!({"type": "message:hidden", "id": "4a"}), &mut st, &out);
+  assert!(!st.unknown.contains_key("message:hidden"));
+  for i in 0..500 {
+    dispatch(&json!({"type": format!("junk:{i}")}), &mut st, &out);
+  }
+  assert!(st.unknown.len() <= more::MAX_UNKNOWN);
+}

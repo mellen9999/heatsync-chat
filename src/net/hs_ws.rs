@@ -12,6 +12,8 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, interval, sleep, timeout};
 use tokio_tungstenite::tungstenite::Message as Ws;
 
+mod more;
+
 use super::http::ws_connect;
 use super::{NetEvent, Out, backoff, retrying, session};
 use super::{pin, pushed, relay, senders};
@@ -101,6 +103,8 @@ struct State {
   // youtube feeds this socket re-subscribed after a drop: their replayed backlog fills the gap
   // (lowercase). on a first socket the replay is dropped, history comes from /api/recent
   catching: BTreeSet<Box<str>>,
+  // frame types nothing reads, with how many came (more.rs): a missing arm is visible
+  unknown: HashMap<Box<str>, u32>,
 }
 
 enum End {
@@ -735,7 +739,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     "dm:message-deleted" => {
       crate::model::whisper::dm_ext(v.get("messageId")).and_then(|key| send(NetEvent::DmGone(key)))
     }
-    _ => None,
+    _ => more::more(ty, v, st, out),
   }
 }
 
