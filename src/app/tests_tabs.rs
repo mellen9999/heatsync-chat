@@ -928,3 +928,25 @@ fn headless_esc_and_empty_click_let_a_picked_line_go_without_vi() {
   app.click();
   assert!(app.tabs[chat].view.selected().is_none(), "a click on nothing lets it go");
 }
+
+// `xqc kick:xqc` edited to `kick:xqc`: the view stays (its key is still `xqc`) but the twitch lines go
+#[test]
+fn a_feed_edited_out_of_a_tab_takes_its_lines() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["xqc kick:xqc".into()], false);
+  let said = |p: Platform, body: &str| {
+    let mut m = Message::system(1, p, body);
+    m.kind = crate::model::message::Kind::Chat;
+    m.login = "bob".into();
+    m
+  };
+  let i = app.tabs.iter().position(|t| &*t.name == "xqc").unwrap();
+  let v = app.tabs[i].chat();
+  v.push(said(Platform::Twitch, "from twitch"));
+  v.push(said(Platform::Kick, "from kick"));
+  let spec = crate::model::chan::Spec::parse("", "xqc", "").unwrap();
+  app.edit_tab(i, &spec);
+  let bodies = app.tabs[i].view.bodies();
+  assert!(bodies.iter().any(|b| b == "from kick"), "{bodies:?}");
+  assert!(!bodies.iter().any(|b| b == "from twitch"), "{bodies:?}");
+}

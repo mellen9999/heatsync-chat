@@ -9,7 +9,7 @@ use super::temp::overlaps;
 use super::{App, SCROLLBACK, Tab};
 use crate::model::chan::{Act, Cmd as ChanCmd, Form, Spec};
 use crate::model::layout_link;
-use crate::model::message::Platform;
+use crate::model::message::{Kind as MsgKind, Platform};
 use crate::model::settings::Side;
 use crate::model::tabs::Kind;
 use crate::net::Cmd;
@@ -327,11 +327,17 @@ impl App {
     let first = new.first().map_or(Box::from(""), |s| s.1.clone());
     t.name = spec.name().into();
     t.target = 0;
+    // a feed the tab no longer has takes its lines with it (the view stays when the first feed's key does:
+    // `xqc kick:xqc` edited to `kick:xqc` keeps the kick lines, not the twitch ones)
+    let gone: Vec<Platform> = old.iter().filter(|o| !new.contains(o)).map(|o| o.0).collect();
     let v = t.chat();
     if v.channel != first {
       *v = ChatView::new(SCROLLBACK, first);
       v.filtered = true;
       v.resize(w);
+    } else if !gone.is_empty() {
+      let keep = v.msgs().filter(|m| m.kind == MsgKind::System || !gone.contains(&m.platform)).cloned().collect();
+      v.reload(keep);
     }
     v.tags = tags(&new);
     v.relayout();
