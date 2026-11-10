@@ -48,10 +48,21 @@ fn dir() -> Option<PathBuf> {
 }
 
 // one test thread's own corner of the temp folder (the image cache keeps its scratch here too)
+// removed when the thread ends (a test that panics included), so a run leaves nothing behind
 #[cfg(test)]
 pub fn scratch() -> PathBuf {
-  let t = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
-  std::env::temp_dir().join("hsc-test").join(format!("{}-{t}", std::process::id()))
+  struct Gone(PathBuf);
+  impl Drop for Gone {
+    fn drop(&mut self) {
+      later::discard(&self.0);
+      let _ = std::fs::remove_dir_all(&self.0);
+    }
+  }
+  thread_local!(static DIR: Gone = {
+    let t = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
+    Gone(std::env::temp_dir().join("hsc-test").join(format!("{}-{t}", std::process::id())))
+  });
+  DIR.with(|d| d.0.clone())
 }
 
 // what the store remembers between calls: sentences waiting for the ui, the files whose last save

@@ -106,6 +106,15 @@ pub fn flush() {
   }
 }
 
+// tests: a test thread is ending and its folder with it, so nothing waiting for that folder may write it back.
+// waits out a write already under way (io first, then the queue, as `drain` does)
+#[cfg(test)]
+pub fn discard(root: &std::path::Path) {
+  let s = shared();
+  let _io = lock(&s.io);
+  lock(&s.q).jobs.retain(|j| !j.dir.starts_with(root));
+}
+
 // the text still waiting to be written for this file, so a read sees the newest
 pub fn pending(name: &str) -> Option<String> {
   let dir = super::dir()?;
