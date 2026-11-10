@@ -40,6 +40,7 @@ impl App {
 
   // a name's heatsync colour: their feed posts (list, open thread, inline lines) and dm rows wear it now
   fn on_profile_color(&mut self, c: ProfileColor) {
+    self.card_names_changed(&c.names);
     let ids = self.feed.recolor(&c.names, c.color);
     for id in &ids {
       self.refresh_inline(id);
@@ -116,7 +117,10 @@ impl App {
 
   fn refetch(&mut self, ask: Ask) {
     match ask {
-      Ask::Follows => self.following_ask_now(),
+      Ask::Follows => {
+        self.following_ask_now();
+        self.card_follows_changed();
+      }
       Ask::EmoteBlocks => self.net.send(Cmd::Emote(EmoteCmd::Blocked)),
       Ask::Blocks => self.net.send(Cmd::Lists),
       Ask::MentionRules => self.mrules_ask(),

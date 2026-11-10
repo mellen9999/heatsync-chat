@@ -315,3 +315,53 @@ fn an_emote_broadcast_reads_the_senders_set_again() {
   );
   assert!(sent(&mut asked).is_empty(), "never seen: nothing to refetch");
 }
+
+// the open profile card is read again when a colour, a flair or a follow changes for its person (and only
+// then), the rows stay up until the answer lands, and a burst of pushes is one request
+#[test]
+fn the_open_card_is_read_again_when_its_person_changes() {
+  use crate::cosmetics::id::PaintId;
+  use crate::model::message::{Kind as MsgKind, Message, Platform};
+  use crate::net::social;
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(720, 400);
+  let mut m = Message::system(crate::util::time::now_ms(), Platform::Twitch, "hi");
+  m.kind = MsgKind::Chat;
+  (m.login, m.nick, m.user_id) = ("alice".into(), "alice".into(), "42".into());
+  app.open_card(app.subject_of(&m).expect("a chatter"));
+  let cards =
+    |asked: &mut Asked| sent(asked).into_iter().filter(|c| matches!(c, Cmd::Social(social::Cmd::Card { .. }))).count();
+  assert_eq!(cards(&mut asked), 1, "asked on open");
+  let age = |app: &mut App| app.cards.backdate(Platform::Twitch, "alice", std::time::Duration::from_secs(60));
+  // inside the gap nothing is asked again
+  frame(&mut app, json!({"type": "profile:color", "userId": "1", "usernames": ["Alice"], "color": "#00ff00"}));
+  assert_eq!(cards(&mut asked), 0, "a push right after the open is the same answer");
+  age(&mut app);
+  // someone else's colour: nothing
+  frame(&mut app, json!({"type": "profile:color", "userId": "1", "usernames": ["carol"], "color": "#00ff00"}));
+  assert_eq!(cards(&mut asked), 0);
+  // hers: asked, and a second push in a burst is not a second request
+  frame(&mut app, json!({"type": "profile:color", "userId": "1", "usernames": ["alice"], "color": "#00ff00"}));
+  assert_eq!(cards(&mut asked), 1);
+  frame(&mut app, json!({"type": "profile:color", "userId": "1", "usernames": ["alice"], "color": "#ff0000"}));
+  assert_eq!(cards(&mut asked), 0);
+  // a paint change by id: hers asks, another's does not
+  age(&mut app);
+  app.on_net(NetEvent::CosmeticsChanged(vec![PaintId::Twitch(7)]));
+  assert_eq!(cards(&mut asked), 0);
+  app.on_net(NetEvent::CosmeticsChanged(vec![PaintId::Twitch(42)]));
+  assert_eq!(cards(&mut asked), 1);
+  // a follow changed on another device: the card's follow row may have flipped
+  age(&mut app);
+  app.me = boot().0.me;
+  frame(&mut app, json!({"type": "follows:changed"}));
+  app.pushed_tick(std::time::Instant::now() + std::time::Duration::from_secs(10));
+  assert_eq!(cards(&mut asked), 1);
+  // no card open: nothing asked
+  app.close_card();
+  frame(&mut app, json!({"type": "profile:color", "userId": "1", "usernames": ["alice"], "color": "#00ff00"}));
+  assert_eq!(cards(&mut asked), 0);
+}

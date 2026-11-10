@@ -16,6 +16,7 @@ mod blocked;
 mod builtin;
 mod card;
 mod cardclip;
+mod cardlive;
 mod chain;
 mod chantools;
 mod chips;

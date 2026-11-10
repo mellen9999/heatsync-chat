@@ -648,6 +648,7 @@ impl App {
         }
       }
       NetEvent::CosmeticsChanged(ids) => {
+        self.card_paints_changed(&ids);
         ids.iter().for_each(|id| self.res.cosmetics.stale(id));
         // the server sends this for a flair or avatar change too: the sub flair is asked again for the same ids
         let twitch: Vec<u64> =

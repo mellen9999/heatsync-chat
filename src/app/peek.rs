@@ -58,6 +58,24 @@ impl Cards {
     (e.at.elapsed() < ttl).then_some(&e.load)
   }
 
+  // how long ago this person's entry was made (asked or answered)
+  pub fn age(&self, p: Platform, login: &str) -> Option<Duration> {
+    Some(self.by[slot(p)].get(login)?.at.elapsed())
+  }
+
+  // tests: make an entry older than it is
+  #[cfg(test)]
+  pub fn backdate(&mut self, p: Platform, login: &str, by: Duration) {
+    if let Some(e) = self.by[slot(p)].get_mut(login) {
+      e.at = e.at.checked_sub(by).unwrap_or(e.at);
+    }
+  }
+
+  // drop what we hold on them, so the next `want` asks again
+  pub fn forget(&mut self, p: Platform, login: &str) {
+    self.by[slot(p)].remove(login);
+  }
+
   // true = nobody has asked lately: the caller sends the request (and it is marked as waiting, so
   // a second hover or a color lookup for the same name does not ask again)
   pub fn want(&mut self, p: Platform, login: &str) -> bool {
