@@ -595,6 +595,16 @@ impl App {
           }
         }
       }
+      NetEvent::SenderUsed(login) => {
+        if let Some(id) = self.res.chatters.twitch_id(&login)
+          && let Some(scrubbed) = self.res.senders.stale(id, None)
+        {
+          self.net.send(Cmd::Sender(id, Some(now_ms().to_string().into())));
+          if scrubbed {
+            self.touch_sender(id);
+          }
+        }
+      }
       NetEvent::Cosmetics(got) => {
         for (id, c) in got {
           if self.res.cosmetics.put(&id, c) {

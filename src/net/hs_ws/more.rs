@@ -3,6 +3,10 @@
 use serde_json::Value;
 
 use super::{End, Out, State};
+use crate::heatsync::valid_name;
+use crate::images::url::allowed;
+use crate::model::ident;
+use crate::net::NetEvent;
 
 // distinct unknown types kept: a hostile socket must not grow the table without end
 pub(super) const MAX_UNKNOWN: usize = 64;
@@ -18,7 +22,22 @@ pub(super) fn unknown(st: &mut State, ty: &str) {
   }
 }
 
-pub(super) fn more(ty: &str, _v: &Value, st: &mut State, _out: &Out) -> Option<End> {
-  unknown(st, ty);
-  None
+pub(super) fn more(ty: &str, v: &Value, st: &mut State, out: &Out) -> Option<End> {
+  let send = |ev: NetEvent| (!out.send(ev)).then_some(End::Quit);
+  match ty {
+    // someone in a room we are in used a heatsync emote of theirs (`username`, `emoteName`, `emoteData`): their
+    // set is read again at once, so the word draws as the picture now and not when the set ages out. the
+    // frame itself is never trusted as the emote: ownership comes from their set (emote rule: the sender owns it)
+    "emote:broadcast" => {
+      let login: Box<str> =
+        v.get("username").and_then(Value::as_str).filter(|u| ident::relay_key(u))?.to_lowercase().into();
+      v.get("emoteName").and_then(Value::as_str).filter(|n| valid_name(n))?;
+      v.pointer("/emoteData/url").and_then(Value::as_str).filter(|u| allowed(u))?;
+      send(NetEvent::SenderUsed(login))
+    }
+    _ => {
+      unknown(st, ty);
+      None
+    }
+  }
 }

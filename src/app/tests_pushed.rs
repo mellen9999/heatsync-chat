@@ -293,3 +293,25 @@ fn the_sites_content_switches_apply_here_and_nothing_else_does() {
   frame(&mut app, json!({"type": "user_settings:update", "show_drug_emotes": true}));
   assert!(!app.set.show_drugs);
 }
+
+// a channel emote broadcast: the sender's set is asked again now (with a cache-bust), only for a chatter whose
+// set we hold, and a stranger asks nothing
+#[test]
+fn an_emote_broadcast_reads_the_senders_set_again() {
+  use crate::cosmetics::id::PaintId;
+  let (mut app, mut asked, _) = boot();
+  app.res.chatters.learned(crate::model::message::Platform::Twitch, "bob", 0xff0000, Some(PaintId::Twitch(5)));
+  let _ = app.res.senders.lookup(5, "KEKW", 0);
+  sent(&mut asked);
+  let url = "https://heatsync.org/uploads/emotes/a.webp";
+  frame(
+    &mut app,
+    json!({"type": "emote:broadcast", "username": "Bob", "emoteName": "KEKW", "emoteData": {"url": url}}),
+  );
+  assert!(matches!(sent(&mut asked).as_slice(), [Cmd::Sender(5, Some(_))]));
+  frame(
+    &mut app,
+    json!({"type": "emote:broadcast", "username": "carol", "emoteName": "KEKW", "emoteData": {"url": url}}),
+  );
+  assert!(sent(&mut asked).is_empty(), "never seen: nothing to refetch");
+}
