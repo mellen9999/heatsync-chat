@@ -38,13 +38,12 @@ pub struct Badges {
   bttv: UserBadges,
   ffz: UserBadges,
   chatterino: UserBadges,
-  // a kick channel's subscriber art by months, per tab (sorted by months). kick never falls back to
-  // twitch's art: twitch versions are tiers, kick's are months
+  // each joined kick channel's subscriber art by months, by slug (sorted by months). kick never falls
+  // back to twitch's art: twitch versions are tiers, kick's are months
   kick: HashMap<Box<str>, Vec<(u32, Box<str>)>>,
+  // which kick channel each room (a tab's chat key) wears the art of: a line knows its room, not its slug
+  kick_rooms: HashMap<Box<str>, Box<str>>,
 }
-
-// tabs whose kick art is kept: the ext's 20
-const KICK_TABS: usize = 20;
 
 pub fn key(set: &str, version: &str) -> Box<str> {
   format!("{set}/{version}").into()
@@ -64,27 +63,32 @@ impl Badges {
     self.ffz_room.insert(channel.into(), set);
   }
 
-  pub fn set_kick(&mut self, tab: &str, mut art: Vec<(u32, Box<str>)>) {
+  pub fn set_kick(&mut self, slug: &str, mut art: Vec<(u32, Box<str>)>) {
     art.sort_by_key(|a| a.0);
-    if self.kick.len() >= KICK_TABS
-      && !self.kick.contains_key(tab)
-      && let Some(old) = self.kick.keys().next().cloned()
-    {
-      self.kick.remove(&old);
+    self.kick.insert(slug.into(), art);
+  }
+
+  pub fn drop_kick(&mut self, slug: &str) {
+    self.kick.remove(slug);
+  }
+
+  // rebuilt whole from the tabs (as `Emotes::route_kick`), so an edited or closed tab leaves nothing stale
+  pub fn route_kick<'a>(&mut self, rooms: impl IntoIterator<Item = (&'a str, &'a str)>) {
+    self.kick_rooms.clear();
+    for (room, slug) in rooms {
+      self.kick_rooms.entry(room.into()).or_insert_with(|| slug.into());
     }
-    self.kick.insert(tab.into(), art);
   }
 
   // the picture for a sub of `months`: the exact tier, else the nearest lower one (the ext's
   // findNearestKickBadgeVersion); none when the channel has no art that low
-  pub fn kick_sub(&self, tab: &str, months: u32) -> Option<&str> {
-    let art = self.kick.get(tab)?;
+  pub fn kick_sub(&self, room: &str, months: u32) -> Option<&str> {
+    let art = self.kick.get(self.kick_rooms.get(room)?)?;
     let i = art.partition_point(|a| a.0 <= months);
     art[..i].last().map(|a| &*a.1)
   }
 
   pub fn drop_channel(&mut self, channel: &str) {
-    self.kick.remove(channel);
     self.channels.remove(channel);
     self.ffz_room.remove(channel);
   }
@@ -179,20 +183,25 @@ mod tests {
   #[test]
   fn kick_sub_art_is_the_nearest_lower_month() {
     let mut bs = Badges::default();
-    bs.set_kick("c", vec![(6, "six".into()), (1, "one".into()), (12, "twelve".into())]);
+    bs.set_kick("k", vec![(6, "six".into()), (1, "one".into()), (12, "twelve".into())]);
+    bs.route_kick([("c", "k")]);
     let at = |m| bs.kick_sub("c", m);
     assert_eq!((at(1), at(5), at(6)), (Some("one"), Some("one"), Some("six")));
     assert_eq!((at(11), at(999)), (Some("six"), Some("twelve")));
     assert_eq!((at(0), bs.kick_sub("other", 3)), (None, None));
   }
 
+  // a kick-only tab `kick:xqc` lays its lines out under room `xqc`; the art follows the room, not the name
   #[test]
-  fn kick_art_is_kept_for_at_most_twenty_tabs() {
+  fn kick_art_follows_the_room_and_goes_with_the_kick_channel() {
     let mut bs = Badges::default();
-    for i in 0..40 {
-      bs.set_kick(&format!("t{i}"), vec![(1, "x".into())]);
-    }
-    assert_eq!(bs.kick.len(), KICK_TABS);
-    assert!(bs.kick_sub("t39", 1).is_some(), "the newest is kept");
+    bs.set_kick("xqc", vec![(1, "x".into())]);
+    assert_eq!(bs.kick_sub("xqc", 1), None, "not routed yet");
+    bs.route_kick([("forsen", "xqc")]);
+    assert_eq!((bs.kick_sub("forsen", 1), bs.kick_sub("xqc", 1)), (Some("x"), None));
+    bs.route_kick([("xqc", "xqc")]);
+    assert_eq!((bs.kick_sub("forsen", 1), bs.kick_sub("xqc", 1)), (None, Some("x")), "the tab was edited");
+    bs.drop_kick("xqc");
+    assert_eq!(bs.kick_sub("xqc", 1), None, "left");
   }
 }

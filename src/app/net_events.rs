@@ -144,13 +144,14 @@ impl App {
     }
   }
 
-  // each tab's chat key draws on its kick channel's emotes, rebuilt from the tabs whenever a tab's kick
-  // leg or a kick set changes
+  // each tab's chat key draws on its kick channel's emotes and sub art, rebuilt from the tabs whenever a
+  // tab's kick leg or a kick channel's sets change
   pub(super) fn route_kick(&mut self) {
     fn kick(t: &Tab) -> Option<(&str, &str)> {
       Some((&t.view.channel, &t.sources.iter().find(|s| s.0 == Platform::Kick)?.1))
     }
     self.res.emotes.route_kick(self.tabs.iter().filter_map(kick));
+    self.res.badges.route_kick(self.tabs.iter().filter_map(kick));
   }
 
   pub(super) fn on_links(&mut self, tab: &str, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)>) {
@@ -455,10 +456,9 @@ impl App {
         self.relayout_where(ch.as_deref());
       }
       NetEvent::KickBadges(slug, art) => {
-        // the art is kept per tab (a line knows its tab, not its kick slug)
+        self.res.badges.set_kick(&slug, art);
+        self.route_kick();
         for i in self.tabs_with(Platform::Kick, &slug) {
-          let name = self.tabs[i].name.clone();
-          self.res.badges.set_kick(&name, art.clone());
           self.tabs[i].views().for_each(ChatView::relayout);
         }
         self.wake();

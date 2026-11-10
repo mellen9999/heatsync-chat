@@ -251,6 +251,7 @@ impl App {
       Platform::Kick => {
         self.kick_mod.remove(&key);
         self.res.emotes.drop_kick(&key);
+        self.res.badges.drop_kick(&key);
         self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key)))
       }
       Platform::Youtube => self.net.send(Cmd::Hs(HsCmd::YtUnsub(key))),

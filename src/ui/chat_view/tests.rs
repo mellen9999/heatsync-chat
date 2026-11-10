@@ -1363,6 +1363,7 @@ fn relayed(p: Platform, badges: &[(&str, &str)]) -> Message {
 fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
   let mut res = Res::new(1.0);
   res.badges.set_kick("c", vec![(1, "https://files.kick.com/a/1".into()), (6, "https://files.kick.com/a/6".into())]);
+  res.badges.route_kick([("c", "c")]);
   let m = relayed(Platform::Kick, &[("moderator", "1"), ("subscriber", "7"), ("og", "1"), ("trainwreckstv", "1")]);
   let at = |res: &mut Res, m: &Message, chan: &str| {
     let l = layout_row(res, chan, m, 0, 400, NO_OPTS);

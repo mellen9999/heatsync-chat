@@ -950,3 +950,16 @@ fn a_feed_edited_out_of_a_tab_takes_its_lines() {
   assert!(bodies.iter().any(|b| b == "from kick"), "{bodies:?}");
   assert!(!bodies.iter().any(|b| b == "from twitch"), "{bodies:?}");
 }
+
+// a kick-only tab is named `kick:xqc` but lays its lines out under `xqc`: its sub art has to reach them
+#[test]
+fn a_kick_only_tab_wears_its_channels_sub_art() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["kick:xqc".into()], false);
+  app.on_net(NetEvent::KickBadges("xqc".into(), vec![(1, "https://files.kick.com/a/1".into())]));
+  let i = app.tabs.iter().position(|t| &*t.name == "kick:xqc").unwrap();
+  let room = app.tabs[i].view.channel.clone();
+  assert_eq!(app.res.badges.kick_sub(&room, 3), Some("https://files.kick.com/a/1"));
+  app.remove_tab(i);
+  assert_eq!(app.res.badges.kick_sub(&room, 3), None, "the art goes with the tab");
+}
