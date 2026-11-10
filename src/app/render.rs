@@ -45,6 +45,7 @@ impl App {
   }
 
   pub(super) fn redraw(&mut self) {
+    self.card_room_sync();
     let mut dirty: Option<Rect> = None;
     let (label, showcmd) = self.mode_line();
     let hidden_now = self.hidden();

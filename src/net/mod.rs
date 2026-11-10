@@ -302,6 +302,10 @@ pub enum NetEvent {
   FollowedUsers(Vec<Box<str>>),
   // a new archive line for the person whose logs are open (`user-log`'s `data`, unchecked: logs::parse_row reads it)
   UserLog(Box<serde_json::Value>),
+  // lines that left the logs of a person (`user-log:removed`)
+  UserLogGone(crate::model::logs::Removal),
+  // a profile's data changed (`profile:updated`, to `feed:author:<id>`): their heatsync user id
+  ProfileUpdated(Box<str>),
   // tab-complete's catalog search: one page from 7tv and ffz (None = that one failed or wasn't asked), tagged
   // with the ask it answers
   Catalog {

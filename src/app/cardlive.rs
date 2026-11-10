@@ -6,6 +6,7 @@ use std::time::Duration;
 use super::App;
 use super::pop::Subject;
 use crate::cosmetics::id::PaintId;
+use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::{Cmd, social};
 
 // the soonest a card is asked again: a burst of pushes is one request
@@ -46,5 +47,31 @@ impl App {
   // `follows:changed`: whether you follow them may have flipped on another device
   pub(super) fn card_follows_changed(&mut self) {
     self.card_reask(|_, _| true);
+  }
+
+  // `profile:updated`: the profile of this heatsync user changed
+  pub(super) fn card_profile_changed(&mut self, id: &str) {
+    let mine = self.card().and_then(|c| c.profile_id()).is_some_and(|p| p == id);
+    self.card_reask(|_, _| mine);
+  }
+
+  // the open card's person has a room (`feed:author:<id>`) while it is up, so a change to their profile
+  // reaches it; let go when it closes or shows someone else
+  pub(super) fn card_room_sync(&mut self) {
+    let want: Option<Box<str>> = self
+      .card()
+      .and_then(|c| c.profile_id())
+      .filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+      .map(|p| format!("author:{p}").into());
+    if want == self.card_room {
+      return;
+    }
+    if let Some(old) = self.card_room.take() {
+      self.net.send(Cmd::Hs(HsCmd::Feed(old, false)));
+    }
+    if let Some(k) = want {
+      self.net.send(Cmd::Hs(HsCmd::Feed(k.clone(), true)));
+      self.card_room = Some(k);
+    }
   }
 }

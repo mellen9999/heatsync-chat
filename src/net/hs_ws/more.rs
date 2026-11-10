@@ -11,7 +11,7 @@ use crate::net::NetEvent;
 // distinct unknown types kept: a hostile socket must not grow the table without end
 pub(super) const MAX_UNKNOWN: usize = 64;
 
-// the most feed rooms (beyond the thread) a socket holds: `new` and the logs of the person on screen
+// the most feed rooms (beyond the thread) a socket holds: `new`, the logs of the person on screen, their profile
 const MAX_FEEDS: usize = 8;
 
 // a feed room the server takes (ws-handlers validateFeedKey): `new`, or `ulog:<platform>:<login>` for one person's
@@ -20,6 +20,10 @@ pub(crate) fn feed_key(key: &str) -> Option<Box<str>> {
   let key = key.to_ascii_lowercase();
   if key == "new" {
     return Some(key.into());
+  }
+  // a profile's room: its heatsync user id, digits
+  if let Some(id) = key.strip_prefix("author:") {
+    return ((1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit())).then(|| key.into());
   }
   let (platform, login) = key.strip_prefix("ulog:")?.split_once(':')?;
   let ok = match (platform, login.strip_prefix('@')) {
@@ -70,6 +74,20 @@ pub(super) fn more(ty: &str, v: &Value, st: &mut State, out: &Out) -> Option<End
     "user-log" => {
       let data = v.get("data").filter(|d| d.is_object())?;
       send(NetEvent::UserLog(Box::new(data.clone())))
+    }
+    "user-log:removed" => {
+      let r = crate::model::logs::parse_removal(v.get("data")?)?;
+      send(NetEvent::UserLogGone(r))
+    }
+    // the profile you have open changed (a bare signal, nothing about what): its id, a string or a number
+    "profile:updated" => {
+      let id = match v.get("userId")? {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        _ => return None,
+      };
+      let ok = (1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit());
+      ok.then(|| send(NetEvent::ProfileUpdated(id.into()))).flatten()
     }
     _ => {
       unknown(st, ty);

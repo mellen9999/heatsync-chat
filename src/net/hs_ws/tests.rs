@@ -580,7 +580,8 @@ fn feed_rooms_join_and_leave_once_and_are_kept() {
   assert!(join(&mut st, "new").is_empty(), "already in it");
   assert_eq!(join(&mut st, "ulog:twitch:Bob_1"), [json!({"type": "feed:join", "feed": "ulog:twitch:bob_1"})]);
   assert_eq!(join(&mut st, "ulog:youtube:@Some.Handle").len(), 1);
-  assert_eq!(st.feeds.len(), 3, "kept for the next socket");
+  assert_eq!(join(&mut st, "author:42").len(), 1);
+  assert_eq!(st.feeds.len(), 4, "kept for the next socket");
   for bad in [
     "live",
     "following",
@@ -591,13 +592,14 @@ fn feed_rooms_join_and_leave_once_and_are_kept() {
     "ulog:twitch:@abc",
     "ulog:youtube:abc",
     "ulog:youtube:@ab",
-    "author:1",
+    "author:",
+    "author:4x",
   ] {
     assert!(join(&mut st, bad).is_empty(), "{bad}");
   }
   assert_eq!(leave(&mut st, "new"), [json!({"type": "feed:leave", "feed": "new"})]);
   assert!(leave(&mut st, "new").is_empty(), "already out");
-  assert_eq!(st.feeds.len(), 2);
+  assert_eq!(st.feeds.len(), 3);
   for i in 0..20 {
     join(&mut st, &format!("ulog:kick:p{i}"));
   }

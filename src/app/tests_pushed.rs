@@ -406,3 +406,40 @@ fn live_feed_posts_are_the_ones_you_follow() {
   app.feed_room_sync();
   assert_eq!(rooms(&mut asked), [("new".to_string(), true), ("new".to_string(), false)]);
 }
+
+// a profile change for the open card's person reads it again, and its `feed:author` room is joined while it is up
+#[test]
+fn an_open_card_follows_its_profile_room() {
+  use crate::model::card::Info;
+  use crate::model::message::{Kind as MsgKind, Message, Platform};
+  use crate::net::hs_ws::Cmd as HsCmd;
+  use crate::net::social;
+  let (net, mut asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(720, 400);
+  let info = Info { registered: true, profile_id: Some("42".into()), ..Info::default() };
+  app.cards.put(Platform::Twitch, "alice", Ok(info));
+  let mut m = Message::system(crate::util::time::now_ms(), Platform::Twitch, "hi");
+  m.kind = MsgKind::Chat;
+  (m.login, m.nick, m.user_id) = ("alice".into(), "alice".into(), "7".into());
+  app.open_card(app.subject_of(&m).expect("a chatter"));
+  app.redraw();
+  let room = |asked: &mut Asked| {
+    sent(asked)
+      .into_iter()
+      .filter_map(|c| if let Cmd::Hs(HsCmd::Feed(k, on)) = c { Some((k.to_string(), on)) } else { None })
+      .collect::<Vec<_>>()
+  };
+  assert_eq!(room(&mut asked), [("author:42".to_string(), true)]);
+  app.cards.backdate(Platform::Twitch, "alice", std::time::Duration::from_secs(60));
+  frame(&mut app, json!({"type": "profile:updated", "userId": "99"}));
+  assert!(sent(&mut asked).is_empty(), "someone else's profile");
+  frame(&mut app, json!({"type": "profile:updated", "userId": "42"}));
+  assert!(sent(&mut asked).iter().any(|c| matches!(c, Cmd::Social(social::Cmd::Card { .. }))));
+  frame(&mut app, json!({"type": "profile:updated", "userId": "4x"}));
+  app.close_card();
+  app.redraw();
+  assert_eq!(room(&mut asked), [("author:42".to_string(), false)]);
+}

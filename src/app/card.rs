@@ -58,6 +58,14 @@ impl App {
 }
 
 impl Card {
+  // their heatsync user id, once heatsync has said (a real account only)
+  pub(super) fn profile_id(&self) -> Option<&str> {
+    match &self.info {
+      Load::Done(i) => i.profile_id.as_deref(),
+      _ => None,
+    }
+  }
+
   fn twitch_id(&self) -> Option<u64> {
     let info = match &self.info {
       Load::Done(i) => Some(i),

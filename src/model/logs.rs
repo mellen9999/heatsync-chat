@@ -274,6 +274,49 @@ pub fn parse_row(v: &Value, who: &Who) -> Option<Row> {
   Some(Row { msg, channel })
 }
 
+// `user-log:removed`: lines that left a person's logs (a platform delete, a ban's clear, an erasure). every field
+// beyond who narrows the match and they AND: `ids`, a channel, a window (both bounds exclusive, unix ms); nothing
+// else = every line they have
+#[derive(Debug, PartialEq, Eq)]
+pub struct Removal {
+  pub platform: Platform,
+  pub login: Box<str>,
+  pub channel: Option<Box<str>>,
+  pub ids: Option<Vec<Box<str>>>,
+  pub after: Option<i64>,
+  pub before: Option<i64>,
+}
+
+// at most this many ids are read from one frame
+const MAX_GONE_IDS: usize = 5000;
+
+pub fn parse_removal(v: &Value) -> Option<Removal> {
+  let platform = match text(v, "platform")? {
+    "twitch" => Platform::Twitch,
+    "kick" => Platform::Kick,
+    "youtube" => Platform::Youtube,
+    _ => return None,
+  };
+  let login = archive_name(platform, text(v, "username")?)?;
+  let when = |k: &str| match v.get(k) {
+    None | Some(Value::Null) => Ok(None),
+    Some(x) => x.as_str().and_then(parse_iso).filter(|t| *t > 0).map(Some).ok_or(()),
+  };
+  // a bound that cannot be read must not widen the match into "everything"
+  let (after, before) = (when("after").ok()?, when("before").ok()?);
+  let ids = match v.get("ids") {
+    None | Some(Value::Null) => None,
+    Some(x) => {
+      Some(x.as_array()?.iter().take(MAX_GONE_IDS).filter_map(Value::as_str).map(|i| clamp(i, 100).into()).collect())
+    }
+  };
+  let channel = match v.get("channel") {
+    None | Some(Value::Null) => None,
+    Some(c) => Some(room(c.as_str()?)?),
+  };
+  Some(Removal { platform, login, channel, ids, after, before })
+}
+
 // a whole answer. rows the server sent beyond one page are not read
 pub fn parse_page(v: &Value, who: &Who) -> Page {
   let rows = v
@@ -465,6 +508,23 @@ impl Logs {
       self.trimmed = true;
     }
     Some(row)
+  }
+
+  // the lines a removal names leave the view. true = something went
+  pub fn remove(&mut self, r: &Removal) -> bool {
+    if r.platform != self.who.platform || r.login != self.who.login {
+      return false;
+    }
+    let n = self.rows.len();
+    self.rows.retain(|row| {
+      let m = &row.msg;
+      let hit = r.ids.as_ref().is_none_or(|ids| ids.iter().any(|i| **i == *m.id))
+        && r.channel.as_ref().is_none_or(|c| *c == row.channel)
+        && r.after.is_none_or(|a| m.ts > a)
+        && r.before.is_none_or(|b| m.ts < b);
+      !hit
+    });
+    self.rows.len() != n
   }
 
   // a row as the view draws it: all-channels rows name their room

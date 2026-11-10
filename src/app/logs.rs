@@ -148,6 +148,13 @@ impl App {
     }
   }
 
+  // `user-log:removed`: the lines it names leave the view, so deleted words do not stay up until a reload
+  pub(super) fn on_user_log_gone(&mut self, r: &logs::Removal) {
+    if self.logs.as_mut().is_some_and(|l| l.remove(r)) {
+      self.logs_show();
+    }
+  }
+
   // `user-log`: a new archive line for someone. only the person on screen, only what the archive's own reader
   // takes (a hostile frame is nothing), and a line the room's chat already put there is not shown twice
   pub(super) fn on_user_log(&mut self, v: &serde_json::Value) {

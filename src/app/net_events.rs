@@ -427,6 +427,8 @@ impl App {
         }
       }
       NetEvent::UserLog(v) => self.on_user_log(&v),
+      NetEvent::UserLogGone(r) => self.on_user_log_gone(&r),
+      NetEvent::ProfileUpdated(id) => self.card_profile_changed(&id),
       NetEvent::FollowedUsers(names) => self.feed.set_follows(names),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),

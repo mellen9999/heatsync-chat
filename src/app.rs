@@ -393,6 +393,8 @@ pub struct App {
   logs: Option<crate::model::logs::Logs>,
   // the archive-line room joined for the person whose logs are open (logs.rs `logs_room_sync`)
   logs_room: Option<Box<str>>,
+  // the profile room joined for the open card's person (cardlive.rs `card_room_sync`)
+  card_room: Option<Box<str>>,
   // a reply chain over the active tab (the tab's own lines wait in `Tab::under`)
   chain: Option<chain::Open>,
   // tab mode's cursor on the tab bar (space t)
@@ -628,6 +630,7 @@ impl App {
       img_view: None,
       logs: None,
       logs_room: None,
+      card_room: None,
       chain: None,
       rover: None,
       mod_by: Vec::new(),
