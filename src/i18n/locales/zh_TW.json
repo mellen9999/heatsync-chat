@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "已解除封鎖",
  "mod.word.message": "訊息",
  "mod.word.you": "你",
+ "mod.yt.not_ready": "已略過 youtube：未開播，或你還沒在那裡以管理員身分發過言",
+ "mod.yt.unseen": "已略過 youtube：此分頁裡沒見過 {who}",
  "net1.auth.link_failed": "無法開始綁定",
  "net1.auth.linked_page": "已綁定。你可以關閉此分頁",
  "net1.auth.logged_in_page": "已登入 heatsync chat。你可以關閉此分頁",

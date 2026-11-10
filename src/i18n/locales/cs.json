@@ -1240,6 +1240,8 @@
  "mod.verb.unbanned": "unban",
  "mod.word.message": "zpráva",
  "mod.word.you": "ty",
+ "mod.yt.not_ready": "youtube přeskočeno: neběží živě, nebo jsi tam nepsal jako moderátor",
+ "mod.yt.unseen": "youtube přeskočeno: {who} v tomto tabu není vidět",
  "net1.auth.link_failed": "propojení nelze zahájit",
  "net1.auth.linked_page": "propojeno. tento tab můžeš zavřít",
  "net1.auth.logged_in_page": "přihlášen do heatsync chat. tento tab můžeš zavřít",

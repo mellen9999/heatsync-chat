@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "diunban",
  "mod.word.message": "mesej",
  "mod.word.you": "anda",
+ "mod.yt.not_ready": "youtube dilangkau: tidak live, atau anda belum chat di sana sebagai moderator",
+ "mod.yt.unseen": "youtube dilangkau: {who} tidak kelihatan dalam tab ini",
  "net1.auth.link_failed": "tak dapat mulakan pemautan",
  "net1.auth.linked_page": "dipautkan. anda boleh tutup tab ini",
  "net1.auth.logged_in_page": "log masuk ke heatsync chat. anda boleh tutup tab ini",

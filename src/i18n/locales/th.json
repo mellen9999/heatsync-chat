@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "เลิกแบนแล้ว",
  "mod.word.message": "ข้อความ",
  "mod.word.you": "คุณ",
+ "mod.yt.not_ready": "ข้าม youtube: ไม่ได้ไลฟ์ หรือคุณยังไม่เคยแชทที่นั่นในฐานะ mod",
+ "mod.yt.unseen": "ข้าม youtube: ไม่พบ {who} ในแท็บนี้",
  "net1.auth.link_failed": "เริ่มการเชื่อมไม่ได้",
  "net1.auth.linked_page": "เชื่อมแล้ว ปิดแท็บนี้ได้",
  "net1.auth.logged_in_page": "ล็อกอิน heatsync chat แล้ว ปิดแท็บนี้ได้",

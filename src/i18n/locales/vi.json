@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "đã bỏ cấm",
  "mod.word.message": "tin nhắn",
  "mod.word.you": "bạn",
+ "mod.yt.not_ready": "đã bỏ qua youtube: không live, hoặc bạn chưa chat ở đó với tư cách mod",
+ "mod.yt.unseen": "đã bỏ qua youtube: không thấy {who} trong tab này",
  "net1.auth.link_failed": "không bắt đầu liên kết được",
  "net1.auth.linked_page": "đã liên kết. bạn có thể đóng tab này",
  "net1.auth.logged_in_page": "đã đăng nhập heatsync chat. bạn có thể đóng tab này",

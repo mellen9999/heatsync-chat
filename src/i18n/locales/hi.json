@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "अनबैन",
  "mod.word.message": "मैसेज",
  "mod.word.you": "आप",
+ "mod.yt.not_ready": "youtube छोड़ा: लाइव नहीं है, या तुमने वहाँ मॉडरेटर के रूप में नहीं लिखा",
+ "mod.yt.unseen": "youtube छोड़ा: इस टैब में {who} नहीं दिखा",
  "net1.auth.link_failed": "लिंक करना शुरू नहीं हुआ",
  "net1.auth.linked_page": "लिंक हो गया। यह टैब बंद कर सकते हो",
  "net1.auth.logged_in_page": "heatsync chat में लॉग इन हो गया। यह टैब बंद कर सकते हो",

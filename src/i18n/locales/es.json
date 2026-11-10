@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "desbaneado",
  "mod.word.message": "mensaje",
  "mod.word.you": "tú",
+ "mod.yt.not_ready": "se omitió youtube: no está en vivo, o no has escrito allí como moderador",
+ "mod.yt.unseen": "se omitió youtube: no se ha visto a {who} en esta pestaña",
  "net1.auth.link_failed": "no se pudo iniciar la vinculación",
  "net1.auth.linked_page": "vinculado. puedes cerrar esta pestaña",
  "net1.auth.logged_in_page": "sesión iniciada en heatsync chat. puedes cerrar esta pestaña",

@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "unban 済み",
  "mod.word.message": "メッセージ",
  "mod.word.you": "あなた",
+ "mod.yt.not_ready": "youtube をスキップ: 配信中でないか、そこでモデレーターとして発言していません",
+ "mod.yt.unseen": "youtube をスキップ: このタブに {who} は見当たりません",
  "net1.auth.link_failed": "連携を開始できません",
  "net1.auth.linked_page": "連携しました。このタブは閉じて構いません",
  "net1.auth.logged_in_page": "heatsync chat にログインしました。このタブは閉じて構いません",

@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "banni poistettu",
  "mod.word.message": "viesti",
  "mod.word.you": "sinä",
+ "mod.yt.not_ready": "ohitettu youtube: ei livenä tai et ole kirjoittanut siellä moderaattorina",
+ "mod.yt.unseen": "ohitettu youtube: {who} ei näkynyt tässä välilehdessä",
  "net1.auth.link_failed": "yhdistämistä ei voitu aloittaa",
  "net1.auth.linked_page": "yhdistetty. voit sulkea tämän välilehden",
  "net1.auth.logged_in_page": "kirjautunut heatsync chatiin. voit sulkea tämän välilehden",

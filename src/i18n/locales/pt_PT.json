@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "unbanido",
  "mod.word.message": "mensagem",
  "mod.word.you": "tu",
+ "mod.yt.not_ready": "youtube ignorado: não está em direto, ou ainda não falaste lá como moderador",
+ "mod.yt.unseen": "youtube ignorado: {who} não visto neste separador",
  "net1.auth.link_failed": "não deu para iniciar a associação",
  "net1.auth.linked_page": "associado. podes fechar este separador",
  "net1.auth.logged_in_page": "sessão iniciada no heatsync chat. podes fechar este separador",

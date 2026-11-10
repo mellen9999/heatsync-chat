@@ -1240,6 +1240,8 @@
  "mod.verb.unbanned": "debanat",
  "mod.word.message": "mesaj",
  "mod.word.you": "tu",
+ "mod.yt.not_ready": "youtube omis: nu e live sau n-ai scris acolo ca moderator",
+ "mod.yt.unseen": "youtube omis: {who} nu apare în acest tab",
  "net1.auth.link_failed": "conectarea nu a putut porni",
  "net1.auth.linked_page": "conectat. poți închide acest tab",
  "net1.auth.logged_in_page": "conectat la heatsync chat. poți închide acest tab",

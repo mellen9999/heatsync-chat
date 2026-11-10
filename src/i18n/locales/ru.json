@@ -1240,6 +1240,8 @@
  "mod.verb.unbanned": "разбанен",
  "mod.word.message": "сообщение",
  "mod.word.you": "вы",
+ "mod.yt.not_ready": "youtube пропущен: нет эфира или вы не писали там как модератор",
+ "mod.yt.unseen": "youtube пропущен: {who} не виден в этой вкладке",
  "net1.auth.link_failed": "не удалось начать привязку",
  "net1.auth.linked_page": "привязано. можно закрыть вкладку",
  "net1.auth.logged_in_page": "вход в heatsync chat выполнен. можно закрыть вкладку",

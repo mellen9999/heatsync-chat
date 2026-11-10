@@ -1,6 +1,6 @@
 // moderation (ext mod-toolbar.js): when our twitch badges say we moderate a room, a line's menu offers
 // delete / timeout / purge / ban / unban, and /ban /timeout /unban /delete /purge work in the tab.
-// heatsync's server does the twitch and kick calls (POST /api/mod/action)
+// heatsync's server does the twitch, kick and youtube calls (POST /api/mod/action)
 use super::App;
 use super::overlay::Overlay;
 use super::pop::Act;
@@ -19,6 +19,21 @@ use crate::util::time::now_ms;
 const MOD_ECHO_MS: i64 = 30_000;
 // how much of a long term the question shows
 const NUKE_TERM_SHOWN: usize = 40;
+
+// a youtube chatter's login and channel id (UC...) from their latest line among `msgs`. youtube logins are
+// `@handle`: a typed name matches with or without its @, in any case
+pub(super) fn yt_who<'a>(
+  msgs: impl DoubleEndedIterator<Item = &'a Message>,
+  name: &str,
+) -> Option<(Box<str>, Box<str>)> {
+  let bare = name.trim().trim_start_matches('@');
+  let m = msgs.rev().find(|m| {
+    m.platform == Platform::Youtube
+      && !m.user_id.is_empty()
+      && m.login.trim_start_matches('@').eq_ignore_ascii_case(bare)
+  })?;
+  Some((m.login.clone(), m.user_id.clone()))
+}
 
 impl App {
   pub(super) fn on_mod_state(&mut self, ch: &str, on: bool) {
@@ -242,7 +257,9 @@ impl App {
     self.say(f("mod.send", &[("verb", verb.word()), ("who", &who[0].nick)]));
   }
 
-  // the twitch and kick feeds of the channel tab on screen that a mod command acts on; says why when there are none
+  // the feeds of the channel tab on screen that a mod command acts on: twitch and kick, and a youtube feed only
+  // while it is live and we moderate it (the way a send leaves a youtube feed that isn't live out). a youtube feed
+  // left out is said; says why when there are no feeds at all
   fn mod_srcs(&mut self, what: &str) -> Option<Vec<(Platform, Box<str>)>> {
     let Some(tab) = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat) else {
       self.say(f("mod.needs_tab", &[("cmd", what)]));
@@ -252,15 +269,24 @@ impl App {
       self.say(t("mod.common.login_first"));
       return None;
     }
-    let srcs: Vec<(Platform, Box<str>)> = tab.sources.iter().filter(|s| s.0 != Platform::Youtube).cloned().collect();
+    let ready =
+      |s: &&(Platform, Box<str>)| s.0 != Platform::Youtube || (self.live.has(s.0, &s.1) && self.can_mod(s.0, &s.1));
+    let srcs: Vec<(Platform, Box<str>)> = tab.sources.iter().filter(ready).cloned().collect();
+    let left_out = srcs.len() < tab.sources.len();
+    if left_out {
+      self.say(t("mod.yt.not_ready"));
+    }
     if srcs.is_empty() {
-      self.say(f("mod.needs_channel", &[("cmd", what)]));
+      if !left_out {
+        self.say(f("mod.needs_channel", &[("cmd", what)]));
+      }
       return None;
     }
     Some(srcs)
   }
 
-  // /ban and friends act on the platforms the active tab merges (twitch and kick), as the ext fans out
+  // /ban and friends act on the platforms the active tab merges (twitch, kick, a live youtube we moderate), as
+  // the ext fans out. youtube has no id lookup of its own: the person's channel id comes off their lines in this tab
   pub(super) fn mod_slash(&mut self, cmd: Slash) {
     let (verb, name, reason) = match cmd {
       Slash::Usage(u) => return self.say(u),
@@ -269,34 +295,52 @@ impl App {
     };
     let Some(mut srcs) = self.mod_srcs(verb.name()) else { return };
     let Some(tab) = self.tabs.get(self.active) else { return };
-    // a message id lives on one platform: twitch first, as the ext does
-    if verb == Verb::Delete {
+    let delete = verb == Verb::Delete;
+    // a message id lives on one platform: a youtube line of this tab with it goes to youtube, anything else to
+    // twitch first, as the ext does
+    let yt_line =
+      delete.then(|| tab.view.msgs().rev().find(|m| m.platform == Platform::Youtube && *m.id == *name)).flatten();
+    if delete {
+      let on_yt = yt_line.is_some() || srcs.iter().all(|s| s.0 == Platform::Youtube);
+      srcs.retain(|s| (s.0 == Platform::Youtube) == on_yt);
       srcs.truncate(1);
     }
-    let who: Vec<Subject> = srcs
-      .into_iter()
-      .map(|(platform, chan)| {
+    let (mut who, mut unseen): (Vec<Subject>, bool) = (Vec::new(), false);
+    for (platform, chan) in srcs {
+      let (login, user_id, msg_id): (Box<str>, Box<str>, Box<str>) = if platform == Platform::Youtube {
+        let hit = match yt_line {
+          Some(m) => Some((m.login.clone(), m.user_id.clone(), m.id.clone())),
+          None if delete => None,
+          None => yt_who(tab.view.msgs(), &name).map(|(login, id)| (login, id, "".into())),
+        };
+        let Some(hit) = hit else {
+          unseen = true;
+          continue;
+        };
+        hit
+      } else {
         let id = (platform == Platform::Twitch).then(|| tab.view.user_id_of(&name)).flatten().unwrap_or_default();
-        let (login, msg_id) =
-          if verb == Verb::Delete { ("".into(), name.as_str().into()) } else { (name.as_str().into(), "".into()) };
-        Subject {
-          platform,
-          chan,
-          login,
-          nick: name.as_str().into(),
-          user_id: id,
-          msg_id,
-          color: 0,
-          own: false,
-          paint: None,
-        }
-      })
-      .collect();
-    if verb == Verb::Delete {
+        if delete { ("".into(), id, name.as_str().into()) } else { (name.as_str().into(), id, "".into()) }
+      };
+      who.push(Subject {
+        platform,
+        chan,
+        login,
+        nick: name.as_str().into(),
+        user_id,
+        msg_id,
+        color: 0,
+        own: false,
+        paint: None,
+      });
+    }
+    if unseen {
+      self.say(f("mod.yt.unseen", &[("who", &name)]));
+    }
+    let Some(first) = who.first_mut() else { return };
+    if delete {
       // no name to show: the id stands in for it
-      let mut who = who;
-      who[0].nick = t("mod.word.message").into();
-      return self.mod_run(verb, who, reason);
+      first.nick = t("mod.word.message").into();
     }
     self.mod_run(verb, who, reason);
   }
@@ -304,6 +348,7 @@ impl App {
   // /nuke <term> [seconds]: the lines of this tab that say the term lately, asked about before they go
   fn nuke_slash(&mut self, parsed: Option<(String, u32)>) {
     let Some(srcs) = self.mod_srcs("nuke") else { return };
+    let yt = srcs.iter().any(|s| s.0 == Platform::Youtube);
     let Some((term, secs)) = parsed else { return self.say(t("mod.cmd.nuke_usage")) };
     let (needle, since) = (term.to_lowercase(), now_ms() - i64::from(secs) * 1000);
     let Some(tab) = self.tabs.get(self.active) else { return };
@@ -312,7 +357,7 @@ impl App {
     for m in tab.view.msgs() {
       // a line of someone's, still standing, in the window, that says the term (a substring, not a pattern)
       if !m.kind.said()
-        || m.platform == Platform::Youtube
+        || (m.platform == Platform::Youtube && !yt)
         || m.id.is_empty()
         || m.flags & crate::model::message::flag::CLEARED != 0
         || m.ts < since
@@ -327,7 +372,8 @@ impl App {
         chan,
         login: m.login.clone(),
         nick: t("mod.word.message").into(),
-        user_id: "".into(),
+        // youtube finds the author by their channel id; twitch and kick delete by the line alone
+        user_id: if m.platform == Platform::Youtube { m.user_id.clone() } else { "".into() },
         msg_id: m.id.clone(),
         color: 0,
         own: false,
@@ -363,8 +409,8 @@ impl App {
 
   pub(super) fn on_nuke_done(&mut self, d: NukeDone) {
     let NukeDone { term, total, ok, fail } = d;
-    // twitch echoes each delete back through chat; kick echoes nothing, so its lines go grey here
-    for (platform, chan, id) in ok.iter().filter(|o| o.0 == Platform::Kick) {
+    // twitch echoes each delete back through chat; kick and youtube are greyed here, as a single delete is
+    for (platform, chan, id) in ok.iter().filter(|o| o.0 != Platform::Twitch) {
       for i in self.tabs_with(*platform, chan) {
         self.tabs[i].chat().clear_msg(id);
         self.touched(i);

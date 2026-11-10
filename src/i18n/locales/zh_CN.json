@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "已解封",
  "mod.word.message": "消息",
  "mod.word.you": "你",
+ "mod.yt.not_ready": "已跳过 youtube：未直播，或你还没在那里以管理员身份发过言",
+ "mod.yt.unseen": "已跳过 youtube：此标签页里没见过 {who}",
  "net1.auth.link_failed": "无法开始关联",
  "net1.auth.linked_page": "已关联。可以关闭此标签页",
  "net1.auth.logged_in_page": "已登录 heatsync chat。可以关闭此标签页",

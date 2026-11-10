@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "na-unban",
  "mod.word.message": "mensahe",
  "mod.word.you": "ikaw",
+ "mod.yt.not_ready": "nilaktawan ang youtube: hindi live, o hindi ka pa nakapag-chat doon bilang moderator",
+ "mod.yt.unseen": "nilaktawan ang youtube: hindi nakita si {who} sa tab na ito",
  "net1.auth.link_failed": "hindi masimulan ang pag-link",
  "net1.auth.linked_page": "naka-link na. puwede mo nang isara ang tab na ito",
  "net1.auth.logged_in_page": "naka-login ka na sa heatsync chat. puwede mo nang isara ang tab na ito",

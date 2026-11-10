@@ -139,7 +139,7 @@ fn the_ext_errors_in_the_ext_order() {
   app.on_net(NetEvent::Me(None));
   typed(&mut app, "/nuke spam");
   assert_eq!(said(&app), "log in first (ctrl-l)");
-  // a tab with no twitch or kick feed
+  // a tab with only a youtube that is not live (or not ours): it says that, not "twitch or kick"
   let (net, _) = Net::tap();
   let mut yt = App::new(net, vec!["yt:@abc".into()], false);
   yt.dpi = 1.0;
@@ -156,7 +156,7 @@ fn the_ext_errors_in_the_ext_order() {
   });
   yt.select(yt.tabs.iter().position(|t| t.sources.iter().any(|s| s.0 == Platform::Youtube)).unwrap());
   typed(&mut yt, "/nuke spam");
-  assert_eq!(said(&yt), "/nuke needs a twitch or kick channel");
+  assert_eq!(said(&yt), "youtube skipped: not live, or you haven't chatted there as a mod");
   assert!(nukes(&mut rx).is_empty());
 }
 

@@ -1270,6 +1270,8 @@
  "mod.verb.unbanned": "رُفع الحظر",
  "mod.word.message": "رسالة",
  "mod.word.you": "أنت",
+ "mod.yt.not_ready": "تم تخطي youtube: ليس مباشرًا، أو لم تكتب هناك كمشرف",
+ "mod.yt.unseen": "تم تخطي youtube: لم يظهر {who} في هذا التبويب",
  "net1.auth.link_failed": "تعذّر بدء الربط",
  "net1.auth.linked_page": "تم الربط. يمكنك إغلاق هذا التبويب",
  "net1.auth.logged_in_page": "تم تسجيل الدخول إلى heatsync chat. يمكنك إغلاق هذا التبويب",

@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "unban",
  "mod.word.message": "μήνυμα",
  "mod.word.you": "εσύ",
+ "mod.yt.not_ready": "παραλείφθηκε το youtube: δεν είναι live ή δεν έχεις γράψει εκεί ως moderator",
+ "mod.yt.unseen": "παραλείφθηκε το youtube: το {who} δεν φαίνεται σε αυτή την καρτέλα",
  "net1.auth.link_failed": "δεν ξεκίνησε η σύνδεση",
  "net1.auth.linked_page": "συνδέθηκε. μπορείς να κλείσεις αυτή την καρτέλα",
  "net1.auth.logged_in_page": "συνδέθηκες στο heatsync chat. μπορείς να κλείσεις αυτή την καρτέλα",

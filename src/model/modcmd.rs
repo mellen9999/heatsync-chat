@@ -153,7 +153,11 @@ pub fn command(text: &str) -> Option<Cmd> {
       None => Cmd::Usage(t("mod.cmd.unban_usage")),
     },
     "delete" | "del" => {
-      if !first.is_empty() && first.len() <= 128 && first.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+      // twitch and kick ids are uuids; youtube's are base64url (`_` and `-`)
+      if !first.is_empty()
+        && first.len() <= 128
+        && first.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+      {
         Cmd::Do(Verb::Delete, first.to_owned(), None)
       } else {
         Cmd::Usage(t("mod.cmd.delete_usage"))
@@ -195,6 +199,8 @@ mod tests {
   #[test]
   fn delete_and_purge() {
     assert_eq!(command("/delete 0a1b-22"), d(Verb::Delete, "0a1b-22", None));
+    assert_eq!(command("/delete ChwK_Gk-Nd"), d(Verb::Delete, "ChwK_Gk-Nd", None));
+    assert!(matches!(command("/delete a;b"), Some(Cmd::Usage(_))));
     assert!(matches!(command("/delete"), Some(Cmd::Usage(_))));
     assert_eq!(command("/purge Bob"), d(Verb::Purge, "bob", None));
     assert_eq!(command("/banana bob"), None);

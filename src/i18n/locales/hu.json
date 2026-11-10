@@ -1230,6 +1230,8 @@
  "mod.verb.unbanned": "unbannolva",
  "mod.word.message": "üzenet",
  "mod.word.you": "te",
+ "mod.yt.not_ready": "youtube kihagyva: nem él, vagy még nem írtál ott moderátorként",
+ "mod.yt.unseen": "youtube kihagyva: {who} nem látszik ebben a tabban",
  "net1.auth.link_failed": "nem sikerült elindítani az összekötést",
  "net1.auth.linked_page": "összekötve. bezárhatod ezt a tabot",
  "net1.auth.logged_in_page": "belépve a heatsync chatbe. bezárhatod ezt a tabot",

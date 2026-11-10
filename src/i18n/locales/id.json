@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "di-unban",
  "mod.word.message": "pesan",
  "mod.word.you": "kamu",
+ "mod.yt.not_ready": "youtube dilewati: tidak live, atau kamu belum chat di sana sebagai moderator",
+ "mod.yt.unseen": "youtube dilewati: {who} tidak terlihat di tab ini",
  "net1.auth.link_failed": "gagal memulai penautan",
  "net1.auth.linked_page": "tertaut. kamu bisa menutup tab ini",
  "net1.auth.logged_in_page": "masuk ke heatsync chat. kamu bisa menutup tab ini",

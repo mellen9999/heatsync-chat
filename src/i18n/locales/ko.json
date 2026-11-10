@@ -1220,6 +1220,8 @@
  "mod.verb.unbanned": "unban됨",
  "mod.word.message": "메시지",
  "mod.word.you": "나",
+ "mod.yt.not_ready": "youtube 건너뜀: 라이브가 아니거나 거기서 모더레이터로 채팅한 적 없음",
+ "mod.yt.unseen": "youtube 건너뜀: 이 탭에서 {who}을(를) 못 봄",
  "net1.auth.link_failed": "연결을 시작하지 못함",
  "net1.auth.linked_page": "연결됨. 이 탭을 닫아도 됩니다",
  "net1.auth.logged_in_page": "heatsync chat에 로그인됨. 이 탭을 닫아도 됩니다",

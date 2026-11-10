@@ -1240,6 +1240,8 @@
  "mod.verb.unbanned": "unbanovaný",
  "mod.word.message": "správa",
  "mod.word.you": "ty",
+ "mod.yt.not_ready": "youtube preskočené: nevysiela alebo si tam nepísal ako moderátor",
+ "mod.yt.unseen": "youtube preskočené: {who} nie je v tejto karte vidieť",
  "net1.auth.link_failed": "prepojenie sa nepodarilo začať",
  "net1.auth.linked_page": "prepojené. túto kartu môžeš zavrieť",
  "net1.auth.logged_in_page": "prihlásený do heatsync chat. túto kartu môžeš zavrieť",
