@@ -190,7 +190,7 @@ mod tests {
   }
 
   fn temp(name: &str, bytes: &[u8]) -> String {
-    let dir = std::env::temp_dir().join(format!("hsc-sound-{}", std::process::id()));
+    let dir = crate::store::scratch().join("sound");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     std::fs::write(&path, bytes).unwrap();

@@ -23,7 +23,7 @@ fn typed(a: &mut App, s: &str) {
 
 // a folder of this test's own, and a wav in it
 fn wav_in(dir: &str, name: &str) -> String {
-  let d = std::env::temp_dir().join(format!("hsc-ping-{}", std::process::id())).join(dir);
+  let d = crate::store::scratch().join("ping").join(dir);
   std::fs::create_dir_all(&d).unwrap();
   let p = d.join(name);
   std::fs::write(&p, crate::util::wav::encode(8000, 1, &[100, -100, 200])).unwrap();
@@ -70,7 +70,7 @@ fn a_wav_of_your_own_becomes_the_sound_and_off_gives_the_ping_back() {
   // asking shows the file's name, never the folders it sits in
   typed(&mut a, "/pingfile");
   assert!(said(&a).starts_with("custom sound file: Ding.wav \u{b7} /pingfile"), "{}", said(&a));
-  assert!(!said(&a).contains("hsc-ping"), "no path on screen");
+  assert!(!said(&a).contains("hsc-test"), "no path on screen");
   typed(&mut a, "/pingfile off");
   assert!(a.set.ping_file.is_empty());
   assert_eq!(a.set.ping_sound, PingSound::Ping, "custom with nothing behind it is the ping");
@@ -86,7 +86,7 @@ fn a_wav_of_your_own_becomes_the_sound_and_off_gives_the_ping_back() {
 fn a_file_that_cannot_play_is_refused_in_plain_words_and_changes_nothing() {
   let mut a = app();
   typed(&mut a, "/pingsound chime");
-  let dir = std::env::temp_dir().join(format!("hsc-ping-{}", std::process::id())).join("bad");
+  let dir = crate::store::scratch().join("ping").join("bad");
   std::fs::create_dir_all(&dir).unwrap();
   let junk = dir.join("junk.wav");
   std::fs::write(&junk, b"RIFF this is not a wav file at all").unwrap();
