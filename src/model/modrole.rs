@@ -1,7 +1,6 @@
 // do we moderate a kick room? kick has no way to ask (the ext reads kick.com with your browser
 // session, which a standalone app does not have), so we read it off our own lines: kick puts a
-// moderator or broadcaster badge on them. youtube has no server-side moderation at all (heatsync's
-// capabilities list for it is empty; the ext drives youtube's own page), so it has no role here
+// moderator or broadcaster badge on them. youtube is read the same way (app/mods.rs `yt_role_seen`)
 
 // kick badge names that mean "can moderate"
 pub fn kick_badges_mod(badges: &[(Box<str>, Box<str>)]) -> bool {

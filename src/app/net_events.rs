@@ -49,6 +49,9 @@ impl App {
     if p == Platform::Kick && !history {
       self.kick_role_seen(key, &msgs);
     }
+    if p == Platform::Youtube && !history {
+      self.yt_role_seen(key, &msgs);
+    }
     // your own line sent to several feeds comes back from each: one shows, the other feeds' copies fold into it
     if !history {
       let (sent, mine) = (&mut self.sentfold, &self.mentions);
@@ -537,6 +540,7 @@ impl App {
           self.res.blocked.clear_server();
           self.mod_in.clear();
           self.kick_mod.clear();
+          self.yt_mod.clear();
           self.held = Default::default();
           self.following_reset();
           self.pushed.clear();

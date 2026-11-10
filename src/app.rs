@@ -276,6 +276,8 @@ pub struct App {
   mod_in: std::collections::HashSet<Box<str>>,
   // kick slugs where our own lines wear a moderator or broadcaster badge (model::modrole)
   kick_mod: std::collections::HashSet<Box<str>>,
+  // the youtube rooms (lowercase `@handle`) our own lines show we moderate
+  yt_mod: std::collections::HashSet<Box<str>>,
   // each twitch room's chat modes as its ROOMSTATE says, and a mode change on its way
   modes: std::collections::HashMap<Box<str>, crate::model::modes::Modes>,
   modes_busy: bool,
@@ -561,6 +563,7 @@ impl App {
       rooms: Vec::new(),
       mod_in: Default::default(),
       kick_mod: Default::default(),
+      yt_mod: Default::default(),
       modes: Default::default(),
       live_asked: Default::default(),
       told: Default::default(),

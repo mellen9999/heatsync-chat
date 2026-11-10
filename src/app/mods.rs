@@ -33,7 +33,7 @@ impl App {
   }
 
   // do we moderate this room? twitch: our badges say so. kick: our own lines there wear a moderator
-  // or broadcaster badge, or it is our own channel. youtube: never (heatsync has no youtube moderation)
+  // or broadcaster badge, or it is our own channel. youtube: the same, by our own line's badge in that room
   pub(super) fn can_mod(&self, p: Platform, chan: &str) -> bool {
     let Some(me) = &self.me else { return false };
     match p {
@@ -41,7 +41,34 @@ impl App {
       Platform::Kick => {
         self.kick_mod.contains(chan) || me.kick.as_deref().is_some_and(|k| crate::model::modrole::kick_slug(k) == chan)
       }
-      Platform::Youtube => false,
+      Platform::Youtube => {
+        self.yt_mod.contains(&*chan.to_ascii_lowercase())
+          || me
+            .youtube
+            .as_deref()
+            .is_some_and(|y| y.trim_start_matches('@').eq_ignore_ascii_case(chan.trim_start_matches('@')))
+      }
+    }
+  }
+
+  // a live youtube line of ours tells whether we moderate that room (a moderator or owner badge on it); a line
+  // without one takes it back. the room's key is lowercase
+  pub(super) fn yt_role_seen(&mut self, key: &str, msgs: &[Message]) {
+    let mine = self.me.as_ref().and_then(|m| m.youtube.as_deref()).map(|y| y.trim_start_matches('@'));
+    let Some(own) = msgs.iter().rev().find(|m| {
+      m.kind.said()
+        && (m.has(crate::model::message::flag::OWN)
+          || mine.is_some_and(|y| m.login.trim_start_matches('@').eq_ignore_ascii_case(y)))
+    }) else {
+      return;
+    };
+    let key: Box<str> = key.to_ascii_lowercase().into();
+    if own.badges.iter().any(|(r, _)| matches!(&**r, "moderator" | "broadcaster")) {
+      if self.yt_mod.insert(key) {
+        self.mod_buttons_seed();
+      }
+    } else {
+      self.yt_mod.remove(&key);
     }
   }
 
@@ -166,15 +193,27 @@ impl App {
   }
 
   fn req(&self, who: &Subject, verb: Verb, reason: Option<String>) -> Req {
+    // youtube finds a message to delete by its author and time: the line's own, as a chat tab holds it
+    let yt_line = (who.platform == Platform::Youtube && verb == Verb::Delete && !who.msg_id.is_empty())
+      .then(|| {
+        let chat = self.tabs.iter().filter(|t| t.kind == crate::model::tabs::Kind::Chat);
+        chat.flat_map(|t| t.view.msgs()).find(|m| m.id == who.msg_id && m.platform == Platform::Youtube)
+      })
+      .flatten()
+      .map(|m| (m.ts, m.body.clone()));
     Req {
       platform: who.platform,
       chan: who.chan.clone(),
       room: (who.platform == Platform::Twitch).then(|| self.room_id(&who.chan)).flatten(),
       verb,
       login: who.login.clone(),
-      user_id: (who.platform == Platform::Twitch && !who.user_id.is_empty()).then(|| who.user_id.clone()),
+      user_id: matches!(who.platform, Platform::Twitch | Platform::Youtube)
+        .then(|| who.user_id.clone())
+        .filter(|u| !u.is_empty()),
       msg_id: (!who.msg_id.is_empty()).then(|| who.msg_id.clone()),
       reason,
+      msg_ts: yt_line.as_ref().map(|l| l.0),
+      msg_text: yt_line.map(|l| l.1),
     }
   }
 
@@ -361,7 +400,7 @@ impl App {
         let actor = self.me.as_ref().map_or_else(|| t("mod.word.you").to_owned(), |m| m.username.to_string());
         let note = match verb {
           Verb::Unban => Some(f("mod.note.unbanned", &[("actor", &actor), ("login", &login)])),
-          _ if platform != Platform::Kick => None,
+          _ if platform == Platform::Twitch => None,
           Verb::Ban => Some(f("mod.note.banned", &[("actor", &actor), ("login", &login)])),
           Verb::Timeout(s) => {
             Some(f("mod.note.timed_out", &[("actor", &actor), ("login", &login), ("n", &s.to_string())]))
@@ -371,7 +410,7 @@ impl App {
         };
         for i in self.tabs_with(platform, &chan) {
           let v = self.tabs[i].chat();
-          if platform == Platform::Kick {
+          if platform != Platform::Twitch {
             match (verb, &msg_id) {
               (Verb::Delete, Some(id)) => v.clear_msg(id),
               (Verb::Unban, _) => {}
@@ -393,6 +432,10 @@ impl App {
       Err(Fail::Relink) => {
         self.say(super::feed::needs_twitch(t("mod.noun")));
         self.net.send(Cmd::Relink("mod"));
+      }
+      Err(Fail::YtPermission) => {
+        self.say(f("app.pop.youtube_needs", &[("allow", super::feed::allow_it())]));
+        self.net.send(Cmd::AllowYoutubePosting);
       }
       Err(Fail::Other(e)) => self.say(f("mod.failed", &[("verb", verb.word()), ("err", &e)])),
     }

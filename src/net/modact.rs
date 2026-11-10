@@ -1,6 +1,7 @@
 // mod actions through heatsync (POST /api/mod/action). the server holds the twitch / kick mod
 // tokens; we only name the room, the person and what to do. twitch wants numeric ids, kick takes
-// the channel slug and the login. youtube is not here: heatsync has no youtube moderation to call
+// the channel slug and the login. youtube takes the room (`@handle`), the person's UC channel id and, for a
+// delete, the line's own time and words (it finds the message by author + time, and refuses two that fit)
 use crate::i18n::t;
 use std::time::{Duration, Instant};
 
@@ -25,6 +26,9 @@ pub struct Req {
   pub user_id: Option<Box<str>>,
   pub msg_id: Option<Box<str>>,
   pub reason: Option<String>,
+  // youtube delete: the line's time (epoch ms, as the chat read gave it) and its words
+  pub msg_ts: Option<i64>,
+  pub msg_text: Option<Box<str>>,
 }
 
 // what the ui is told when it settles
@@ -55,13 +59,28 @@ pub enum Fail {
   Auth,
   // the twitch login lacks the moderation permission pack: re-link twitch with `mod`
   Relink,
+  // youtube moderation needs the opt-in youtube permission (the one chat sending uses)
+  YtPermission,
   Other(String),
 }
 
 fn body(r: &Req, room: &str, user: Option<&str>) -> Value {
-  let mut b =
-    json!({ "action": r.verb.action(), "platform": match r.platform { Platform::Kick => "kick", _ => "twitch" } });
+  let mut b = json!({ "action": r.verb.action(), "platform": r.platform.name() });
   match r.platform {
+    Platform::Youtube => {
+      b["channel"] = json!(&*r.chan);
+      if let Some(u) = r.user_id.as_deref() {
+        b["target_user_id"] = json!(u);
+      }
+      if r.verb == Verb::Delete {
+        if let Some(t) = r.msg_ts {
+          b["message_ts"] = json!(t);
+        }
+        if let Some(t) = &r.msg_text {
+          b["message_text"] = json!(t.chars().take(1000).collect::<String>());
+        }
+      }
+    }
     Platform::Kick => {
       b["channel"] = json!(&*r.chan);
       if r.verb != Verb::Delete {
@@ -84,7 +103,8 @@ fn body(r: &Req, room: &str, user: Option<&str>) -> Value {
     // kick's shortest timeout is a minute
     b["duration_seconds"] = json!(if r.platform == Platform::Kick { s.max(60) } else { s });
   }
-  if let Some(why) = &r.reason {
+  // youtube's api has no reason field
+  if let Some(why) = r.reason.as_ref().filter(|_| r.platform != Platform::Youtube) {
     b["reason"] = json!(why);
   }
   b
@@ -158,7 +178,7 @@ async fn id_of(http: &reqwest::Client, login: &str) -> Result<Box<str>, Fail> {
 
 async fn act(http: &reqwest::Client, token: &str, r: &Req) -> Result<(), Fail> {
   let (mut room, mut user) = (String::new(), None::<Box<str>>);
-  if r.platform != Platform::Kick {
+  if r.platform == Platform::Twitch {
     room = match &r.room {
       Some(id) => id.to_string(),
       None => id_of(http, &r.chan).await?.to_string(),
@@ -189,7 +209,12 @@ pub fn classify(status: u16, v: &Value) -> Result<(), Fail> {
   }
   let err = v.get("error").and_then(Value::as_str).unwrap_or("");
   if v.get("relink_required").and_then(Value::as_bool) == Some(true) {
-    return Err(Fail::Relink);
+    // youtube's permission is the posting one, not twitch's `mod` pack
+    return Err(if v.get("platform").and_then(Value::as_str) == Some("youtube") {
+      Fail::YtPermission
+    } else {
+      Fail::Relink
+    });
   }
   Err(match status {
     401 => Fail::Auth,
@@ -215,6 +240,8 @@ mod tests {
       user_id: Some("77".into()),
       msg_id: Some("abc".into()),
       reason: Some("spam".into()),
+      msg_ts: Some(1_700_000_000_123),
+      msg_text: Some("hello".into()),
     }
   }
 
@@ -263,6 +290,37 @@ mod tests {
     // a long kick timeout keeps its length
     let t = body(&req(Platform::Kick, Verb::Timeout(3600)), "", None);
     assert_eq!(t["duration_seconds"], 3600);
+  }
+
+  #[test]
+  fn youtube_body_names_the_room_the_channel_id_and_for_a_delete_the_line() {
+    let mut r = req(Platform::Youtube, Verb::Delete);
+    (r.chan, r.user_id) = ("@abc".into(), Some("UCabcdefghijklmnopqrstuv".into()));
+    let d = body(&r, "", None);
+    assert_eq!(
+      (d["platform"].as_str(), d["action"].as_str(), d["channel"].as_str(), d["target_user_id"].as_str()),
+      (Some("youtube"), Some("delete_message"), Some("@abc"), Some("UCabcdefghijklmnopqrstuv"))
+    );
+    assert_eq!((d["message_ts"].as_i64(), d["message_text"].as_str()), (Some(1_700_000_000_123), Some("hello")));
+    assert!(d.get("reason").is_none() && d.get("broadcaster_id").is_none());
+    assert_eq!(d["message_id"], "abc");
+    let t = body(&req(Platform::Youtube, Verb::Timeout(600)), "", None);
+    assert_eq!(t["duration_seconds"], 600);
+    assert!(t.get("message_ts").is_none() && t.get("message_text").is_none());
+    let long = Req { msg_text: Some("x".repeat(3000).into()), ..req(Platform::Youtube, Verb::Delete) };
+    assert_eq!(body(&long, "", None)["message_text"].as_str().map(str::len), Some(1000));
+  }
+
+  #[test]
+  fn youtube_answers() {
+    let gone = json!({"error": "youtube's daily limit — try again tomorrow", "error_code": "quota_exhausted"});
+    assert_eq!(classify(503, &gone), Err(Fail::Other("youtube's daily limit — try again tomorrow".into())));
+    let unban = json!({"error": "heatsync didn't make that ban — unban it on youtube", "error_code": "unban_unknown"});
+    assert!(matches!(classify(409, &unban), Err(Fail::Other(e)) if e.contains("unban it on youtube")));
+    assert_eq!(
+      classify(401, &json!({"relink_required": true, "platform": "youtube", "scope_pack": "post"})),
+      Err(Fail::YtPermission)
+    );
   }
 
   #[test]
