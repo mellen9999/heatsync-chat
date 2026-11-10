@@ -4,6 +4,8 @@
 // few, short, lowercase `[a-z0-9_-]`, deduped, junk dropped
 use serde_json::Value;
 
+use crate::images::url::allowed;
+
 type Pairs = Box<[(Box<str>, Box<str>)]>;
 
 const MAX_BADGES: usize = 16;
@@ -57,15 +59,23 @@ pub fn kick(v: Option<&Value>) -> Pairs {
   out.into()
 }
 
-// youtube: roles only (broadcaster, moderator, verified, member), no versions
+// youtube: roles only (broadcaster, moderator, verified, member). a member badge may carry the channel's own
+// art (`url`, an image host we allow): it rides in the version slot, which youtube has no other use for, and
+// is what the line draws. without one (or with a url off the allowlist) the version stays "1"
 pub fn youtube(v: Option<&Value>) -> Pairs {
   let mut out = Vec::new();
   for b in v.and_then(Value::as_array).into_iter().flatten().take(MAX_BADGES * 2) {
     if let Some(name) = b.as_str().or_else(|| field(b)).and_then(name_of) {
-      push(&mut out, name, "1".to_owned());
+      let art = b.get("url").and_then(Value::as_str).filter(|u| &*name == "member" && allowed(u));
+      push(&mut out, name, art.unwrap_or("1").to_owned());
     }
   }
   out.into()
+}
+
+// the art url a youtube badge's version slot holds, if it holds one
+pub fn art(version: &str) -> Option<&str> {
+  allowed(version).then_some(version)
 }
 
 #[cfg(test)]
@@ -111,5 +121,23 @@ mod tests {
   fn youtube_roles() {
     let v = json!([{"name": "broadcaster", "version": "1"}, "moderator", {"type": "member"}]);
     assert_eq!(names(&youtube(Some(&v))), [("broadcaster", "1"), ("moderator", "1"), ("member", "1")]);
+  }
+
+  #[test]
+  fn youtube_member_art_is_kept_only_from_an_allowed_host() {
+    let art = "https://yt3.ggpht.com/abc=s16-c-k";
+    let v = json!([{"name": "member", "version": "1", "url": art, "title": "Member (2 months)"}]);
+    assert_eq!(names(&youtube(Some(&v))), [("member", art)]);
+    assert_eq!(super::art(art), Some(art));
+    assert_eq!(super::art("1"), None);
+    for bad in
+      ["http://yt3.ggpht.com/a", "https://evil.example/a.png", "https://yt3.ggpht.com.evil.io/a", "javascript:1"]
+    {
+      let v = json!([{"name": "member", "url": bad}]);
+      assert_eq!(names(&youtube(Some(&v))), [("member", "1")], "{bad}");
+    }
+    // only the member badge takes art; a url on a role is ignored
+    let v = json!([{"name": "moderator", "url": art}]);
+    assert_eq!(names(&youtube(Some(&v))), [("moderator", "1")]);
   }
 }

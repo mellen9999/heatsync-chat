@@ -1392,6 +1392,21 @@ fn kick_lines_wear_sub_art_by_nearest_month_and_words_for_roles() {
   assert_eq!(at(&mut res, &k, "c"), (0, 0));
 }
 
+#[test]
+fn a_youtube_member_wears_the_art_the_server_sent_and_nothing_without_it() {
+  let mut res = Res::new(1.0);
+  let art = "https://yt3.ggpht.com/abc=s16-c-k";
+  let with = relayed(Platform::Youtube, &[("member", art)]);
+  let l = layout_row(&mut res, "c", &with, 0, 400, NO_OPTS);
+  assert_eq!(l.boxes.len(), 1);
+  assert_eq!(l.boxes[0].img, res.images.id(art, crate::ui::res::BADGE_PX));
+  // no art (or a version that is not an allowed url): today's look, no picture
+  for v in ["1", "https://evil.example/a.png"] {
+    let l = layout_row(&mut res, "c", &relayed(Platform::Youtube, &[("member", v)]), 0, 400, NO_OPTS);
+    assert_eq!(l.boxes.len(), 0, "{v}");
+  }
+}
+
 fn drawn(res: &mut Res, m: Message, colors: [u32; 2]) -> (usize, usize) {
   let mut v = ChatView::new(10, "c".into());
   v.zebra = false;

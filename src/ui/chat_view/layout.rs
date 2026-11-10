@@ -854,6 +854,13 @@ pub(super) fn badges(
         }
         continue;
       }
+      // a youtube member badge with the channel's own art draws it
+      if m.platform == Platform::Youtube
+        && let Some(url) = (&**role == "member").then(|| crate::badges::relay::art(ver)).flatten()
+      {
+        push_badge(res, url, None, s, ib, boxes);
+        continue;
+      }
       // youtube's owner star / moderator swords: a glyph on black, 3px either side (ext ytBadgeStyles)
       let Some((glyph, ink)) = badge_text::youtube_chip(role) else { continue };
       ib.push(gap(s.len(), res.images.px(3)));
