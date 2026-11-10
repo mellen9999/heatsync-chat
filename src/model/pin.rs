@@ -99,7 +99,6 @@ impl Pins {
   pub fn current_in(&self, sources: &[(Platform, Box<str>)]) -> Option<(Platform, Box<str>, &Pin)> {
     sources
       .iter()
-      .filter(|(p, _)| matches!(p, Platform::Twitch | Platform::Kick))
       .filter_map(|(p, k)| self.rooms.get(&(*p as u8, k.clone())).map(|pin| (*p, k.clone(), pin)))
       .filter(|(_, _, pin)| !self.hidden.contains(&pin.id))
       .max_by_key(|(_, _, pin)| pin.at)
@@ -148,6 +147,9 @@ mod tests {
     s.set(Platform::Twitch, "a", Some(pin("1", 10)));
     s.set(Platform::Kick, "b", Some(pin("2", 20)));
     s.set(Platform::Youtube, "c", Some(pin("3", 30)));
+    // a youtube pinned banner counts like the others
+    assert_eq!(&*s.current(&src).unwrap().id, "3");
+    s.hide("3");
     assert_eq!(&*s.current(&src).unwrap().id, "2");
     s.hide("2");
     assert_eq!(&*s.current(&src).unwrap().id, "1");
@@ -155,6 +157,7 @@ mod tests {
     assert_eq!(&*s.current(&src).unwrap().id, "4");
     s.set(Platform::Kick, "b", None);
     s.set(Platform::Twitch, "a", None);
+    s.set(Platform::Youtube, "c", None);
     assert!(s.current(&src).is_none());
   }
 

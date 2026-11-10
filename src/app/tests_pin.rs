@@ -187,3 +187,23 @@ fn every_answer_says_the_exts_words() {
   assert_eq!(said(&app), "link heatsync to set this");
   assert!(std::iter::from_fn(|| rx.try_recv().ok()).any(|c| matches!(c, Cmd::Relink("mod"))));
 }
+
+// a youtube pinned banner arrives as a ws frame, shows in the bar, and its × only hides it here (heatsync can't
+// unpin a youtube pin, so nothing is asked and nothing is sent, even to that channel's own owner)
+#[test]
+fn a_youtube_pin_frame_shows_and_its_x_only_hides() {
+  let (mut app, mut rx) = boot();
+  let (tx, got) = std::sync::mpsc::channel();
+  let out = crate::net::Out::Pipe(tx);
+  let set = json!({"type": "pin:set", "platform": "youtube", "channel": "@ABC",
+    "pin": {"id": "y1", "message_id": "m1", "username": "bob", "content": "welcome", "ts": 1, "pinned_at": 2}});
+  crate::net::hs_ws::feed_frame(&set, &out);
+  for ev in got.try_iter() {
+    app.on_net(ev);
+  }
+  assert!(app.pin_bar.pins.current(&app.tabs[app.active].sources).is_some_and(|p| &*p.text == "welcome"));
+  app.on_chat("forsen", Chat::Mod(true));
+  app.pin_x();
+  assert!(app.pop().is_none() && pins(&mut rx).is_empty());
+  assert!(app.pin_bar.pins.current(&app.tabs[app.active].sources).is_none(), "hidden here");
+}

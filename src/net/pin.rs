@@ -67,10 +67,13 @@ pub fn frame(v: &Value, set: bool) -> Option<NetEvent> {
   let platform = match v.get("platform").and_then(Value::as_str)? {
     "twitch" => Platform::Twitch,
     "kick" => Platform::Kick,
+    // a youtube pinned banner, named by the room's `@handle` (heatsync can't unpin it: the bar's × only hides it here)
+    "youtube" => Platform::Youtube,
     _ => return None,
   };
   let key: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
-  if !ident::room_key(&key) {
+  let ok = if platform == Platform::Youtube { ident::relay_key(&key) } else { ident::room_key(&key) };
+  if !ok {
     return None;
   }
   let pin = if set { Some(pin::parse(v.get("pin")?)?) } else { None };
@@ -87,7 +90,14 @@ mod tests {
     let set = json!({"platform": "kick", "channel": "XQC", "pin": {"id": "1", "content": "hello"}});
     assert!(matches!(frame(&set, true), Some(NetEvent::Pin { platform: Platform::Kick, pin: Some(_), .. })));
     assert!(matches!(frame(&set, false), Some(NetEvent::Pin { pin: None, .. })));
-    assert!(frame(&json!({"platform": "youtube", "channel": "x"}), false).is_none());
+    let yt = json!({"platform": "youtube", "channel": "@MrBeast", "pin": {"id": "1", "content": "hello"}});
+    assert!(
+      matches!(frame(&yt, true), Some(NetEvent::Pin { platform: Platform::Youtube, ref key, pin: Some(_) }) if &**key == "@mrbeast")
+    );
+    assert!(matches!(frame(&yt, false), Some(NetEvent::Pin { platform: Platform::Youtube, pin: None, .. })));
+    assert!(frame(&json!({"platform": "youtube", "channel": "bad name"}), false).is_none());
+    assert!(frame(&json!({"platform": "twitch", "channel": "@x"}), false).is_none());
+    assert!(frame(&json!({"platform": "mixer", "channel": "x"}), false).is_none());
     assert!(frame(&json!({"platform": "twitch", "channel": "bad name"}), false).is_none());
     assert!(frame(&json!({"platform": "twitch", "channel": "x"}), true).is_none());
     assert!(frame(&json!({"platform": "twitch", "channel": "a".repeat(51)}), false).is_none());
