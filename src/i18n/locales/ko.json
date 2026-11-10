@@ -42,6 +42,7 @@
  "app.complete.channel_bttv": "채널 · bttv 사용자",
  "app.complete.channel_ffz": "채널 · ffz 사용자",
  "app.complete.channel_twitch": "채널 · 모든 twitch",
+ "app.complete.channel_kick": "채널 · 모든 kick",
  "app.complete.chatter": "채팅러",
  "app.complete.global_7tv": "글로벌 · 7tv 사용자",
  "app.complete.global_bttv": "글로벌 · bttv 사용자",

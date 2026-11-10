@@ -118,7 +118,10 @@ impl App {
   // send `text` to each feed in `legs`, each its own copy; several feeds' echoes will fold into one row
   pub(super) fn fan_out(&mut self, legs: &[(Platform, Box<str>)], text: &str, reply: Option<Reply>) {
     for (platform, chan) in legs {
-      let (text, reply) = leg_line(*platform, text, reply.as_ref());
+      let (mut text, reply) = leg_line(*platform, text, reply.as_ref());
+      if *platform == Platform::Kick {
+        text = self.res.emotes.kickify(chan, &text);
+      }
       self.net.send(Cmd::Send { platform: *platform, chan: chan.clone(), text, reply });
     }
     if legs.len() > 1 {

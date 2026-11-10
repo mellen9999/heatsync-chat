@@ -144,6 +144,15 @@ impl App {
     }
   }
 
+  // each tab's chat key draws on its kick channel's emotes, rebuilt from the tabs whenever a tab's kick
+  // leg or a kick set changes
+  pub(super) fn route_kick(&mut self) {
+    fn kick(t: &Tab) -> Option<(&str, &str)> {
+      Some((&t.view.channel, &t.sources.iter().find(|s| s.0 == Platform::Kick)?.1))
+    }
+    self.res.emotes.route_kick(self.tabs.iter().filter_map(kick));
+  }
+
   pub(super) fn on_links(&mut self, tab: &str, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)>) {
     let Some(i) = self.tabs_with(Platform::Twitch, tab).first().copied() else { return };
     let mut add = Vec::new();
@@ -166,6 +175,7 @@ impl App {
       }
     }
     let tags = t.sources.len() > 1;
+    self.route_kick();
     self.live_soon();
     let t = &mut self.tabs[i];
     let v = t.chat();
@@ -451,6 +461,15 @@ impl App {
           self.res.badges.set_kick(&name, art.clone());
           self.tabs[i].views().for_each(ChatView::relayout);
         }
+        self.wake();
+      }
+      NetEvent::KickEmotes(slug, set) => {
+        self.res.emotes.set_kick(&slug, set);
+        self.route_kick();
+        for i in self.tabs_with(Platform::Kick, &slug) {
+          self.tabs[i].views().for_each(ChatView::relayout);
+        }
+        self.input_dirty = true;
         self.wake();
       }
       NetEvent::FfzRoomBadges(ch, set) => {

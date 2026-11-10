@@ -1,4 +1,5 @@
-// third-party emote sets (7tv / bttv / ffz), global + per channel, plus twitch's own by id.
+// third-party emote sets (7tv / bttv / ffz), global + per channel, plus twitch's own by id and a merged
+// tab's kick channel (its own + kick's globals).
 // this is the CATALOG of what a channel has enabled — heatsync per-sender emotes live elsewhere.
 // resolve.rs is the one place a chat word becomes an emote (the privacy chokepoint)
 pub mod block;
@@ -18,7 +19,14 @@ pub enum Provider {
   // twitch's own globals. always last in a walk: other people's lines get twitch emotes from the
   // irc `emotes` tag (only what they can actually use); this set is for our own echo + completion
   Twitch,
+  // the tab's kick channel, its own emotes and kick's globals: after every twitch-side set, so a twitch
+  // channel's own name always wins. kick lines carry their emotes as tokens; this is for the bare word
+  // on any line in the tab, the picker, and the box's kick copy (`kickify`)
+  Kick,
 }
+
+// the sets that close every walk, in order
+const LAST: [Provider; 2] = [Provider::Twitch, Provider::Kick];
 
 #[derive(Clone, Debug)]
 pub struct Emote {
@@ -44,9 +52,9 @@ struct Scope {
 }
 
 impl Scope {
-  // the three third-party sets in `order`, then twitch's own last (the same walk as `provided`)
+  // the three third-party sets in `order`, then twitch's own, then kick's (the same walk as `provided`)
   fn get(&self, order: &[Provider; 3], word: &str) -> Option<&Emote> {
-    order.iter().chain(std::iter::once(&Provider::Twitch)).find_map(|p| self.sets.get(p)?.get(word))
+    order.iter().chain(&LAST).find_map(|p| self.sets.get(p)?.get(word))
   }
 
   // every name once, with the provider that wins it
@@ -61,7 +69,7 @@ impl Scope {
 
   fn provided(&self, order: &[Provider; 3]) -> impl Iterator<Item = (&str, Provider, &Emote)> {
     let mut seen = std::collections::HashSet::new();
-    let order = order.iter().chain(std::iter::once(&Provider::Twitch));
+    let order = order.iter().chain(&LAST);
     order
       .filter_map(|p| Some((*p, self.sets.get(p)?)))
       .flat_map(|(p, s)| s.iter().map(move |(k, v)| (&**k, p, v)))
@@ -70,7 +78,7 @@ impl Scope {
 }
 
 // which provider wins a name two of them define (emote rule 3). a channel's sets: ffz, 7tv, bttv. the
-// globals: 7tv, bttv, ffz. twitch's own set is always last. only ever among the third-party sets:
+// globals: 7tv, bttv, ffz. twitch's own set, then kick's, always last. only ever among these sets:
 // heatsync inventory emotes never come through here
 const CHANNEL_ORDER: [Provider; 3] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv];
 const GLOBAL_ORDER: [Provider; 3] = [Provider::SevenTv, Provider::Bttv, Provider::Ffz];
@@ -82,6 +90,8 @@ pub struct Emotes {
   // twitch emotes you may send anywhere (your subs'), as heatsync reads them off your twitch account.
   // yours only: tab, the picker, the box and your own lines, never someone else's line
   subs: Set,
+  // each joined kick channel's set, by slug. a room draws on one through `route_kick`
+  kick: HashMap<Box<str>, Set>,
 }
 
 impl Emotes {
@@ -95,6 +105,45 @@ impl Emotes {
 
   pub fn drop_channel(&mut self, channel: &str) {
     self.channels.remove(channel);
+  }
+
+  pub fn set_kick(&mut self, slug: &str, set: Set) {
+    self.kick.insert(slug.into(), set);
+  }
+
+  pub fn drop_kick(&mut self, slug: &str) {
+    self.kick.remove(slug);
+  }
+
+  // which kick channel each room (a tab's chat key) draws on, rebuilt whole from the tabs, so a closed or
+  // edited tab can't leave a stale set behind. a room two tabs share takes the kick channel either names
+  pub fn route_kick<'a>(&mut self, rooms: impl IntoIterator<Item = (&'a str, &'a str)>) {
+    for s in self.channels.values_mut() {
+      s.sets.remove(&Provider::Kick);
+    }
+    for (room, slug) in rooms {
+      if let Some(set) = self.kick.get(slug) {
+        self.channels.entry(room.into()).or_default().sets.entry(Provider::Kick).or_insert_with(|| set.clone());
+      }
+    }
+    self.channels.retain(|_, s| !s.sets.is_empty());
+  }
+
+  // `text` as kick's wire wants it: a word that is one of `slug`'s kick emotes becomes its
+  // `[emote:<id>:<name>]` token, or kick shows the bare word to everyone. a message the tokens push past
+  // kick's limit goes as words: delivered without images beats rejected
+  pub fn kickify(&self, slug: &str, text: &str) -> String {
+    const KICK_MAX: usize = 500;
+    let Some(set) = self.kick.get(slug) else { return text.to_owned() };
+    let out: Vec<String> = text
+      .split(' ')
+      .map(|w| match set.get(w).and_then(|e| kick_id(&e.url)) {
+        Some(id) => format!("[emote:{id}:{w}]"),
+        None => w.to_owned(),
+      })
+      .collect();
+    let out = out.join(" ");
+    if out.chars().count() > KICK_MAX && text.chars().count() <= KICK_MAX { text.to_owned() } else { out }
   }
 
   // within a scope, the provider order decides. callers check the channel before globals
@@ -141,6 +190,14 @@ impl Emotes {
   }
 }
 
+pub fn kick_url(id: u64) -> String {
+  format!("https://files.kick.com/emotes/{id}/fullsize")
+}
+
+fn kick_id(url: &str) -> Option<u64> {
+  url.strip_prefix("https://files.kick.com/emotes/")?.strip_suffix("/fullsize")?.parse().ok()
+}
+
 pub fn twitch_url(id: &str) -> String {
   format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/default/dark/1.0")
 }
@@ -185,6 +242,40 @@ mod tests {
     assert_eq!(&*em.global_entries()[0].1.url, "g-bttv");
     em.set(None, Provider::SevenTv, [("G".into(), e("g-7tv"))].into());
     assert_eq!(em.global_names()[0].1, Provider::SevenTv);
+  }
+
+  #[test]
+  fn kick_comes_after_every_twitch_side_set_and_follows_the_tabs() {
+    let mut em = Emotes::default();
+    em.set(Some("c"), Provider::SevenTv, [("Clap".into(), e("c-7tv"))].into());
+    em.set_kick("k", [("Clap".into(), e(&kick_url(1))), ("peepoDJ".into(), e(&kick_url(37245)))].into());
+    assert!(em.channel("c", "peepoDJ").is_none(), "not routed yet");
+    em.route_kick([("c", "k")]);
+    assert_eq!(&*em.channel("c", "Clap").unwrap().url, "c-7tv", "the twitch channel's own name wins");
+    assert_eq!(&*em.channel("c", "peepoDJ").unwrap().url, &kick_url(37245));
+    assert_eq!(em.channel_names("c").iter().find(|n| n.0 == "peepoDJ").unwrap().1, Provider::Kick);
+    // a kick-only room has no twitch sets of its own
+    em.route_kick([("c", "k"), ("kickonly", "k")]);
+    assert!(em.channel("kickonly", "peepoDJ").is_some());
+    // the tab closed or lost its kick leg: rerouted without it, nothing stays behind
+    em.route_kick([]);
+    assert!(em.channel("c", "peepoDJ").is_none());
+    assert!(em.channel("c", "Clap").is_some(), "the twitch sets stay");
+    assert!(!em.channels.contains_key("kickonly"));
+    em.drop_kick("k");
+    em.route_kick([("c", "k")]);
+    assert!(em.channel("c", "peepoDJ").is_none(), "a left kick channel routes nothing");
+  }
+
+  #[test]
+  fn kickify_tokens_kick_emotes_only_and_never_overflows() {
+    let mut em = Emotes::default();
+    em.set_kick("k", [("peepoDJ".into(), e(&kick_url(37245))), ("odd".into(), e("https://cdn.7tv.app/x"))].into());
+    assert_eq!(em.kickify("k", "peepoDJ turn  it up odd"), "[emote:37245:peepoDJ] turn  it up odd");
+    assert_eq!(em.kickify("other", "peepoDJ"), "peepoDJ", "another channel's emotes stay words");
+    assert_eq!(em.kickify("k", "peepodj [emote:1:x]"), "peepodj [emote:1:x]");
+    let long = "peepoDJ ".repeat(60);
+    assert_eq!(em.kickify("k", &long), long, "500 chars of words beat a rejected send");
   }
 
   #[test]

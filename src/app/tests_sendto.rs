@@ -312,3 +312,28 @@ fn a_send_is_told_to_heatsync_once_whatever_the_feeds() {
     assert_eq!(got.iter().map(|o| o.0.as_str()).collect::<Vec<_>>(), [room]);
   }
 }
+
+// a kick emote named in a merged tab: kick gets its token (or kick shows everyone the word), twitch and
+// youtube the word; any line in the tab draws it, and it goes with the tab's kick leg
+#[test]
+fn a_kick_emote_is_a_token_on_kick_a_word_elsewhere_and_drawn_on_every_line() {
+  let (mut app, mut rx) = boot();
+  let set = crate::emotes::providers::kick(&serde_json::json!([
+    {"name": "Global", "emotes": [{"id": 37245, "name": "peepoDJ", "subscribers_only": false}]}
+  ]));
+  app.on_net(NetEvent::KickEmotes("xqc".into(), set));
+  type_and_send(&mut app, "peepoDJ turn it up");
+  let got = sent(&mut rx);
+  let text = |p| got.iter().find(|g| g.0 == p).map(|g| g.2.as_str());
+  assert_eq!(text(Platform::Kick), Some("[emote:37245:peepoDJ] turn it up"));
+  assert_eq!(text(Platform::Twitch), Some("peepoDJ turn it up"));
+  assert_eq!(text(Platform::Youtube), Some("peepoDJ turn it up"));
+  let line = own(Platform::Twitch, "peepoDJ");
+  let drawn = |app: &mut App| {
+    crate::emotes::resolve::find_word(&mut app.res.sources(), "forsen", &line, 0, 7, "peepoDJ").map(|f| f.0.to_string())
+  };
+  assert_eq!(drawn(&mut app).as_deref(), Some("https://files.kick.com/emotes/37245/fullsize"));
+  let spec = crate::model::chan::Spec::parse("forsen", "", "@abc").unwrap();
+  app.edit_tab(app.active, &spec);
+  assert_eq!(drawn(&mut app), None, "the kick leg is gone, and its emotes with it");
+}

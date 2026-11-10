@@ -1,4 +1,4 @@
-// fetch + parse 7tv / bttv / ffz sets. every response is hostile: bounded, urls allowlisted
+// fetch + parse 7tv / bttv / ffz / kick sets. every response is hostile: bounded, urls allowlisted
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -198,6 +198,29 @@ pub fn twitch_global(v: &Value) -> Set {
   out
 }
 
+// ---- kick: [{ slug, emotes }, { name: "Global", emotes }, { name: "Emojis", emotes }], each emote
+// { id, name, subscribers_only }. "Emojis" is kick's unicode reskin, skipped as every provider skips
+// emoji; a sub-only emote is no one's to send, so it is not offered (the ext's pool drops it too)
+pub fn kick(v: &Value) -> Set {
+  let mut out = Set::new();
+  let sets = v.as_array().into_iter().flatten().filter(|s| s.get("name").and_then(Value::as_str) != Some("Emojis"));
+  for e in sets.filter_map(|s| s.get("emotes")?.as_array()).flatten() {
+    if e.get("subscribers_only").and_then(Value::as_bool) == Some(true) {
+      continue;
+    }
+    let (Some(id), Some(name)) = (e.get("id").and_then(Value::as_u64), e.get("name").and_then(Value::as_str)) else {
+      continue;
+    };
+    put(&mut out, name, Emote { url: super::kick_url(id).into(), w: 0, h: 0, zero_width: false });
+  }
+  out
+}
+
+// the slug is checked by the caller (`ident::relay_key`): it goes in a path
+pub fn kick_url(slug: &str) -> String {
+  format!("https://kick.com/emotes/{slug}")
+}
+
 pub fn ffz_global(v: &Value) -> Set {
   let defaults: Vec<u64> = v
     .get("default_sets")
@@ -226,8 +249,8 @@ pub fn parse_channel(p: Provider, v: &Value) -> Set {
     Provider::SevenTv => seventv_user(v),
     Provider::Bttv => bttv_channel(v),
     Provider::Ffz => ffz(v, None),
-    // twitch channel emotes come positioned in the irc tag, never as a set
-    Provider::Twitch => Set::new(),
+    // twitch channel emotes come positioned in the irc tag, never as a set; kick's come by slug
+    Provider::Twitch | Provider::Kick => Set::new(),
   }
 }
 
@@ -298,11 +321,26 @@ mod tests {
   }
 
   #[test]
+  fn kick_takes_the_channel_and_globals_but_not_emoji_or_sub_only() {
+    let v = json!([
+      {"slug": "xqc", "emotes": [{"id": 1153261, "name": "xqcLK", "subscribers_only": false}, {"id": 9, "name": "xqcSub", "subscribers_only": true}]},
+      {"name": "Global", "emotes": [{"id": 37245, "name": "peepoDJ", "subscribers_only": false}, {"id": "7", "name": "strId"}, {"id": 8, "name": "has space"}]},
+      {"name": "Emojis", "emotes": [{"id": 1730752, "name": "emojiAngel", "subscribers_only": false}]},
+    ]);
+    let s = kick(&v);
+    assert_eq!(&*s["peepoDJ"].url, "https://files.kick.com/emotes/37245/fullsize");
+    assert!(s.contains_key("xqcLK"));
+    assert_eq!(s.len(), 2, "{:?}", s.keys());
+  }
+
+  #[test]
   fn junk_is_empty_not_panic() {
     for v in [json!(null), json!([]), json!({"emotes": 5}), json!({"sets": {"1": {"emoticons": [1, null]}}})] {
       assert!(seventv(&v).is_empty());
       assert!(bttv_channel(&v).is_empty());
       assert!(ffz(&v, None).is_empty());
+      assert!(kick(&v).is_empty());
     }
+    assert!(kick(&json!([null, {"emotes": 5}, {"emotes": [null, 3]}])).is_empty());
   }
 }

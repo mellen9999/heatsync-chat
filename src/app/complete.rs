@@ -22,6 +22,8 @@ fn what(channel: bool, p: Provider) -> &'static str {
     (true, Provider::Bttv) => t("app.complete.channel_bttv"),
     (true, Provider::Ffz) => t("app.complete.channel_ffz"),
     (true, Provider::Twitch) => t("app.complete.channel_twitch"),
+    // kick only ever sits in a channel scope (a merged tab's kick channel)
+    (_, Provider::Kick) => t("app.complete.channel_kick"),
     (false, Provider::SevenTv) => t("app.complete.global_7tv"),
     (false, Provider::Bttv) => t("app.complete.global_bttv"),
     (false, Provider::Ffz) => t("app.complete.global_ffz"),

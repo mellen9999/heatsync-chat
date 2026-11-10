@@ -42,6 +42,7 @@
  "app.complete.channel_bttv": "頻道 · bttv 使用者",
  "app.complete.channel_ffz": "頻道 · ffz 使用者",
  "app.complete.channel_twitch": "頻道 · 全部 twitch",
+ "app.complete.channel_kick": "頻道 · 全部 kick",
  "app.complete.chatter": "聊天者",
  "app.complete.global_7tv": "全域 · 7tv 使用者",
  "app.complete.global_bttv": "全域 · bttv 使用者",

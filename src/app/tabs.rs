@@ -250,6 +250,7 @@ impl App {
       }
       Platform::Kick => {
         self.kick_mod.remove(&key);
+        self.res.emotes.drop_kick(&key);
         self.net.send(Cmd::Hs(HsCmd::Leave(Platform::Kick, key)))
       }
       Platform::Youtube => self.net.send(Cmd::Hs(HsCmd::YtUnsub(key))),
@@ -269,6 +270,7 @@ impl App {
     for (p, key) in t.sources {
       self.leave(p, key);
     }
+    self.route_kick();
     if i < self.active {
       self.active -= 1;
     }
@@ -339,6 +341,7 @@ impl App {
         self.leave(p, key);
       }
     }
+    self.route_kick();
     self.save_tabs();
     self.bar_dirty = true;
     self.input_dirty = true;

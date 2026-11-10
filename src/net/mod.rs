@@ -18,6 +18,7 @@ pub mod http;
 pub mod import;
 pub mod inventory;
 pub mod irc;
+mod kick;
 mod lanes;
 mod links;
 mod live_dots;
@@ -86,6 +87,8 @@ pub enum NetEvent {
   FfzRoomBadges(Box<str>, TwitchSet),
   // a kick channel's subscriber art by months, keyed by kick slug
   KickBadges(Box<str>, Vec<(u32, Box<str>)>),
+  // a kick channel's emotes (its own + kick's globals), by slug
+  KickEmotes(Box<str>, Set),
   // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
   Relay {
     platform: Platform,
@@ -779,6 +782,7 @@ fn provider_name(p: Provider) -> &'static str {
     Provider::Bttv => "bttv",
     Provider::Ffz => "ffz",
     Provider::Twitch => "twitch",
+    Provider::Kick => "kick",
   }
 }
 
@@ -845,17 +849,6 @@ async fn channel_badges(http: reqwest::Client, ch: Box<str>, tab: retry::Watch, 
   let what = format!("{ch}'s badges");
   if let Some(s) = retry::until(&out, &what, || tab.alive(), || badges::fetch::twitch_channel(&http, &ch)).await {
     out.send(NetEvent::TwitchBadges(Some(ch), s));
-  }
-}
-
-// a kick channel's subscriber art, a few tries (a channel with no art of its own answers fine and
-// sends nothing; lines then wear the "sub" word, like the ext)
-async fn kick_badges(http: reqwest::Client, slug: Box<str>, out: Out) {
-  let what = format!("{slug}'s kick badges");
-  if let Some(art) = retry::until_n(&out, &what, 3, || true, || badges::fetch::kick_channel(&http, &slug)).await
-    && !art.is_empty()
-  {
-    out.send(NetEvent::KickBadges(slug, art));
   }
 }
 
@@ -1044,7 +1037,13 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         if let hs_ws::Cmd::Join(Platform::Kick, slug) = &c
           && ident::relay_key(slug)
         {
-          watch("kick badges", kick_badges(http.clone(), slug.clone(), out.clone()), out.clone());
+          watch("kick badges", kick::sub_art(http.clone(), slug.clone(), out.clone()), out.clone());
+          // `kick:` can't open a twitch room (no colon in a login): the two never share a key
+          let tab = open.join(&format!("kick:{slug}"));
+          watch("kick emotes", kick::emotes(http.clone(), slug.clone(), tab, out.clone()), out.clone());
+        }
+        if let hs_ws::Cmd::Leave(Platform::Kick, slug) = &c {
+          open.part(&format!("kick:{slug}"));
         }
         let _ = hs_tx.send(c);
       }
