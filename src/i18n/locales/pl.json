@@ -624,7 +624,7 @@
  "chat2.runs.one_timed_out_or_banned": "timeout lub ban dla 1 osoby",
  "chat2.stream.exploding": "czat {channel} eksploduje — {rate} wiad./30s (zwykle ~{usual})",
  "chat2.stream.gifted": "{who} podarował suby: {count}",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} subskrybuje",
  "chat2.stream.raided": "zrobił rajd na {to} z {viewers} widzami",
  "chat2.stream.redeemed": "wykupił „{title}”",
  "chat2.stream.redeemed_cost": "wykupił „{title}” ({cost})",

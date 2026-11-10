@@ -620,7 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 kişi timeout'a alındı veya banlandı",
  "chat2.stream.exploding": "{channel} sohbeti patlıyor — {rate} mesaj/30sn (normalde ~{usual})",
  "chat2.stream.gifted": "{who} {count} sub hediye etti",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} abone oldu",
  "chat2.stream.raided": "{to} kanalına {viewers} izleyiciyle raid yaptı",
  "chat2.stream.redeemed": "\"{title}\" kullandı",
  "chat2.stream.redeemed_cost": "\"{title}\" kullandı ({cost})",

@@ -624,7 +624,7 @@
  "chat2.runs.one_timed_out_or_banned": "в таймауте или бане 1 человек",
  "chat2.stream.exploding": "чат {channel} взрывается — {rate} сообщ./30с (обычно ~{usual})",
  "chat2.stream.gifted": "{who} подарил сабов: {count}",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} подписался",
  "chat2.stream.raided": "рейд на {to} со зрителями: {viewers}",
  "chat2.stream.redeemed": "обмен \"{title}\"",
  "chat2.stream.redeemed_cost": "обмен \"{title}\" ({cost})",

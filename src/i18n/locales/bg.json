@@ -620,7 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 човек в timeout или баннат",
  "chat2.stream.exploding": "чатът на {channel} гърми — {rate} съобщ./30s (обикновено ~{usual})",
  "chat2.stream.gifted": "{who} подари {count} subs",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} се абонира",
  "chat2.stream.raided": "рейдна {to} с {viewers} зрители",
  "chat2.stream.redeemed": "осребри „{title}“",
  "chat2.stream.redeemed_cost": "осребри „{title}“ ({cost})",

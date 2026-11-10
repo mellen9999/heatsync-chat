@@ -616,7 +616,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 人をタイムアウトか ban",
  "chat2.stream.exploding": "{channel} のチャットが爆発中 — {rate} 件/30秒 (通常 ~{usual})",
  "chat2.stream.gifted": "{who} が {count} 件のサブをギフト",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} がサブスク",
  "chat2.stream.raided": "{viewers} 人で {to} をレイド",
  "chat2.stream.redeemed": "「{title}」を交換",
  "chat2.stream.redeemed_cost": "「{title}」を交換 ({cost})",

@@ -616,7 +616,7 @@
  "chat2.runs.one_timed_out_or_banned": "1명 타임아웃 또는 밴",
  "chat2.stream.exploding": "{channel} 채팅 폭발 중 — 30초에 {rate}개 (평소 약 {usual})",
  "chat2.stream.gifted": "{who}님이 구독 {count}개 선물",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} 구독",
  "chat2.stream.raided": "시청자 {viewers}명과 {to} 레이드",
  "chat2.stream.redeemed": "\"{title}\" 리딤",
  "chat2.stream.redeemed_cost": "\"{title}\" 리딤 ({cost})",

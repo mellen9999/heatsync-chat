@@ -620,7 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 व्यक्ति timeout या बैन",
  "chat2.stream.exploding": "{channel} की चैट फट पड़ी — {rate} मैसेज/30s (आम तौर पर ~{usual})",
  "chat2.stream.gifted": "{who} ने {count} sub गिफ़्ट किए",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} ने सब्सक्राइब किया",
  "chat2.stream.raided": "{viewers} दर्शकों के साथ {to} पर रेड किया",
  "chat2.stream.redeemed": "\"{title}\" रिडीम किया",
  "chat2.stream.redeemed_cost": "\"{title}\" रिडीम किया ({cost})",

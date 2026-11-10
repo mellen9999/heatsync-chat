@@ -624,7 +624,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 persoană în timeout sau banată",
  "chat2.stream.exploding": "chatul {channel} explodează — {rate} msg/30s (de obicei ~{usual})",
  "chat2.stream.gifted": "{who} a dăruit {count} sub-uri",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} s-a abonat",
  "chat2.stream.raided": "a făcut raid pe {to} cu {viewers} spectatori",
  "chat2.stream.redeemed": "a răscumpărat \"{title}\"",
  "chat2.stream.redeemed_cost": "a răscumpărat \"{title}\" ({cost})",

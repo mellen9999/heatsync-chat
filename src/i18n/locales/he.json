@@ -624,7 +624,7 @@
  "chat2.runs.one_timed_out_or_banned": "אדם אחד ב-timeout או חסום",
  "chat2.stream.exploding": "הצ'אט של {channel} מתפוצץ — {rate} הודעות/30s (בדרך כלל ~{usual})",
  "chat2.stream.gifted": "{who} העניק {count} subs",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} נרשם",
  "chat2.stream.raided": "עשה raid ל-{to} עם {viewers} צופים",
  "chat2.stream.redeemed": "מימש \"{title}\"",
  "chat2.stream.redeemed_cost": "מימש \"{title}\" ({cost})",

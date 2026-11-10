@@ -616,7 +616,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 người bị timeout hoặc cấm",
  "chat2.stream.exploding": "chat {channel} đang bùng nổ — {rate} tin/30s (thường ~{usual})",
  "chat2.stream.gifted": "{who} đã tặng {count} sub",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} đã đăng ký",
  "chat2.stream.raided": "đã raid {to} với {viewers} người xem",
  "chat2.stream.redeemed": "đã đổi \"{title}\"",
  "chat2.stream.redeemed_cost": "đã đổi \"{title}\" ({cost})",

@@ -620,7 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 ihminen sai timeoutin tai bannin",
  "chat2.stream.exploding": "kanavan {channel} chat räjähtää — {rate} viestiä/30s (yleensä ~{usual})",
  "chat2.stream.gifted": "{who} lahjoitti {count} subia",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "{who} tilasi",
  "chat2.stream.raided": "raidasi kanavalle {to} {viewers} katsojalla",
  "chat2.stream.redeemed": "lunasti \"{title}\"",
  "chat2.stream.redeemed_cost": "lunasti \"{title}\" ({cost})",

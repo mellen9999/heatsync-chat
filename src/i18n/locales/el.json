@@ -620,7 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 άτομο με timeout ή ban",
  "chat2.stream.exploding": "το chat του {channel} εκρήγνυται — {rate} μην./30s (συνήθως ~{usual})",
  "chat2.stream.gifted": "ο {who} δώρισε {count} subs",
- "chat2.stream.subbed": "{who} subscribed",
+ "chat2.stream.subbed": "ο/η {who} έγινε συνδρομητής",
  "chat2.stream.raided": "έκανε raid στο {to} με {viewers} θεατές",
  "chat2.stream.redeemed": "εξαργύρωσε \"{title}\"",
  "chat2.stream.redeemed_cost": "εξαργύρωσε \"{title}\" ({cost})",
