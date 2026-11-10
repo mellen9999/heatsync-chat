@@ -1231,6 +1231,7 @@
  "mod.word.message": "viesti",
  "mod.word.you": "sinä",
  "mod.yt.not_ready": "ohitettu youtube: ei livenä tai et ole kirjoittanut siellä moderaattorina",
+ "mod.yt.nuke_skipped": "ohitettu youtube: nuke vain twitchille ja kickille (youtuben päiväraja)",
  "mod.yt.unseen": "ohitettu youtube: {who} ei näkynyt tässä välilehdessä",
  "net1.auth.link_failed": "yhdistämistä ei voitu aloittaa",
  "net1.auth.linked_page": "yhdistetty. voit sulkea tämän välilehden",

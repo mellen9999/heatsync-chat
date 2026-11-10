@@ -1221,6 +1221,7 @@
  "mod.word.message": "メッセージ",
  "mod.word.you": "あなた",
  "mod.yt.not_ready": "youtube をスキップ: 配信中でないか、そこでモデレーターとして発言していません",
+ "mod.yt.nuke_skipped": "youtube をスキップ: nuke は twitch と kick のみ (youtube の1日の上限のため)",
  "mod.yt.unseen": "youtube をスキップ: このタブに {who} は見当たりません",
  "net1.auth.link_failed": "連携を開始できません",
  "net1.auth.linked_page": "連携しました。このタブは閉じて構いません",

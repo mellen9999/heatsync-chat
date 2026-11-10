@@ -1231,6 +1231,7 @@
  "mod.word.message": "melding",
  "mod.word.you": "deg",
  "mod.yt.not_ready": "hoppet over youtube: ikke live, eller du har ikke skrevet der som moderator",
+ "mod.yt.nuke_skipped": "hoppet over youtube: nuke er bare for twitch og kick (youtubes daglige grense)",
  "mod.yt.unseen": "hoppet over youtube: {who} er ikke sett i denne fanen",
  "net1.auth.link_failed": "kunne ikke starte koblingen",
  "net1.auth.linked_page": "koblet. du kan lukke denne fanen",

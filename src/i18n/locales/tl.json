@@ -1231,6 +1231,7 @@
  "mod.word.message": "mensahe",
  "mod.word.you": "ikaw",
  "mod.yt.not_ready": "nilaktawan ang youtube: hindi live, o hindi ka pa nakapag-chat doon bilang moderator",
+ "mod.yt.nuke_skipped": "nilaktawan ang youtube: nuke ay para lang sa twitch at kick (daily limit ng youtube)",
  "mod.yt.unseen": "nilaktawan ang youtube: hindi nakita si {who} sa tab na ito",
  "net1.auth.link_failed": "hindi masimulan ang pag-link",
  "net1.auth.linked_page": "naka-link na. puwede mo nang isara ang tab na ito",

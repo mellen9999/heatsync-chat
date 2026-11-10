@@ -1231,6 +1231,7 @@
  "mod.word.message": "message",
  "mod.word.you": "toi",
  "mod.yt.not_ready": "youtube ignoré : pas en direct, ou tu n'y as pas écrit en tant que modérateur",
+ "mod.yt.nuke_skipped": "youtube ignoré : nuke seulement pour twitch et kick (limite quotidienne de youtube)",
  "mod.yt.unseen": "youtube ignoré : {who} n'a pas été vu dans cet onglet",
  "net1.auth.link_failed": "impossible de lancer la liaison",
  "net1.auth.linked_page": "lié. tu peux fermer cet onglet",

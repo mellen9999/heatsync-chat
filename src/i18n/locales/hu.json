@@ -1231,6 +1231,7 @@
  "mod.word.message": "üzenet",
  "mod.word.you": "te",
  "mod.yt.not_ready": "youtube kihagyva: nem él, vagy még nem írtál ott moderátorként",
+ "mod.yt.nuke_skipped": "youtube kihagyva: a nuke csak twitch-re és kickre van (youtube napi korlátja)",
  "mod.yt.unseen": "youtube kihagyva: {who} nem látszik ebben a tabban",
  "net1.auth.link_failed": "nem sikerült elindítani az összekötést",
  "net1.auth.linked_page": "összekötve. bezárhatod ezt a tabot",

@@ -1231,6 +1231,7 @@
  "mod.word.message": "message",
  "mod.word.you": "you",
  "mod.yt.not_ready": "youtube skipped: not live, or you haven't chatted there as a mod",
+ "mod.yt.nuke_skipped": "youtube skipped: nuke is twitch and kick only (youtube's daily limit)",
  "mod.yt.unseen": "youtube skipped: {who} not seen in this tab",
  "net1.auth.link_failed": "couldn't start linking",
  "net1.auth.linked_page": "linked. you can close this tab",

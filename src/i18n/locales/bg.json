@@ -1231,6 +1231,7 @@
  "mod.word.message": "съобщение",
  "mod.word.you": "ти",
  "mod.yt.not_ready": "пропуснах youtube: не е на живо или не си писал там като модератор",
+ "mod.yt.nuke_skipped": "пропуснах youtube: nuke е само за twitch и kick (дневният лимит на youtube)",
  "mod.yt.unseen": "пропуснах youtube: {who} не се вижда в този таб",
  "net1.auth.link_failed": "не успях да започна свързването",
  "net1.auth.linked_page": "свързано. можеш да затвориш този таб",

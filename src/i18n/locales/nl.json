@@ -1231,6 +1231,7 @@
  "mod.word.message": "bericht",
  "mod.word.you": "jij",
  "mod.yt.not_ready": "youtube overgeslagen: niet live, of je hebt daar nog niet als moderator gechat",
+ "mod.yt.nuke_skipped": "youtube overgeslagen: nuke alleen voor twitch en kick (dagelijkse limiet van youtube)",
  "mod.yt.unseen": "youtube overgeslagen: {who} niet gezien in deze tab",
  "net1.auth.link_failed": "kon het koppelen niet starten",
  "net1.auth.linked_page": "gekoppeld. je kunt deze tab sluiten",

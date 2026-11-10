@@ -1241,6 +1241,7 @@
  "mod.word.message": "wiadomość",
  "mod.word.you": "ty",
  "mod.yt.not_ready": "pominięto youtube: nie na żywo albo nie pisałeś tam jako mod",
+ "mod.yt.nuke_skipped": "pominięto youtube: nuke tylko dla twitch i kick (dzienny limit youtube)",
  "mod.yt.unseen": "pominięto youtube: nie widać {who} w tej karcie",
  "net1.auth.link_failed": "nie udało się zacząć łączenia",
  "net1.auth.linked_page": "połączono. możesz zamknąć tę kartę",

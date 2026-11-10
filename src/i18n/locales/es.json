@@ -1231,6 +1231,7 @@
  "mod.word.message": "mensaje",
  "mod.word.you": "tú",
  "mod.yt.not_ready": "se omitió youtube: no está en vivo, o no has escrito allí como moderador",
+ "mod.yt.nuke_skipped": "se omitió youtube: nuke es solo para twitch y kick (límite diario de youtube)",
  "mod.yt.unseen": "se omitió youtube: no se ha visto a {who} en esta pestaña",
  "net1.auth.link_failed": "no se pudo iniciar la vinculación",
  "net1.auth.linked_page": "vinculado. puedes cerrar esta pestaña",

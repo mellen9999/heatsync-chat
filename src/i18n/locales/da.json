@@ -1231,6 +1231,7 @@
  "mod.word.message": "besked",
  "mod.word.you": "dig",
  "mod.yt.not_ready": "sprang youtube over: ikke live, eller du har ikke skrevet der som moderator",
+ "mod.yt.nuke_skipped": "sprang youtube over: nuke er kun til twitch og kick (youtubes daglige grænse)",
  "mod.yt.unseen": "sprang youtube over: {who} er ikke set i denne fane",
  "net1.auth.link_failed": "kunne ikke starte forbindelsen",
  "net1.auth.linked_page": "forbundet. du kan lukke denne fane",

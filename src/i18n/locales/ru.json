@@ -1241,6 +1241,7 @@
  "mod.word.message": "сообщение",
  "mod.word.you": "вы",
  "mod.yt.not_ready": "youtube пропущен: нет эфира или вы не писали там как модератор",
+ "mod.yt.nuke_skipped": "youtube пропущен: nuke только для twitch и kick (дневной лимит youtube)",
  "mod.yt.unseen": "youtube пропущен: {who} не виден в этой вкладке",
  "net1.auth.link_failed": "не удалось начать привязку",
  "net1.auth.linked_page": "привязано. можно закрыть вкладку",

@@ -1231,6 +1231,7 @@
  "mod.word.message": "messaggio",
  "mod.word.you": "tu",
  "mod.yt.not_ready": "youtube saltato: non live, o non hai ancora scritto lì come moderatore",
+ "mod.yt.nuke_skipped": "youtube saltato: nuke solo per twitch e kick (limite giornaliero di youtube)",
  "mod.yt.unseen": "youtube saltato: {who} non visto in questo tab",
  "net1.auth.link_failed": "impossibile avviare il collegamento",
  "net1.auth.linked_page": "collegato. puoi chiudere questo tab",

@@ -1231,6 +1231,7 @@
  "mod.word.message": "meddelande",
  "mod.word.you": "du",
  "mod.yt.not_ready": "hoppade över youtube: inte live, eller du har inte skrivit där som moderator",
+ "mod.yt.nuke_skipped": "hoppade över youtube: nuke bara för twitch och kick (youtubes dagsgräns)",
  "mod.yt.unseen": "hoppade över youtube: {who} syns inte i den här fliken",
  "net1.auth.link_failed": "kunde inte starta länkningen",
  "net1.auth.linked_page": "länkad. du kan stänga den här fliken",

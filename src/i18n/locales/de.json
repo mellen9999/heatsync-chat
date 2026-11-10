@@ -1231,6 +1231,7 @@
  "mod.word.message": "nachricht",
  "mod.word.you": "du",
  "mod.yt.not_ready": "youtube übersprungen: nicht live, oder du hast dort noch nicht als Moderator geschrieben",
+ "mod.yt.nuke_skipped": "youtube übersprungen: nuke nur für twitch und kick (youtubes Tageslimit)",
  "mod.yt.unseen": "youtube übersprungen: {who} in diesem Tab nicht gesehen",
  "net1.auth.link_failed": "Verknüpfen konnte nicht gestartet werden",
  "net1.auth.linked_page": "verknüpft. du kannst diesen Tab schließen",

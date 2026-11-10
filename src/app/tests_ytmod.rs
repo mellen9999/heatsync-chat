@@ -8,7 +8,7 @@ use crate::model::modcmd::Verb;
 use crate::net::Cmd;
 use crate::net::auth::Me;
 use crate::net::irc::Chat;
-use crate::net::modact::{Done, Fail, NukeDone, Req};
+use crate::net::modact::{Done, Fail, Req};
 use winit::keyboard::{Key, NamedKey};
 
 type Rx = tokio::sync::mpsc::UnboundedReceiver<Cmd>;
@@ -256,9 +256,8 @@ fn a_youtube_only_tab_that_is_not_ready_says_so_instead_of_naming_twitch() {
   let (mut app, mut rx) = yt_only();
   yt(&mut app, "@bob", "y1", "hi", 1);
   typed(&mut app, "/ban bob");
-  typed(&mut app, "/nuke spam");
   assert!(!std::iter::from_fn(|| rx.try_recv().ok()).any(|c| matches!(c, Cmd::Nuke(..) | Cmd::Mod(_))));
-  assert_eq!(lines(&app).iter().filter(|l| *l == NOT_READY).count(), 2);
+  assert_eq!(lines(&app).iter().filter(|l| *l == NOT_READY).count(), 1);
   assert!(!lines(&app).iter().any(|l| l.contains("needs a twitch or kick")));
   // logged out says that, not this
   app.on_net(NetEvent::Me(None));
@@ -308,47 +307,74 @@ fn delete_by_id_goes_to_youtube_when_the_line_is_a_youtube_one_and_anywhere_else
 }
 
 #[test]
-fn nuke_takes_youtube_lines_from_a_ready_youtube_with_their_author_ids() {
+fn nuke_leaves_youtube_out_and_says_so_only_when_youtube_lines_matched() {
+  let nuke = |app: &mut App, rx: &mut Rx| {
+    typed(app, "/nuke buy");
+    let head = app.pop().and_then(|p| p.menu.head().map(str::to_owned));
+    if head.is_some() {
+      app.pop_key(Key::Named(NamedKey::Enter));
+    }
+    let reqs: Vec<Req> = std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| match c {
+        Cmd::Nuke(r, _) => Some(r),
+        _ => None,
+      })
+      .flatten()
+      .collect();
+    (head, reqs)
+  };
+  let skipped = "youtube skipped: nuke is twitch and kick only (youtube's daily limit)";
+  // a ready youtube too: its matching lines stay out, one line says so, twitch goes as before
   let (mut app, mut rx) = boot();
   ready(&mut app);
   twitch(&mut app, "bob", "t1", "BUY followers", 5);
   yt(&mut app, "@bob", "y1", "buy now", 4);
-  yt(&mut app, "@bob", "y2", "hello", 4);
-  yt(&mut app, "@bob", "y3", "buy late", 100);
-  yt(&mut app, "@bob", "", "buy no id", 3);
+  yt(&mut app, "@bob", "y2", "buy again", 3);
   app.redraw();
-  typed(&mut app, "/nuke buy");
-  let head = app.pop().and_then(|p| p.menu.head().map(str::to_owned));
-  assert_eq!(head.as_deref(), Some("delete 2 messages matching \"buy\" in #forsen?"));
-  app.pop_key(Key::Named(NamedKey::Enter));
-  let (reqs, term) = std::iter::from_fn(|| rx.try_recv().ok())
-    .find_map(|c| match c {
-      Cmd::Nuke(r, t) => Some((r, t)),
-      _ => None,
-    })
-    .expect("one paced job");
-  assert_eq!(term, "buy");
-  let all: Vec<_> = reqs.iter().map(|r| (r.platform, &*r.chan, r.msg_id.as_deref(), r.user_id.as_deref())).collect();
-  assert_eq!(all, [(Platform::Twitch, "forsen", Some("t1"), None), (Platform::Youtube, "@abc", Some("y1"), Some(UC))]);
-  // youtube finds its message by author + time + words: the line's own
-  let y = &reqs[1];
-  assert_eq!((y.verb, y.msg_text.as_deref()), (Verb::Delete, Some("buy now")));
-  assert!(y.msg_ts.is_some_and(|t| t > now_ms() - 10_000));
-  // not ready: its lines stay out of it, the others go, and it is said
+  let (head, reqs) = nuke(&mut app, &mut rx);
+  assert_eq!(head.as_deref(), Some("delete 1 message matching \"buy\" in #forsen?"));
+  assert_eq!(
+    reqs.iter().map(|r| (r.platform, r.msg_id.as_deref())).collect::<Vec<_>>(),
+    [(Platform::Twitch, Some("t1"))]
+  );
+  assert_eq!(lines(&app).iter().filter(|l| *l == skipped).count(), 1, "said once, not per line");
+  assert!(!has(&app, NOT_READY));
+  // youtube not ready: the same, and nothing about "not live"
   let (mut app, mut rx) = boot();
-  modded(&mut app);
-  twitch(&mut app, "bob", "t1", "BUY followers", 5);
+  twitch(&mut app, "bob", "t1", "buy", 5);
   yt(&mut app, "@bob", "y1", "buy now", 4);
   app.redraw();
-  typed(&mut app, "/nuke buy");
-  let head = app.pop().and_then(|p| p.menu.head().map(str::to_owned));
-  assert_eq!(head.as_deref(), Some("delete 1 message matching \"buy\" in #forsen?"));
-  assert!(has(&app, NOT_READY));
-  assert!(!std::iter::from_fn(|| rx.try_recv().ok()).any(|c| matches!(c, Cmd::Nuke(..) | Cmd::Mod(_))));
+  let (_, reqs) = nuke(&mut app, &mut rx);
+  assert_eq!(reqs.len(), 1);
+  assert!(has(&app, skipped) && !has(&app, NOT_READY));
+  // youtube lines that don't match the term (or are too old) earn no line
+  let (mut app, mut rx) = boot();
+  ready(&mut app);
+  twitch(&mut app, "bob", "t1", "buy", 5);
+  yt(&mut app, "@bob", "y1", "hello", 4);
+  yt(&mut app, "@bob", "y2", "buy late", 100);
+  app.redraw();
+  let (_, reqs) = nuke(&mut app, &mut rx);
+  assert_eq!(reqs.len(), 1);
+  assert!(!has(&app, skipped));
+  // a tab with no youtube says nothing of it
+  let (mut app, mut rx) = boot_tab("forsen kick:xqc");
+  twitch(&mut app, "bob", "t1", "buy", 5);
+  app.redraw();
+  let (_, reqs) = nuke(&mut app, &mut rx);
+  assert_eq!(reqs.len(), 1);
+  assert!(!lines(&app).iter().any(|l| l.contains("youtube")));
+  // a youtube-only tab has no twitch or kick feed to nuke in, ready or not
+  let (mut app, mut rx) = yt_only();
+  ready(&mut app);
+  yt(&mut app, "@bob", "y1", "buy now", 4);
+  let (head, reqs) = nuke(&mut app, &mut rx);
+  assert!(head.is_none() && reqs.is_empty());
+  assert!(has(&app, "/nuke needs a twitch or kick channel"));
 }
 
 #[test]
-fn done_lines_grey_youtube_the_way_kick_does_and_the_servers_refusal_comes_through() {
+fn a_ban_greys_a_youtube_persons_lines_and_the_servers_refusal_comes_through() {
   let (mut app, _rx) = boot();
   ready(&mut app);
   yt(&mut app, "@bob", "y1", "hi", 1);
@@ -367,14 +393,6 @@ fn done_lines_grey_youtube_the_way_kick_does_and_the_servers_refusal_comes_throu
   };
   app.on_mod_done(done(Verb::Ban, "@bob", None, Ok(())));
   assert!(cleared(&app, "y1") && !cleared(&app, "y2"));
-  // a nuke's landed youtube delete greys its line
-  app.on_nuke_done(NukeDone {
-    term: "hi".into(),
-    total: 1,
-    ok: vec![(Platform::Youtube, "@abc".into(), "y2".into())],
-    fail: None,
-  });
-  assert!(cleared(&app, "y2") && !cleared(&app, "y3"));
   // an unban of a ban heatsync didn't make: the server's own words, not ours
   let why = "heatsync didn't make that ban \u{2014} unban it on youtube";
   app.on_mod_done(done(Verb::Unban, "@amy", None, Err(Fail::Other(why.into()))));

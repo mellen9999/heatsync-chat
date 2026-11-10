@@ -1271,6 +1271,7 @@
  "mod.word.message": "رسالة",
  "mod.word.you": "أنت",
  "mod.yt.not_ready": "تم تخطي youtube: ليس مباشرًا، أو لم تكتب هناك كمشرف",
+ "mod.yt.nuke_skipped": "تم تخطي youtube: nuke لـ twitch وkick فقط (الحد اليومي في youtube)",
  "mod.yt.unseen": "تم تخطي youtube: لم يظهر {who} في هذا التبويب",
  "net1.auth.link_failed": "تعذّر بدء الربط",
  "net1.auth.linked_page": "تم الربط. يمكنك إغلاق هذا التبويب",

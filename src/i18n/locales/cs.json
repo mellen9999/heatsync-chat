@@ -1241,6 +1241,7 @@
  "mod.word.message": "zpráva",
  "mod.word.you": "ty",
  "mod.yt.not_ready": "youtube přeskočeno: neběží živě, nebo jsi tam nepsal jako moderátor",
+ "mod.yt.nuke_skipped": "youtube přeskočeno: nuke jen pro twitch a kick (denní limit youtube)",
  "mod.yt.unseen": "youtube přeskočeno: {who} v tomto tabu není vidět",
  "net1.auth.link_failed": "propojení nelze zahájit",
  "net1.auth.linked_page": "propojeno. tento tab můžeš zavřít",

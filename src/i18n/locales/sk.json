@@ -1241,6 +1241,7 @@
  "mod.word.message": "správa",
  "mod.word.you": "ty",
  "mod.yt.not_ready": "youtube preskočené: nevysiela alebo si tam nepísal ako moderátor",
+ "mod.yt.nuke_skipped": "youtube preskočené: nuke len pre twitch a kick (denný limit youtube)",
  "mod.yt.unseen": "youtube preskočené: {who} nie je v tejto karte vidieť",
  "net1.auth.link_failed": "prepojenie sa nepodarilo začať",
  "net1.auth.linked_page": "prepojené. túto kartu môžeš zavrieť",

@@ -1221,6 +1221,7 @@
  "mod.word.message": "mesej",
  "mod.word.you": "anda",
  "mod.yt.not_ready": "youtube dilangkau: tidak live, atau anda belum chat di sana sebagai moderator",
+ "mod.yt.nuke_skipped": "youtube dilangkau: nuke hanya untuk twitch dan kick (had harian youtube)",
  "mod.yt.unseen": "youtube dilangkau: {who} tidak kelihatan dalam tab ini",
  "net1.auth.link_failed": "tak dapat mulakan pemautan",
  "net1.auth.linked_page": "dipautkan. anda boleh tutup tab ini",

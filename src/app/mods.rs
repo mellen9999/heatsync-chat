@@ -259,8 +259,8 @@ impl App {
 
   // the feeds of the channel tab on screen that a mod command acts on: twitch and kick, and a youtube feed only
   // while it is live and we moderate it (the way a send leaves a youtube feed that isn't live out). a youtube feed
-  // left out is said; says why when there are no feeds at all
-  fn mod_srcs(&mut self, what: &str) -> Option<Vec<(Platform, Box<str>)>> {
+  // left out is said; says why when there are no feeds at all. `yt` false (nuke) leaves youtube out unsaid
+  fn mod_srcs(&mut self, what: &str, yt: bool) -> Option<Vec<(Platform, Box<str>)>> {
     let Some(tab) = self.tabs.get(self.active).filter(|t| t.kind == crate::model::tabs::Kind::Chat) else {
       self.say(f("mod.needs_tab", &[("cmd", what)]));
       return None;
@@ -269,10 +269,11 @@ impl App {
       self.say(t("mod.common.login_first"));
       return None;
     }
-    let ready =
-      |s: &&(Platform, Box<str>)| s.0 != Platform::Youtube || (self.live.has(s.0, &s.1) && self.can_mod(s.0, &s.1));
+    let ready = |s: &&(Platform, Box<str>)| {
+      s.0 != Platform::Youtube || (yt && self.live.has(s.0, &s.1) && self.can_mod(s.0, &s.1))
+    };
     let srcs: Vec<(Platform, Box<str>)> = tab.sources.iter().filter(ready).cloned().collect();
-    let left_out = srcs.len() < tab.sources.len();
+    let left_out = yt && srcs.len() < tab.sources.len();
     if left_out {
       self.say(t("mod.yt.not_ready"));
     }
@@ -293,7 +294,7 @@ impl App {
       Slash::Nuke(n) => return self.nuke_slash(n),
       Slash::Do(v, n, r) => (v, n, r),
     };
-    let Some(mut srcs) = self.mod_srcs(verb.name()) else { return };
+    let Some(mut srcs) = self.mod_srcs(verb.name(), true) else { return };
     let Some(tab) = self.tabs.get(self.active) else { return };
     let delete = verb == Verb::Delete;
     // a message id lives on one platform: a youtube line of this tab with it goes to youtube, anything else to
@@ -347,17 +348,17 @@ impl App {
 
   // /nuke <term> [seconds]: the lines of this tab that say the term lately, asked about before they go
   fn nuke_slash(&mut self, parsed: Option<(String, u32)>) {
-    let Some(srcs) = self.mod_srcs("nuke") else { return };
-    let yt = srcs.iter().any(|s| s.0 == Platform::Youtube);
+    let Some(srcs) = self.mod_srcs("nuke", false) else { return };
     let Some((term, secs)) = parsed else { return self.say(t("mod.cmd.nuke_usage")) };
     let (needle, since) = (term.to_lowercase(), now_ms() - i64::from(secs) * 1000);
     let Some(tab) = self.tabs.get(self.active) else { return };
     let mut seen = std::collections::HashSet::new();
     let mut who: Vec<Subject> = Vec::new();
+    // youtube moderation spends one shared daily google quota: a nuke would burn it, so its lines stay out
+    let mut yt_hit = false;
     for m in tab.view.msgs() {
       // a line of someone's, still standing, in the window, that says the term (a substring, not a pattern)
       if !m.kind.said()
-        || (m.platform == Platform::Youtube && !yt)
         || m.id.is_empty()
         || m.flags & crate::model::message::flag::CLEARED != 0
         || m.ts < since
@@ -366,19 +367,25 @@ impl App {
       {
         continue;
       }
+      if m.platform == Platform::Youtube {
+        yt_hit = true;
+        continue;
+      }
       let Some(chan) = self.room_of(m) else { continue };
       who.push(Subject {
         platform: m.platform,
         chan,
         login: m.login.clone(),
         nick: t("mod.word.message").into(),
-        // youtube finds the author by their channel id; twitch and kick delete by the line alone
-        user_id: if m.platform == Platform::Youtube { m.user_id.clone() } else { "".into() },
+        user_id: "".into(),
         msg_id: m.id.clone(),
         color: 0,
         own: false,
         paint: None,
       });
+    }
+    if yt_hit {
+      self.say(t("mod.yt.nuke_skipped"));
     }
     let total = who.len();
     if total == 0 {
@@ -409,8 +416,8 @@ impl App {
 
   pub(super) fn on_nuke_done(&mut self, d: NukeDone) {
     let NukeDone { term, total, ok, fail } = d;
-    // twitch echoes each delete back through chat; kick and youtube are greyed here, as a single delete is
-    for (platform, chan, id) in ok.iter().filter(|o| o.0 != Platform::Twitch) {
+    // twitch echoes each delete back through chat; kick echoes nothing, so its lines go grey here
+    for (platform, chan, id) in ok.iter().filter(|o| o.0 == Platform::Kick) {
       for i in self.tabs_with(*platform, chan) {
         self.tabs[i].chat().clear_msg(id);
         self.touched(i);

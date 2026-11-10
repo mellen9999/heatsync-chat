@@ -1241,6 +1241,7 @@
  "mod.word.message": "הודעה",
  "mod.word.you": "אתה",
  "mod.yt.not_ready": "דילגתי על youtube: לא בלייב, או שלא כתבת שם כמנהל",
+ "mod.yt.nuke_skipped": "דילגתי על youtube: nuke רק ל-twitch ול-kick (המכסה היומית של youtube)",
  "mod.yt.unseen": "דילגתי על youtube: {who} לא נראה בלשונית הזו",
  "net1.auth.link_failed": "לא ניתן להתחיל קישור",
  "net1.auth.linked_page": "קושר. אפשר לסגור את הלשונית",
