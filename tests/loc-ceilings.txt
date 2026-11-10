@@ -3,5 +3,5 @@
 1480 src/net/mod.rs  # baseline; i18n keys
 1340 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity); i18n keys
 1400 src/model/schema.rs  # three settings rows: mention sound when, remember sent (ext parity); language; i18n text accessors + parity test
-1270 src/net/hs_ws.rs  # baseline; i18n keys
 1231 src/model/vi.rs  # baseline
+1178 src/ui/chat_view/mod.rs  # baseline
