@@ -286,6 +286,7 @@ impl App {
   pub(super) fn takeover_close(&mut self) -> bool {
     let Some(i) = self.takeover_tab() else { return false };
     self.logs = None;
+    self.logs_room_sync();
     self.chain = None;
     let t = &mut self.tabs[i];
     let Some(under) = t.under.take() else { return false };

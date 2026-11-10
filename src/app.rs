@@ -152,6 +152,8 @@ mod tests_tabs;
 #[cfg(test)]
 mod tests_tour;
 #[cfg(test)]
+mod tests_ulog;
+#[cfg(test)]
 mod tests_usercmd;
 #[cfg(test)]
 mod tests_whisper_toast;
@@ -389,6 +391,8 @@ pub struct App {
   img_view: Option<img_view::ImgView>,
   // one person's archived lines over the active tab (the tab's own lines wait in `Tab::under`)
   logs: Option<crate::model::logs::Logs>,
+  // the archive-line room joined for the person whose logs are open (logs.rs `logs_room_sync`)
+  logs_room: Option<Box<str>>,
   // a reply chain over the active tab (the tab's own lines wait in `Tab::under`)
   chain: Option<chain::Open>,
   // tab mode's cursor on the tab bar (space t)
@@ -623,6 +627,7 @@ impl App {
       cursor: winit::window::CursorIcon::Default,
       img_view: None,
       logs: None,
+      logs_room: None,
       chain: None,
       rover: None,
       mod_by: Vec::new(),

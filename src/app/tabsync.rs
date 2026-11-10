@@ -154,6 +154,7 @@ impl App {
       if t.under.is_some() {
         self.logs = None;
         self.chain = None;
+        self.logs_room_sync();
       }
       for (p, k) in t.sources {
         self.leave(p, k);

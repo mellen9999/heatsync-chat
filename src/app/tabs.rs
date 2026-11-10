@@ -265,6 +265,7 @@ impl App {
     if self.tabs[i].under.is_some() {
       self.logs = None;
       self.chain = None;
+      self.logs_room_sync();
     }
     let t = self.tabs.remove(i);
     let saved = !t.temp;

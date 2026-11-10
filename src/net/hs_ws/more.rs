@@ -66,6 +66,11 @@ pub(super) fn more(ty: &str, v: &Value, st: &mut State, out: &Out) -> Option<End
       v.pointer("/emoteData/url").and_then(Value::as_str).filter(|u| allowed(u))?;
       send(NetEvent::SenderUsed(login))
     }
+    // a new archive line for a person whose logs are open (the room is `feed:ulog:<platform>:<login>`)
+    "user-log" => {
+      let data = v.get("data").filter(|d| d.is_object())?;
+      send(NetEvent::UserLog(Box::new(data.clone())))
+    }
     _ => {
       unknown(st, ty);
       None

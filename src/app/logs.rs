@@ -9,6 +9,7 @@ use super::App;
 use super::pop::Subject;
 use crate::model::logs::{self, Applied, Logs, Page, Who};
 use crate::model::message::{Message, Platform};
+use crate::net::hs_ws::Cmd as HsCmd;
 use crate::net::{Cmd, social};
 use crate::ui::chat_view::ChatView;
 
@@ -41,6 +42,7 @@ impl App {
     t.under = Some(std::mem::replace(&mut t.view, v));
     let who = Who { platform: w.platform, login, nick: w.nick.clone(), user_id: w.user_id.clone() };
     self.logs = Some(Logs::new(who, home));
+    self.logs_room_sync();
     self.bar_dirty = true;
     self.input_dirty = true;
     self.logs_fetch();
@@ -114,13 +116,51 @@ impl App {
       return;
     }
     let Some(row) = l.push_live(channel, m.clone()) else { return };
-    let (line, i) = (l.view_msg(&row), self.takeover_tab());
+    self.logs_push(&row);
+  }
+
+  // a row just added to the logs, drawn at the bottom of the view
+  fn logs_push(&mut self, row: &logs::Row) {
+    let Some(l) = self.logs.as_ref() else { return };
+    let (line, i) = (l.view_msg(row), self.takeover_tab());
     if let Some(i) = i {
       self.tabs[i].view.push(line);
       if i == self.active {
         self.wake();
       }
     }
+  }
+
+  // the archive-line room of the person whose logs are open is joined while they are, and let go after: a
+  // line they say anywhere lands at the bottom (`user-log`)
+  pub(super) fn logs_room_sync(&mut self) {
+    let want: Option<Box<str>> =
+      self.logs.as_ref().map(|l| format!("ulog:{}:{}", l.who.platform.name(), l.who.login).into());
+    if want == self.logs_room {
+      return;
+    }
+    if let Some(old) = self.logs_room.take() {
+      self.net.send(Cmd::Hs(HsCmd::Feed(old, false)));
+    }
+    if let Some(k) = want {
+      self.net.send(Cmd::Hs(HsCmd::Feed(k.clone(), true)));
+      self.logs_room = Some(k);
+    }
+  }
+
+  // `user-log`: a new archive line for someone. only the person on screen, only what the archive's own reader
+  // takes (a hostile frame is nothing), and a line the room's chat already put there is not shown twice
+  pub(super) fn on_user_log(&mut self, v: &serde_json::Value) {
+    let Some(l) = self.logs.as_ref() else { return };
+    let same_person = v.get("platform").and_then(serde_json::Value::as_str) == Some(l.who.platform.name())
+      && v.get("username").and_then(serde_json::Value::as_str).and_then(|u| logs::archive_name(l.who.platform, u))
+        == Some(l.who.login.clone());
+    if !same_person {
+      return;
+    }
+    let Some(row) = logs::parse_row(v, &l.who) else { return };
+    let Some(row) = self.logs.as_mut().and_then(|l| l.push_live(&row.channel, row.msg)) else { return };
+    self.logs_push(&row);
   }
 
   // the prompt took a search (enter); empty = back to the timeline

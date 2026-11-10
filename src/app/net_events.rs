@@ -426,6 +426,7 @@ impl App {
           self.on_feed_live(p)
         }
       }
+      NetEvent::UserLog(v) => self.on_user_log(&v),
       NetEvent::FollowedUsers(names) => self.feed.set_follows(names),
       NetEvent::Pin { platform, key, pin } => self.on_pin(platform, &key, pin),
       NetEvent::Stream(l) => self.on_stream(l),

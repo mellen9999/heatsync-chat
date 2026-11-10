@@ -300,6 +300,8 @@ pub enum NetEvent {
   FeedLive(crate::model::post::Post),
   // the heatsync names you follow (lowercase)
   FollowedUsers(Vec<Box<str>>),
+  // a new archive line for the person whose logs are open (`user-log`'s `data`, unchecked: logs::parse_row reads it)
+  UserLog(Box<serde_json::Value>),
   // tab-complete's catalog search: one page from 7tv and ffz (None = that one failed or wasn't asked), tagged
   // with the ask it answers
   Catalog {
