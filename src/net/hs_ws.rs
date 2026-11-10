@@ -647,6 +647,7 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     "profile:color" => pushed::profile_color(v).and_then(|c| send(NetEvent::ProfileColor(c))),
     // someone else's action on a feed post, seen by every client: gone, rewritten, renumbered, moderated
     "message:hidden" => pushed::hidden(v).and_then(|id| send(NetEvent::PostHidden(id))),
+    "message-deleted" => pushed::deleted(v).and_then(|id| send(NetEvent::PostHidden(id))),
     "message-edited" => pushed::edited(v).and_then(|e| send(NetEvent::PostEdited(e))),
     "message-updated" => pushed::updated(v).and_then(|m| send(NetEvent::PostMeta(m))),
     "message:approved" | "message:flagged" => {

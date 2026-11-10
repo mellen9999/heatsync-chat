@@ -86,6 +86,12 @@ pub fn hidden(v: &Value) -> Option<Box<str>> {
   post_id(body(v).get("id"))
 }
 
+// `message-deleted {message_id}`: the author (or a moderator, or an admin) took the post down for good. the same
+// ending as hidden, so it leaves every list the same way
+pub fn deleted(v: &Value) -> Option<Box<str>> {
+  post_id(body(v).get("message_id"))
+}
+
 // `message-edited {message_id, content, emote_refs, …}`: the post's new words and refs
 pub fn edited(v: &Value) -> Option<Edit> {
   let b = body(v);

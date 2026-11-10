@@ -146,6 +146,12 @@ fn hidden_edited_updated_and_moderated_posts_change_everywhere() {
   assert!(app.tabs[chat].view.msgs().any(|m| &*m.id == "0000a3" && m.flags & flag::CLEARED != 0));
   frame(&mut app, json!({"type": "message:hidden", "id": "0000a1"}));
   assert!(app.feed.posts.iter().all(|p| &*p.id != "0000a1"));
+  // deleted (author, moderator or admin): the same ending, from `message_id`
+  app.feed.posts.push(post("0000a4", "dave", None));
+  frame(&mut app, json!({"type": "message-deleted", "message_id": "0000a4"}));
+  assert!(app.feed.find("0000a4").is_none());
+  frame(&mut app, json!({"type": "message-deleted", "message_id": "../x"}));
+  frame(&mut app, json!({"type": "message-deleted"}));
   // hostile frames reach nothing
   for bad in [
     json!({"type": "message:hidden", "id": "../../etc"}),
