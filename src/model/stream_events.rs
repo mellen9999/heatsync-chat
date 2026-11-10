@@ -366,6 +366,12 @@ pub fn news_text(v: &serde_json::Value, raid: bool) -> Option<String> {
   }
 }
 
+// `stream:sub {user}`: someone subscribed to the channel (the gifted ones come as `stream:sub-gift`)
+pub fn sub_text(v: &serde_json::Value) -> Option<String> {
+  let who = clean(v.get("user").and_then(serde_json::Value::as_str).unwrap_or(""));
+  (!who.is_empty()).then(|| f("chat2.stream.subbed", &[("who", &who)]))
+}
+
 // ext handleMomentSpike text: "<ch> chat is exploding — N msgs/30s (usually ~B)"
 pub fn moment_text(channel: &str, rate: f64, baseline: f64) -> Option<String> {
   let ok = |x: f64| x.is_finite() && (0.0..1e7).contains(&x);

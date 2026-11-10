@@ -636,6 +636,7 @@
  "chat2.runs.one_timed_out_or_banned": "شخص واحد في timeout أو محظور",
  "chat2.stream.exploding": "دردشة {channel} تنفجر — {rate} رسالة/30ث (المعتاد ~{usual})",
  "chat2.stream.gifted": "{who} أهدى {count} اشتراكات",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "شنّ raid على {to} بـ {viewers} مشاهد",
  "chat2.stream.redeemed": "استبدل \"{title}\"",
  "chat2.stream.redeemed_cost": "استبدل \"{title}\" ({cost})",

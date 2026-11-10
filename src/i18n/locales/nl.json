@@ -620,6 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 persoon in timeout of verbannen",
  "chat2.stream.exploding": "chat van {channel} ontploft — {rate} ber./30s (normaal ~{usual})",
  "chat2.stream.gifted": "{who} gaf {count} subs cadeau",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "raidde {to} met {viewers} kijkers",
  "chat2.stream.redeemed": "wisselde \"{title}\" in",
  "chat2.stream.redeemed_cost": "wisselde \"{title}\" in ({cost})",

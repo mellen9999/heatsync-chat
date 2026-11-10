@@ -620,6 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 person timeoutet eller bannet",
  "chat2.stream.exploding": "{channel}-chatten eksploderer — {rate} beskeder/30s (normalt ~{usual})",
  "chat2.stream.gifted": "{who} gav {count} subs",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "raidede {to} med {viewers} seere",
  "chat2.stream.redeemed": "indløste \"{title}\"",
  "chat2.stream.redeemed_cost": "indløste \"{title}\" ({cost})",

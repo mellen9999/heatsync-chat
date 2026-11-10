@@ -616,6 +616,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 orang di-timeout atau diban",
  "chat2.stream.exploding": "chat {channel} meledak — {rate} pesan/30d (biasanya ~{usual})",
  "chat2.stream.gifted": "{who} menghadiahkan {count} sub",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "raid {to} dengan {viewers} penonton",
  "chat2.stream.redeemed": "menukar \"{title}\"",
  "chat2.stream.redeemed_cost": "menukar \"{title}\" ({cost})",

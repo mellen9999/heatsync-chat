@@ -624,6 +624,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 člověk dostal timeout nebo ban",
  "chat2.stream.exploding": "chat {channel} exploduje — {rate} zpr./30s (obvykle ~{usual})",
  "chat2.stream.gifted": "{who} daroval {count} subů",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "raidnul {to} s {viewers} diváky",
  "chat2.stream.redeemed": "uplatnil „{title}“",
  "chat2.stream.redeemed_cost": "uplatnil „{title}“ ({cost})",

@@ -620,6 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 ember timeoutolva vagy bannolva",
  "chat2.stream.exploding": "{channel} chatje felrobban — {rate} üzenet/30s (általában ~{usual})",
  "chat2.stream.gifted": "{who} {count} subot ajándékozott",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "raidelte: {to}, {viewers} nézővel",
  "chat2.stream.redeemed": "beváltotta: \"{title}\"",
  "chat2.stream.redeemed_cost": "beváltotta: \"{title}\" ({cost})",

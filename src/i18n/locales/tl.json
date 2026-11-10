@@ -620,6 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 tao ang na-timeout o na-ban",
  "chat2.stream.exploding": "sumasabog ang chat ng {channel} — {rate} msg/30s (karaniwan ~{usual})",
  "chat2.stream.gifted": "nag-gift si {who} ng {count} sub",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "nag-raid sa {to} kasama ang {viewers} viewer",
  "chat2.stream.redeemed": "nag-redeem ng \"{title}\"",
  "chat2.stream.redeemed_cost": "nag-redeem ng \"{title}\" ({cost})",

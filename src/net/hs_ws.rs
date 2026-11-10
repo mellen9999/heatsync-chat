@@ -584,15 +584,15 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let rows = stream_events::history(crate::util::time::now_ms(), v);
       (!rows.is_empty()).then(|| send(NetEvent::StreamHistory(rows))).flatten()
     }
-    // the room's own news: a raid out, a gift bomb (in the room's tab only)
-    "stream:raid" | "stream:sub-gift" => {
+    // the room's own news: a raid out, a gift bomb, a new sub (in the room's tab only)
+    "stream:raid" | "stream:sub-gift" | "stream:sub" => {
       let platform = room_platform(v.get("platform").and_then(Value::as_str)?)?;
       let channel: Box<str> = v.get("channel").and_then(Value::as_str)?.to_ascii_lowercase().into();
       if !ident::relay_key(&channel) || !st.rooms.contains(&(plat(platform), channel.clone())) {
         return None;
       }
       let raid = ty == "stream:raid";
-      let what = stream_events::news_text(v, raid)?;
+      let what = if ty == "stream:sub" { stream_events::sub_text(v)? } else { stream_events::news_text(v, raid)? };
       let tone = if raid { stream_events::Tone::Raid } else { stream_events::Tone::Gift };
       st.gate.news(crate::util::time::now_ms(), platform, channel, tone, &what).and_then(|l| send(NetEvent::Stream(l)))
     }

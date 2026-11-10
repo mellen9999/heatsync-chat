@@ -529,3 +529,21 @@ fn unknown_frames_are_counted_not_dropped_silently() {
   }
   assert!(st.unknown.len() <= more::MAX_UNKNOWN);
 }
+
+// `stream:sub` is a line in the room's own tab as the gift bomb is: only for a room we are in, hostile names cleaned
+#[test]
+fn a_new_sub_is_a_line_in_its_own_room_only() {
+  let (tx, rx) = std::sync::mpsc::channel();
+  let out = Out::Pipe(tx);
+  let mut st = State::default();
+  st.rooms.insert(("twitch", "xqc".into()));
+  let sub = |ch: &str, user: &str| json!({"type": "stream:sub", "platform": "twitch", "channel": ch, "user": user});
+  assert!(dispatch(&sub("xqc", "Bob\nX"), &mut st, &out).is_none());
+  let got: Vec<_> = rx.try_iter().collect();
+  assert!(matches!(got.as_slice(), [NetEvent::Stream(l)]
+    if l.tone == stream_events::Tone::Gift && &*l.text == "[xqc] ◆ Bob X subscribed"));
+  dispatch(&sub("forsen", "bob"), &mut st, &out);
+  dispatch(&sub("xqc", ""), &mut st, &out);
+  assert!(rx.try_iter().next().is_none(), "not our room, and no name, are nothing");
+  assert!(st.unknown.is_empty(), "stream:sub is read now");
+}

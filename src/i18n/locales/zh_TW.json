@@ -616,6 +616,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 人被禁言或封鎖",
  "chat2.stream.exploding": "{channel} 聊天爆量 — {rate} 則/30 秒（平常約 {usual}）",
  "chat2.stream.gifted": "{who} 贈送了 {count} 個訂閱",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "帶著 {viewers} 位觀眾 raid 了 {to}",
  "chat2.stream.redeemed": "兌換了「{title}」",
  "chat2.stream.redeemed_cost": "兌換了「{title}」（{cost}）",

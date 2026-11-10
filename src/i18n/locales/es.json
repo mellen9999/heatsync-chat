@@ -620,6 +620,7 @@
  "chat2.runs.one_timed_out_or_banned": "1 persona con timeout o baneada",
  "chat2.stream.exploding": "el chat de {channel} está explotando — {rate} msgs/30s (normal ~{usual})",
  "chat2.stream.gifted": "{who} regaló {count} subs",
+ "chat2.stream.subbed": "{who} subscribed",
  "chat2.stream.raided": "hizo raid a {to} con {viewers} espectadores",
  "chat2.stream.redeemed": "canjeó \"{title}\"",
  "chat2.stream.redeemed_cost": "canjeó \"{title}\" ({cost})",
