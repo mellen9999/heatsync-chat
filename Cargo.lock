@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "heatsync-chat"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "fontique",
  "futures-util",
