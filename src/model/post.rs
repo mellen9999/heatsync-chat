@@ -349,6 +349,7 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
   m.x = Some(Box::new(Extra {
     chan: "".into(),
     head: head.into(),
+    branded: true,
     tail: tail.into(),
     edge: if p.heat > 0 { tier(p.heat).0 } else { 0 },
     paint: p.paint.clone(),

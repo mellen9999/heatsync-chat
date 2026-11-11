@@ -2230,3 +2230,25 @@ fn a_whisper_or_notification_row_wears_one_mark() {
   let it = inbox::Item { at: 1, what: inbox::What::Mention, post: None, text: "x".into() };
   assert_eq!(at(&inbox::message(&it)), "[H] ".len(), "[H] once");
 }
+
+// M1: a feed post carries its own platform mark in its head (none for a heatsync-native post);
+// the tab's platform tag never adds a [T] in front of it
+#[test]
+fn a_feed_post_wears_only_its_own_mark() {
+  use crate::model::post;
+  let mut res = Res::new(1.0);
+  let on = Opts { ts: false, tags: true, find: None };
+  let mk = |platform: Option<&str>| {
+    let mut v = serde_json::json!({"base36_id": "abc123", "content": "hi", "username": "amy", "user_id": 5});
+    if let Some(p) = platform {
+      v["platform"] = p.into();
+    }
+    post::message(&post::parse(&v).unwrap(), None, false)
+  };
+  let mut at = |m: &Message| layout_row(&mut res, "c", m, 0, 600, on).nick.start;
+  for p in [None, Some("kick"), Some("twitch")] {
+    let m = mk(p);
+    let head: usize = m.x.as_ref().unwrap().head.iter().map(|g| g.text.len()).sum();
+    assert_eq!(at(&m), head, "{p:?}: nothing but the head's own marks before the name");
+  }
+}
