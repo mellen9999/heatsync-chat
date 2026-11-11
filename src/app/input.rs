@@ -247,6 +247,15 @@ impl App {
     if open.len() > 1 && open.iter().any(|(p, k)| *p != Platform::Youtube || self.live.has(*p, k)) {
       open.retain(|(p, k)| *p != Platform::Youtube || self.live.has(*p, k));
     }
+    // a feed your account isn't on can't take the line: in a merged send it is left out, as the site's composer
+    // does, instead of a "not sent to kick" line under every message (the box already names the feed to link).
+    // sent to alone, it still goes, so the reason shows
+    if let Some(me) = &self.me
+      && open.len() > 1
+      && open.iter().any(|(p, _)| me.name_on(*p).is_some())
+    {
+      open.retain(|(p, _)| me.name_on(*p).is_some());
+    }
     if open.is_empty() {
       let (p, k) = &shut[0];
       if let Some(l) = self.locks.get(*p, k, now) {
