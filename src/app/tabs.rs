@@ -81,6 +81,15 @@ pub(super) fn join(net: &crate::net::Net, p: Platform, key: &str) {
   }
 }
 
+// a tab you just made from a twitch name: ask once for the kick/youtube its owner linked, and on_links fills
+// in what the tab lacks. only here: a restored, synced or edited tab is what you made it, so a leg you took
+// off stays off
+pub(super) fn ask_links(net: &crate::net::Net, spec: &Spec) {
+  if !spec.twitch.is_empty() && (spec.kick.is_empty() || spec.youtube.is_empty()) {
+    net.send(Cmd::Links(spec.twitch.as_str().into()));
+  }
+}
+
 // a twitch channel's owner is someone you can name in it, spoken or not
 pub(super) fn seat_hosts(c: &mut crate::model::chatters::Chatters, sources: &[(Platform, Box<str>)]) {
   for (p, key) in sources {
@@ -307,6 +316,7 @@ impl App {
       return self.keep_tab(i);
     }
     self.push_tab(spec);
+    ask_links(&self.net, spec);
     self.save_tabs();
     self.activate(self.tabs.len() - 1);
   }

@@ -528,6 +528,9 @@ pub struct Reply {
 
 pub enum Cmd {
   Join(Box<str>),
+  // a twitch tab you just made: ask once for the kick/youtube its owner linked. never on a join, or a leg you
+  // took off comes back every time the tab is joined again
+  Links(Box<str>),
   Part(Box<str>),
   // roomstate told us the channel's twitch id: fetch its 7tv/bttv/ffz sets
   Room(Box<str>, Box<str>),
@@ -1031,11 +1034,15 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let tab = open.join(&ch);
         watch("chat history", recent::fetch(http.clone(), ch.clone(), tab.clone(), out.clone()), out.clone());
         if ident::twitch_room(&ch) {
-          watch("badges", channel_badges(http.clone(), ch.clone(), tab.clone(), out.clone()), out.clone());
-          watch("linked channels", links::discover(http.clone(), ch.clone(), tab, out.clone()), out.clone());
+          watch("badges", channel_badges(http.clone(), ch.clone(), tab, out.clone()), out.clone());
           let _ = hs_tx.send(hs_ws::Cmd::Join(Platform::Twitch, ch.clone()));
         }
         let _ = irc_tx.send(irc::Cmd::Join(ch));
+      }
+      Cmd::Links(ch) => {
+        if let Some(tab) = open.watch(&ch) {
+          watch("linked channels", links::discover(http.clone(), ch, tab, out.clone()), out.clone());
+        }
       }
       Cmd::Part(ch) => {
         open.part(&ch);

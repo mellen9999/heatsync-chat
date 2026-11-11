@@ -2,7 +2,7 @@
 // opening a channel to look at (enter on a following row, a click on a went-live line) fills the slot, the next one takes it; /keep, the
 // tab's menu or chatting in it saves it. it is never written to the tabs file and never synced: every place
 // that lists tabs to save skips `temp` (store_tabs, tabsync::is_channel, other_specs)
-use super::tabs::{make_tab, seat_hosts, sources_of};
+use super::tabs::{ask_links, make_tab, seat_hosts, sources_of};
 use super::{App, Tab};
 use crate::i18n::{f, t};
 use crate::model::chan::Spec;
@@ -82,6 +82,7 @@ impl App {
     }
     self.drop_temp_if(|_| true);
     let mut tab = make_tab(&self.net, spec);
+    ask_links(&self.net, spec);
     tab.temp = true;
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);

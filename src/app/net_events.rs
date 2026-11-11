@@ -159,6 +159,12 @@ impl App {
 
   pub(super) fn on_links(&mut self, tab: &str, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)>) {
     let Some(i) = self.tabs_with(Platform::Twitch, tab).first().copied() else { return };
+    // a feed the tab already has is the tab's own: never a second kick leg, never one swapped under you
+    let has = |p: Platform| self.tabs[i].sources.iter().any(|s| s.0 == p);
+    let (kick, yt) = (kick.filter(|_| !has(Platform::Kick)), yt.filter(|_| !has(Platform::Youtube)));
+    if kick.is_none() && yt.is_none() {
+      return;
+    }
     let mut add = Vec::new();
     if let Some(slug) = kick {
       self.net.send(Cmd::Hs(HsCmd::Join(Platform::Kick, slug.clone())));
@@ -173,12 +179,12 @@ impl App {
       add.push((Platform::Youtube, handle));
     }
     let t = &mut self.tabs[i];
-    for src in add {
-      if !t.sources.contains(&src) {
-        t.sources.push(src);
-      }
+    t.sources.extend(add);
+    let (tags, saved) = (t.sources.len() > 1, !t.temp);
+    // the legs are the tab's now: saved and synced, so the edit form shows them and taking one off sticks
+    if saved {
+      self.save_tabs();
     }
-    let tags = t.sources.len() > 1;
     self.route_kick();
     self.live_soon();
     let t = &mut self.tabs[i];

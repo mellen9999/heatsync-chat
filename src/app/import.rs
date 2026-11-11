@@ -281,6 +281,7 @@ impl App {
       {
         have.push(spec.clone());
         self.push_tab(&spec);
+        super::tabs::ask_links(&self.net, &spec);
         added += 1;
       }
     }

@@ -106,6 +106,8 @@ mod tests_input;
 #[cfg(test)]
 mod tests_kickmod;
 #[cfg(test)]
+mod tests_links;
+#[cfg(test)]
 mod tests_lists;
 #[cfg(test)]
 mod tests_mentions;
