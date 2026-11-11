@@ -58,7 +58,7 @@ pub enum Cmd {
   Upload(std::path::PathBuf),
   Picture(Vec<u8>),
   Pick,
-  Kick { chan: Box<str>, text: String, reply: Option<Box<str>> },
+  Kick { chan: Box<str>, text: String, reply: Option<Box<str>>, send: Option<Box<str>> },
   Youtube { chan: Box<str>, text: String },
   Social(super::social::Cmd),
   Mod(super::modact::Req),
@@ -220,7 +220,7 @@ pub async fn run(
         Some(Cmd::Upload(p)) => st.upload(p),
         Some(Cmd::Picture(b)) => st.picture(b),
         Some(Cmd::Pick) => st.pick(),
-        Some(Cmd::Kick { chan, text, reply }) => st.kick(chan, text, reply),
+        Some(Cmd::Kick { chan, text, reply, send }) => st.kick(chan, text, reply, send),
         Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text),
         Some(Cmd::Mute(op)) => {
           let _ = mutes.send((st.token.clone(), op));
@@ -583,8 +583,8 @@ impl State {
     self.lanes.run(&format!("youtube/{chan}"), job);
   }
 
-  fn kick(&mut self, chan: Box<str>, text: String, reply: Option<Box<str>>) {
-    let job = kick_job(self.http.clone(), self.token.clone(), chan.clone(), text, reply, self.out.clone());
+  fn kick(&mut self, chan: Box<str>, text: String, reply: Option<Box<str>>, send: Option<Box<str>>) {
+    let job = kick_job(self.http.clone(), self.token.clone(), chan.clone(), text, reply, send, self.out.clone());
     self.lanes.run(&format!("kick/{chan}"), job);
   }
 }
@@ -607,11 +607,12 @@ async fn kick_job(
   chan: Box<str>,
   text: String,
   reply: Option<Box<str>>,
+  send: Option<Box<str>>,
   out: Out,
 ) {
   let why = match &token {
     None => Some(t("net1.log_in_send").to_owned()),
-    Some(t) => kick_send(&http, t, &chan, &text, reply.as_deref()).await.err(),
+    Some(t) => kick_send(&http, t, &chan, &text, reply.as_deref(), send.as_deref()).await.err(),
   };
   // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
   let told = match why.as_deref() {
@@ -662,10 +663,15 @@ async fn kick_send(
   chan: &str,
   text: &str,
   reply: Option<&str>,
+  send: Option<&str>,
 ) -> Result<(), String> {
   let mut body = json!({ "channel": chan, "text": text });
   if let Some(id) = reply {
     body["reply_to_message_id"] = json!(id);
+  }
+  // the line's send id: heatsync records this kick leg under the same send as the twitch one
+  if let Some(id) = send {
+    body["send_id"] = json!(id);
   }
   let r = http
     .post(format!("{ORIGIN}/api/kick/chat/send"))

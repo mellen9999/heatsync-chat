@@ -40,7 +40,7 @@ fn boot() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
 fn sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<(Platform, String, String, bool)> {
   std::iter::from_fn(|| rx.try_recv().ok())
     .filter_map(|c| match c {
-      Cmd::Send { platform, chan, text, reply } => Some((platform, chan.to_string(), text, reply.is_some())),
+      Cmd::Send { platform, chan, text, reply, .. } => Some((platform, chan.to_string(), text, reply.is_some())),
       _ => None,
     })
     .collect()
@@ -336,4 +336,35 @@ fn a_kick_emote_is_a_token_on_kick_a_word_elsewhere_and_drawn_on_every_line() {
   let spec = crate::model::chan::Spec::parse("forsen", "", "@abc").unwrap();
   app.edit_tab(app.active, &spec);
   assert_eq!(drawn(&mut app), None, "the kick leg is gone, and its emotes with it");
+}
+
+// one line is one send: every leg and the origin tag carry the same id, so heatsync ties the kick leg (which
+// carries it to the server) to the twitch one, and the site folds them into one row
+#[test]
+fn every_leg_of_a_line_carries_its_one_send_id() {
+  let (mut app, mut rx) = boot();
+  type_and_send(&mut app, "hello");
+  let cmds: Vec<Cmd> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+  let legs: Vec<Option<Box<str>>> = cmds
+    .iter()
+    .filter_map(|c| match c {
+      Cmd::Send { send, .. } => Some(send.clone()),
+      _ => None,
+    })
+    .collect();
+  let tag = cmds.iter().find_map(|c| match c {
+    Cmd::Hs(crate::net::hs_ws::Cmd::Origin(_, _, id, _)) => Some(id.clone()),
+    _ => None,
+  });
+  assert_eq!(legs.len(), 3, "{legs:?}");
+  let id = tag.expect("the origin tag went out");
+  assert!(id.starts_with("hsc-"), "{id}");
+  assert!(legs.iter().all(|l| l.as_deref() == Some(&*id)), "{legs:?} vs {id}");
+  // the next line is another send
+  type_and_send(&mut app, "again");
+  let next = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|c| match c {
+    Cmd::Send { send, .. } => send,
+    _ => None,
+  });
+  assert!(next.is_some());
 }

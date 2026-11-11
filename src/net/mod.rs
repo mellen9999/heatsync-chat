@@ -612,7 +612,9 @@ pub enum Cmd {
   SevenTvPersonal(Option<Vec<u64>>),
   // personal sets to read whole
   PersonalSets(Vec<Box<str>>),
-  Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply> },
+  // `send`: one id for every leg of one line (`hsc-<ms>`), the same the origin tag carries, so heatsync ties
+  // the kick leg to the twitch one (twitch's leg goes by irc, which carries no id)
+  Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply>, send: Option<Box<str>> },
   // read the account again (heatsync said it changed)
   Recheck,
   // whispers and feed calls bound to the login
@@ -1228,11 +1230,11 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
 // a chat line
 fn send_line(c: Cmd, irc_tx: &mpsc::UnboundedSender<irc::Cmd>, sess_tx: &mpsc::UnboundedSender<session::Cmd>) {
   match c {
-    Cmd::Send { platform: Platform::Twitch, chan, text, reply } => {
+    Cmd::Send { platform: Platform::Twitch, chan, text, reply, .. } => {
       let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
     }
-    Cmd::Send { platform: Platform::Kick, chan, text, reply } => {
-      let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id) });
+    Cmd::Send { platform: Platform::Kick, chan, text, reply, send } => {
+      let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id), send });
     }
     Cmd::Send { platform: Platform::Youtube, chan, text, .. } => {
       let _ = sess_tx.send(session::Cmd::Youtube { chan, text });

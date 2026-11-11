@@ -116,13 +116,13 @@ impl App {
   }
 
   // send `text` to each feed in `legs`, each its own copy; several feeds' echoes will fold into one row
-  pub(super) fn fan_out(&mut self, legs: &[(Platform, Box<str>)], text: &str, reply: Option<Reply>) {
+  pub(super) fn fan_out(&mut self, legs: &[(Platform, Box<str>)], text: &str, reply: Option<Reply>, send: &str) {
     for (platform, chan) in legs {
       let (mut text, reply) = leg_line(*platform, text, reply.as_ref());
       if *platform == Platform::Kick {
         text = self.res.emotes.kickify(chan, &text);
       }
-      self.net.send(Cmd::Send { platform: *platform, chan: chan.clone(), text, reply });
+      self.net.send(Cmd::Send { platform: *platform, chan: chan.clone(), text, reply, send: Some(send.into()) });
     }
     if legs.len() > 1 {
       let bare = text.strip_prefix("/me ").unwrap_or(text);
@@ -132,7 +132,13 @@ impl App {
 
   // the line you just sent, told to heatsync once (`chat:origin_tag`, as the site does): it wears `[H]` for your
   // other devices and keeps your picks on it. the room named is the twitch one, else kick, else youtube
-  pub(super) fn tell_origin(&mut self, legs: &[(Platform, Box<str>)], text: &str, picks: &[crate::net::hs_ws::Vouch]) {
+  pub(super) fn tell_origin(
+    &mut self,
+    legs: &[(Platform, Box<str>)],
+    text: &str,
+    send: &str,
+    picks: &[crate::net::hs_ws::Vouch],
+  ) {
     let chan = [Platform::Twitch, Platform::Kick, Platform::Youtube]
       .iter()
       .find_map(|want| legs.iter().find(|(p, _)| p == want).map(|(_, c)| c.clone()));
@@ -141,8 +147,7 @@ impl App {
     let bare = text.strip_prefix("/me ").unwrap_or(text);
     let each =
       picks.iter().map(|v| crate::net::hs_ws::Vouch { name: v.name.clone(), url: v.url.clone(), provider: v.provider });
-    let id: Box<str> = format!("hsc-{}", now_ms()).into();
-    self.net.send(Cmd::Hs(crate::net::hs_ws::Cmd::Origin(chan, bare.into(), id, each.collect())));
+    self.net.send(Cmd::Hs(crate::net::hs_ws::Cmd::Origin(chan, bare.into(), send.into(), each.collect())));
   }
 
   // the picks in a line you just sent, told to each room it went to

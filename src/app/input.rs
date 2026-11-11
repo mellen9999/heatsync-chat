@@ -280,8 +280,10 @@ impl App {
       }
       let text = crate::model::emoji::convert(&text).into_owned();
       let picks = self.auto_add(&text);
-      self.fan_out(&open, &text, reply);
-      self.tell_origin(&open, &text, &picks);
+      // one id for the line's every leg and its origin tag
+      let send = format!("hsc-{}", super::now_ms());
+      self.fan_out(&open, &text, reply, &send);
+      self.tell_origin(&open, &text, &send, &picks);
       self.vouch(&open, picks);
       if let Some(v) = self.view() {
         v.scroll_to_bottom();
