@@ -123,6 +123,7 @@ fn build(what: What, at: i64, post: &str, text: &str) -> Message {
   m.x = Some(Box::new(Extra {
     head: Box::new([Seg { text: "[H] ".into(), ink: theme::HEATSYNC, bold: true }]),
     edge: what.ink(),
+    branded: true,
     ..Extra::default()
   }));
   m

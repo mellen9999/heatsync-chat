@@ -417,6 +417,7 @@ pub fn message(w: &Whisper, hide: bool) -> Message {
   m.x = Some(Box::new(Extra {
     chan: "".into(),
     head: Box::new([Seg { text: brand.into(), ink, bold: true }]),
+    branded: true,
     tail: Box::new([
       Seg { text: " → ".into(), ink: arrow, bold: true },
       Seg { text: to_name.to_string().into(), ink: to_ink, bold: true },

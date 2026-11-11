@@ -180,7 +180,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   // so does a stream line of kick or youtube (went live, switched game…), whatever the tab: the ext tags
   // them unless the platform is the host's, and twitch is the host here
   let off_host = m.kind == Kind::Event && !m.login.is_empty() && m.platform != Platform::Twitch;
-  if tags || hs || off_host {
+  if (tags && !x.is_some_and(|x| x.branded)) || hs || off_host {
     let (t, c) = match m.platform {
       _ if hs => ("[H]", theme::HEATSYNC),
       Platform::Twitch => ("[T]", theme::TWITCH),

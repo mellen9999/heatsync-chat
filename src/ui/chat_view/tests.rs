@@ -2207,3 +2207,26 @@ fn brand_rows_each_wear_their_fill_and_plain_chat_none() {
     }
   }
 }
+
+// M1: a whisper or notification row carries its own one mark (its head), never a platform tag on top of it
+#[test]
+fn a_whisper_or_notification_row_wears_one_mark() {
+  use crate::model::{inbox, whisper};
+  let mut res = Res::new(1.0);
+  let on = Opts { ts: false, tags: true, find: None };
+  let who =
+    whisper::Who { via: whisper::Via::Heatsync, id: "1".into(), login: "amy".into(), name: "amy".into(), color: 0 };
+  let w = whisper::Whisper {
+    key: 1,
+    ext: "".into(),
+    ts: 1,
+    out: false,
+    who,
+    text: "hi".into(),
+    status: whisper::Status::Sent,
+  };
+  let mut at = |m: &Message| layout_row(&mut res, "c", m, 0, 600, on).nick.start;
+  assert_eq!(at(&whisper::message(&w, false)), "[H] ".len(), "[H] once, no [T] before it");
+  let it = inbox::Item { at: 1, what: inbox::What::Mention, post: None, text: "x".into() };
+  assert_eq!(at(&inbox::message(&it)), "[H] ".len(), "[H] once");
+}
