@@ -522,11 +522,12 @@ impl App {
           self.res.senders.lookup(id, "", now_ms());
           self.wake();
         }
-        if let Some(m) = &me {
-          self.say(f("app.logged_in_as", &[("name", &m.username)]));
-        }
         // a different login starts with a clean whispers tab
         let switched = self.me.as_ref().map(|m| &m.username) != me.as_ref().map(|m| &m.username);
+        // every re-check (reconnect, renewal, relink) re-sends who we are: only a new login is news
+        if switched && let Some(m) = &me {
+          self.say(f("app.logged_in_as", &[("name", &m.username)]));
+        }
         // logged out, or another account over this one: their mentions are not the next one's
         if me.is_none() || (switched && self.me.is_some()) {
           self.mentions_forget();
@@ -837,5 +838,22 @@ mod tests {
     app.set.paints = false;
     app.applied(crate::model::schema::Fx::Paints);
     assert_eq!(asked(&mut rx), [None], "turned off: it is dropped");
+  }
+
+  // a reconnect or renewal re-sends who we are; the chat hears "logged in as" once per login
+  #[test]
+  fn logged_in_as_is_said_once_per_login() {
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let said = |app: &App| app.tabs[app.active].view.msgs().filter(|m| m.body.contains("logged in as")).count();
+    for _ in 0..5 {
+      app.on_net(NetEvent::Me(Some(me())));
+    }
+    assert_eq!(said(&app), 1, "re-checks of the same login say nothing");
+    app.on_net(NetEvent::Me(Some(Me { username: "other".into(), ..me() })));
+    assert_eq!(said(&app), 2, "another account is news");
+    app.on_net(NetEvent::Me(None));
+    app.on_net(NetEvent::Me(Some(me())));
+    assert_eq!(said(&app), 3, "logging back in is news");
   }
 }
