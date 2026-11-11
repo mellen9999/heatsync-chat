@@ -319,7 +319,7 @@ fn apply_validates_and_dedupes() {
   assert_eq!(apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into())).len(), 1);
   assert!(apply(&mut st, Cmd::Join(Platform::Kick, "xqc".into())).is_empty());
   assert!(apply(&mut st, Cmd::Join(Platform::Kick, "bad name".into())).is_empty());
-  assert_eq!(apply(&mut st, Cmd::YtSub("@handle".into())).len(), 1);
+  assert_eq!(apply(&mut st, Cmd::YtSub("@handle".into())).len(), 2, "subscribe + room join");
   let f = apply(&mut st, Cmd::Leave(Platform::Kick, "xqc".into()));
   assert_eq!((f.len(), &f[0]["type"]), (1, &json!("channel:leave")));
 }
@@ -604,4 +604,20 @@ fn feed_rooms_join_and_leave_once_and_are_kept() {
     join(&mut st, &format!("ulog:kick:p{i}"));
   }
   assert!(st.feeds.len() <= 8, "bounded");
+}
+
+// the server sends `chat:origin` only to a socket in the room `youtube/<handle>`; `youtube:subscribe` joins none,
+// so a youtube feed also does `channel:join` (handle lowercase, no @), and a new socket re-joins it
+#[test]
+fn a_youtube_feed_joins_its_origin_room_and_leaves_it() {
+  let mut st = State::default();
+  let f = apply(&mut st, Cmd::YtSub("@MrBeast".into()));
+  let join = f.iter().find(|v| v["type"] == "channel:join").expect("a channel:join");
+  assert_eq!((&join["platform"], &join["channel"]), (&json!("youtube"), &json!("mrbeast")));
+  assert!(f.iter().any(|v| v["type"] == "youtube:subscribe"));
+  assert!(st.rooms.contains(&("youtube", "mrbeast".into())), "kept for the next socket's hello");
+  assert!(apply(&mut st, Cmd::YtSub("@MrBeast".into())).is_empty(), "once");
+  let f = apply(&mut st, Cmd::YtUnsub("@MrBeast".into()));
+  assert!(f.iter().any(|v| v["type"] == "channel:leave" && v["channel"] == "mrbeast"));
+  assert!(st.rooms.is_empty());
 }

@@ -99,3 +99,20 @@ fn the_seed_marks_what_it_names_and_a_born_copy_folds() {
   kick(&mut a, "k1", "gg");
   assert_eq!(shown(&a), 1, "the kick copy is born [H] with the same send id: folded");
 }
+
+// a socket that came back re-reads the origins of every open room: a push missed in the drop must not leave
+// a line [T]/[K]/[Y]
+#[test]
+fn a_reconnect_reseeds_every_open_room_once() {
+  let (net, mut rx) = Net::tap();
+  let _ = std::fs::remove_dir_all(store::folder());
+  let mut a = App::new(net, vec!["forsen kick:xqc".into(), "forsen".into()], false);
+  a.resized(720, 400);
+  while rx.try_recv().is_ok() {}
+  a.on_net(NetEvent::HsUp);
+  let mut got: Vec<(Platform, String)> = std::iter::from_fn(|| rx.try_recv().ok())
+    .filter_map(|c| if let crate::net::Cmd::Seed(p, k) = c { Some((p, k.to_string())) } else { None })
+    .collect();
+  got.sort_by_key(|(p, k)| (p.name(), k.clone()));
+  assert_eq!(got, [(Platform::Kick, "xqc".into()), (Platform::Twitch, "forsen".into())], "each room once");
+}

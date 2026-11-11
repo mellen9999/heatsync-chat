@@ -91,6 +91,19 @@ impl App {
     }
   }
 
+  // the socket came back: every open room's origins are read again, each room once
+  fn reseed_origins(&mut self) {
+    let mut rooms: Vec<(Platform, Box<str>)> = Vec::new();
+    for s in self.tabs.iter().flat_map(|t| t.sources.iter()) {
+      if !rooms.contains(s) && rooms.len() < 50 {
+        rooms.push(s.clone());
+      }
+    }
+    for (p, k) in rooms {
+      self.net.send(Cmd::Seed(p, k));
+    }
+  }
+
   // the room's seed or a push: the lines already on screen flip to [H], later ones are born so
   pub(super) fn on_hs_origin(&mut self, p: Platform, key: &str, ids: Vec<(Box<str>, Box<str>)>) {
     let mut set = std::collections::HashMap::with_capacity(ids.len());
@@ -470,6 +483,7 @@ impl App {
       NetEvent::Stream(l) => self.on_stream(l),
       NetEvent::StreamHistory(rows) => self.on_stream_history(rows),
       NetEvent::Origin(text) => self.on_origin(text),
+      NetEvent::HsUp => self.reseed_origins(),
       NetEvent::HsOrigin { platform, key, ids } => self.on_hs_origin(platform, &key, ids),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),

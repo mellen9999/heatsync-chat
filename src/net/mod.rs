@@ -201,6 +201,8 @@ pub enum NetEvent {
   // something you sent through heatsync.org, by its words (`chat:origin_broadcast`)
   Origin(Box<str>),
   // lines heatsync says went through heatsync, by message id with their send ids (the room's seed, or one push)
+  // a heatsync socket came back after a drop: what it missed is re-read
+  HsUp,
   HsOrigin {
     platform: Platform,
     key: Box<str>,
@@ -544,6 +546,8 @@ pub enum Cmd {
   Image(ImgId, Box<str>, u32),
   // heatsync relay rooms
   Hs(hs_ws::Cmd),
+  // read a room's heatsync-origin ids again
+  Seed(Platform, Box<str>),
   // recent history for a relayed source: (platform, routing key, archive key)
   Backfill(Platform, Box<str>, Box<str>),
   // twitch user id → their heatsync inventory (version set after a ws invalidation)
@@ -1077,6 +1081,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         }
         let _ = hs_tx.send(c);
       }
+      Cmd::Seed(p, key) => watch("origins", origins::seed(http.clone(), p, key, out.clone()), out.clone()),
       Cmd::Backfill(p, key, archive) => {
         watch("history", links::backfill(http.clone(), p, key, archive, out.clone()), out.clone());
       }

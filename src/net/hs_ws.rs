@@ -245,11 +245,23 @@ fn apply(st: &mut State, c: Cmd) -> Vec<Value> {
       out
     }
     Cmd::Feed(key, on) => more::feed_cmd(st, key, on),
-    Cmd::YtSub(h) if ident::relay_key(&h) => st.yt.insert(h.clone()).then(|| yt_sub(&h)).into_iter().collect(),
+    // `youtube:subscribe` joins no room: chat:origin comes to `youtube/<handle>`, joined like any other room
+    Cmd::YtSub(h) if ident::relay_key(&h) => {
+      let mut out: Vec<Value> = st.yt.insert(h.clone()).then(|| yt_sub(&h)).into_iter().collect();
+      let key = crate::model::hsorigin::room(&h);
+      if st.rooms.len() < MAX_ROOMS && st.rooms.insert(("youtube", key.clone())) {
+        out.extend(join("youtube", &key));
+      }
+      out
+    }
     Cmd::YtUnsub(h) => {
       st.yt.remove(&h);
       st.yt_status.remove(&h);
       // without a videoId the server ref-counts and reaps on drop
+      let key = crate::model::hsorigin::room(&h);
+      if st.rooms.remove(&("youtube", key.clone())) {
+        return vec![json!({"type": "channel:leave", "platform": "youtube", "channel": &*key})];
+      }
       Vec::new()
     }
     _ => Vec::new(),
@@ -316,6 +328,10 @@ async fn session(
     if tx.send(Ws::text(f.to_string())).await.is_err() {
       return End::Reconnect;
     }
+  }
+  // a comeback: pushes missed in the drop are re-read (the app seeds every open room again)
+  if st.resumed {
+    out.send(NetEvent::HsUp);
   }
   // a pin may have changed while we were away (or before the first connect)
   for (p, c) in &st.rooms {
