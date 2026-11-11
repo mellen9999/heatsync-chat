@@ -76,7 +76,7 @@ impl App {
 
   // your own line, sent through heatsync.org: tagged [H]
   fn hs_origin(&self, m: &mut Message) {
-    if m.kind.said() && self.mentions.mine(m) && self.origins.sent(now_ms(), &m.body) {
+    if m.kind.said() && self.mentions.mine(m) && self.origins.sent(m.ts, &m.body) {
       m.extra().origin = true;
     }
   }
