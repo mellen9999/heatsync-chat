@@ -64,7 +64,7 @@ impl App {
       }
       self.res.chatters.heard(m);
       self.scan_mention(p, key, m);
-      self.hs_origin(m);
+      self.hs_origin(p, key, m);
     }
     // youtube's batches drip out at their real pace (model::pace); the rest waits for pace_due
     if p == Platform::Youtube && !history {
@@ -75,9 +75,35 @@ impl App {
   }
 
   // your own line, sent through heatsync.org: tagged [H]
-  fn hs_origin(&self, m: &mut Message) {
-    if m.kind.said() && self.mentions.mine(m) && self.origins.sent(m.ts, &m.body) {
+  pub(super) fn hs_origin(&self, p: Platform, key: &str, m: &mut Message) {
+    if !m.kind.said() {
+      return;
+    }
+    if self.mentions.mine(m) && self.origins.sent(m.ts, &m.body) {
       m.extra().origin = true;
+    }
+    if !m.id.is_empty()
+      && let Some(sid) = self.heat.get(p, key, &m.id)
+    {
+      let x = m.extra();
+      x.origin = true;
+      x.send = sid.into();
+    }
+  }
+
+  // the room's seed or a push: the lines already on screen flip to [H], later ones are born so
+  pub(super) fn on_hs_origin(&mut self, p: Platform, key: &str, ids: Vec<(Box<str>, Box<str>)>) {
+    let mut set = std::collections::HashMap::with_capacity(ids.len());
+    for (id, sid) in ids {
+      self.heat.note(p, key, &id, &sid);
+      set.insert(id, sid);
+    }
+    let mut any = false;
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      any |= v.flip_origin(p, &set);
+    }
+    if any {
+      self.wake();
     }
   }
 
@@ -212,7 +238,7 @@ impl App {
           crate::net::relay::merge_hs(&mut m.hs, &refs);
         }
         self.scan_mention(Platform::Twitch, ch, &mut m);
-        self.hs_origin(&mut m);
+        self.hs_origin(Platform::Twitch, ch, &mut m);
         self.logs_live(Platform::Twitch, ch, &m);
         self.chatlog.log(Platform::Twitch, ch, &m);
         Chat::Msg(m)
@@ -324,6 +350,7 @@ impl App {
             m.user_id = id.to_string().into();
           }
           self.scan_mention(Platform::Twitch, &ch, m);
+          self.hs_origin(Platform::Twitch, &ch, m);
         }
         self.tabs[i].chat().prepend(history);
         self.ask_went_live(&ch);
@@ -443,6 +470,7 @@ impl App {
       NetEvent::Stream(l) => self.on_stream(l),
       NetEvent::StreamHistory(rows) => self.on_stream_history(rows),
       NetEvent::Origin(text) => self.on_origin(text),
+      NetEvent::HsOrigin { platform, key, ids } => self.on_hs_origin(platform, &key, ids),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
       NetEvent::Emotes(ch, p, set) => {

@@ -612,6 +612,8 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       st.gate.redeem(crate::util::time::now_ms(), platform, channel, v).and_then(|l| send(NetEvent::Stream(l)))
     }
     // pushed only to your own sockets: a line you sent from heatsync.org
+    // anyone's line that went through heatsync, in a room we are in
+    "chat:origin" => super::origins::frame(v).and_then(send),
     "chat:origin_broadcast" => crate::model::origin::text(v).and_then(|t| send(NetEvent::Origin(t))),
     // once after sign-in: who you follow is live, from the server's cache (nothing when it is cold)
     "follow:live:snapshot" => {

@@ -6,6 +6,7 @@
 use crate::i18n::{f, t};
 use serde_json::Value;
 
+use super::mark::Mark;
 use super::message::{Extra, Kind, Message, Platform, Seg};
 use crate::ui::theme;
 
@@ -121,7 +122,7 @@ fn build(what: What, at: i64, post: &str, text: &str) -> Message {
   m.color = theme::HEATSYNC;
   m.body = text.into();
   m.x = Some(Box::new(Extra {
-    head: Box::new([Seg { text: "[H] ".into(), ink: theme::HEATSYNC, bold: true }]),
+    head: Box::new([Seg { text: Mark::Heatsync.tag_sp().into(), ink: Mark::Heatsync.ink(), bold: true }]),
     edge: what.ink(),
     branded: true,
     ..Extra::default()

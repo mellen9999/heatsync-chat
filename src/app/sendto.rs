@@ -4,6 +4,7 @@
 // into one row
 use super::{App, Tab};
 use crate::i18n::f;
+use crate::model::mark::Mark;
 use crate::model::message::{Message, Platform};
 use crate::model::sendto::{self, Targets};
 use crate::model::tabs::Kind;
@@ -15,11 +16,8 @@ use crate::util::time::now_ms;
 pub(super) type Piece = (&'static str, u32);
 
 fn letter(p: Platform) -> (&'static str, &'static str, u32) {
-  match p {
-    Platform::Twitch => ("[T] ", "T", theme::TWITCH),
-    Platform::Kick => ("[K] ", "K", theme::GREEN),
-    Platform::Youtube => ("[Y] ", "Y", theme::RED),
-  }
+  let mk = Mark::from(p);
+  (mk.tag_sp(), &mk.tag()[1..2], mk.ink())
 }
 
 impl Tab {

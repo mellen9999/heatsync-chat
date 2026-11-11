@@ -30,6 +30,7 @@ pub mod modtools;
 pub mod mrules;
 pub mod mutes;
 mod origin;
+mod origins;
 mod personal;
 pub mod pin;
 pub mod pinact;
@@ -199,6 +200,12 @@ pub enum NetEvent {
   StreamHistory(Vec<(i64, crate::model::stream_events::Line)>),
   // something you sent through heatsync.org, by its words (`chat:origin_broadcast`)
   Origin(Box<str>),
+  // lines heatsync says went through heatsync, by message id with their send ids (the room's seed, or one push)
+  HsOrigin {
+    platform: Platform,
+    key: Box<str>,
+    ids: Vec<(Box<str>, Box<str>)>,
+  },
   // a chat-rate spike in a channel (text ready to show)
   Moment {
     platform: Platform,
@@ -1038,6 +1045,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         if ident::twitch_room(&ch) {
           watch("badges", channel_badges(http.clone(), ch.clone(), tab, out.clone()), out.clone());
           let _ = hs_tx.send(hs_ws::Cmd::Join(Platform::Twitch, ch.clone()));
+          watch("origins", origins::seed(http.clone(), Platform::Twitch, ch.clone(), out.clone()), out.clone());
         }
         let _ = irc_tx.send(irc::Cmd::Join(ch));
       }
@@ -1060,6 +1068,9 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
           // `kick:` can't open a twitch room (no colon in a login): the two never share a key
           let tab = open.join(&format!("kick:{slug}"));
           watch("kick emotes", kick::emotes(http.clone(), slug.clone(), tab, out.clone()), out.clone());
+        }
+        if let Some((p, key)) = origins::room_of(&c) {
+          watch("origins", origins::seed(http.clone(), p, key, out.clone()), out.clone());
         }
         if let hs_ws::Cmd::Leave(Platform::Kick, slug) = &c {
           open.part(&format!("kick:{slug}"));

@@ -9,6 +9,7 @@ use std::collections::{HashSet, VecDeque};
 use serde_json::Value;
 
 use super::color;
+use super::mark::Mark;
 use super::message::{Extra, Kind, Message, Platform, Seg, flag};
 use crate::ui::theme;
 use crate::util::time::{now_ms, parse_iso};
@@ -398,10 +399,11 @@ pub fn message(w: &Whisper, hide: bool) -> Message {
       body.push_str(&format!(" ⚠ {how}"));
     }
   }
-  let (brand, ink) = match w.who.via {
-    Via::Twitch => ("[T] ", theme::TWITCH),
-    Via::Heatsync => ("[H] ", theme::HEATSYNC),
+  let mk = match w.who.via {
+    Via::Twitch => Mark::Twitch,
+    Via::Heatsync => Mark::Heatsync,
   };
+  let (brand, ink) = (mk.tag_sp(), mk.ink());
   let mut m = Message::system(w.ts, Platform::Twitch, "");
   m.kind = Kind::Chat;
   m.id = row_id(w.key);

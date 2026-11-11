@@ -15,6 +15,7 @@ impl App {
       m.flags |= flag::HISTORY;
       self.res.chatters.heard(m);
       self.scan_mention(p, key, m);
+      self.hs_origin(p, key, m);
     }
     for i in self.tabs_with(p, key) {
       if self.tabs[i].chat().fill_gap(msgs.clone()) > 0 && i == self.active {

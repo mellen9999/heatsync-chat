@@ -53,7 +53,8 @@ pub struct Post {
   pub user: Box<str>,
   pub color: u32,
   pub anon: bool,
-  pub platform: Option<Platform>,
+  // the platform the post says it came from; None = it names none (a heatsync-native post)
+  pub mark: Option<super::mark::Mark>,
   // whose paint the author's name wears (their id in their own platform's namespace), if the post names one
   pub paint: Option<PaintId>,
   pub text: Box<str>,
@@ -206,12 +207,7 @@ pub fn parse(v: &Value) -> Option<Post> {
   let user = name("username").or_else(|| name("display_name")).unwrap_or("anon");
   let anon = user == "Anonymous" || v.get("user_id").is_none_or(Value::is_null);
   let reply_to = name("reply_to").filter(|s| id_ok(s)).map(Into::into);
-  let platform = match name("platform") {
-    Some("twitch") => Some(Platform::Twitch),
-    Some("kick") => Some(Platform::Kick),
-    Some("youtube") => Some(Platform::Youtube),
-    _ => None,
-  };
+  let mark = name("platform").map(super::mark::Mark::named);
   let num =
     |k: &str| v.get(k).and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map_or(0, |n| n.min(1e9) as u32);
   // ext isPaintLookupSafeId: the author's id in their own platform's namespace; the server already
@@ -236,7 +232,7 @@ pub fn parse(v: &Value) -> Option<Post> {
     user: clamp(user, MAX_NAME).into(),
     color: name("user_color").and_then(color::parse_hex).map_or(theme::WHITE, color::readable),
     anon,
-    platform,
+    mark,
     paint,
     text: words(text),
     ts: name("created_at").and_then(parse_iso).unwrap_or_else(now_ms),
@@ -311,13 +307,8 @@ pub fn message(p: &Post, me: Option<&str>, signed_in: bool) -> Message {
     Seg { text: format!(">>{} ", short(&p.id)).into(), ink: theme::YELLOW, bold: false },
     Seg { text: tag.0.into(), ink: tag.1, bold: true },
   ];
-  if let Some(pl) = p.platform {
-    let (t, ink) = match pl {
-      Platform::Twitch => ("[T] ", theme::TWITCH),
-      Platform::Kick => ("[K] ", theme::GREEN),
-      Platform::Youtube => ("[Y] ", theme::RED),
-    };
-    head.push(Seg { text: t.into(), ink, bold: true });
+  if let Some(mk) = p.mark {
+    head.push(Seg { text: mk.tag_sp().into(), ink: mk.ink(), bold: true });
   }
   let mut tail = Vec::new();
   if p.heat > 0 {
@@ -436,6 +427,20 @@ mod tests {
       "emote_refs": { "catJAM": "https://cdn.7tv.app/a.webp", "nope": { "url": "https://cdn.7tv.app/b.webp", "nsfw": true },
                       "bad": "javascript:x", "obj": { "url": "https://cdn.7tv.app/c.webp" } },
     })
+  }
+
+  #[test]
+  fn a_posts_mark_is_its_platform_never_a_default() {
+    use super::super::mark::Mark;
+    let mut v = sample();
+    assert_eq!(parse(&v).unwrap().mark, None, "names none: no mark");
+    for (name, want) in [("kick", Mark::Kick), ("heatsync", Mark::Heatsync), ("yt", Mark::Unknown)] {
+      v["platform"] = json!(name);
+      let p = parse(&v).unwrap();
+      assert_eq!(p.mark, Some(want), "{name}");
+      let head = &message(&p, None, false).x.unwrap().head;
+      assert_eq!(&*head.last().unwrap().text, want.tag_sp(), "{name}: the head wears it");
+    }
   }
 
   #[test]

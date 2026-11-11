@@ -63,6 +63,7 @@ fn row(m: &Message) -> Value {
     "body": m.body,
     "room": room,
     "fl": m.flags & KEPT,
+    "o": super::mark::Mark::of(m) == super::mark::Mark::Heatsync,
     "em": m.emotes.iter().map(|(r, u)| json!([r.start, r.end, u])).collect::<Vec<_>>(),
     "hs": m.hs.iter().map(|(w, u, z)| json!([w, u, z])).collect::<Vec<_>>(),
     "bd": m.badges.iter().map(|(s, v)| json!([s, v])).collect::<Vec<_>>(),
@@ -203,7 +204,8 @@ fn message(v: &Value) -> Option<Message> {
   // restored lines are history: they never ping, notify or flash, and are not new people
   let kept = u8::try_from(v.get("fl").and_then(Value::as_u64).unwrap_or(0) & u64::from(KEPT)).unwrap_or(0);
   m.flags = kept | flag::HISTORY;
-  m.x = Some(Box::new(Extra { chan: room.into(), ..Extra::default() }));
+  let origin = v.get("o").and_then(Value::as_bool) == Some(true);
+  m.x = Some(Box::new(Extra { chan: room.into(), origin, ..Extra::default() }));
   Some(m)
 }
 

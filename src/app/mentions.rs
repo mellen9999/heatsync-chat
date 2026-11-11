@@ -73,7 +73,8 @@ impl App {
   // the mentions tab's row for a live ping
   fn mention_row(&mut self, p: Platform, room: &str, m: &Message) {
     let mut copy = m.clone();
-    copy.x = Some(Box::new(Extra { chan: room.into(), ..Extra::default() }));
+    let (origin, send) = m.x.as_ref().map(|x| (x.origin, x.send.clone())).unwrap_or_default();
+    copy.x = Some(Box::new(Extra { chan: room.into(), origin, send, ..Extra::default() }));
     copy.platform = p;
     // a copy of a line is not a new person: the first-line glow never applies here
     copy.flags &= !(flag::NEW | flag::FIRST);

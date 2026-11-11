@@ -239,15 +239,7 @@ pub fn uptime(now: i64, since: Option<i64>) -> Option<String> {
 }
 
 pub fn tag(l: &Live) -> String {
-  let t: String = l
-    .legs
-    .iter()
-    .map(|(p, _)| match p {
-      Platform::Twitch => 'T',
-      Platform::Kick => 'K',
-      Platform::Youtube => 'Y',
-    })
-    .collect();
+  let t: String = l.legs.iter().map(|(p, _)| super::mark::Mark::from(*p).letter()).collect();
   format!("[{t}]")
 }
 

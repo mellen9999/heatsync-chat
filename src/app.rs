@@ -102,6 +102,8 @@ mod tests_findbar;
 #[cfg(test)]
 mod tests_font;
 #[cfg(test)]
+mod tests_hsorigin;
+#[cfg(test)]
 mod tests_input;
 #[cfg(test)]
 mod tests_kickmod;
@@ -469,6 +471,8 @@ pub struct App {
   chatlog: crate::chatlog::ChatLog,
   // what you sent through heatsync.org lately: its echo wears [H]
   origins: crate::model::origin::Origins,
+  // the lines heatsync says it sent, by message id (seed + `chat:origin`)
+  heat: crate::model::hsorigin::Heat,
   // sends to several feeds, so their echoes fold into one line
   sentfold: crate::model::sentfold::Sent,
   focused: bool,
@@ -678,6 +682,7 @@ impl App {
       mentions_save: None,
       chatlog: crate::chatlog::ChatLog::new(set.chat_logs),
       origins: Default::default(),
+      heat: Default::default(),
       sentfold: Default::default(),
       focused: true,
       whisper: Default::default(),

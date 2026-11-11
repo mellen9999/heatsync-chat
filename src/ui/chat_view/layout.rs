@@ -10,6 +10,7 @@ use crate::images::ImgId;
 use crate::model::filter;
 use crate::model::find::Find;
 use crate::model::links::Link;
+use crate::model::mark::Mark;
 use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Notice, Platform, Seg, flag};
 use crate::model::preview::{Kind as PreviewKind, Preview};
@@ -181,12 +182,8 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   // them unless the platform is the host's, and twitch is the host here
   let off_host = m.kind == Kind::Event && !m.login.is_empty() && m.platform != Platform::Twitch;
   if (tags && !x.is_some_and(|x| x.branded)) || hs || off_host {
-    let (t, c) = match m.platform {
-      _ if hs => ("[H]", theme::HEATSYNC),
-      Platform::Twitch => ("[T]", theme::TWITCH),
-      Platform::Kick => ("[K]", theme::GREEN),
-      Platform::Youtube => ("[Y]", theme::RED),
-    };
+    let mk = Mark::of(m);
+    let (t, c) = (mk.tag(), mk.ink());
     let a = s.len();
     s.push_str(t);
     spans.push(Span { range: a..a + 3, ink: Ink(c), bold: true });

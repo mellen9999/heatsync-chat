@@ -116,6 +116,8 @@ pub struct Extra {
   pub bits: u32,
   // your own line sent through heatsync.org (model::origin): tagged [H] in heatsync orange
   pub origin: bool,
+  // the send id heatsync gave the line (`chat:origin`): rows of one send on several feeds share it
+  pub send: Box<str>,
   // the head already wears the row's one mark (a whisper's [T]/[H], a notification's [H]): no platform tag over it
   pub branded: bool,
   // the line it answers and the first line of its chain (model::chain); empty = none

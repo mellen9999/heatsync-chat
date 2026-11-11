@@ -15,6 +15,7 @@ use crate::emotes::block::Scope;
 use crate::images::ImgId;
 use crate::model::filter;
 use crate::model::find::Find;
+use crate::model::hsorigin::Sends;
 use crate::model::links::Link;
 use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Platform, flag};
@@ -149,11 +150,13 @@ struct Row {
   look: u8,
   // the tab's search doesn't match this line: out of sight like a filtered one
   miss: bool,
+  // another feed's copy of a send this view already shows: out of sight
+  folded: bool,
 }
 
 impl Row {
   fn hidden(&self) -> bool {
-    self.look & filter::HIDDEN != 0 || self.miss
+    self.look & filter::HIDDEN != 0 || self.miss || self.folded
   }
 
   fn muted(&self) -> bool {
@@ -231,6 +234,8 @@ pub struct ChatView {
   // yellow edge (magenta = twitch first message ever) on a person's first line this session (setting first_glow)
   pub glow: bool,
   seen: Seen,
+  // the sends already shown here: another feed's copy of one folds out of sight (model::hsorigin)
+  sends: Sends,
   // the last line read (by seq) when the tab was left at the bottom: a red line is drawn under it.
   // it only moves when the tab is left again; once its line is trimmed off, nothing matches and it hides
   last_read: Option<i64>,
@@ -285,6 +290,7 @@ macro_rules! opts {
 
 mod draw;
 mod fill;
+mod heat;
 mod hit;
 mod layout;
 mod marks;
@@ -317,6 +323,7 @@ impl ChatView {
       hot: None,
       glow: true,
       seen: Seen::default(),
+      sends: Sends::default(),
       last_read: None,
       top: false,
       view_h: 0,
@@ -371,7 +378,8 @@ impl ChatView {
     self.seq_back += 1;
     let look = self.look_of(&msg);
     let miss = self.missed(&msg);
-    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None, look, miss });
+    let folded = self.fold_of(&msg);
+    self.rows.push_back(Row { seq: self.seq_back, msg, height: 0, laid: None, look, miss, folded });
     self.pending += 1;
   }
 
@@ -487,8 +495,8 @@ impl ChatView {
     let mut moved = None;
     for r in old {
       while let Some(m) = fresh.next_if(|m| m.ts < r.msg.ts) {
-        let miss = self.missed(&m);
-        rows.push_back(Row { seq: 0, msg: m, height: 0, laid: None, look: 0, miss });
+        let (miss, folded) = (self.missed(&m), self.fold_of(&m));
+        rows.push_back(Row { seq: 0, msg: m, height: 0, laid: None, look: 0, miss, folded });
       }
       if picked == Some(r.seq) {
         moved = Some(rows.len());
@@ -496,8 +504,8 @@ impl ChatView {
       rows.push_back(r);
     }
     for m in fresh {
-      let miss = self.missed(&m);
-      rows.push_back(Row { seq: 0, msg: m, height: 0, laid: None, look: 0, miss });
+      let (miss, folded) = (self.missed(&m), self.fold_of(&m));
+      rows.push_back(Row { seq: 0, msg: m, height: 0, laid: None, look: 0, miss, folded });
     }
     let drop = rows.len().saturating_sub(self.cap);
     rows.drain(..drop);
@@ -687,8 +695,8 @@ impl ChatView {
     self.scroll = scroll;
     for m in msgs {
       self.seq_back += 1;
-      let miss = self.missed(&m);
-      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None, look: 0, miss });
+      let (miss, folded) = (self.missed(&m), self.fold_of(&m));
+      self.rows.push_back(Row { seq: self.seq_back, msg: m, height: 0, laid: None, look: 0, miss, folded });
     }
     while self.rows.len() > self.cap {
       self.rows.pop_back();
@@ -708,6 +716,7 @@ impl ChatView {
     self.unread = 0;
     self.last_read = None;
     self.seq_back = 0;
+    self.sends = Sends::default();
     self.stale = true;
   }
 

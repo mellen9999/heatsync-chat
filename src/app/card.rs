@@ -76,11 +76,8 @@ impl Card {
 }
 
 pub(super) fn tag(p: Platform) -> (&'static str, u32) {
-  match p {
-    Platform::Twitch => ("[T] ", crate::ui::theme::TWITCH),
-    Platform::Kick => ("[K] ", crate::ui::theme::GREEN),
-    Platform::Youtube => ("[Y] ", crate::ui::theme::RED),
-  }
+  let mk = crate::model::mark::Mark::from(p);
+  (mk.tag_sp(), mk.ink())
 }
 
 impl App {
