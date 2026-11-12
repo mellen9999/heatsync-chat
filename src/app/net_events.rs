@@ -770,6 +770,20 @@ impl App {
         }
         self.mod_log(platform, &key, row.body.to_string());
       }
+      NetEvent::RelayDelete { platform, key, id } => {
+        // the line may still be waiting in the pacer: show it first, then grey it
+        let waiting = self.pacer.flush(&key);
+        self.relay_show(platform, &key, waiting, false);
+        let row = removed(platform, Removed::Line(""));
+        self.chatlog.log(platform, &key, &row);
+        for i in self.tabs_with(platform, &key) {
+          let v = self.tabs[i].chat();
+          v.clear_msg(&id);
+          v.push(row.clone());
+          self.touched(i);
+        }
+        self.mod_log(platform, &key, t("app.net.deleted_a_message").to_owned());
+      }
       NetEvent::YtGone { key, gone } => {
         // lines still waiting in the pacer are deleted too: show them first, then grey
         let waiting = self.pacer.flush(&key);

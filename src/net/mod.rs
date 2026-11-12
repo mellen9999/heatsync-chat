@@ -105,6 +105,12 @@ pub enum NetEvent {
     login: Box<str>,
     secs: Option<u32>,
   },
+  // one line a mod deleted in a relayed room, by the id it arrived with (kick names no one)
+  RelayDelete {
+    platform: Platform,
+    key: Box<str>,
+    id: Box<str>,
+  },
   // youtube lines a mod deleted (by id), or all a banned author said (by channel id)
   YtGone {
     key: Box<str>,

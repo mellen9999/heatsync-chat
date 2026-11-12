@@ -274,5 +274,13 @@ mod tests {
       secs: Some(60),
     });
     assert_eq!(&*app.tabs[i].view.last_msg().unwrap().body, "bob timed out for 60s");
+    // and kick's deleted line, by the id it arrived with, even while it waits in the pacer
+    let mut k = Message::system(2, Platform::Kick, "spam");
+    (k.kind, k.id, k.login, k.nick) = (crate::model::message::Kind::Chat, "k-1".into(), "zed".into(), "zed".into());
+    app.on_net(NetEvent::Relay { platform: Platform::Kick, key: "xqc".into(), msgs: vec![k], history: false });
+    app.on_net(NetEvent::RelayDelete { platform: Platform::Kick, key: "xqc".into(), id: "k-1".into() });
+    let line = app.tabs[i].view.msgs().find(|m| &*m.id == "k-1").expect("the kick line is shown");
+    assert!(line.has(flag::CLEARED));
+    assert_eq!(&*app.tabs[i].view.last_msg().unwrap().body, "message deleted");
   }
 }

@@ -253,6 +253,24 @@ fn a_kick_removal_says_how_long() {
   assert_eq!(got(&rx), None);
 }
 
+// a kick delete names the line, never a person: it greys that line, and a junk or missing id removes nothing
+#[test]
+fn a_kick_delete_names_the_line() {
+  let (tx, rx) = std::sync::mpsc::channel();
+  let out = Out::Pipe(tx);
+  let mut st = State::default();
+  let del = |id: Value| json!({"type": "kick-moderation", "channel": "xqc", "action": "delete", "messageId": id, "timestamp": 1});
+  dispatch(&del(json!("0b1c-uuid")), &mut st, &out);
+  match rx.try_recv() {
+    Ok(NetEvent::RelayDelete { key, id, .. }) => assert_eq!((&*key, &*id), ("xqc", "0b1c-uuid")),
+    _ => panic!("no delete"),
+  }
+  for junk in [json!("a b"), json!(""), json!(7), Value::Null] {
+    dispatch(&del(junk), &mut st, &out);
+  }
+  assert!(rx.try_recv().is_err(), "nothing to grey, nobody removed");
+}
+
 #[test]
 fn the_heat_push_becomes_scores_by_login_and_a_bad_one_is_dropped() {
   let (tx, rx) = std::sync::mpsc::channel();

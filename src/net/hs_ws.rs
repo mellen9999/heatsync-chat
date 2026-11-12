@@ -488,6 +488,10 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "kick-moderation" => {
       let key: Box<str> = v.get("channel").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
+      if v.get("action").and_then(Value::as_str) == Some("delete") {
+        let id: Box<str> = v.get("messageId").and_then(Value::as_str).filter(|i| ident::relay_key(i))?.into();
+        return send(NetEvent::RelayDelete { platform: Platform::Kick, key, id });
+      }
       let login: Box<str> =
         v.get("username").and_then(Value::as_str).filter(|u| ident::relay_key(u))?.to_lowercase().into();
       let secs = (v.get("action").and_then(Value::as_str) == Some("timeout"))
