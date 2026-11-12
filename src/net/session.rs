@@ -59,7 +59,7 @@ pub enum Cmd {
   Picture(Vec<u8>),
   Pick,
   Kick { chan: Box<str>, text: String, reply: Option<Box<str>>, send: Option<Box<str>> },
-  Youtube { chan: Box<str>, text: String },
+  Youtube { chan: Box<str>, text: String, send: Option<Box<str>> },
   Social(super::social::Cmd),
   Mod(super::modact::Req),
   Pin(super::pinact::Op),
@@ -221,7 +221,7 @@ pub async fn run(
         Some(Cmd::Picture(b)) => st.picture(b),
         Some(Cmd::Pick) => st.pick(),
         Some(Cmd::Kick { chan, text, reply, send }) => st.kick(chan, text, reply, send),
-        Some(Cmd::Youtube { chan, text }) => st.youtube(chan, text),
+        Some(Cmd::Youtube { chan, text, send }) => st.youtube(chan, text, send),
         Some(Cmd::Mute(op)) => {
           let _ = mutes.send((st.token.clone(), op));
         }
@@ -578,8 +578,8 @@ impl State {
 
   // each channel's sends go out one after another on their own lane, so a slow one holds up neither the
   // login loop nor another channel
-  fn youtube(&mut self, chan: Box<str>, text: String) {
-    let job = youtube_job(self.http.clone(), self.token.clone(), chan.clone(), text, self.out.clone());
+  fn youtube(&mut self, chan: Box<str>, text: String, send: Option<Box<str>>) {
+    let job = youtube_job(self.http.clone(), self.token.clone(), chan.clone(), text, send, self.out.clone());
     self.lanes.run(&format!("youtube/{chan}"), job);
   }
 
@@ -590,10 +590,17 @@ impl State {
 }
 
 // like kick: success shows up through the relay, a refusal is a system line in the tab
-async fn youtube_job(http: reqwest::Client, token: Option<String>, chan: Box<str>, text: String, out: Out) {
+async fn youtube_job(
+  http: reqwest::Client,
+  token: Option<String>,
+  chan: Box<str>,
+  text: String,
+  send: Option<Box<str>>,
+  out: Out,
+) {
   let why = match &token {
     None => Some(t("net1.log_in_send").to_owned()),
-    Some(t) => super::youtube::send(&http, t, &chan, &text).await.err(),
+    Some(t) => super::youtube::send(&http, t, &chan, &text, send.as_deref()).await.err(),
   };
   if let Some(why) = why {
     let m = Message::system(now_ms(), Platform::Youtube, f("net1.session.not_sent_youtube", &[("why", &why)]));

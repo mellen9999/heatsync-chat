@@ -14,7 +14,9 @@ impl ChatView {
     let mut any = false;
     for r in self.rows.iter_mut().filter(|r| r.msg.platform == p && r.msg.kind.said() && !r.msg.id.is_empty()) {
       let Some(sid) = ids.get(&r.msg.id) else { continue };
-      if r.msg.x.as_ref().is_some_and(|x| x.origin) {
+      // already [H] by its send id: said. [H] by your own words alone (the own-send notice) it still joins its
+      // send here, or it never claims it and another feed's copy stands beside it
+      if r.msg.x.as_ref().is_some_and(|x| x.origin && (!x.send.is_empty() || sid.is_empty())) {
         continue;
       }
       let x = r.msg.extra();

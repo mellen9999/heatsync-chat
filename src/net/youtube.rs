@@ -14,8 +14,14 @@ pub const MAX: usize = crate::model::message::Platform::Youtube.max_chars();
 // the plain line shown when the user has to allow posting first
 
 // the request body: a handle key as the tabs hold it (`@name`), and the text as typed
-pub fn body(chan: &str, text: &str) -> Value {
-  json!({ "channel": chan, "text": text })
+// the line's send id rides along, as on kick: heatsync files the youtube leg under the same send as the
+// others, so every device folds the feeds' copies into one row
+pub fn body(chan: &str, text: &str, send: Option<&str>) -> Value {
+  let mut b = json!({ "channel": chan, "text": text });
+  if let Some(id) = send {
+    b["send_id"] = json!(id);
+  }
+  b
 }
 
 // what to tell the user for a failure, from the server's `error_code` (or the bare http status)
@@ -38,7 +44,13 @@ pub fn too_long(text: &str) -> Option<String> {
   (text.chars().count() > MAX).then(|| f("net1.yt.too_long", &[("max", &MAX.to_string())]))
 }
 
-pub async fn send(http: &reqwest::Client, token: &str, chan: &str, text: &str) -> Result<(), String> {
+pub async fn send(
+  http: &reqwest::Client,
+  token: &str,
+  chan: &str,
+  text: &str,
+  send: Option<&str>,
+) -> Result<(), String> {
   if let Some(why) = too_long(text) {
     return Err(why);
   }
@@ -46,7 +58,7 @@ pub async fn send(http: &reqwest::Client, token: &str, chan: &str, text: &str) -
     .post(format!("{ORIGIN}/api/youtube/chat/send"))
     .bearer_auth(token)
     .header("content-type", "application/json")
-    .body(body(chan, text).to_string())
+    .body(body(chan, text, send).to_string())
     .send()
     .await
     .map_err(|e| http::offline("heatsync", e))?;
@@ -63,8 +75,12 @@ mod tests {
   use super::*;
 
   #[test]
-  fn request_body_is_channel_and_text_only() {
-    assert_eq!(body("@somebody", "gm"), json!({ "channel": "@somebody", "text": "gm" }));
+  fn request_body_is_channel_text_and_the_send_id() {
+    assert_eq!(body("@somebody", "gm", None), json!({ "channel": "@somebody", "text": "gm" }));
+    assert_eq!(
+      body("@somebody", "gm", Some("hsc-1")),
+      json!({ "channel": "@somebody", "text": "gm", "send_id": "hsc-1" })
+    );
   }
 
   #[test]

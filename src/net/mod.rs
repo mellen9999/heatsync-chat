@@ -41,6 +41,7 @@ pub mod relay;
 mod retry;
 mod roomname;
 mod senders;
+mod sendline;
 mod session;
 pub mod seventv;
 pub mod social;
@@ -1204,7 +1205,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = sess_tx.send(session::Cmd::Pick);
       }
       // a line never waits on an emote add (emote rule 7): the room draws a pick from its vouch
-      c @ Cmd::Send { .. } => send_line(c, &irc_send, &sess_send),
+      c @ Cmd::Send { .. } => sendline::send_line(c, &irc_send, &sess_send),
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));
       }
@@ -1240,22 +1241,6 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
-  }
-}
-
-// a chat line
-fn send_line(c: Cmd, irc_tx: &mpsc::UnboundedSender<irc::Cmd>, sess_tx: &mpsc::UnboundedSender<session::Cmd>) {
-  match c {
-    Cmd::Send { platform: Platform::Twitch, chan, text, reply, .. } => {
-      let _ = irc_tx.send(irc::Cmd::Send { chan, text, reply });
-    }
-    Cmd::Send { platform: Platform::Kick, chan, text, reply, send } => {
-      let _ = sess_tx.send(session::Cmd::Kick { chan, text, reply: reply.map(|r| r.id), send });
-    }
-    Cmd::Send { platform: Platform::Youtube, chan, text, .. } => {
-      let _ = sess_tx.send(session::Cmd::Youtube { chan, text });
-    }
-    _ => {}
   }
 }
 
