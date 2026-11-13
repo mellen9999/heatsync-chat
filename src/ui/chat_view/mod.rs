@@ -288,6 +288,7 @@ macro_rules! opts {
   };
 }
 
+mod clear;
 mod draw;
 mod fill;
 mod heat;
@@ -362,6 +363,12 @@ impl ChatView {
   #[cfg(test)]
   pub fn bodies(&self) -> Vec<String> {
     self.rows.iter().map(|r| r.msg.body.to_string()).collect()
+  }
+
+  // the said lines on screen (not folded or filtered away)
+  #[cfg(test)]
+  pub fn shown_msgs(&self) -> impl Iterator<Item = &Message> {
+    self.rows.iter().filter(|r| !r.hidden() && r.msg.kind.said()).map(|r| &r.msg)
   }
 
   pub fn push(&mut self, mut msg: Message) {
@@ -720,14 +727,6 @@ impl ChatView {
     self.stale = true;
   }
 
-  pub fn clear_msg(&mut self, id: &str) {
-    if let Some(r) = self.rows.iter_mut().rev().find(|r| &*r.msg.id == id) {
-      r.msg.flags |= flag::CLEARED;
-      Self::touch(r);
-      self.stale = true;
-    }
-  }
-
   // tag the recent lines `f` picks as sent through heatsync (an echo that beat the site's word)
   pub fn mark_origin(&mut self, f: impl Fn(&Message) -> bool) -> bool {
     let mut any = false;
@@ -738,28 +737,6 @@ impl ChatView {
     }
     self.stale |= any;
     any
-  }
-
-  // youtube lines by message id or author channel id (a ban takes back their backlog): greyed like any delete
-  pub fn clear_yt(&mut self, ids: &[Box<str>], authors: &[Box<str>]) {
-    let hit = |m: &Message| {
-      m.platform == Platform::Youtube
-        && m.flags & flag::CLEARED == 0
-        && ((!m.id.is_empty() && ids.contains(&m.id)) || (!m.user_id.is_empty() && authors.contains(&m.user_id)))
-    };
-    for r in self.rows.iter_mut().filter(|r| hit(&r.msg)) {
-      r.msg.flags |= flag::CLEARED;
-      Self::touch(r);
-      self.stale = true;
-    }
-  }
-
-  pub fn clear_user(&mut self, login: &str) {
-    for r in self.rows.iter_mut().filter(|r| &*r.msg.login == login && r.msg.kind != Kind::System) {
-      r.msg.flags |= flag::CLEARED;
-      Self::touch(r);
-      self.stale = true;
-    }
   }
 
   // a twitch chatter's numeric id, from their latest line here

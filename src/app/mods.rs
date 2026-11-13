@@ -467,7 +467,7 @@ impl App {
             match (verb, &msg_id) {
               (Verb::Delete, Some(id)) => v.clear_msg(id),
               (Verb::Unban, _) => {}
-              _ => v.clear_user(&login),
+              _ => v.clear_user(platform, &login),
             }
           }
           if let Some(n) = &note {

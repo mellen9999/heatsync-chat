@@ -212,3 +212,55 @@ fn one_send_on_three_feeds_is_one_row_in_every_arrival_order() {
   }
   assert!(bad.is_empty(), "{} orders drew the send twice:\n{}", bad.len(), bad.join("\n"));
 }
+
+// a moderator removes ONE feed's copy of a send. the send is one row with its other copies folded under it, and
+// a delete or ban aimed at a folded copy left the row on screen
+fn greyed(a: &App) -> Vec<(String, bool)> {
+  let i = a.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  let v = &a.tabs[i].view;
+  v.shown_msgs().map(|m| (m.body.to_string(), m.flags & crate::model::message::flag::CLEARED != 0)).collect()
+}
+
+fn one_send(a: &mut App, tw_login: &str, kick_login: &str) {
+  a.on_chat("forsen", Chat::Msg(said(Platform::Twitch, "t1", tw_login, "gfm")));
+  a.on_relay(Platform::Kick, "xqc", vec![said(Platform::Kick, "k1", kick_login, "gfm")], false);
+  push(a, Platform::Twitch, "forsen", "t1", "S");
+  push(a, Platform::Kick, "xqc", "k1", "S");
+  tw(a, "t2", "bystander");
+  assert_eq!(shown(a), 2, "the send is one row");
+}
+
+#[test]
+fn a_delete_of_either_copy_greys_the_sends_row() {
+  for (p, id) in [(Platform::Twitch, "t1"), (Platform::Kick, "k1")] {
+    let mut a = app();
+    one_send(&mut a, "amy", "amy");
+    match p {
+      Platform::Twitch => a.on_chat("forsen", Chat::ClearMsg("t1".into(), "amy".into())),
+      _ => a.on_net(NetEvent::RelayDelete { platform: p, key: "xqc".into(), id: id.into() }),
+    }
+    assert_eq!(greyed(&a), [("gfm".into(), true), ("bystander".into(), false)], "{p:?} copy deleted");
+  }
+}
+
+#[test]
+fn a_ban_of_either_copys_login_greys_the_sends_row() {
+  for p in [Platform::Twitch, Platform::Kick] {
+    let mut a = app();
+    one_send(&mut a, "mellen", "mellen2");
+    match p {
+      Platform::Twitch => a.on_chat("forsen", Chat::ClearUser { login: "mellen".into(), secs: Some(60) }),
+      _ => a.on_net(NetEvent::RelayClear { platform: p, key: "xqc".into(), login: "mellen2".into(), secs: Some(60) }),
+    }
+    assert_eq!(greyed(&a), [("gfm".into(), true), ("bystander".into(), false)], "{p:?} ban");
+  }
+}
+
+#[test]
+fn a_twitch_ban_leaves_a_kick_chatter_of_the_same_name_alone() {
+  let mut a = app();
+  tw(&mut a, "t1", "on twitch");
+  kick(&mut a, "k1", "on kick");
+  a.on_chat("forsen", Chat::ClearUser { login: "amy".into(), secs: Some(60) });
+  assert_eq!(greyed(&a), [("on twitch".into(), true), ("on kick".into(), false)]);
+}

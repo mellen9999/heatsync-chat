@@ -294,7 +294,7 @@ impl App {
         self.mod_log(Platform::Twitch, ch, said);
       }
       Chat::ClearUser { login, secs } => {
-        tab.clear_user(&login);
+        tab.clear_user(Platform::Twitch, &login);
         let row = removed(Platform::Twitch, Removed::User(&login, secs));
         self.mod_log(Platform::Twitch, ch, row.body.to_string());
         self.chatlog.log(Platform::Twitch, ch, &row);
@@ -764,7 +764,7 @@ impl App {
         self.chatlog.log(platform, &key, &row);
         for i in self.tabs_with(platform, &key) {
           let v = self.tabs[i].chat();
-          v.clear_user(&login);
+          v.clear_user(platform, &login);
           v.push_act(row.clone(), self.set.collapse_timeouts);
           self.touched(i);
         }
