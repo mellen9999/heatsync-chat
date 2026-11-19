@@ -674,6 +674,7 @@
  "keys.anywhere.16": "zoom",
  "keys.anywhere.17": "desplazar una página",
  "keys.anywhere.18": "esta pantalla",
+ "keys.anywhere.19": "inicio, final de línea; inicio, final del chat (cuadro vacío)",
  "keys.anywhere.name": "en cualquier parte",
  "keys.chat.01": "elige una línea; la línea ↳ de una respuesta abre su hilo; una línea de \"en vivo\" abre ese canal (su pestaña, o una temporal)",
  "keys.chat.02": "menú de línea: responder, copiar, nota, silenciar, bloquear, mod, fijar",

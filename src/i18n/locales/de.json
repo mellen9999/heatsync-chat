@@ -674,6 +674,7 @@
  "keys.anywhere.16": "zoom",
  "keys.anywhere.17": "eine Seite scrollen",
  "keys.anywhere.18": "dieser Bildschirm",
+ "keys.anywhere.19": "zeilenanfang, -ende; Anfang, Ende des Chats (leeres Feld)",
  "keys.anywhere.name": "überall",
  "keys.chat.01": "eine Zeile wählen; die ↳-Zeile einer Antwort öffnet ihren Thread; eine Live-Zeile öffnet den Kanal (seinen Tab, sonst einen temporären)",
  "keys.chat.02": "zeilenmenü: antworten, kopieren, notiz, stummschalten, blockieren, mod, anheften",

@@ -90,3 +90,26 @@ fn row_mode_g_and_home_jump_to_the_first_line_and_shift_g_and_end_to_the_last() 
   assert!(app.rows, "still in row mode");
   assert_eq!(app.line.text, "draft", "the box is untouched");
 }
+
+#[test]
+fn home_and_end_reach_the_list_from_an_empty_box_and_move_the_caret_otherwise() {
+  let mut app = boot();
+  let f = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  app.select(f);
+  for i in 0..60 {
+    let mut m = Message::system(i + 1, Platform::Twitch, "");
+    (m.kind, m.login, m.nick, m.body) = (MsgKind::Chat, "bob".into(), "bob".into(), format!("line {i}").into());
+    app.tabs[f].view.push(m);
+  }
+  app.redraw();
+  assert!(app.tabs[f].view.pinned());
+  app.on_key(Key::Named(NamedKey::Home), None);
+  assert!(!app.tabs[f].view.pinned(), "home on an empty box goes to the top of the list");
+  app.on_key(Key::Named(NamedKey::End), None);
+  assert!(app.tabs[f].view.pinned(), "end on an empty box is the tail again");
+  // with text they keep moving the caret
+  app.line.set_text("draft".to_owned());
+  app.on_key(Key::Named(NamedKey::Home), None);
+  assert!(app.tabs[f].view.pinned(), "the list stays put");
+  assert_eq!(app.line.cursor, 0);
+}

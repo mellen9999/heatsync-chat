@@ -670,6 +670,7 @@
  "keys.anywhere.16": "縮放",
  "keys.anywhere.17": "捲動一頁",
  "keys.anywhere.18": "此畫面",
+ "keys.anywhere.19": "行首、行尾; 聊天頂部、底部 (輸入框為空時)",
  "keys.anywhere.name": "全域",
  "keys.chat.01": "選取一行；回覆的 ↳ 行會開啟其貼文串；開播行會開啟該頻道（其分頁，否則臨時分頁）",
  "keys.chat.02": "行選單：回覆、複製、備註、靜音、封鎖、mod、置頂",

@@ -21,6 +21,12 @@ impl App {
     if self.row_key(&key) {
       return;
     }
+    // an empty box has no caret to move: home and end go to the list (the ext's rule); with text they stay the caret's
+    if let Key::Named(e @ (NamedKey::Home | NamedKey::End)) = key
+      && self.line.text.trim().is_empty()
+    {
+      return self.list_edge(e == NamedKey::Home);
+    }
     self.sync_suggest();
     if self.suggest_key(&key) {
       return;
@@ -104,6 +110,20 @@ impl App {
       self.chip_spaced();
     }
     self.input_dirty = true;
+    self.wake();
+  }
+
+  // the list's far ends: the top asks for older lines like reaching it by wheel does, the tail is live again
+  fn list_edge(&mut self, top: bool) {
+    if top {
+      let res = &mut self.res;
+      if let Some(t) = self.tabs.get_mut(self.active) {
+        t.view.scroll_to_top(res);
+      }
+      self.logs_edge();
+    } else if let Some(v) = self.view() {
+      v.scroll_to_bottom();
+    }
     self.wake();
   }
 

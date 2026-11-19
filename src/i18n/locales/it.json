@@ -674,6 +674,7 @@
  "keys.anywhere.16": "zoom",
  "keys.anywhere.17": "scorri una pagina",
  "keys.anywhere.18": "questa schermata",
+ "keys.anywhere.19": "inizio, fine riga; inizio, fine della chat (campo vuoto)",
  "keys.anywhere.name": "ovunque",
  "keys.chat.01": "scegli una riga; la riga ↳ di una risposta apre il suo thread; una riga \"è andato live\" apre quel canale (il suo tab, o uno temporaneo)",
  "keys.chat.02": "menu riga: rispondi, copia, nota, silenzia, blocca, mod, fissa",

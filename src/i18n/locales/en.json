@@ -674,6 +674,7 @@
  "keys.anywhere.16": "zoom",
  "keys.anywhere.17": "scroll a page",
  "keys.anywhere.18": "this screen",
+ "keys.anywhere.19": "start, end of line; top, tail of chat (empty box)",
  "keys.anywhere.name": "anywhere",
  "keys.chat.01": "pick a line; a reply's ↳ line opens its thread; a went-live line opens that channel (its tab, else a temporary one)",
  "keys.chat.02": "line menu: reply, copy, note, mute, block, mod, pin",
