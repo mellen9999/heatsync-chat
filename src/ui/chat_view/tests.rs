@@ -1521,6 +1521,20 @@ fn lines_below_count_while_scrolled_up_and_clear_at_the_bottom() {
 }
 
 #[test]
+#[test]
+fn a_list_that_fits_is_not_paused_by_a_wheel_notch() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(200, "c".into());
+  v.resize(400);
+  for i in 0..3 {
+    v.push(plain(&format!("p{i}"), "hello"));
+  }
+  v.take_paint(&mut res, 600);
+  v.scroll_by(120, &mut res);
+  assert_eq!(v.jump(), None);
+  assert!(v.pinned(), "a list that fits stays on the tail");
+}
+
 fn a_list_read_from_the_top_has_no_jump_bar() {
   let mut res = Res::new(1.0);
   let mut v = ChatView::new(50, "feed".into());

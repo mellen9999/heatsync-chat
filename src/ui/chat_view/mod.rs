@@ -1092,8 +1092,9 @@ impl ChatView {
   // px > 0 moves toward older lines (up the screen)
   pub fn scroll_by(&mut self, px: i32, res: &mut Res) {
     let max = self.content_height(res);
-    self.scroll =
-      if self.top { (self.scroll - px).clamp(0, (max - self.view_h).max(0)) } else { (self.scroll + px).clamp(0, max) };
+    // a list that fits on screen has nothing above the view to read: it never leaves the tail
+    let room = (max - self.view_h).max(0);
+    self.scroll = if self.top { (self.scroll - px).clamp(0, room) } else { (self.scroll + px).clamp(0, room) };
     self.stale = true;
   }
 
