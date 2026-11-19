@@ -327,7 +327,7 @@ async fn follow(
       info.profile_id.ok_or(FollowFail::NotOnHeatsync)?
     }
   };
-  let url = format!("{ORIGIN}/api/follow/{}", crate::util::path_seg(&id));
+  let url = follow_url(&id, login, want);
   let req = if want { http.post(url) } else { http.delete(url) };
   let (status, v) = call(req.bearer_auth(token)).await;
   let words = v.get("error").and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
@@ -340,6 +340,16 @@ async fn follow(
     429 => Err(FollowFail::Limited),
     _ => Err(FollowFail::Other),
   }
+}
+
+// a kick id alone can't be turned into a profile: a follow of one carries the name (the server checks the pair)
+fn follow_url(id: &str, login: &str, want: bool) -> String {
+  let hint = if want && id.starts_with("kick_") {
+    format!("?kickUsername={}", crate::util::path_seg(login))
+  } else {
+    String::new()
+  };
+  format!("{ORIGIN}/api/follow/{}{hint}", crate::util::path_seg(id))
 }
 
 // POST /api/card: profile, followage, archive counts in one trip (works logged out; a login adds how you relate)
@@ -852,6 +862,17 @@ pub fn classify_dm(status: u16, v: &Value, login: &str) -> Fail {
 
 #[cfg(test)]
 mod tests {
+  #[test]
+  fn a_follow_of_a_kick_account_carries_the_name() {
+    assert_eq!(
+      super::follow_url("kick_9", "Some-One", true),
+      format!("{}/api/follow/kick_9?kickUsername=Some-One", super::ORIGIN)
+    );
+    assert!(super::follow_url("kick_9", "x", false).ends_with("/api/follow/kick_9"));
+    assert!(super::follow_url("yt_UCabc", "x", true).ends_with("/api/follow/yt_UCabc"));
+    assert!(super::follow_url("u42", "x", true).ends_with("/api/follow/u42"));
+  }
+
   use super::*;
 
   #[test]

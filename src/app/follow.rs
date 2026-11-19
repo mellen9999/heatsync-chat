@@ -3,6 +3,7 @@
 use super::App;
 use super::card::Load;
 use crate::i18n::{f, t};
+use crate::model::card::shadow_id;
 use crate::model::ident;
 use crate::model::message::Platform;
 use crate::net::Cmd;
@@ -16,10 +17,12 @@ impl App {
       return self.say(if want { t("app.follow.usage_follow") } else { t("app.follow.usage_unfollow") });
     }
     let platform = self.tabs.get(self.active).and_then(|t| t.sources.first()).map_or(Platform::Twitch, |s| s.0);
-    self.follow(platform, login.into(), want);
+    self.follow(platform, login.into(), "", want);
   }
 
-  pub(super) fn follow(&mut self, platform: Platform, login: Box<str>, want: bool) {
+  // `uid` is the id on their chat line ("" when typed): a kick or youtube chatter who never signed up is
+  // followed by the account heatsync makes for them
+  pub(super) fn follow(&mut self, platform: Platform, login: Box<str>, uid: &str, want: bool) {
     if self.me.is_none() {
       return self.say(t("app.login_first_ctrl_l"));
     }
@@ -27,8 +30,8 @@ impl App {
       Some(Load::Done(i)) if i.follow == Some(want) => {
         return self.say(f(if want { "app.follow.already" } else { "app.follow.not_following" }, &[("login", &login)]));
       }
-      Some(Load::Done(i)) => i.profile_id.clone(),
-      _ => None,
+      Some(Load::Done(i)) => i.profile_id.clone().or_else(|| shadow_id(platform, uid)),
+      _ => shadow_id(platform, uid),
     };
     self.net.send(Cmd::Social(social::Cmd::Follow { platform, login, profile_id, want }));
   }
@@ -102,8 +105,18 @@ mod tests {
     app.on_net(NetEvent::Card { platform: Platform::Twitch, login: "bob".into(), res: Ok(info) });
     app.follow_slash("bob", false);
     assert!(asked(&mut rx).is_empty(), "already not following: nothing asked");
-    app.follow(Platform::Twitch, "bob".into(), true);
+    app.follow(Platform::Twitch, "bob".into(), "", true);
     assert_eq!(asked(&mut rx), ["bob Some(\"u42\") true"]);
+    // a kick / youtube chatter with no account: the id on their line is the account heatsync makes
+    let nobody = Info { follow: None, ..Info::default() };
+    app.on_net(NetEvent::Card { platform: Platform::Kick, login: "kim".into(), res: Ok(nobody) });
+    app.follow(Platform::Kick, "kim".into(), "123", true);
+    app.follow(Platform::Youtube, "yan".into(), "UC8yh-UI81uUteMDSOwQyx1g", true);
+    app.follow(Platform::Twitch, "tom".into(), "55", true);
+    assert_eq!(
+      asked(&mut rx),
+      ["kim Some(\"kick_123\") true", "yan Some(\"yt_UC8yh-UI81uUteMDSOwQyx1g\") true", "tom None true"]
+    );
     app.on_net(NetEvent::Followed { platform: Platform::Twitch, login: "bob".into(), want: true, res: Ok(()) });
     assert!(matches!(app.cards.get(Platform::Twitch, "bob"), Some(Load::Done(i)) if i.follow == Some(true)));
   }

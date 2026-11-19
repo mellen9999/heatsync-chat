@@ -38,6 +38,16 @@ pub struct Info {
   pub live: bool,
 }
 
+// the account a kick or youtube chatter gets on heatsync when they never signed up (`kick_<id>`,
+// `yt_UC…`): the server makes it when someone follows them. from the id on their chat line
+pub fn shadow_id(platform: crate::model::message::Platform, user_id: &str) -> Option<Box<str>> {
+  use crate::cosmetics::id::PaintId;
+  match PaintId::of(platform.name(), user_id)? {
+    p @ (PaintId::Kick(_) | PaintId::Youtube(_)) => Some(p.wire().into()),
+    _ => None,
+  }
+}
+
 // "4y 3mo", "2mo 5d", "3d", "5h", "just now"
 pub fn ago(now: i64, then: i64) -> String {
   let days = (now - then).max(0) / 86_400_000;
@@ -295,6 +305,17 @@ mod tests {
     assert!(!live(json!({ "twitch_is_live": "yes" })));
     assert!(!live(json!({ "is_anonymous": true, "twitch_is_live": true })));
     assert!(!parse(&json!({}), NOW).live);
+  }
+
+  #[test]
+  fn a_chatter_with_no_account_gets_the_one_heatsync_makes_from_their_line() {
+    use crate::model::message::Platform::{Kick, Twitch, Youtube};
+    const UC: &str = "UC8yh-UI81uUteMDSOwQyx1g";
+    assert_eq!(shadow_id(Kick, "123").as_deref(), Some("kick_123"));
+    assert_eq!(shadow_id(Youtube, UC).as_deref(), Some(format!("yt_{UC}").as_str()));
+    for (p, id) in [(Twitch, "55"), (Kick, ""), (Kick, "abc"), (Kick, "0"), (Youtube, "nope")] {
+      assert_eq!(shadow_id(p, id), None, "{id}");
+    }
   }
 
   #[test]

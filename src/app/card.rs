@@ -9,7 +9,7 @@ use super::cardclip::Clip;
 use super::overlay::Overlay;
 use super::pop::{Act, Subject};
 use crate::cosmetics::id::PaintId;
-use crate::model::card::Info;
+use crate::model::card::{Info, shadow_id};
 use crate::model::message::Platform;
 use crate::model::tabs::Kind;
 use crate::net::{Cmd, social};
@@ -109,7 +109,10 @@ impl App {
   fn card_rows(&self, who: &Subject, info: &Load, clip: &Clip) -> Vec<(Act, String)> {
     let mut rows = vec![(Act::Logs, t("app.card.chat_logs").to_owned())];
     if let Load::Done(i) = info
-      && let Some(f) = i.follow.filter(|_| self.me.is_some() && !who.own)
+      && self.me.is_some()
+      && !who.own
+      // follow unknown (no account to ask about): a kick or youtube chatter can still be followed
+      && let Some(f) = i.follow.or_else(|| shadow_id(who.platform, &who.user_id).map(|_| false))
     {
       rows.push((Act::Follow(!f), if f { t("app.card.unfollow") } else { t("app.card.follow") }.into()));
     }
@@ -284,5 +287,49 @@ impl App {
     let r = view::draw(&mut self.canvas, &mut self.res.text, area, &v, &mut c.menu);
     c.rect = r;
     Some(r)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::net::Net;
+
+  fn rows(app: &App, p: Platform, uid: &str, info: Info) -> Vec<String> {
+    let who = Subject {
+      platform: p,
+      chan: "room".into(),
+      login: "kim".into(),
+      nick: "kim".into(),
+      user_id: uid.into(),
+      msg_id: "".into(),
+      color: 0,
+      own: false,
+      paint: None,
+    };
+    app.card_rows(&who, &Load::Done(info), &Clip::default()).into_iter().map(|r| r.1).collect()
+  }
+
+  #[test]
+  fn a_kick_or_youtube_chatter_with_no_account_can_still_be_followed_from_the_card() {
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let has = |r: Vec<String>| r.iter().any(|l| l == t("app.card.follow"));
+    let none = || Info::default();
+    assert!(!has(rows(&app, Platform::Kick, "123", none())), "signed out: no follow row");
+    app.me = Some(crate::net::auth::Me {
+      username: "mellen".into(),
+      platform: "twitch".into(),
+      twitch: Some("mellen".into()),
+      twitch_id: Some(1),
+      names: vec!["mellen".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    assert!(has(rows(&app, Platform::Kick, "123", none())));
+    assert!(has(rows(&app, Platform::Youtube, "UC8yh-UI81uUteMDSOwQyx1g", none())));
+    assert!(!has(rows(&app, Platform::Twitch, "55", none())), "twitch ids are not shadowed here");
+    assert!(!has(rows(&app, Platform::Kick, "", none())), "no id on the line");
   }
 }

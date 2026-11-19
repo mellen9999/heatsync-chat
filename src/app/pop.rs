@@ -337,7 +337,7 @@ impl App {
         self.net.send(Cmd::Relink("automod"));
       }
       (Act::BlockedTerms, Some(who), _) => self.blocked_open(who.chan),
-      (Act::Follow(want), Some(who), _) => self.follow(who.platform, who.login, want),
+      (Act::Follow(want), Some(who), _) => self.follow(who.platform, who.login, &who.user_id, want),
       (Act::Warn, Some(who), _) => self.type_into_line(&format!("/warn {} ", who.login)),
       (Act::Shoutout, Some(who), _) => self.suite_run(who.chan, crate::model::modsuite::Cmd::Shoutout(who.login)),
       (Act::Vip(add), Some(who), _) => self.chan_tools_run(who.chan, crate::model::chantools::Cmd::Vip(who.login, add)),
