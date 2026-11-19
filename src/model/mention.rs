@@ -1,6 +1,7 @@
 // who counts as "you" and which lines mention you (ext mentions.js isMention): the sender is not
 // you, a reply to your line, `@name` anywhere, or `name` as a whole word, case-insensitive.
 // names are your heatsync name plus the twitch / kick / youtube names linked to it
+use super::hsorigin::bare;
 use super::ident;
 use super::seen::Seen;
 use crate::model::message::Message;
@@ -46,7 +47,7 @@ impl Mentions {
   pub fn set<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) {
     self.names.clear();
     for n in names {
-      let n = n.trim().to_ascii_lowercase();
+      let n = bare(n.trim()).to_ascii_lowercase();
       if (1..=64).contains(&n.len()) && n.bytes().all(ident::name_byte) && !self.names.iter().any(|x| **x == *n) {
         self.names.push(n.into());
       }
@@ -67,6 +68,7 @@ impl Mentions {
   }
 
   pub fn is_me(&self, who: &str) -> bool {
+    let who = bare(who);
     !who.is_empty() && self.names.iter().any(|n| n.eq_ignore_ascii_case(who))
   }
 
@@ -147,6 +149,20 @@ mod tests {
     assert!(!m.hit(&r));
     // no names yet (logged out): nothing pings
     assert!(!Mentions::default().hit(&line("bob", "@mellen")));
+  }
+
+  #[test]
+  fn a_youtube_handle_is_you_with_or_without_the_at() {
+    let mut m = Mentions::default();
+    m.set(["@YtGuy", "mellen"]);
+    assert!(m.is_me("@ytguy") && m.is_me("YTGUY") && m.is_me("@MELLEN"));
+    assert!(!m.is_me("@") && !m.is_me("") && !m.is_me("@@ytguy") && !m.is_me("@bob"));
+    let mut yt = line("@YtGuy", "@ytguy hi");
+    yt.platform = Platform::Youtube;
+    assert!(m.mine(&yt) && !m.hit(&yt), "your own youtube line never pings you");
+    let mut r = line("bob", "yeah");
+    r.reply_to = Some("@ytguy".into());
+    assert!(m.hit(&r), "a reply to @you is a reply to you");
   }
 
   #[test]

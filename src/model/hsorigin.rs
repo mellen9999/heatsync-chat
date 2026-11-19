@@ -9,9 +9,14 @@ const ROOMS: usize = 256;
 const IDS: usize = 4000;
 const SENDS: usize = 512;
 
+// a name without the one `@` youtube writes before a handle (the heatsync account stores it bare)
+pub fn bare(name: &str) -> &str {
+  name.strip_prefix('@').unwrap_or(name)
+}
+
 // a room's key as both ends spell it: lowercase, no youtube `@`
 pub fn room(chan: &str) -> Box<str> {
-  chan.trim_start_matches('@').to_ascii_lowercase().into()
+  bare(chan).to_ascii_lowercase().into()
 }
 
 #[derive(Default)]
