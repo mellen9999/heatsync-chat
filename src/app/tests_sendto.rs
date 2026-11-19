@@ -7,6 +7,7 @@ use crate::model::message::{Kind as MsgKind, Message};
 use crate::net::Cmd;
 use crate::net::auth::Me;
 use crate::net::irc::Chat;
+use winit::keyboard::{Key, NamedKey};
 
 fn me() -> Me {
   Me {
@@ -367,4 +368,18 @@ fn every_leg_of_a_line_carries_its_one_send_id() {
     _ => None,
   });
   assert!(next.is_some());
+}
+
+// an Enter that picks an IME candidate is not a send: the line waits for the next one
+#[test]
+fn enter_while_an_ime_composes_does_not_send() {
+  let (mut app, mut rx) = boot();
+  app.line.set_text("hello".into());
+  app.ime.set("にほ", Some((0, 6)));
+  app.key_insert(Key::Named(NamedKey::Enter), None);
+  assert!(sent(&mut rx).is_empty());
+  assert_eq!(app.line.text, "hello");
+  app.ime.clear();
+  app.key_insert(Key::Named(NamedKey::Enter), None);
+  assert_eq!(sent(&mut rx).len(), 3);
 }

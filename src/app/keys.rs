@@ -9,6 +9,11 @@ use winit::keyboard::{Key, NamedKey};
 
 impl App {
   pub(super) fn key_insert(&mut self, key: Key<&str>, text: Option<&str>) {
+    // an Enter that commits an IME candidate is not a send (the ext's isComposing / keyCode 229 guard): the
+    // half-typed line stays in the box
+    if key == Key::Named(NamedKey::Enter) && self.ime.composing() {
+      return;
+    }
     let ctrl = self.mods.control_key();
     if self.global_key(key.clone()) {
       return;
