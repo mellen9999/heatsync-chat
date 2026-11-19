@@ -983,6 +983,14 @@ pub(super) fn body(
     }
     let found = find_word(&mut res.sources(), chan, m, a, b, word);
     let blocked = found.as_ref().is_some_and(|f| res.blocked.contains(word, &f.0));
+    // a picture that failed to load reads as its name, plain text (ext b1f4970b): the slot takes the word's
+    // width. the cache tries it again later and a relayout follows, so a late success swaps the picture back
+    let found = found.filter(|f| {
+      blocked || {
+        let id = res.images.id(&f.0, px);
+        !res.images.failed(id)
+      }
+    });
     match found {
       // a blocked overlay just vanishes; a blocked base keeps its slot
       Some((_, _, true, _)) if (prev_emote || emoji.is_some()) && blocked => continue,

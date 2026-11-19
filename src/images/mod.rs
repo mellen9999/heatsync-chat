@@ -288,7 +288,8 @@ impl Images {
     std::mem::take(&mut self.wanted)
   }
 
-  // returns true when the real width differs from what layout guessed (rows must relayout)
+  // returns true when rows must relayout: the real width differs from what layout guessed, or it failed and
+  // its slot is now the emote's name
   pub fn loaded(&mut self, id: ImgId, h: u32, res: Result<Decoded, String>) -> bool {
     let Some(i) = self.ix(id) else { return false };
     let want = self.target(&self.slots[i]);
@@ -312,7 +313,8 @@ impl Images {
         s.state = State::Failed;
         s.fails = s.fails.saturating_add(1);
         s.failed_ms = self.epoch.elapsed().as_millis() as u64;
-        false
+        // rows that laid out the picture's slot take the name's width instead
+        true
       }
     }
   }
@@ -396,7 +398,7 @@ mod tests {
   fn failed_at(im: &mut Images, id: ImgId, at: u64) {
     let h = im.target(&im.slots[id as usize]);
     im.slots[id as usize].state = State::Loading;
-    assert!(!im.loaded(id, h, Err("http 503".into())));
+    assert!(im.loaded(id, h, Err("http 503".into())));
     im.slots[id as usize].failed_ms = at;
   }
 

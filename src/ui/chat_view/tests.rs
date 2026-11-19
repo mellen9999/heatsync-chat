@@ -36,7 +36,7 @@ fn picture_waits_for_its_size_then_folds_the_link() {
   let l = boxes(&mut res);
   assert_eq!(l.boxes.len(), 1);
   // the same size again needs no relayout; a failure removes the slot
-  assert!(!res.images.loaded(id, target, Err("x".into())));
+  assert!(res.images.loaded(id, target, Err("x".into())), "a failure lays out again");
   assert_eq!(boxes(&mut res).boxes.len(), 0);
   res.media = false;
   assert!(boxes(&mut res).embed.is_none());
@@ -571,6 +571,31 @@ fn emote_hit_testing_and_blocked_slot() {
   res.blocked.block("Kappa", url, Scope::Channel);
   v.relayout();
   assert_eq!(&*scan(&mut v, &mut res).unwrap().name, "Kappa");
+}
+
+#[test]
+fn an_emote_that_failed_to_load_is_its_name() {
+  use crate::emotes::{Emote, Provider};
+  let mut res = Res::new(1.0);
+  let url = "https://cdn.7tv.app/emote/01ABC/1x.webp";
+  res.emotes.set(
+    None,
+    Provider::SevenTv,
+    [("Kappa".into(), Emote { url: url.into(), w: 28, h: 28, zero_width: false })].into(),
+  );
+  let mut m = Fake::new(1).message(1);
+  m.kind = Kind::Chat;
+  m.emotes = Box::new([]);
+  m.body = "hi Kappa yo".into();
+  let lay = |res: &mut Res| layout_row(res, "c", &m, 0, 400, NO_OPTS);
+  let before = lay(&mut res);
+  assert_eq!(before.boxes.len(), 1, "still loading: its slot");
+  let id = before.boxes[0].img;
+  res.images.want(id);
+  let (id, _, target) = res.images.take_wanted().remove(0);
+  assert!(res.images.loaded(id, target, Err("x".into())));
+  let after = lay(&mut res);
+  assert_eq!(after.boxes.len(), 0, "failed: no slot, the word is text");
 }
 
 #[test]
