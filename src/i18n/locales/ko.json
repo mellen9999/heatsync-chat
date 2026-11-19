@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "youtube로 전송 안 됨: {why}",
  "net1.session.uploading": "업로드 중…",
  "net1.session.yt_post_allowed": "youtube 포스팅 허용됨",
+ "net1.session.yt_post_unticked": "youtube 연결됨, 포스팅 허용 안 됨: 연결할 때 체크박스를 선택하세요",
  "net1.slow_down": "천천히",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login}은(는) heatsync에 없음",

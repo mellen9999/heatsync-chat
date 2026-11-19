@@ -1305,6 +1305,7 @@
  "net1.session.not_sent_youtube": "netrimis pe youtube: {why}",
  "net1.session.uploading": "se încarcă…",
  "net1.session.yt_post_allowed": "postare youtube permisă",
+ "net1.session.yt_post_unticked": "youtube conectat, postarea nu e permisă: bifează caseta la conectare",
  "net1.slow_down": "încet",
  "net1.social.dms_failed": "dm-uri: {why}",
  "net1.social.not_on_heatsync": "{login} nu e pe heatsync",

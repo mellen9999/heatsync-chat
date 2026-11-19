@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "niet naar youtube verstuurd: {why}",
  "net1.session.uploading": "uploaden…",
  "net1.session.yt_post_allowed": "youtube-posten toegestaan",
+ "net1.session.yt_post_unticked": "youtube gekoppeld, posten niet toegestaan: vink het vakje aan bij het koppelen",
  "net1.slow_down": "rustig aan",
  "net1.social.dms_failed": "dms: {why}",
  "net1.social.not_on_heatsync": "{login} zit niet op heatsync",

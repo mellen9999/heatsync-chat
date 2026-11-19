@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "youtube'a gönderilmedi: {why}",
  "net1.session.uploading": "yükleniyor…",
  "net1.session.yt_post_allowed": "youtube paylaşımına izin verildi",
+ "net1.session.yt_post_unticked": "youtube bağlandı, paylaşıma izin yok: bağlarken kutuyu işaretle",
  "net1.slow_down": "yavaşla",
  "net1.social.dms_failed": "dm'ler: {why}",
  "net1.social.not_on_heatsync": "{login} heatsync'te yok",

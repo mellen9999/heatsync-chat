@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "未送到 youtube：{why}",
  "net1.session.uploading": "上傳中…",
  "net1.session.yt_post_allowed": "已允許 youtube 發文",
+ "net1.session.yt_post_unticked": "youtube 已連結，未允許發文：連結時請勾選該選項",
  "net1.slow_down": "慢一點",
  "net1.social.dms_failed": "私訊：{why}",
  "net1.social.not_on_heatsync": "{login} 不在 heatsync",

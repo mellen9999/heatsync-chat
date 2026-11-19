@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "tak dihantar ke youtube: {why}",
  "net1.session.uploading": "memuat naik…",
  "net1.session.yt_post_allowed": "siaran youtube dibenarkan",
+ "net1.session.yt_post_unticked": "youtube dipautkan, siaran tidak dibenarkan: tandakan kotak semasa memaut",
  "net1.slow_down": "perlahan",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} tiada di heatsync",

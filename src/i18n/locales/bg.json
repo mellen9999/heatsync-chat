@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "не е изпратено към youtube: {why}",
  "net1.session.uploading": "качвам…",
  "net1.session.yt_post_allowed": "публикуването в youtube е разрешено",
+ "net1.session.yt_post_unticked": "youtube е свързан, публикуването не е разрешено: отметни полето при свързване",
  "net1.slow_down": "по-бавно",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} не е в heatsync",

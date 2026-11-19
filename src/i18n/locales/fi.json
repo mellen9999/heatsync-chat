@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "ei lähetetty youtubeen: {why}",
  "net1.session.uploading": "ladataan…",
  "net1.session.yt_post_allowed": "youtube-postaus sallittu",
+ "net1.session.yt_post_unticked": "youtube yhdistetty, postaus ei sallittu: rastita ruutu yhdistäessä",
  "net1.slow_down": "hiljennä",
  "net1.social.dms_failed": "DM:t: {why}",
  "net1.social.not_on_heatsync": "{login} ei ole heatsyncissä",

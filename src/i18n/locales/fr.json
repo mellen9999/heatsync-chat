@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "non envoyé à youtube : {why}",
  "net1.session.uploading": "envoi…",
  "net1.session.yt_post_allowed": "poster sur youtube autorisé",
+ "net1.session.yt_post_unticked": "youtube lié, poster non autorisé : coche la case en liant",
  "net1.slow_down": "ralentis",
  "net1.social.dms_failed": "dms : {why}",
  "net1.social.not_on_heatsync": "{login} n'est pas sur heatsync",

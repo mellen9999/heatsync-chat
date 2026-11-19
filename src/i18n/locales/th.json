@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "ไม่ได้ส่งไป youtube: {why}",
  "net1.session.uploading": "กำลังอัปโหลด…",
  "net1.session.yt_post_allowed": "อนุญาตการโพสต์ youtube แล้ว",
+ "net1.session.yt_post_unticked": "เชื่อม youtube แล้ว แต่ไม่อนุญาตให้โพสต์: ติ๊กช่องตอนเชื่อม",
  "net1.slow_down": "ช้าลงหน่อย",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} ไม่ได้อยู่บน heatsync",

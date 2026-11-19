@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "hindi naipadala sa youtube: {why}",
  "net1.session.uploading": "nag-a-upload…",
  "net1.session.yt_post_allowed": "pinayagan ang pag-post sa youtube",
+ "net1.session.yt_post_unticked": "naka-link ang youtube, hindi pinayagan ang pag-post: lagyan ng tsek ang kahon kapag nag-link",
  "net1.slow_down": "dahan-dahan",
  "net1.social.dms_failed": "dms: {why}",
  "net1.social.not_on_heatsync": "wala si {login} sa heatsync",

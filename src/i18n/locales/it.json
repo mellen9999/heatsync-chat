@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "non inviato a youtube: {why}",
  "net1.session.uploading": "caricamento…",
  "net1.session.yt_post_allowed": "pubblicazione su youtube consentita",
+ "net1.session.yt_post_unticked": "youtube collegato, pubblicazione non consentita: spunta la casella quando colleghi",
  "net1.slow_down": "rallenta",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} non è su heatsync",

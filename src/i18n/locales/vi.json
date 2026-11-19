@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "chưa gửi tới youtube: {why}",
  "net1.session.uploading": "đang tải lên…",
  "net1.session.yt_post_allowed": "đã cho phép đăng lên youtube",
+ "net1.session.yt_post_unticked": "đã liên kết youtube, chưa cho phép đăng: hãy tick ô khi liên kết",
  "net1.slow_down": "từ từ thôi",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} không có trên heatsync",

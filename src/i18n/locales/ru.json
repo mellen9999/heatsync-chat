@@ -1305,6 +1305,7 @@
  "net1.session.not_sent_youtube": "не отправлено в youtube: {why}",
  "net1.session.uploading": "загружаю…",
  "net1.session.yt_post_allowed": "посты в youtube разрешены",
+ "net1.session.yt_post_unticked": "youtube привязан, посты не разрешены: отметь галочку при привязке",
  "net1.slow_down": "помедленнее",
  "net1.social.dms_failed": "лс: {why}",
  "net1.social.not_on_heatsync": "{login} нет на heatsync",

@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "youtube पर नहीं गया: {why}",
  "net1.session.uploading": "अपलोड हो रहा है…",
  "net1.session.yt_post_allowed": "youtube पोस्टिंग की अनुमति मिली",
+ "net1.session.yt_post_unticked": "youtube जुड़ गया, पोस्टिंग की अनुमति नहीं: जोड़ते समय बॉक्स चुनें",
  "net1.slow_down": "धीमे",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} heatsync पर नहीं है",

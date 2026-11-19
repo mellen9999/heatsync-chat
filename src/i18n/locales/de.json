@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "nicht an youtube gesendet: {why}",
  "net1.session.uploading": "lade hoch…",
  "net1.session.yt_post_allowed": "youtube-Posten erlaubt",
+ "net1.session.yt_post_unticked": "youtube verknüpft, Posten nicht erlaubt: setz das Häkchen beim Verknüpfen",
  "net1.slow_down": "langsamer",
  "net1.social.dms_failed": "dms: {why}",
  "net1.social.not_on_heatsync": "{login} ist nicht auf heatsync",

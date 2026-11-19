@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "δεν στάλθηκε στο youtube: {why}",
  "net1.session.uploading": "ανέβασμα…",
  "net1.session.yt_post_allowed": "επιτράπηκε η ανάρτηση στο youtube",
+ "net1.session.yt_post_unticked": "το youtube συνδέθηκε, η ανάρτηση δεν επιτρέπεται: τσέκαρε το πλαίσιο κατά τη σύνδεση",
  "net1.slow_down": "πιο αργά",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "ο {login} δεν είναι στο heatsync",

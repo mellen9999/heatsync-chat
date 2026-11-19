@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "not sent to youtube: {why}",
  "net1.session.uploading": "uploading…",
  "net1.session.yt_post_allowed": "youtube posting allowed",
+ "net1.session.yt_post_unticked": "youtube linked, posting not allowed: tick the box when you link",
  "net1.slow_down": "slow down",
  "net1.social.dms_failed": "dms: {why}",
  "net1.social.not_on_heatsync": "{login} isn't on heatsync",

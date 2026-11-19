@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "nem ment el youtube-ra: {why}",
  "net1.session.uploading": "feltöltés…",
  "net1.session.yt_post_allowed": "youtube posztolás engedélyezve",
+ "net1.session.yt_post_unticked": "youtube összekapcsolva, posztolás nem engedélyezett: pipáld be a négyzetet összekapcsoláskor",
  "net1.slow_down": "lassíts",
  "net1.social.dms_failed": "dm-ek: {why}",
  "net1.social.not_on_heatsync": "{login} nincs a heatsyncen",

@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "youtube に未送信: {why}",
  "net1.session.uploading": "アップロード中…",
  "net1.session.yt_post_allowed": "youtube 投稿を許可した",
+ "net1.session.yt_post_unticked": "youtube を連携した、投稿は未許可: 連携時にボックスにチェックを入れて",
  "net1.slow_down": "ゆっくりしてください",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} は heatsync にいません",

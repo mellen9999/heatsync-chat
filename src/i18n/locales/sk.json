@@ -1305,6 +1305,7 @@
  "net1.session.not_sent_youtube": "neodoslané na youtube: {why}",
  "net1.session.uploading": "nahrávam…",
  "net1.session.yt_post_allowed": "publikovanie na youtube povolené",
+ "net1.session.yt_post_unticked": "youtube prepojený, publikovanie nepovolené: zaškrtni políčko pri prepojení",
  "net1.slow_down": "spomaľ",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} nie je na heatsync",

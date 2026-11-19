@@ -270,7 +270,9 @@ impl Me {
 }
 
 pub enum Check {
-  Ok(Me, Option<String>),
+  // who we are, the renewed token if the server slid the session, and whether a youtube posting grant is stored
+  // (None = the server did not say)
+  Ok(Me, Option<String>, Option<bool>),
   // the server says this token is dead: drop it
   Expired,
 }
@@ -322,7 +324,8 @@ async fn check_at(http: &reqwest::Client, origin: &str, token: &str) -> Result<C
     youtube: s("youtube_username"),
     packs,
   };
-  Ok(Check::Ok(me, v.get("token").and_then(Value::as_str).filter(|t| valid_token(t)).map(Into::into)))
+  let renewed = v.get("token").and_then(Value::as_str).filter(|t| valid_token(t)).map(Into::into);
+  Ok(Check::Ok(me, renewed, u.get("youtube_can_post").and_then(Value::as_bool)))
 }
 
 // the user's twitch irc credential, brokered by heatsync (refreshed server-side)
@@ -469,6 +472,25 @@ mod tests {
     assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Unlinked));
     let o = serve("200 OK", r#"{"token":"abc123","username":"Mellen"}"#).await;
     assert_eq!(chat_token_at(&c, &o, "t").await, Ok(Chat::Ready("abc123".into(), "mellen".into())));
+  }
+
+  #[tokio::test]
+  async fn the_check_says_whether_youtube_posting_was_granted() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let c = reqwest::Client::new();
+    let can = |body: &'static str| {
+      let c = c.clone();
+      async move {
+        let o = serve("200 OK", body).await;
+        match check_at(&c, &o, "t").await {
+          Ok(Check::Ok(_, _, can)) => can,
+          _ => panic!("not ok"),
+        }
+      }
+    };
+    assert_eq!(can(r#"{"authenticated":true,"user":{"username":"a","youtube_can_post":true}}"#).await, Some(true));
+    assert_eq!(can(r#"{"authenticated":true,"user":{"username":"a","youtube_can_post":false}}"#).await, Some(false));
+    assert_eq!(can(r#"{"authenticated":true,"user":{"username":"a"}}"#).await, None, "an older server says nothing");
   }
 
   // one request to the loopback; the page it answers with

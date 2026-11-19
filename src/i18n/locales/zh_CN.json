@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "未发送到 youtube：{why}",
  "net1.session.uploading": "上传中…",
  "net1.session.yt_post_allowed": "已允许 youtube 发言",
+ "net1.session.yt_post_unticked": "youtube 已关联，未允许发言：关联时请勾选该选项",
  "net1.slow_down": "慢一点",
  "net1.social.dms_failed": "私信：{why}",
  "net1.social.not_on_heatsync": "{login} 不在 heatsync",

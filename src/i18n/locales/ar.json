@@ -1335,6 +1335,7 @@
  "net1.session.not_sent_youtube": "لم تُرسل إلى youtube: {why}",
  "net1.session.uploading": "جارٍ الرفع…",
  "net1.session.yt_post_allowed": "تم السماح بالنشر على youtube",
+ "net1.session.yt_post_unticked": "تم ربط youtube، النشر غير مسموح: حدّد الخانة عند الربط",
  "net1.slow_down": "أبطئ",
  "net1.social.dms_failed": "الرسائل الخاصة: {why}",
  "net1.social.not_on_heatsync": "{login} ليس على heatsync",

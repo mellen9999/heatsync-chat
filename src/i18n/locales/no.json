@@ -1295,6 +1295,7 @@
  "net1.session.not_sent_youtube": "ikke sendt til youtube: {why}",
  "net1.session.uploading": "laster opp…",
  "net1.session.yt_post_allowed": "youtube-posting tillatt",
+ "net1.session.yt_post_unticked": "youtube koblet, posting ikke tillatt: huk av boksen når du kobler",
  "net1.slow_down": "ro deg ned",
  "net1.social.dms_failed": "dm-er: {why}",
  "net1.social.not_on_heatsync": "{login} er ikke på heatsync",

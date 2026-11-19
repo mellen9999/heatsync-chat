@@ -35,6 +35,16 @@ fn next_in(ok: bool, fails: u32) -> Duration {
   if ok { RENEW } else { retry_in(fails) }
 }
 
+// what a youtube posting link did, once the account says: google lets the link through with its posting box
+// unticked and nothing is granted. an older server that does not say gets the plain "linked"
+fn posting_said(can_post: Option<bool>) -> String {
+  match can_post {
+    Some(true) => t("net1.session.yt_post_allowed").into(),
+    Some(false) => t("net1.session.yt_post_unticked").into(),
+    None => f("net1.session.linked", &[("name", auth::Provider::Youtube.name())]),
+  }
+}
+
 pub enum Cmd {
   // which platform to sign in with, and the twitch permission pack to ask for ("base", or
   // "whispers" to add twitch whispers; the other platforms ignore it)
@@ -105,6 +115,8 @@ struct State {
   refusals: u32,
   // the next step is the whole account check, even while only the chat login is being retried
   recheck: bool,
+  // a youtube posting link just finished: the next check says whether google's box was ticked
+  post_asked: bool,
   // when a 401 last made us check the login (see PROBE_GAP)
   probed: Option<Instant>,
   // kick + youtube sends: in order per channel, off the loop (a slow heatsync takes up to 12s)
@@ -167,6 +179,7 @@ pub async fn run(
     refusals: 0,
     recheck: false,
     probed: None,
+    post_asked: false,
     lanes: Lanes::default(),
   };
   let (emotes, emotes_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -435,11 +448,12 @@ impl State {
         self.token = Some(t);
         self.fresh();
         if w.link {
-          self.out.status(if w.pack == "post" {
-            crate::i18n::t("net1.session.yt_post_allowed").to_owned()
-          } else {
-            f("net1.session.linked", &[("name", w.provider.name())])
-          });
+          // a youtube posting link says nothing yet: google's box may have been left unticked, and only the
+          // account check after this knows (see `posting_said`)
+          self.post_asked = w.pack == "post";
+          if !self.post_asked {
+            self.out.status(f("net1.session.linked", &[("name", w.provider.name())]));
+          }
         }
         true
       }
@@ -530,7 +544,10 @@ impl State {
   async fn check(&mut self) -> Result<(), String> {
     let Some(t) = self.token.clone() else { return Ok(()) };
     let me = match auth::check(&self.http, &t).await {
-      Ok(Check::Ok(me, renewed)) => {
+      Ok(Check::Ok(me, renewed, can_post)) => {
+        if std::mem::take(&mut self.post_asked) {
+          self.out.status(posting_said(can_post));
+        }
         let t = renewed.unwrap_or(t);
         if let Err(e) = store::write_secret(TOKEN, &t) {
           eprintln!("saving the login: {e}");
@@ -543,6 +560,7 @@ impl State {
         me
       }
       Ok(Check::Expired) => {
+        self.post_asked = false;
         self.forget(crate::i18n::t("net1.logged_out_again"));
         return Ok(());
       }
@@ -728,6 +746,7 @@ mod tests {
       refusals: 0,
       recheck: false,
       probed: None,
+      post_asked: false,
       lanes: Lanes::default(),
     };
     (st, orx, irx)
@@ -758,6 +777,14 @@ mod tests {
     st.probed = None;
     st.token = None;
     assert!(!st.probe_due(), "signed out: nothing to check");
+  }
+
+  #[test]
+  fn a_youtube_posting_link_says_what_google_gave() {
+    assert_eq!(posting_said(Some(true)), t("net1.session.yt_post_allowed"));
+    assert_eq!(posting_said(Some(false)), t("net1.session.yt_post_unticked"));
+    assert_eq!(posting_said(None), f("net1.session.linked", &[("name", "youtube")]));
+    assert!(t("net1.session.yt_post_unticked").contains("tick"), "the english tells what to do");
   }
 
   #[test]

@@ -1285,6 +1285,7 @@
  "net1.session.not_sent_youtube": "tidak terkirim ke youtube: {why}",
  "net1.session.uploading": "mengunggah…",
  "net1.session.yt_post_allowed": "posting youtube diizinkan",
+ "net1.session.yt_post_unticked": "youtube terhubung, posting tidak diizinkan: centang kotaknya saat menautkan",
  "net1.slow_down": "santai",
  "net1.social.dms_failed": "dm: {why}",
  "net1.social.not_on_heatsync": "{login} tidak ada di heatsync",
