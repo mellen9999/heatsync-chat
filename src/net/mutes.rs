@@ -10,8 +10,15 @@ use crate::util::time::parse_iso;
 
 const MAX_BODY: usize = 2 << 20;
 // the server accepts [A-Za-z0-9_-] up to 32; anything else is kept locally only
+// `name` is a key as the filters keep it ("twitch:bob" or a bare "bob")
 pub fn syncable(name: &str) -> bool {
-  ident::slug(name, 32)
+  ident::slug(crate::model::filter::split(name).1, 32)
+}
+
+// a key as the server wants it: the name, and the platform it is for (None = every platform)
+fn parts(key: &str) -> (&str, Option<&'static str>) {
+  let (p, name) = crate::model::filter::split(key);
+  (name, p.map(|p| p.name()))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,9 +70,10 @@ fn judge(op: &Op, status: u16) -> Result<(), Fail> {
 async fn send_one(http: &reqwest::Client, token: &str, op: &Op) -> Result<(), Fail> {
   let r = match op {
     Op::Add { name, until } => {
+      let (user, platform) = parts(name);
       let body = json!({
-        "username": &**name,
-        "platform": null,
+        "username": user,
+        "platform": platform,
         "expires_at": until.map(iso),
         "reason": null,
       });
@@ -73,7 +81,14 @@ async fn send_one(http: &reqwest::Client, token: &str, op: &Op) -> Result<(), Fa
         .header("content-type", "application/json")
         .body(body.to_string())
     }
-    Op::Remove(name) => bearer(http, token, reqwest::Method::DELETE, &format!("/api/mutes/{name}")),
+    Op::Remove(name) => {
+      let (user, platform) = parts(name);
+      let path = match platform {
+        Some(p) => format!("/api/mutes/{user}?platform={p}"),
+        None => format!("/api/mutes/{user}"),
+      };
+      bearer(http, token, reqwest::Method::DELETE, &path)
+    }
   };
   match r.send().await {
     Ok(r) => judge(op, r.status().as_u16()),
@@ -157,24 +172,22 @@ fn ms(v: &Value) -> Option<i64> {
   v.get("expires_at").and_then(Value::as_str).and_then(parse_iso)
 }
 
+// a row's person, as the lists keep one: on its platform, or bare when it has none
+fn who(e: &Value) -> Option<Box<str>> {
+  let name = e.get("username").and_then(Value::as_str)?;
+  let p = e.get("platform").and_then(Value::as_str).and_then(crate::model::message::Platform::from_name);
+  let k = crate::model::filter::ukey(p, name);
+  (!name.trim().is_empty() && name.len() <= 64).then_some(k)
+}
+
 pub fn mutes_of(v: &Value) -> Vec<(Box<str>, Option<i64>)> {
   let rows = v.get("mutes").or(Some(v)).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-  rows
-    .iter()
-    .take(5000)
-    .filter_map(|e| Some((e.get("username").and_then(Value::as_str).map(crate::model::filter::key)?, ms(e))))
-    .filter(|(n, _)| !n.is_empty() && n.len() <= 64)
-    .collect()
+  rows.iter().take(5000).filter_map(|e| Some((who(e)?, ms(e)))).collect()
 }
 
 pub fn blocks_of(v: &Value) -> Vec<Box<str>> {
   let rows = v.get("blocked_users").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-  rows
-    .iter()
-    .take(5000)
-    .filter_map(|e| e.get("username").and_then(Value::as_str).map(crate::model::filter::key))
-    .filter(|n| !n.is_empty() && n.len() <= 64)
-    .collect()
+  rows.iter().take(5000).filter_map(who).collect()
 }
 
 // ws frames: mute:added / mute:removed / mute:expired / mute:cleared
@@ -182,10 +195,7 @@ pub fn frame(v: &Value, ty: &str) -> Option<Sync> {
   if ty == "mute:cleared" {
     return Some(Sync::Cleared);
   }
-  let name = crate::model::filter::key(v.get("username").and_then(Value::as_str)?);
-  if name.is_empty() || name.len() > 64 {
-    return None;
-  }
+  let name = who(v)?;
   Some(if ty == "mute:added" { Sync::Added(name, ms(v)) } else { Sync::Removed(name) })
 }
 
@@ -225,7 +235,20 @@ mod tests {
     // a bare array is read too (the ext accepts both)
     assert_eq!(mutes_of(&json!([{ "username": "z" }])).len(), 1);
     let b = json!({ "blocked_users": [{ "username": "Troll", "platform": "twitch" }, { "id": "1" }] });
-    assert_eq!(blocks_of(&b), vec![Box::<str>::from("troll")]);
+    // a row that names a platform is that platform's, one that does not is everyone's
+    assert_eq!(blocks_of(&b), vec![Box::<str>::from("twitch:troll")]);
+    let m = json!({ "mutes": [{ "username": "Al", "platform": "kick" }, { "username": "al", "platform": null }] });
+    assert_eq!(mutes_of(&m), vec![("kick:al".into(), None), ("al".into(), None)]);
+  }
+
+  #[test]
+  fn a_platform_key_goes_to_the_server_as_name_and_platform() {
+    assert_eq!(parts("kick:bob"), ("bob", Some("kick")));
+    assert_eq!(parts("bob"), ("bob", None));
+    assert!(syncable("youtube:bob") && !syncable("youtube:a.b") && !syncable("kick:"));
+    assert!(
+      matches!(frame(&json!({ "username": "Bob", "platform": "youtube" }), "mute:removed"), Some(Sync::Removed(n)) if &*n == "youtube:bob")
+    );
   }
 
   #[test]

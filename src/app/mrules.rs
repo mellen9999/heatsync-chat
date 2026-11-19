@@ -132,7 +132,7 @@ impl App {
   // the server saw a line match one of your rules: a row of the mentions tab, red like a ping, that pings
   // when the window is away. a blocked person never pings you, rules or not (ext main.js)
   pub(super) fn on_rule_hit(&mut self, h: Hit) {
-    if self.me.is_none() || filter::with(|f| f.blocked(&filter::key(&h.user))) {
+    if self.me.is_none() || filter::with(|f| f.is_blocked(h.platform, &h.user)) {
       return;
     }
     let Some(i) = self.tab_of(Kind::Mentions) else { return };

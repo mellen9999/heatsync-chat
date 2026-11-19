@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::model::message::{Message, flag};
+use crate::model::message::{Message, Platform, flag};
 use crate::model::reasons::Reasons;
 use crate::model::rules::{INKS, Judged, Line, Old, Rules, Verdict};
 use crate::store;
@@ -93,6 +93,25 @@ pub fn key(name: &str) -> Box<str> {
   name.trim().trim_start_matches('@').to_lowercase().into()
 }
 
+// a person as a block or a mute keeps them, as the ext does (`userKey`): "twitch:bob". a bare "bob" is an entry from
+// before the lists knew platforms (or the account's cross-platform one): it meets that name everywhere. `p` is where
+// the name was met, None = unknown, which stays bare. a key that already names a platform is left as it is
+pub fn ukey(p: Option<Platform>, who: &str) -> Box<str> {
+  let k = key(who);
+  match p {
+    Some(p) if split(&k).0.is_none() => format!("{}:{k}", p.name()).into(),
+    _ => k,
+  }
+}
+
+// a key's platform and bare name
+pub fn split(k: &str) -> (Option<Platform>, &str) {
+  match k.split_once(':').and_then(|(p, n)| Some((Platform::from_name(p)?, n))) {
+    Some((p, n)) => (Some(p), n),
+    None => (None, k),
+  }
+}
+
 impl Filters {
   pub fn set_me(&mut self, names: &[Box<str>]) {
     self.me = names.iter().map(|n| key(n)).collect();
@@ -112,7 +131,7 @@ impl Filters {
     }
     let who = key(&m.login);
     let me = self.is_me(m);
-    if !me && (self.blocks.contains(&who) || tab_hidden.contains(&who)) {
+    if !me && (self.is_blocked(m.platform, &who) || tab_hidden.contains(&who)) {
       return HIDDEN;
     }
     if !me && self.bots && BOTS.contains(&&*who) {
@@ -134,7 +153,7 @@ impl Filters {
       *last = m.body.clone();
     }
     let mut look = 0;
-    if self.muted(&who, now) {
+    if self.is_muted(m.platform, &who, now) {
       look |= MUTED;
     }
     if ruled.verdict == Verdict::Mark {
@@ -203,12 +222,23 @@ impl Filters {
     true
   }
 
+  // `who` as kept: a platform key also meets a bare entry of the same name (one from before platforms)
   pub fn muted(&self, who: &str, now: i64) -> bool {
-    self.mutes.get(who).is_some_and(|exp| exp.is_none_or(|e| e > now))
+    let live = |k: &str| self.mutes.get(k).is_some_and(|exp| exp.is_none_or(|e| e > now));
+    live(who) || (split(who).0.is_some() && live(split(who).1))
   }
 
   pub fn blocked(&self, who: &str) -> bool {
-    self.blocks.contains(who)
+    self.blocks.contains(who) || (split(who).0.is_some() && self.blocks.contains(split(who).1))
+  }
+
+  // a person met on `p`, by their login
+  pub fn is_muted(&self, p: Platform, login: &str, now: i64) -> bool {
+    !self.mutes.is_empty() && self.muted(&ukey(Some(p), login), now)
+  }
+
+  pub fn is_blocked(&self, p: Platform, login: &str) -> bool {
+    !self.blocks.is_empty() && self.blocked(&ukey(Some(p), login))
   }
 
   // when the soonest timed mute ends, so the view can be redone then
@@ -286,10 +316,17 @@ impl Filters {
     !gone.is_empty()
   }
 
+  // lifting a platform's entry lifts a bare one of the name too: they are the same person to a list that has no
+  // platform, and you asked for them back
   pub fn unmute(&mut self, who: &str) -> bool {
     let k = key(who);
     self.synced_mutes.remove(&k);
-    self.mutes.remove(&k).is_some()
+    let bare = split(&k).0.is_some().then(|| split(&k).1.to_owned());
+    if let Some(b) = &bare {
+      self.synced_mutes.remove(b.as_str());
+    }
+    let gone = self.mutes.remove(&k).is_some();
+    bare.is_some_and(|b| self.mutes.remove(b.as_str()).is_some()) || gone
   }
 
   pub fn clear_mutes(&mut self) {
@@ -313,7 +350,12 @@ impl Filters {
   pub fn unblock(&mut self, who: &str) -> bool {
     let k = key(who);
     self.synced_blocks.remove(&k);
-    self.blocks.remove(&k)
+    let bare = split(&k).0.is_some().then(|| split(&k).1.to_owned());
+    if let Some(b) = &bare {
+      self.synced_blocks.remove(b.as_str());
+    }
+    let gone = self.blocks.remove(&k);
+    bare.is_some_and(|b| self.blocks.remove(b.as_str())) || gone
   }
 
   pub fn blocks_sorted(&self) -> Vec<String> {
@@ -469,7 +511,6 @@ pub fn edit<R>(f: impl FnOnce(&mut Filters) -> R) -> R {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::model::message::Platform;
   use serde_json::json;
 
   fn line(login: &str, body: &str) -> Message {
@@ -503,6 +544,45 @@ mod tests {
     f.set_me(&["Nightbot".into()]);
     f.block("nightbot");
     assert_eq!(judge(&f, &line("nightbot", "!hi")), 0);
+  }
+
+  // a person is kept per platform: a twitch block leaves the kick "bob" alone. a bare entry (from before
+  // platforms, or the account's cross-platform one) still meets the name everywhere, and a lift takes both
+  #[test]
+  fn a_block_or_mute_is_for_one_platform() {
+    let on = |p, login: &str| {
+      let mut m = line(login, "x");
+      m.platform = p;
+      m
+    };
+    let mut f = Filters::default();
+    f.block(&ukey(Some(Platform::Twitch), "Bob"));
+    f.mute(&ukey(Some(Platform::Kick), "@Ann"), None);
+    assert_eq!(judge(&f, &on(Platform::Twitch, "bob")), HIDDEN);
+    assert_eq!(judge(&f, &on(Platform::Kick, "bob")), 0);
+    assert_eq!(judge(&f, &on(Platform::Youtube, "bob")), 0);
+    assert_eq!(judge(&f, &on(Platform::Kick, "ann")), MUTED);
+    assert_eq!(judge(&f, &on(Platform::Twitch, "ann")), 0);
+    assert_eq!(&*ukey(Some(Platform::Youtube), "@Tim"), "youtube:tim");
+    assert_eq!(&*ukey(Some(Platform::Twitch), "kick:al"), "kick:al", "a key that names a platform stays");
+    assert_eq!(&*ukey(None, "Al"), "al");
+    // the file keeps the platform
+    let g = Filters::parse(&f.render());
+    assert!(g.blocked("twitch:bob") && !g.blocked("kick:bob") && g.muted("kick:ann", 0));
+    // a bare entry is everywhere
+    let mut f = Filters::parse("block troll\nmute quiet -\n");
+    for p in [Platform::Twitch, Platform::Kick, Platform::Youtube] {
+      assert_eq!(judge(&f, &on(p, "troll")), HIDDEN);
+      assert_eq!(judge(&f, &on(p, "quiet")), MUTED);
+    }
+    // lifting it from one platform's row lifts it
+    assert!(f.unblock("kick:troll") && f.unmute("kick:quiet"));
+    assert_eq!(judge(&f, &on(Platform::Twitch, "troll")), 0);
+    assert_eq!(judge(&f, &on(Platform::Twitch, "quiet")), 0);
+    // and a platform's own entry goes without touching the others
+    f.block("twitch:a");
+    f.block("kick:a");
+    assert!(f.unblock("twitch:a") && f.blocked("kick:a") && !f.blocked("twitch:a"));
   }
 
   #[test]

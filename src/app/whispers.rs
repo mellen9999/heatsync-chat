@@ -176,7 +176,7 @@ impl App {
 
   // the toast for a whisper or dm that landed off the whispers tab. a blocked person gets none
   fn whisper_heard(&mut self, w: &Whisper) {
-    if crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&w.who.login))) {
+    if crate::model::filter::with(|f| f.is_blocked(crate::model::message::Platform::Twitch, &w.who.login)) {
       return;
     }
     if self.set.whisper_toast {

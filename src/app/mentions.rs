@@ -50,9 +50,7 @@ impl App {
     }
     // a blocked person never pings you (a highlight rule with notify on is a ping too, and line_cue has
     // already left a blocked person out)
-    if !(self.mentions.hit(m) || cue.notify)
-      || crate::model::filter::with(|f| f.blocked(&crate::model::filter::key(&m.login)))
-    {
+    if !(self.mentions.hit(m) || cue.notify) || crate::model::filter::with(|f| f.is_blocked(m.platform, &m.login)) {
       return;
     }
     m.flags |= flag::ALERT;
@@ -89,7 +87,7 @@ impl App {
   // mention volume, and a ping into the mentions tab when the rule says notify. nothing for backlog, your own
   // lines or a blocked person; a line a hide rule takes judges to nothing. the sound is held back in streamer mode
   pub(super) fn line_cue(&self, room: &str, m: &Message) -> Cue {
-    if m.has(flag::HISTORY) || m.has(flag::OWN) || filter::with(|f| f.blocked(&filter::key(&m.login))) {
+    if m.has(flag::HISTORY) || m.has(flag::OWN) || filter::with(|f| f.is_blocked(m.platform, &m.login)) {
       return Cue::default();
     }
     let mut cue = filter::with(|f| f.rule_cue(m, room));

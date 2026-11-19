@@ -66,6 +66,7 @@ impl App {
     match cmd {
       Cmd::Usage(u) => self.say(u),
       Cmd::Mute(who, span) => {
+        let who = self.scoped(&who);
         let until = match span {
           Span::Default => Some(now_ms() + DEFAULT_MUTE_MS),
           Span::For(ms) => Some(now_ms() + ms),
@@ -73,15 +74,16 @@ impl App {
         };
         self.mute(&who, until);
       }
-      Cmd::Unmute(who) => self.unmute(&who),
+      Cmd::Unmute(who) => self.unmute(&self.scoped(&who)),
       Cmd::Block(who) => {
+        let who = self.scoped(&who);
         if filter::with(|f| f.blocked(&who)) {
           self.unblock(&who);
         } else {
           self.block(&who);
         }
       }
-      Cmd::Unblock(who) => self.unblock(&who),
+      Cmd::Unblock(who) => self.unblock(&self.scoped(&who)),
       Cmd::Hide(who, hide) => {
         let changed = self.tabs.get_mut(self.active).is_some_and(|t| t.view.hide_user(&who, hide));
         self.wake();
@@ -99,6 +101,13 @@ impl App {
       }
       Cmd::Blocks => self.list_blocks(),
     }
+  }
+
+  // a name typed in the box, kept the way the lists keep a person: on the platform of the tab it is typed in
+  // ("kick:bob" names its own, a tab with no platform leaves it bare = everywhere)
+  fn scoped(&self, who: &str) -> String {
+    let p = self.tabs.get(self.active).and_then(|t| t.sources.first()).map(|(p, _)| *p);
+    filter::ukey(p, who).into()
   }
 
   fn list_blocks(&mut self) {
@@ -139,6 +148,11 @@ impl App {
     }
     if mutes::syncable(&name) && self.me.is_some() {
       self.net.send(NetCmd::Mute(Op::Remove(name.clone())));
+      // the unmute lifted a bare entry of the name too
+      let bare = filter::split(&name).1;
+      if bare != &*name {
+        self.net.send(NetCmd::Mute(Op::Remove(bare.into())));
+      }
     }
     self.saved();
     self.say(f("mod.filter.unmuted", &[("name", &name)]));

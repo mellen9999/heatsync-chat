@@ -17,6 +17,16 @@ impl Platform {
     }
   }
 
+  // "twitch" | "kick" | "youtube" ("yt" too): how the server and the lists spell a platform
+  pub fn from_name(s: &str) -> Option<Self> {
+    match s {
+      "twitch" => Some(Platform::Twitch),
+      "kick" => Some(Platform::Kick),
+      "youtube" | "yt" => Some(Platform::Youtube),
+      _ => None,
+    }
+  }
+
   pub fn name(self) -> &'static str {
     match self {
       Platform::Twitch => "twitch",

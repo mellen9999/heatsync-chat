@@ -385,10 +385,12 @@ impl App {
       (Act::Card, Some(who), _) => self.open_card(who),
       (Act::Mention, Some(who), _) => self.type_into_line(&format!("@{} ", who.nick)),
       (Act::Whisper, Some(who), _) => self.type_into_line(&format!("/w {} ", who.login)),
-      (Act::Mute, Some(who), _) => self.mute(&who.login, Some(now_ms() + DEFAULT_MUTE_MS)),
-      (Act::Unmute, Some(who), _) => self.unmute(&who.login),
-      (Act::Block, Some(who), _) => self.block(&who.login),
-      (Act::Unblock, Some(who), _) => self.unblock(&who.login),
+      (Act::Mute, Some(who), _) => {
+        self.mute(&filter::ukey(Some(who.platform), &who.login), Some(now_ms() + DEFAULT_MUTE_MS))
+      }
+      (Act::Unmute, Some(who), _) => self.unmute(&filter::ukey(Some(who.platform), &who.login)),
+      (Act::Block, Some(who), _) => self.block(&filter::ukey(Some(who.platform), &who.login)),
+      (Act::Unblock, Some(who), _) => self.unblock(&filter::ukey(Some(who.platform), &who.login)),
       _ => {}
     }
   }
@@ -438,7 +440,7 @@ impl App {
     if w.platform == Platform::Twitch && self.me.is_some() {
       rows.push((Act::Whisper, t("app.pop.whisper").into()));
     }
-    let key = filter::key(&w.login);
+    let key = filter::ukey(Some(w.platform), &w.login);
     let (muted, blocked) = filter::with(|f| (f.muted(&key, now_ms()), f.blocked(&key)));
     rows.push(if muted { (Act::Unmute, t("app.pop.unmute").into()) } else { (Act::Mute, t("app.pop.mute").into()) });
     rows.push(if blocked {
