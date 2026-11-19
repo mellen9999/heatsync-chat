@@ -948,6 +948,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   };
   let open = retry::Open::default();
   let (sess_tx, sess_rx) = mpsc::unbounded_channel();
+  http::on_lapse(sess_tx.clone());
   let (irc_tx, irc_rx) = mpsc::unbounded_channel();
   watch("chat", irc::run(irc_rx, sess_tx.clone(), http.clone(), out.clone()), out.clone());
   watch("emotes", global_emotes(http.clone(), out.clone()), out.clone());

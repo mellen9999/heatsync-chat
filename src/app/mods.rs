@@ -424,7 +424,10 @@ impl App {
       }
     }
     match fail {
-      Some(Fail::Auth) => self.say(t("mod.common.login_first")),
+      Some(Fail::Auth) => {
+        self.lapsed();
+        self.say(t("mod.common.login_first"))
+      }
       Some(Fail::Relink) => {
         self.say(super::feed::needs_twitch(t("mod.noun")));
         self.net.send(Cmd::Relink("mod"));
@@ -481,7 +484,10 @@ impl App {
           None => self.mod_expect(&chan, &login),
         }
       }
-      Err(Fail::Auth) => self.say(t("mod.common.login_first")),
+      Err(Fail::Auth) => {
+        self.lapsed();
+        self.say(t("mod.common.login_first"))
+      }
       Err(Fail::Relink) => {
         self.say(super::feed::needs_twitch(t("mod.noun")));
         self.net.send(Cmd::Relink("mod"));

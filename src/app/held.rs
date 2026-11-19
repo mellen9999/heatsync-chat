@@ -192,7 +192,10 @@ impl App {
         self.net.send(Cmd::Relink("automod"));
         t("app.held.needs_permission")
       }
-      Err(Fail::Auth) => t("app.held.login_again"),
+      Err(Fail::Auth) => {
+        self.lapsed();
+        t("app.held.login_again")
+      }
       Err(Fail::NotMod) => t("app.held.not_mod"),
       Err(Fail::Other(_)) => t("app.held.failed"),
     };

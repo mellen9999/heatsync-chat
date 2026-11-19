@@ -200,7 +200,10 @@ impl App {
         self.modes.entry(chan.clone()).or_default().put(set);
         self.say(f("app.status.done", &[("what", &set.done()), ("chan", &chan)]));
       }
-      Err(Fail::Auth) => self.say(t("app.login_first_ctrl_l")),
+      Err(Fail::Auth) => {
+        self.lapsed();
+        self.say(t("app.login_first_ctrl_l"))
+      }
       Err(Fail::Relink | Fail::YtPermission) => {
         self.say(super::feed::needs_twitch("chat modes"));
         self.net.send(Cmd::Relink("mod"));

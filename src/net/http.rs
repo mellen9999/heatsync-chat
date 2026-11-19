@@ -18,6 +18,23 @@ pub fn offline(what: &str, why: impl std::fmt::Display) -> String {
   crate::i18n::f("net2.http.offline", &[("what", what)])
 }
 
+// where a heatsync 401 is told: the login check (session.rs), which runs once a minute at most and only while
+// signed in. set once when the net starts; the calls that only return words (no typed failure) report here
+static LAPSE: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<super::session::Cmd>> = std::sync::OnceLock::new();
+
+pub fn on_lapse(tx: tokio::sync::mpsc::UnboundedSender<super::session::Cmd>) {
+  let _ = LAPSE.set(tx);
+}
+
+// a heatsync call answered `status`: a 401 means our login may be dead (never for twitch/kick/youtube's own 401)
+pub fn lapsed(status: u16) {
+  if status == 401
+    && let Some(tx) = LAPSE.get()
+  {
+    let _ = tx.send(super::session::Cmd::Unauthorized);
+  }
+}
+
 // an http status as a short, plain sentence for the screen (when the server gave no words of its own)
 pub fn plain_status(code: u16) -> String {
   match code {
@@ -131,6 +148,19 @@ fn tls() -> Option<std::sync::Arc<rustls::ClientConfig>> {
 
 #[cfg(test)]
 mod tests {
+  // only a heatsync 401 asks for the login check (the one test that sets the process-wide sink)
+  #[test]
+  fn a_heatsync_401_asks_for_the_login_check_and_nothing_else_does() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    on_lapse(tx);
+    for code in [0u16, 200, 400, 403, 429, 500] {
+      lapsed(code);
+    }
+    assert!(rx.try_recv().is_err());
+    lapsed(401);
+    assert!(matches!(rx.try_recv(), Ok(crate::net::session::Cmd::Unauthorized)));
+  }
+
   use super::*;
 
   #[tokio::test]

@@ -214,6 +214,32 @@ mod tests {
     assert!(std::iter::from_fn(|| rx.try_recv().ok()).all(|c| !matches!(c, crate::net::Cmd::Unauthorized)));
   }
 
+  // the typed heatsync failures all end in the one login check
+  #[test]
+  fn every_heatsync_401_answer_asks_for_the_login_check() {
+    use crate::net::Cmd;
+    let (net, mut rx) = crate::net::Net::tap();
+    let mut app = crate::app::App::new(net, vec![], false);
+    app.me = Some(me(Some("mellen"), None));
+    let mut asked = |app: &mut crate::app::App| {
+      let any = std::iter::from_fn(|| rx.try_recv().ok()).any(|c| matches!(c, Cmd::Unauthorized));
+      let _ = app;
+      any
+    };
+    while asked(&mut app) {}
+    app.on_followed(
+      crate::model::message::Platform::Twitch,
+      "x".into(),
+      true,
+      Err(crate::net::social::FollowFail::Auth),
+    );
+    assert!(asked(&mut app), "follow");
+    app.on_suite("x".into(), crate::model::modsuite::Cmd::Shield(Some(true)), Err(crate::net::blocked::Fail::Auth));
+    assert!(asked(&mut app), "mod suite");
+    app.on_held_acted("x".into(), "1".into(), true, Err(crate::net::held::Fail::Auth));
+    assert!(asked(&mut app), "held");
+  }
+
   // heatsync says the account changed (linked or unlinked elsewhere): it is read again
   #[test]
   fn a_changed_account_is_read_again() {

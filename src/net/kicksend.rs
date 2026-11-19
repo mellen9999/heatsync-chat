@@ -78,6 +78,10 @@ async fn once(http: &reqwest::Client, token: &str, body: &str) -> Go {
   let code = r.status().as_u16();
   let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
   let error_code = v.get("error_code").and_then(Value::as_str);
+  // a bare 401 is heatsync turning our login down; a coded one is kick's link
+  if error_code.is_none() {
+    http::lapsed(code);
+  }
   let why = match error_code {
     Some("not_linked") => t("net1.session.kick_not_linked").into(),
     Some("scope_missing") => t("net1.session.kick_scope").into(),

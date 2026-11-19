@@ -243,6 +243,7 @@ impl App {
   pub(super) fn on_tools(&mut self, chan: Box<str>, res: Result<Got, Fail>) {
     let Some(mt) = self.mt().filter(|m| m.chan == chan) else { return };
     mt.busy = false;
+    let mut lapse = false;
     match res {
       Ok(Got::Loaded(l)) => {
         (mt.shield, mt.levels, mt.unbans, mt.chatters) = (l.shield, l.levels, l.unbans, l.chatters);
@@ -267,7 +268,10 @@ impl App {
       }
       Err(Fail::Relink) => mt.view = View::Perm,
       Err(Fail::NotMod) => mt.view = View::NotMod,
-      Err(Fail::Auth) => mt.view = View::Auth,
+      Err(Fail::Auth) => {
+        mt.view = View::Auth;
+        lapse = true;
+      }
       Err(Fail::Limited) => mt.msg = t("mod.common.slow_down").into(),
       Err(_) if mt.view == View::Loading => mt.view = View::Error,
       // a request someone else settled already
@@ -280,6 +284,9 @@ impl App {
         mt.msg = t("mod.tools.settled").into();
       }
       Err(Fail::Other) => mt.msg = t("mod.tools.try_again").into(),
+    }
+    if lapse {
+      self.lapsed();
     }
     self.wake();
   }

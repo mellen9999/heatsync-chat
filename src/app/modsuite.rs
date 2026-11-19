@@ -40,7 +40,10 @@ impl App {
         if on.or(*want).unwrap_or(false) { "mod.suite.shield_on" } else { "mod.suite.shield_off" },
         &[("chan", &chan)],
       ),
-      (Err(Fail::Auth), _) => t("mod.common.login_first").into(),
+      (Err(Fail::Auth), _) => {
+        self.lapsed();
+        t("mod.common.login_first").into()
+      }
       (Err(Fail::Relink), _) => {
         self.net.send(NetCmd::Relink("modsuite"));
         super::feed::needs_twitch(t(what))

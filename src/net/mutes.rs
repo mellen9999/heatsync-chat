@@ -91,7 +91,11 @@ async fn send_one(http: &reqwest::Client, token: &str, op: &Op) -> Result<(), Fa
     }
   };
   match r.send().await {
-    Ok(r) => judge(op, r.status().as_u16()),
+    Ok(r) => {
+      let status = r.status().as_u16();
+      http::lapsed(status);
+      judge(op, status)
+    }
     Err(e) => Err(Fail::Retry(http::offline("heatsync", e))),
   }
 }
@@ -149,7 +153,9 @@ pub async fn run(http: reqwest::Client, rx: tokio::sync::mpsc::UnboundedReceiver
 }
 
 async fn json(r: reqwest::RequestBuilder) -> Option<Value> {
-  let r = r.send().await.ok().filter(|r| r.status().is_success())?;
+  let r = r.send().await.ok()?;
+  http::lapsed(r.status().as_u16());
+  let r = Some(r).filter(|r| r.status().is_success())?;
   http::read_json(r, MAX_BODY).await.ok()
 }
 

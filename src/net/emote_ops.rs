@@ -35,6 +35,7 @@ pub enum EmoteCmd {
 // body capped while streaming, so a hostile server can't make us buffer more than `max`
 async fn read(mut r: reqwest::Response, max: usize) -> Result<(u16, Value), String> {
   let code = r.status().as_u16();
+  super::http::lapsed(code);
   let mut buf = Vec::new();
   while let Some(c) = r.chunk().await.map_err(|e| super::http::offline("heatsync", e))? {
     if buf.len() + c.len() > max {

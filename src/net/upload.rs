@@ -268,6 +268,7 @@ async fn send_form(
       |e| if e.is_timeout() { t("net2.upload.timeout").to_string() } else { t("net2.upload.unreachable").into() },
     )?;
   let code = r.status().as_u16();
+  super::http::lapsed(code);
   let mut buf = Vec::new();
   while let Some(c) = r.chunk().await.map_err(|_| t("net2.upload.dropped").to_string())? {
     if buf.len() + c.len() > MAX_REPLY {

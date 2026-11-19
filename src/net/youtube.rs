@@ -69,6 +69,10 @@ pub async fn send(
   let status = r.status().as_u16();
   let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
   let code = v.get("error_code").and_then(Value::as_str);
+  // a bare 401 is heatsync turning our login down; a coded one is youtube's link
+  if code.is_none() {
+    http::lapsed(status);
+  }
   Err(Refused { why: explain(code, status), unsent: never_went(code) })
 }
 

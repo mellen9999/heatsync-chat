@@ -150,6 +150,7 @@ async fn ask(http: &reqwest::Client, token: &str, op: Op) -> Result<Got, String>
   }
   let r = b.send().await.map_err(|e| super::http::offline("heatsync", e))?;
   let code = r.status().as_u16();
+  super::http::lapsed(code);
   let max = if matches!(op, Op::List) { MAX_LIST } else { MAX_REPLY };
   let body = super::http::read(r, max).await?;
   let v: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);

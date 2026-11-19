@@ -155,6 +155,7 @@ async fn add(http: &reqwest::Client, token: &str, name: &str, k: Kept) -> Result
     .await
     .map_err(|e| Failed { why: super::super::http::offline("heatsync", e), kept: Some(k.clone()) })?;
   let code = r.status().as_u16();
+  super::super::http::lapsed(code);
   let v = super::super::http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
   if (200..300).contains(&code) { Ok(Done { name: name.to_owned(), kept: k }) } else { Err(add_failed(code, &v, k)) }
 }

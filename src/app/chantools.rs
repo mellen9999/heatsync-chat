@@ -67,7 +67,10 @@ impl App {
         f(if *add { "mod.chan.mod_on" } else { "mod.chan.mod_off" }, &[("user", u), ("chan", &chan)])
       }
       (Ok(Done::Plain), _) => f("mod.chan.announced", &[("chan", &chan)]),
-      (Err(Oops(Fail::Auth, _)), _) => t("mod.common.login_first").into(),
+      (Err(Oops(Fail::Auth, _)), _) => {
+        self.lapsed();
+        t("mod.common.login_first").into()
+      }
       (Err(Oops(Fail::Relink, _)), _) => {
         self.net.send(NetCmd::Relink(cmd.pack()));
         super::feed::needs_twitch(what)

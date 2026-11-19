@@ -77,7 +77,9 @@ impl App {
       Err(f) => {
         self.list_note(words(&f));
         // a switch or removal shown before the server agreed is put right by what it holds
-        if f != Fail::Auth {
+        if f == Fail::Auth {
+          self.lapsed();
+        } else {
           self.mrules_send(Op::List);
         }
       }

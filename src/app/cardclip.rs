@@ -90,7 +90,10 @@ impl App {
           self.card_clip_set(Clip::Idle);
         }
         match f {
-          Fail::Auth => self.say(t("app.login_first_ctrl_l")),
+          Fail::Auth => {
+            self.lapsed();
+            self.say(t("app.login_first_ctrl_l"))
+          }
           Fail::Relink => {
             self.say(super::feed::needs_twitch("clipping"));
             self.net.send(Cmd::Relink("clips"));
