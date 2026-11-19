@@ -89,6 +89,8 @@ pub(super) fn more(ty: &str, v: &Value, st: &mut State, out: &Out) -> Option<End
       let ok = (1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit());
       ok.then(|| send(NetEvent::ProfileUpdated(id.into()))).flatten()
     }
+    // read on purpose and dropped: the answer to our keepalive, and the site's viewer count
+    "pong" | "presence:count" => None,
     _ => {
       unknown(st, ty);
       None
