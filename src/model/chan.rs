@@ -8,6 +8,39 @@ use crate::model::line::Line;
 pub const RESERVED: [&str; 10] =
   ["feed", "discover", "whispers", "mentions", "pinned", "modlog", "live", "add", "settings", "flood"];
 
+// site pages that sit where a channel's name does (the ext's MC_SITE_PATHS): a pasted
+// twitch.tv/directory or kick.com/browse is refused, not saved as a channel called "directory"
+const SITE_PATHS: &[&str] = &[
+  "directory",
+  "settings",
+  "p",
+  "downloads",
+  "jobs",
+  "turbo",
+  "subscriptions",
+  "inventory",
+  "wallet",
+  "drops",
+  "friends",
+  "messages",
+  "search",
+  "videos",
+  "video",
+  "clip",
+  "clips",
+  "categories",
+  "category",
+  "browse",
+  "dashboard",
+  "terms",
+  "privacy",
+  "community-guidelines",
+  "popout",
+  "embed",
+  "moderator",
+  "u",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Err {
   Empty,
@@ -51,22 +84,37 @@ fn first_segment(s: &str) -> &str {
   s.split(['/', '?', '#']).next().unwrap_or("")
 }
 
-// a login or a twitch.tv link (popout/moderator links too), lowercased
+// the word before the name in a link that is not the channel page (popout/name/chat, embed/name/chat...)
+fn step_over<'a>(rest: &'a str, words: &[&str]) -> &'a str {
+  match rest.split_once('/') {
+    Some((head, tail)) if words.iter().any(|w| head.eq_ignore_ascii_case(w)) => tail,
+    _ => rest,
+  }
+}
+
+// the channel= of a player.twitch.tv/?channel=name link
+fn player_channel(v: &str) -> Option<&str> {
+  let rest = after(v, "player.twitch.tv/")?;
+  let query = rest.strip_prefix('?')?.split('#').next()?;
+  query.split('&').find_map(|kv| kv.split_once('=').filter(|(k, _)| k.eq_ignore_ascii_case("channel")).map(|(_, n)| n))
+}
+
+// a login or a twitch.tv link (channel page, popout, embed, moderator view, dashboard, the bare
+// player), lowercased
 pub fn twitch_login(raw: &str) -> String {
   let v = raw.trim().trim_start_matches(['@', '#']);
-  let v = match after(v, "twitch.tv/") {
-    Some(rest) => {
-      let rest = rest.strip_prefix("popout/").or_else(|| rest.strip_prefix("moderator/")).unwrap_or(rest);
-      first_segment(rest)
-    }
-    None => v,
+  let v = match (player_channel(v), after(v, "twitch.tv/")) {
+    (Some(name), _) => first_segment(name),
+    (None, Some(rest)) => first_segment(step_over(rest, &["popout", "embed", "moderator", "u"])),
+    (None, None) => v,
   };
   v.to_ascii_lowercase()
 }
 
+// a slug or a kick.com link (channel page, popout, embed, the player), lowercased
 pub fn kick_slug(raw: &str) -> String {
   let v = raw.trim().trim_start_matches('@');
-  let v = after(v, "kick.com/").map_or(v, first_segment);
+  let v = after(v, "kick.com/").map_or(v, |rest| first_segment(step_over(rest, &["popout", "embed"])));
   v.to_ascii_lowercase()
 }
 
@@ -114,7 +162,10 @@ impl Spec {
     if twitch.is_empty() && kick.is_empty() && youtube.is_empty() {
       return Err(Err::Empty);
     }
-    if !(twitch.is_empty() || ident::twitch_room(&twitch)) || !(kick.is_empty() || ident::kick_slug(&kick)) {
+    let site = |n: &str| SITE_PATHS.contains(&n);
+    if !(twitch.is_empty() || ident::twitch_room(&twitch) && !site(&twitch))
+      || !(kick.is_empty() || ident::kick_slug(&kick) && !site(&kick))
+    {
       return Err(Err::Invalid);
     }
     Ok(Spec { twitch, kick, youtube })
@@ -298,6 +349,49 @@ mod tests {
   }
 
   #[test]
+  fn links_that_are_not_the_channel_page_give_their_channel() {
+    for (link, want) in [
+      ("https://www.twitch.tv/popout/xQc/chat?popout=", "xqc"),
+      ("https://www.twitch.tv/embed/xqc/chat?parent=x", "xqc"),
+      ("https://www.twitch.tv/moderator/xqc", "xqc"),
+      ("https://dashboard.twitch.tv/u/xqc/stream-manager", "xqc"),
+      ("https://player.twitch.tv/?channel=xQc&parent=example.com", "xqc"),
+      ("player.twitch.tv/?parent=example.com&channel=xqc", "xqc"),
+      ("https://www.twitch.tv/xqc", "xqc"),
+    ] {
+      assert_eq!(Spec::parse(link, "", "").map(|s| s.twitch), Ok(want.into()), "{link}");
+    }
+    for (link, want) in [
+      ("https://kick.com/popout/Sxb/chat", "sxb"),
+      ("https://kick.com/embed/sxb", "sxb"),
+      ("kick.com/sxb/chatroom", "sxb"),
+      ("https://player.kick.com/sxb", "sxb"),
+    ] {
+      assert_eq!(Spec::parse("", link, "").map(|s| s.kick), Ok(want.into()), "{link}");
+    }
+  }
+
+  #[test]
+  fn a_link_to_a_site_page_is_refused() {
+    for link in [
+      "https://www.twitch.tv/directory",
+      "twitch.tv/videos/2301234567",
+      "https://www.twitch.tv/popout",
+      "https://www.twitch.tv/settings/profile",
+      "https://player.twitch.tv/?channel=directory",
+      "directory",
+    ] {
+      assert_eq!(Spec::parse(link, "", ""), Err(Err::Invalid), "{link}");
+    }
+    for link in ["https://kick.com/browse", "kick.com/category/just-chatting", "https://kick.com/popout", "categories"]
+    {
+      assert_eq!(Spec::parse("", link, ""), Err(Err::Invalid), "{link}");
+    }
+    // a real name beside one of those words is its own name
+    assert!(Spec::parse("videosgames", "clipsy", "").is_ok());
+  }
+
+  #[test]
   fn charset_gates() {
     assert_eq!(Spec::parse("", "", ""), Err(Err::Empty));
     assert_eq!(Spec::parse("a b", "", ""), Err(Err::Invalid));
@@ -330,7 +424,7 @@ mod tests {
   fn reserved_and_duplicates() {
     let have = vec![sp("forsen", "forsen", ""), sp("", "", "@somebody")];
     assert_eq!(sp("live", "", "").check(&have), Err(Err::Reserved));
-    assert_eq!(sp("", "settings", "").check(&have), Err(Err::Reserved));
+    assert_eq!(sp("", "modlog", "").check(&have), Err(Err::Reserved));
     assert_eq!(sp("forsen", "", "").check(&have), Err(Err::TwitchExists));
     assert_eq!(sp("", "forsen", "").check(&have), Err(Err::KickExists));
     assert_eq!(sp("", "", "somebody").check(&have), Err(Err::YoutubeExists));
