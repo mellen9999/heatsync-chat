@@ -15,6 +15,7 @@ mod font;
 pub mod held;
 pub mod hs_ws;
 pub mod http;
+mod imgfetch;
 pub mod import;
 pub mod inventory;
 pub mod irc;
@@ -63,7 +64,7 @@ use winit::event_loop::EventLoopProxy;
 use crate::badges::{self, Source, TwitchSet, UserBadges};
 use crate::emotes::{Provider, Set, providers};
 use crate::heatsync::senders::Set as SenderSet;
-use crate::images::{ImgId, cache, decode, url};
+use crate::images::{ImgId, decode};
 use crate::model::message::{Message, Platform};
 use irc::Chat;
 
@@ -680,89 +681,9 @@ pub enum Cmd {
 }
 
 const IMAGE_FETCHES: usize = 6;
-const DISK_CACHE_MAX: u64 = 256 << 20;
-const MAX_IMAGE_BYTES: usize = 8 << 20;
 const MAX_PREVIEW: usize = 64 << 10;
 // the proxy's answer for one id is a few dozen bytes
 const MAX_PRONOUNS: usize = 4 << 10;
-
-struct DecodeJob {
-  id: ImgId,
-  url: Box<str>,
-  h: u32,
-  bytes: Vec<u8>,
-  // fresh from the network: persist once it decodes
-  store: bool,
-}
-
-// decode one job, and keep the disk cache honest: bytes are stored only once they decode, and a cached
-// file that no longer decodes is dropped, so a retry fetches again instead of reading the same junk
-fn run_job(j: &DecodeJob) -> Result<decode::Decoded, String> {
-  // a decoder bug on one hostile file must not end decoding for the session
-  let res =
-    std::panic::catch_unwind(|| decode::decode(&j.bytes, j.h)).unwrap_or_else(|_| Err("decoder crashed".into()));
-  match (&res, j.store) {
-    (Ok(_), true) => cache::write(&j.url, &j.bytes),
-    (Err(_), false) => cache::remove(&j.url),
-    _ => {}
-  }
-  res
-}
-
-// decoding is cpu work; keep it off the network loop
-fn spawn_decoder(out: Out) -> Option<std::sync::mpsc::Sender<DecodeJob>> {
-  let (tx, rx) = std::sync::mpsc::channel::<DecodeJob>();
-  let spawned = std::thread::Builder::new().name("decode".into()).spawn(move || {
-    cache::prune(DISK_CACHE_MAX);
-    for j in rx {
-      let res = run_job(&j);
-      if !out.send(NetEvent::Image(j.id, j.h, res)) {
-        return;
-      }
-    }
-  });
-  spawned.ok().map(|_| tx)
-}
-
-// the decoder thread is gone: the picture fails (so it isn't "loading" forever) and, once, the app says so
-static DECODER_GONE_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-fn hand_to_decoder(dec: &std::sync::mpsc::Sender<DecodeJob>, job: DecodeJob, out: &Out) {
-  let (id, h) = (job.id, job.h);
-  if dec.send(job).is_err() {
-    out.send(NetEvent::Image(id, h, Err("decoder stopped".into())));
-    if !DECODER_GONE_SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
-      out.status(t("net1.decoder_gone"));
-    }
-  }
-}
-
-async fn image(
-  http: reqwest::Client,
-  gate: Arc<Semaphore>,
-  dec: std::sync::mpsc::Sender<DecodeJob>,
-  id: ImgId,
-  url: Box<str>,
-  h: u32,
-  out: Out,
-) {
-  if !url::allowed(&url) {
-    out.send(NetEvent::Image(id, h, Err("host not allowed".into())));
-    return;
-  }
-  // a disk read must not stall the one network thread
-  let file = cache::path(&url);
-  if let Ok(Some(bytes)) = tokio::task::spawn_blocking(move || file.and_then(|f| cache::read_file(&f))).await {
-    return hand_to_decoder(&dec, DecodeJob { id, url, h, bytes, store: false }, &out);
-  }
-  let Ok(_permit) = gate.acquire().await else { return };
-  match http::capped(http.get(&*url).send().await, MAX_IMAGE_BYTES).await {
-    Ok(bytes) => hand_to_decoder(&dec, DecodeJob { id, url, h, bytes, store: true }, &out),
-    Err(e) => {
-      out.send(NetEvent::Image(id, h, Err(e)));
-    }
-  }
-}
 
 // ask heatsync what a link is: its resolver, or its archive for a chat-log permalink (ext
 // fetch_embed_resolve / logEmbed: no login, 6s, a small answer)
@@ -817,20 +738,6 @@ async fn pronouns(http: reqwest::Client, uid: u64, out: Out) {
     .ok_or(())
     .and_then(|v| crate::model::pronouns::parse(&v, uid));
   out.send(NetEvent::Pronouns(uid, res));
-}
-
-// image fetches follow redirects only between allowlisted hosts (`/api/img` answers with a 302)
-fn image_client() -> Option<reqwest::Client> {
-  use reqwest::redirect::Policy;
-  reqwest::Client::builder()
-    .user_agent(USER_AGENT)
-    .connect_timeout(Duration::from_secs(8))
-    .timeout(Duration::from_secs(12))
-    .redirect(Policy::custom(|a| {
-      if a.previous().len() >= 3 || !url::allowed(a.url().as_str()) { a.stop() } else { a.follow() }
-    }))
-    .build()
-    .ok()
 }
 
 fn provider_name(p: Provider) -> &'static str {
@@ -1063,10 +970,10 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
   watch("rooms", roomname::run(http.clone(), rl_rx, out.clone()), out.clone());
   let (stv_tx, stv_rx) = mpsc::unbounded_channel();
   watch("7tv", seventv::run(http.clone(), stv_rx, stv_tx.clone(), out.clone()), out.clone());
-  let Some(dec) = spawn_decoder(out.clone()) else {
+  let Some(dec) = imgfetch::spawn_decoder(out.clone()) else {
     return out.status(t("net1.no_decoder"));
   };
-  let Some(img_http) = image_client() else {
+  let Some(img_http) = imgfetch::image_client() else {
     return out.status(t("net1.no_loader"));
   };
   let gate = Arc::new(Semaphore::new(IMAGE_FETCHES));
@@ -1269,7 +1176,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         );
       }
       Cmd::Image(id, u, h) => {
-        tokio::spawn(image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
+        tokio::spawn(imgfetch::image(img_http.clone(), gate.clone(), dec.clone(), id, u, h, out.clone()));
       }
     }
   }
@@ -1376,113 +1283,6 @@ mod tests {
       rx.try_iter().filter_map(|e| if let NetEvent::Status(s) = e { Some(s) } else { None }).collect();
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(said[0].starts_with("chat stopped after a crash"), "{}", said[0]);
-  }
-}
-
-#[cfg(test)]
-mod image_io {
-  use super::*;
-
-  const URL: &str = "https://cdn.7tv.app/emote/t1/1x.webp";
-
-  fn job(store: bool, bytes: &[u8]) -> DecodeJob {
-    DecodeJob { id: 0, url: URL.into(), h: 28, bytes: bytes.to_vec(), store }
-  }
-
-  fn client() -> reqwest::Client {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::new()
-  }
-
-  fn run<F: std::future::Future>(f: F) -> F::Output {
-    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
-  }
-
-  #[test]
-  fn a_reply_that_is_not_a_picture_is_never_cached() {
-    cache::remove(URL);
-    assert!(run_job(&job(true, b"<html>502 bad gateway</html>")).is_err());
-    assert!(cache::read(URL).is_none(), "junk must not be kept for the next retry");
-  }
-
-  #[test]
-  fn a_cached_file_that_no_longer_decodes_is_dropped() {
-    cache::write(URL, b"<html>oops</html>");
-    assert!(cache::read(URL).is_some());
-    assert!(run_job(&job(false, b"<html>oops</html>")).is_err());
-    assert!(cache::read(URL).is_none());
-  }
-
-  #[test]
-  fn a_good_picture_is_cached_once_it_decodes() {
-    cache::remove(URL);
-    let mut png = Vec::new();
-    {
-      let mut e = png::Encoder::new(&mut png, 2, 2);
-      e.set_color(png::ColorType::Rgba);
-      e.set_depth(png::BitDepth::Eight);
-      e.write_header().unwrap().write_image_data(&[9u8; 16]).unwrap();
-    }
-    assert!(run_job(&job(true, &png)).is_ok());
-    assert_eq!(cache::read(URL).as_deref(), Some(&png[..]));
-    // and a good cached file stays
-    assert!(run_job(&job(false, &png)).is_ok());
-    assert!(cache::read(URL).is_some());
-  }
-
-  #[test]
-  fn a_dead_decoder_fails_the_picture_and_says_so_once() {
-    cache::write(URL, b"anything");
-    let (dec, rx) = std::sync::mpsc::channel::<DecodeJob>();
-    drop(rx);
-    let (tx, ev) = std::sync::mpsc::channel();
-    let out = Out::Pipe(tx);
-    DECODER_GONE_SAID.store(false, std::sync::atomic::Ordering::Relaxed);
-    for id in [3, 4] {
-      run(image(client(), Arc::new(Semaphore::new(1)), dec.clone(), id, URL.into(), 28, out.clone()));
-    }
-    let evs: Vec<NetEvent> = ev.try_iter().collect();
-    let failed = evs.iter().filter(|e| matches!(e, NetEvent::Image(_, _, Err(_)))).count();
-    let said: Vec<&String> =
-      evs.iter().filter_map(|e| if let NetEvent::Status(s) = e { Some(s) } else { None }).collect();
-    assert_eq!(failed, 2, "each picture fails instead of loading forever");
-    assert_eq!(said.len(), 1, "{said:?}");
-    assert_eq!(*said[0], said[0].to_lowercase());
-  }
-
-  // a cache file that blocks on read (a fifo) may hold up only its own picture, not the net thread
-  #[cfg(unix)]
-  #[test]
-  fn the_disk_read_does_not_stall_the_network_thread() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    let path = cache::path(URL).unwrap();
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let _ = std::fs::remove_file(&path);
-    assert!(std::process::Command::new("mkfifo").arg(&path).status().unwrap().success());
-    let p = path.clone();
-    let releaser = std::thread::spawn(move || {
-      std::thread::sleep(Duration::from_millis(600));
-      std::fs::write(p, b"anything").unwrap();
-    });
-    let (dec, _rx) = std::sync::mpsc::channel::<DecodeJob>();
-    let (tx, _ev) = std::sync::mpsc::channel();
-    let image_done = Arc::new(AtomicBool::new(false));
-    let ticker_saw_done = run({
-      let image_done = image_done.clone();
-      async move {
-        let seen = image_done.clone();
-        let ticker = tokio::spawn(async move {
-          tokio::time::sleep(Duration::from_millis(50)).await;
-          seen.load(Ordering::SeqCst)
-        });
-        image(client(), Arc::new(Semaphore::new(1)), dec, 1, URL.into(), 28, Out::Pipe(tx)).await;
-        image_done.store(true, Ordering::SeqCst);
-        ticker.await.unwrap()
-      }
-    });
-    releaser.join().unwrap();
-    let _ = std::fs::remove_file(&path);
-    assert!(!ticker_saw_done, "the timer fired while the file read was still waiting");
   }
 }
 
