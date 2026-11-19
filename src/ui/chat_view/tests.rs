@@ -1627,6 +1627,35 @@ fn the_flame_is_for_known_users_without_a_bar_and_never_beside_one() {
   assert_eq!(before_name(&mut res, &other).0, 0);
 }
 
+// your own line on kick or youtube wears your twitch self's flame or bar (the kept copy of a multi-feed send),
+// a stranger's never does, and the flame is never beside the bar
+#[test]
+fn your_own_kick_and_youtube_lines_wear_your_twitch_marks() {
+  let mut res = Res::new(1.0);
+  res.senders.set_me(Some(42));
+  res.senders.set_names(Some("Bob"), Some("kick_bob"), Some("@YtBob"));
+  let on = |p: Platform, login: &str| {
+    let mut m = marked("777");
+    (m.platform, m.login, m.nick) = (p, login.into(), login.into());
+    m
+  };
+  let (own_k, own_y) = (on(Platform::Kick, "Kick-Bob"), on(Platform::Youtube, "@ytbob"));
+  let (other_k, other_y) = (on(Platform::Kick, "bob"), on(Platform::Youtube, "@bob"));
+  for m in [&own_k, &own_y] {
+    assert_eq!(before_name(&mut res, m).0, FLAME_W, "the flame, with no set loaded for you");
+  }
+  res.heats.get("bob");
+  res.heats.put("bob", 120);
+  for m in [&own_k, &own_y] {
+    assert_eq!(before_name(&mut res, m).0, BAR_W, "your twitch heat drives the bar, never beside the flame");
+  }
+  for m in [&other_k, &other_y] {
+    assert_eq!(before_name(&mut res, m).0, 0, "a stranger, even one named like your twitch, wears nothing");
+  }
+  res.senders.set_names(None, None, None);
+  assert_eq!(before_name(&mut res, &own_k).0, 0, "no linked names, no marks");
+}
+
 #[test]
 fn the_marks_come_flair_then_flame_then_bar_and_only_on_twitch() {
   use crate::badges::Badge;

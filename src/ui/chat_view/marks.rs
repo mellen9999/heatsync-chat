@@ -22,16 +22,25 @@ pub(super) fn marks(
   boxes: &mut Vec<EmoteBox>,
 ) {
   let look = res.look;
-  if m.platform != Platform::Twitch || !m.kind.said() || !(look.sub_flair || look.flame || look.heat_bars) {
+  if !m.kind.said() || !(look.sub_flair || look.flame || look.heat_bars) {
     return;
   }
-  let uid = m.user_id.parse::<u64>().ok();
+  // your own kick or youtube line wears your twitch self's marks: a send to several feeds keeps whichever
+  // echo lands first, so the row standing for it is often not the twitch copy (ext hsMarksSelfRowHtml)
+  let own = res.senders.own_twitch(m).map(|(login, id)| (Box::<str>::from(login), id));
+  if m.platform != Platform::Twitch && own.is_none() {
+    return;
+  }
+  let (login, uid, paint) = match &own {
+    Some((login, id)) => (&**login, Some(*id), Some(PaintId::Twitch(*id))),
+    None => (&*m.login, m.user_id.parse::<u64>().ok(), PaintId::of_message(m)),
+  };
   // asking is part of looking: seeing a chatter queues them for the next batch
   let flair = uid.filter(|_| look.sub_flair).and_then(|id| res.flairs.get(id)).map(|b| b.url.clone());
-  let heat = if look.heat_bars { res.heats.get(&m.login) } else { 0 };
+  let heat = if look.heat_bars { res.heats.get(login) } else { 0 };
   let known = uid.is_some_and(|id| res.senders.known(id));
-  let mine = uid.is_some_and(|id| res.senders.is_me(id));
-  let badged = PaintId::of_message(m).is_some_and(|id| res.cosmetics.hs_badge(&id).is_some());
+  let mine = own.is_some() || uid.is_some_and(|id| res.senders.is_me(id));
+  let badged = paint.is_some_and(|id| res.cosmetics.hs_badge(&id).is_some());
   let w = wear(look.flame, look.heat_bars, known, mine, badged, heat);
   if let Some(url) = flair {
     push_badge(res, &url, None, s, ib, boxes);

@@ -560,6 +560,12 @@ impl App {
         // our own inventory feeds tab-complete: fetch it now, not on first sight of our own line
         self.net.send(Cmd::SevenTvMe(seventv_id(me.as_ref().and_then(|m| m.twitch_id), self.set.paints)));
         self.res.senders.set_me(me.as_ref().and_then(|m| m.twitch_id));
+        let name = |f: fn(&crate::net::auth::Me) -> Option<&str>| me.as_ref().and_then(f);
+        self.res.senders.set_names(
+          name(|m| m.twitch.as_deref()),
+          name(|m| m.kick.as_deref()),
+          name(|m| m.youtube.as_deref()),
+        );
         if let Some(id) = me.as_ref().and_then(|m| m.twitch_id) {
           self.res.senders.lookup(id, "", now_ms());
           self.wake();

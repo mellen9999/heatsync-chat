@@ -8,6 +8,9 @@ use serde_json::Value;
 use super::content::emote_hidden;
 use super::valid_name;
 use crate::images::url::allowed;
+use crate::model::hsorigin::bare;
+use crate::model::message::{Message, Platform};
+use crate::model::modrole::kick_is_me;
 use crate::util::time::{now_ms, parse_iso};
 
 #[derive(PartialEq)]
@@ -89,11 +92,31 @@ pub struct Senders {
   wanted: Vec<u64>,
   // the viewer's own twitch id: their own lines get the tight skew
   me: Option<u64>,
+  // the viewer's linked names, for telling their own line on kick or youtube (lowercase, youtube bare)
+  twitch: Box<str>,
+  kick: Box<str>,
+  youtube: Box<str>,
 }
 
 impl Senders {
   pub fn set_me(&mut self, me: Option<u64>) {
     self.me = me;
+  }
+
+  pub fn set_names(&mut self, twitch: Option<&str>, kick: Option<&str>, youtube: Option<&str>) {
+    let low = |n: Option<&str>| n.map(|n| bare(n.trim()).to_ascii_lowercase()).unwrap_or_default().into();
+    (self.twitch, self.kick, self.youtube) = (low(twitch), low(kick), low(youtube));
+  }
+
+  // your own line on kick or youtube: the twitch login and id it wears marks under (ext hsMarksSelfRowHtml),
+  // never the row's own id. None for anyone else's line and for twitch rows, which wear their own
+  pub fn own_twitch(&self, m: &Message) -> Option<(&str, u64)> {
+    let mine = match m.platform {
+      Platform::Kick => kick_is_me(&m.login, Some(&self.kick)),
+      Platform::Youtube => !self.youtube.is_empty() && bare(&m.login).eq_ignore_ascii_case(&self.youtube),
+      _ => false,
+    };
+    (mine && !self.twitch.is_empty()).then_some((&*self.twitch, self.me?))
   }
 
   // the emote `word` as `id` owned it at `ts`. queues a fetch when the set is unknown or stale
