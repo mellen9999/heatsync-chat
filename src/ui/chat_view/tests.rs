@@ -1221,6 +1221,19 @@ fn ids(v: &ChatView) -> Vec<String> {
 }
 
 #[test]
+fn lclear_stays_cleared_against_history_and_gap_fills() {
+  let now = crate::util::time::now_ms();
+  let mut v = ChatView::new(50, "c".into());
+  v.push(at("a", now - 20_000));
+  v.clear_here();
+  assert_eq!(v.fill_gap(vec![at("b", now - 10_000), at("c", now - 5_000)]), 0);
+  v.prepend(vec![at("d", now - 30_000)]);
+  assert!(ids(&v).is_empty(), "nothing older than the clear comes back");
+  assert_eq!(v.fill_gap(vec![at("e", now + 10_000)]), 1);
+  assert_eq!(ids(&v), ["e"], "a newer line still lands");
+}
+
+#[test]
 fn a_gap_is_filled_in_time_order_without_doubling_a_line() {
   let mut v = ChatView::new(50, "c".into());
   for (id, ts) in [("a", 10), ("b", 20), ("e", 50), ("f", 60)] {

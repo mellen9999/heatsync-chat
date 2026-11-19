@@ -210,6 +210,8 @@ pub struct ChatView {
   rows: VecDeque<Row>,
   cap: usize,
   seq_back: i64,
+  // when /lclear last emptied this view: history and gap-fills older than it do not bring lines back
+  cleared_at: i64,
   pub width: i32,
   // px scrolled up from the bottom; 0 = pinned to newest
   scroll: i32,
@@ -309,6 +311,7 @@ impl ChatView {
       rows: VecDeque::with_capacity(cap.min(1024)),
       cap,
       seq_back: 0,
+      cleared_at: 0,
       width: MIN_W,
       scroll: 0,
       pending: 0,
@@ -462,7 +465,8 @@ impl ChatView {
   // stacking in arrival order. a line we already have (same id) is skipped
   pub fn prepend(&mut self, history: Vec<Message>) {
     let have: HashSet<&str> = self.rows.iter().map(|r| &*r.msg.id).filter(|id| !id.is_empty()).collect();
-    let fresh: Vec<Message> = history.into_iter().filter(|m| m.id.is_empty() || !have.contains(&*m.id)).collect();
+    let fresh: Vec<Message> =
+      history.into_iter().filter(|m| m.ts >= self.cleared_at && (m.id.is_empty() || !have.contains(&*m.id))).collect();
     self.slot_in(fresh);
   }
 
@@ -474,7 +478,9 @@ impl ChatView {
     let oldest = self.rows.front().map(|r| r.msg.ts);
     let fresh: Vec<Message> = msgs
       .into_iter()
-      .filter(|m| !m.id.is_empty() && oldest.is_none_or(|t| m.ts >= t) && have.insert(m.id.clone()))
+      .filter(|m| {
+        m.ts >= self.cleared_at && !m.id.is_empty() && oldest.is_none_or(|t| m.ts >= t) && have.insert(m.id.clone())
+      })
       .map(|mut m| {
         m.flags |= flag::HISTORY;
         m
@@ -725,6 +731,12 @@ impl ChatView {
     self.seq_back = 0;
     self.sends = Sends::default();
     self.stale = true;
+  }
+
+  // /lclear: forget every line, and keep forgetting the ones older than now that history or a gap-fill brings
+  pub fn clear_here(&mut self) {
+    self.clear();
+    self.cleared_at = now_ms();
   }
 
   // tag the recent lines `f` picks as sent through heatsync (an echo that beat the site's word)

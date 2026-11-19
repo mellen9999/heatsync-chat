@@ -82,7 +82,7 @@ impl App {
   pub(super) fn lclear(&mut self) {
     match self.tabs.get_mut(self.active) {
       Some(t) if t.kind == Kind::Chat && !t.sources.is_empty() => {
-        t.chat().clear();
+        t.chat().clear_here();
         self.say(crate::i18n::t("app.quick.lclear"));
       }
       _ => self.say(t("app.quick.lclear_needs")),
