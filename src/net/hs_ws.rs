@@ -298,8 +298,14 @@ fn feed_room(ty: &str, id: &str) -> Value {
   json!({"type": ty, "feed": format!("thread:{id}")})
 }
 
-fn yt_sub(handle: &str) -> Value {
-  json!({"type": "youtube:subscribe", "url": handle, "channelId": handle.to_ascii_lowercase()})
+// a handle goes as it is (the relay resolves the bare name) with its lowercase as the frames' channelId. a
+// channel id has no bare form: its /channel/ page is the url, and it is the frames' channelId as it is (case
+// matters upstream, and frames name it back exactly as sent)
+fn yt_sub(key: &str) -> Value {
+  if ident::yt_channel_id(key) {
+    return json!({"type": "youtube:subscribe", "url": format!("https://www.youtube.com/channel/{key}/live"), "channelId": key});
+  }
+  json!({"type": "youtube:subscribe", "url": key, "channelId": key.to_ascii_lowercase()})
 }
 
 type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;

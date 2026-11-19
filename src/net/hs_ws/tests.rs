@@ -631,6 +631,21 @@ fn feed_rooms_join_and_leave_once_and_are_kept() {
 // the server sends `chat:origin` only to a socket in the room `youtube/<handle>`; `youtube:subscribe` joins none,
 // so a youtube feed also does `channel:join` (handle lowercase, no @), and a new socket re-joins it
 #[test]
+fn a_channel_id_subscribes_by_its_page_and_keeps_its_case() {
+  const UC: &str = "UC8yh-UI81uUteMDSOwQyx1g";
+  let id = yt_sub(UC);
+  assert_eq!(id["url"], format!("https://www.youtube.com/channel/{UC}/live"));
+  assert_eq!(id["channelId"], UC);
+  assert_eq!(yt_sub("@MrBeast")["channelId"], "@mrbeast");
+  assert_eq!(yt_sub("@MrBeast")["url"], "@MrBeast");
+  // its origin room is the lowercase id, as the server keys it
+  let mut st = State::default();
+  let f = apply(&mut st, Cmd::YtSub(UC.into()));
+  let join = f.iter().find(|v| v["type"] == "channel:join").expect("a channel:join");
+  assert_eq!(join["channel"], UC.to_ascii_lowercase());
+}
+
+#[test]
 fn a_youtube_feed_joins_its_origin_room_and_leaves_it() {
   let mut st = State::default();
   let f = apply(&mut st, Cmd::YtSub("@MrBeast".into()));

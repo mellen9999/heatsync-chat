@@ -110,7 +110,7 @@ fn text<'a>(o: &'a Raw, k: &str) -> &'a str {
   o.get(k).and_then(Value::as_str).unwrap_or("")
 }
 
-// the feeds of an entry this app can open (a leg it can't, a UC id say, is left out here and kept in the entry)
+// the feeds of an entry this app can open (a leg it can't, a youtube /c/ link say, is left out here and kept in the entry)
 pub fn spec(o: &Raw) -> Spec {
   Spec::lenient(text(o, "twitch"), text(o, "kick"), text(o, "youtube"))
 }
@@ -403,7 +403,7 @@ mod tests {
       json!({"id": "a", "kick": "some-one"}),
       json!({"id": "a", "youtube": "lofigirl"}),
       json!({"id": "a", "youtube": "@lofi.girl"}),
-      json!({"id": "a", "youtube": "UCabcdefghijklmnopqrstuv"}),
+      json!({"id": "a", "youtube": "https://www.youtube.com/c/someone"}),
       json!({"id": "a", "youtube": "https://www.youtube.com/@x/live"}),
       json!({"id": "a", "twitch": "", "kick": null, "youtube": 0}),
     ] {
@@ -442,7 +442,7 @@ mod tests {
     let list = json!([
       {"id": "forsen", "twitch": "Forsen", "kick": "", "youtube": "https://www.youtube.com/@forsen/live",
         "sendTargets": {"twitch": true, "kick": false}, "youtubeExplicit": true, "future": [1, {"x": 2}]},
-      {"id": "yt-1", "youtube": "UCabcdefghijklmnopqrstuv"},
+      {"id": "yt-1", "youtube": "https://www.youtube.com/c/someone"},
       {"id": "linked_5", "twitch": "xqc", "kick": "xqc", "preview": true},
     ]);
     let tabs = s.inbound("me", fr(list.clone(), Some(1.0))).unwrap();
@@ -492,7 +492,7 @@ mod tests {
     let mut s = TabSync::default();
     let list = json!([
       {"id": "forsen", "twitch": "forsen", "kick": "", "youtube": "", "sendTargets": {"kick": false}},
-      {"id": "ch", "twitch": "ch", "youtube": "UCabcdefghijklmnopqrstuv"},
+      {"id": "ch", "twitch": "ch", "youtube": "https://www.youtube.com/c/someone"},
     ]);
     s.inbound("me", fr(list, None));
     // kick added to forsen
@@ -503,7 +503,7 @@ mod tests {
     );
     // twitch renamed on the entry with a feed we can't read: the id follows twitch, the UC leg stays
     let out = s.outbound(&[sp("forsen", "forsen", ""), sp("ch2", "", "")], 0).unwrap();
-    assert_eq!(out[1], json!({"id": "ch2", "twitch": "ch2", "youtube": "UCabcdefghijklmnopqrstuv"}));
+    assert_eq!(out[1], json!({"id": "ch2", "twitch": "ch2", "youtube": "https://www.youtube.com/c/someone"}));
   }
 
   // the ext's rule on sign-in: the account's list replaces the tabs you had, it is not merged

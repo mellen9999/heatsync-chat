@@ -70,8 +70,9 @@ pub fn kick_slug(raw: &str) -> String {
   v.to_ascii_lowercase()
 }
 
-// a bare handle, @handle, or a youtube.com/@handle link -> `@handle`. channel ids (UC...) are
-// not handles and the relay keys on lowercase, so they are refused with a plain hint
+// a bare handle, @handle, or a youtube.com/@handle link -> `@handle` (lowercase). a channel id
+// (`UC` + 22), bare or from a youtube.com/channel/UC... link, is kept as typed: it is case-sensitive and
+// goes upstream as it is (the server's shared/yt-channel-id.ts). anything else that looks like one is refused
 pub fn yt_key(raw: &str) -> Result<String, Err> {
   let v = raw.trim();
   if v.is_empty() {
@@ -79,15 +80,19 @@ pub fn yt_key(raw: &str) -> Result<String, Err> {
   }
   let v = match after(v, "youtube.com/") {
     Some(rest) => {
-      let seg = first_segment(rest);
-      if !seg.starts_with('@') {
-        return Err(Err::YtHandle);
+      let mut segs = rest.split(['/', '?', '#']);
+      match (segs.next().unwrap_or(""), segs.next()) {
+        (seg, _) if seg.starts_with('@') => seg,
+        (kind, Some(id)) if kind.eq_ignore_ascii_case("channel") && ident::yt_channel_id(id) => return Ok(id.into()),
+        _ => return Err(Err::YtHandle),
       }
-      seg
     }
     None => v,
   };
   let name = v.trim_start_matches('@');
+  if ident::yt_channel_id(name) {
+    return Ok(name.into());
+  }
   if !ident::yt_handle(name) {
     return Err(Err::Invalid);
   }
@@ -300,8 +305,25 @@ mod tests {
     assert!(Spec::parse("", "a-b", "").is_ok());
     assert_eq!(Spec::parse(&"a".repeat(26), "", ""), Err(Err::Invalid));
     assert_eq!(Spec::parse("", "", "ab"), Err(Err::Invalid));
-    assert_eq!(Spec::parse("", "", "UCabcdefghijklmnopqrstuv"), Err(Err::YtHandle));
+    // a channel id is kept exactly, bare or from its link; the near misses are refused
+    const UC: &str = "UC8yh-UI81uUteMDSOwQyx1g";
+    for typed in [
+      UC,
+      &format!("@{UC}"),
+      &format!("https://www.youtube.com/channel/{UC}"),
+      &format!("youtube.com/Channel/{UC}/live?x=1"),
+    ] {
+      assert_eq!(yt_key(typed), Ok(UC.into()), "{typed}");
+    }
+    assert_eq!(Spec::parse("", "", UC).unwrap().name(), format!("yt:{UC}"));
+    assert_eq!(Spec::from_line(&format!("yt:{UC}")), Spec::parse("", "", UC));
+    assert_eq!(Spec::parse("", "", "UCabcdefghijklmnopqrstuvw"), Err(Err::YtHandle), "25 chars");
+    assert_eq!(Spec::parse("", "", "UCabcdefghijklmnopqrstu"), Err(Err::YtHandle), "23 chars");
     assert_eq!(Spec::parse("", "", "https://youtube.com/channel/UCx"), Err(Err::YtHandle));
+    assert_eq!(Spec::parse("", "", "https://youtube.com/channel/"), Err(Err::YtHandle));
+    assert_eq!(Spec::parse("", "", "https://youtube.com/c/name"), Err(Err::YtHandle));
+    let id = Spec::parse("", "", UC).unwrap();
+    assert_eq!(id.check(std::slice::from_ref(&id)), Err(Err::YoutubeExists), "one tab per channel");
   }
 
   #[test]

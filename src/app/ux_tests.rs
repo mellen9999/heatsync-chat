@@ -272,20 +272,20 @@ fn open_adds_a_links_tabs_and_skips_what_is_open() {
   assert!(said(&app).contains("paste a heatsync.org/m/ link"));
   typed(&mut app, "/layout https://evil.example/m/t:xqc");
   assert!(said(&app).contains("isn't a heatsync.org/m/ link") && names(&app) == ["forsen"]);
-  // forsen is open: only its kick leg is new; asmon is added; the youtube id can't open
+  // forsen is open: only its kick leg is new; asmon and the youtube channel id are added
   typed(&mut app, "/layout https://heatsync.org/m/t:forsen,k:forsen+t:asmon+y:UC8yh-UI81uUteMDSOwQyx1g");
-  assert!(said(&app).starts_with("added 2 tabs: kick:forsen, asmon"), "{}", said(&app));
-  assert!(said(&app).contains("skipped 1"));
-  assert_eq!(names(&app), ["forsen", "kick:forsen", "asmon"]);
+  assert!(said(&app).starts_with("added 3 tabs: kick:forsen, asmon, yt:UC8yh-UI81uUteMDSOwQyx1g"), "{}", said(&app));
+  assert!(!said(&app).contains("skipped"));
+  assert_eq!(names(&app), ["forsen", "kick:forsen", "asmon", "yt:UC8yh-UI81uUteMDSOwQyx1g"]);
   // the first new tab is the one you land on
   assert_eq!(&*app.tabs[app.active].name, "kick:forsen");
   // again: nothing new
   typed(&mut app, "/open t:forsen+t:asmon");
   assert_eq!(said(&app), "already open");
-  assert_eq!(names(&app).len(), 3);
+  assert_eq!(names(&app).len(), 4);
   // a pasted link after /join works too, and share has something to build
   typed(&mut app, "/join https://heatsync.org/m/t:xqc");
-  assert_eq!(names(&app).len(), 4);
+  assert_eq!(names(&app).len(), 5);
   typed(&mut app, "/sl");
   assert!(!said(&app).contains("no channel tabs"), "{}", said(&app));
 }

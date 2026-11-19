@@ -55,6 +55,12 @@ pub fn chatter_login(s: &str) -> bool {
   slug(s, 50)
 }
 
+// a youtube channel id: 'UC' + 22 of [A-Za-z0-9_-]. opaque and case-sensitive: never lowercase one that is
+// sent upstream (the server's shared/yt-channel-id.ts)
+pub fn yt_channel_id(s: &str) -> bool {
+  s.len() == 24 && s.starts_with("UC") && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 // a key heatsync's relay knows a room or a youtube handle by: 1-100 of a-z A-Z 0-9 _ - . @
 pub fn relay_key(s: &str) -> bool {
   (1..=100).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-.@".contains(&b))

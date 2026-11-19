@@ -4,7 +4,8 @@
 //   layout := tab ('+' tab)*      '+' = one tab each
 //   tab    := leg (',' leg)*      ',' = platforms merged into one tab
 //   leg    := ('t'|'k'|'y') ':' name
-use super::chan::{Err, Spec, yt_key};
+use super::chan::{Spec, yt_key};
+use super::ident::yt_channel_id as is_channel_id;
 
 pub const MAX_TABS: usize = 8;
 pub const MAX_LEN: usize = 400;
@@ -30,11 +31,6 @@ fn name_ok(s: &str) -> bool {
 fn handle_ok(s: &str) -> bool {
   (1..=40).contains(&s.len())
     && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'.' || b == b'-')
-}
-
-// 'UC' + 22 of [A-Za-z0-9_-], case matters
-pub fn is_channel_id(s: &str) -> bool {
-  s.len() == 24 && s.starts_with("UC") && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 // a layout segment into validated tabs: bad segments dropped, identical tabs dropped, at most 8
@@ -85,11 +81,13 @@ pub fn build(specs: &[Spec]) -> String {
   let mut parts: Vec<String> = specs
     .iter()
     .map(|s| {
-      let yt = s.youtube.trim_start_matches('@').to_lowercase();
+      // a handle is lowercase; a channel id is case-sensitive and rides as it is
+      let yt =
+        if is_channel_id(&s.youtube) { s.youtube.clone() } else { s.youtube.trim_start_matches('@').to_lowercase() };
       legs(&Tab {
         twitch: if name_ok(&s.twitch) { s.twitch.clone() } else { String::new() },
         kick: if name_ok(&s.kick) { s.kick.clone() } else { String::new() },
-        youtube: if handle_ok(&yt) { yt } else { String::new() },
+        youtube: if is_channel_id(&yt) || handle_ok(&yt) { yt } else { String::new() },
       })
     })
     .filter(|p| !p.is_empty())
@@ -175,9 +173,7 @@ pub fn to_specs(tabs: &[Tab]) -> (Vec<Spec>, usize) {
   for t in tabs {
     let tw = Spec::parse(&t.twitch, "", "").map(|s| s.twitch).unwrap_or_default();
     let ki = Spec::parse("", &t.kick, "").map(|s| s.kick).unwrap_or_default();
-    // our youtube feeds are @handles; a UC id has no handle to open
-    let yt = if is_channel_id(&t.youtube) { Err(Err::YtHandle) } else { yt_key(&t.youtube) };
-    let yt = yt.unwrap_or_default();
+    let yt = yt_key(&t.youtube).unwrap_or_default();
     skipped += [(&t.twitch, &tw), (&t.kick, &ki), (&t.youtube, &yt)]
       .iter()
       .filter(|(want, got)| !want.is_empty() && got.is_empty())
@@ -353,10 +349,11 @@ mod tests {
   }
 
   #[test]
-  fn channel_ids_cannot_open_here() {
+  fn channel_ids_open_here_exactly_and_ride_back_into_a_link() {
     let (specs, skipped) = to_specs(&parse(&format!("t:xqc,y:{UC}+y:{UC}+k:foo")));
-    assert_eq!(specs, vec![sp("xqc", "", ""), sp("", "foo", "")]);
-    assert_eq!(skipped, 2);
+    assert_eq!(specs, vec![sp("xqc", "", UC), sp("", "", UC), sp("", "foo", "")]);
+    assert_eq!(skipped, 0);
+    assert_eq!(build(&[sp("", "", UC)]), format!("y:{UC}"), "case kept");
   }
 
   #[test]

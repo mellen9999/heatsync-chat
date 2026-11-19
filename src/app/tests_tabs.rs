@@ -721,7 +721,7 @@ fn headless_tab_sync() {
     json!({"type": "multichat:config", "rev": 5, "channels": [
       {"id": "xqc", "twitch": "xqc", "sendTargets": {"twitch": true}},
       {"id": "trainwreckstv", "kick": "trainwreckstv"},
-      {"id": "yt-1", "youtube": "UCabcdefghijklmnopqrstuv"},
+      {"id": "yt-1", "youtube": "https://www.youtube.com/c/someone"},
       {"id": "yt-2", "youtube": "lofigirl"},
     ]}),
   );
@@ -750,7 +750,7 @@ fn headless_tab_sync() {
     [vec![
       json!({"id": "xqc", "twitch": "xqc", "sendTargets": {"twitch": true}}),
       json!({"id": "trainwreckstv", "kick": "trainwreckstv"}),
-      json!({"id": "yt-1", "youtube": "UCabcdefghijklmnopqrstuv"}),
+      json!({"id": "yt-1", "youtube": "https://www.youtube.com/c/someone"}),
     ]]
   );
   // logged out: the account's lists no longer reach the tabs
