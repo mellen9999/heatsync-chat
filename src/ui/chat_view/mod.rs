@@ -221,6 +221,8 @@ pub struct ChatView {
   unread: usize,
   // something above the newest rows changed: next frame repaints everything
   stale: bool,
+  // the pointer resting on an emote, a name or a link holds the list still (hold.rs)
+  hold: hold::Hold,
   anims: Vec<Anim>,
   name_anims: Vec<NameAnim>,
   // ms until the soonest on-screen animation flips
@@ -295,6 +297,7 @@ mod draw;
 mod fill;
 mod heat;
 mod hit;
+mod hold;
 mod layout;
 mod marks;
 mod react;
@@ -317,6 +320,7 @@ impl ChatView {
       pending: 0,
       unread: 0,
       stale: true,
+      hold: hold::Hold::default(),
       anims: Vec::new(),
       name_anims: Vec::new(),
       next_anim: None,
@@ -948,7 +952,7 @@ impl ChatView {
   // the jump-to-bottom bar (ext #hs-mc-new-msgs): Some(lines that arrived below) while scrolled up in a
   // chat that follows its newest line. a list read from the top never shows it
   pub fn jump(&self) -> Option<usize> {
-    (!self.top && self.scroll > 0).then_some(self.unread)
+    (!self.top && self.scroll > 0 && !self.hold.held()).then_some(self.unread)
   }
 
   fn height_at(&mut self, i: usize, res: &mut Res) -> i32 {
@@ -1091,6 +1095,7 @@ impl ChatView {
 
   // px > 0 moves toward older lines (up the screen)
   pub fn scroll_by(&mut self, px: i32, res: &mut Res) {
+    self.hold_cancel();
     let max = self.content_height(res);
     // a list that fits on screen has nothing above the view to read: it never leaves the tail
     let room = (max - self.view_h).max(0);
@@ -1099,11 +1104,13 @@ impl ChatView {
   }
 
   pub fn scroll_to_bottom(&mut self) {
+    self.hold_cancel();
     self.scroll = if self.top { i32::MAX } else { 0 };
     self.stale = true;
   }
 
   pub fn scroll_to_top(&mut self, res: &mut Res) {
+    self.hold_cancel();
     self.scroll = if self.top { 0 } else { self.content_height(res) };
     self.stale = true;
   }
@@ -1146,7 +1153,7 @@ impl ChatView {
       // a list never blits: whatever changed, repaint it whole
       return if std::mem::take(&mut self.stale) || n > 0 { Paint::Full } else { Paint::Nothing };
     }
-    if self.pinned() {
+    if self.pinned() && !self.hold.held() {
       self.unread = 0;
     } else {
       // keep the reader's place: content grew under them

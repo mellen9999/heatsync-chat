@@ -276,6 +276,7 @@ impl App {
       self.attention = false;
     } else {
       self.hide_tip();
+      self.hold_leave();
       self.mark_read();
     }
   }

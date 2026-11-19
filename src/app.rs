@@ -34,6 +34,7 @@ mod following;
 mod font;
 mod gifs;
 mod held;
+mod hold;
 mod ime;
 mod img_view;
 mod import;
@@ -739,6 +740,7 @@ impl App {
       self.img_close();
       self.find_clear();
       self.hide_tip();
+      self.hold_leave();
       self.rover = None;
       // an edit belongs to the tab it was started in
       self.edit_end();
@@ -917,6 +919,7 @@ impl ApplicationHandler<NetEvent> for App {
         self.jump_hover();
         self.modbar_hover();
         self.chat_hover();
+        self.hold_pointer();
         self.suggest_hover();
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
@@ -930,6 +933,7 @@ impl ApplicationHandler<NetEvent> for App {
           self.wake();
         }
         self.modbar_leave();
+        self.hold_leave();
       }
       WindowEvent::MouseWheel { delta, .. } => {
         self.hide_tip();
@@ -944,13 +948,13 @@ impl ApplicationHandler<NetEvent> for App {
         if self.zoom_wheel(lines, px as f32) || self.form.is_some() {
           return;
         }
+        if self.menu_wheel(px) {
+          return self.wake();
+        }
         if self.screen.is_some() {
           self.screen_wheel(px);
         } else if self.img_view.is_some() {
           self.img_wheel(px);
-        if self.menu_wheel(px) {
-          return self.wake();
-        }
         } else if self.picker.is_some() {
           self.picker_wheel(px);
         } else {
@@ -1020,6 +1024,7 @@ impl ApplicationHandler<NetEvent> for App {
     if self.held.due().is_some_and(|t| t <= now) {
       self.held_tick();
     }
+    self.hold_tick(now);
     if self.pred_bar.sec.is_some_and(|t| t <= now) {
       self.pred_second();
     }
@@ -1067,6 +1072,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.live_pace.due(),
       self.mentions_save,
       self.held.due(),
+      self.hold_due(),
       self.ui_state_due(),
       self.following_due(),
       self.live_due(),

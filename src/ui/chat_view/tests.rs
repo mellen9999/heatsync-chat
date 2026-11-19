@@ -4,6 +4,7 @@ use crate::fake::Fake;
 use crate::ui::canvas::Canvas;
 use crate::ui::res::{EMBED_PX, Look};
 use crate::ui::theme;
+use std::time::{Duration, Instant};
 
 #[test]
 fn post_refs_are_whole_words() {
@@ -1521,7 +1522,6 @@ fn lines_below_count_while_scrolled_up_and_clear_at_the_bottom() {
 }
 
 #[test]
-#[test]
 fn a_list_that_fits_is_not_paused_by_a_wheel_notch() {
   let mut res = Res::new(1.0);
   let mut v = ChatView::new(200, "c".into());
@@ -1535,6 +1535,95 @@ fn a_list_that_fits_is_not_paused_by_a_wheel_notch() {
   assert!(v.pinned(), "a list that fits stays on the tail");
 }
 
+// the hover hold: rows that arrive while the pointer rests on a thing do not move what is under it, show no
+// "new" bar, and the list pins back to its tail when the pointer lets go
+#[test]
+fn a_hold_keeps_the_row_under_the_pointer_and_leaving_pins_back() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(200, "c".into());
+  v.resize(400);
+  let area = Rect::new(0, 0, 400, 100);
+  for i in 0..40 {
+    v.push(plain(&format!("p{i}"), "hello"));
+  }
+  assert!(matches!(v.take_paint(&mut res, 100), Paint::Full));
+  let under = |v: &mut ChatView, res: &mut Res| v.line_at(area, 50, res).unwrap();
+  let before = under(&mut v, &mut res);
+  let now = Instant::now();
+  assert!(!v.hold_moved((10, 50)), "the first sighting is not a move");
+  assert!(v.hold_moved((12, 50)));
+  v.hold_over(true, now);
+  assert!(v.held());
+  for i in 0..5 {
+    v.push(plain(&format!("q{i}"), "more"));
+  }
+  assert!(matches!(v.take_paint(&mut res, 100), Paint::Nothing), "nothing slides");
+  assert_eq!(under(&mut v, &mut res), before, "the row under the pointer is the same row at the same place");
+  assert_eq!(v.jump(), None, "a hold shows no bar");
+  assert!(v.hold_leave());
+  assert!(!v.held() && v.pinned());
+  assert!(matches!(v.take_paint(&mut res, 100), Paint::Full), "the held rows show at once");
+  assert_eq!(v.last_msg().map(|m| &*m.id), Some("q4"));
+  assert_eq!(v.jump(), None);
+}
+
+#[test]
+fn a_hold_lets_go_after_a_beat_off_its_thing_and_a_real_scroll_ends_it() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(200, "c".into());
+  v.resize(400);
+  for i in 0..40 {
+    v.push(plain(&format!("p{i}"), "hello"));
+  }
+  v.take_paint(&mut res, 100);
+  let now = Instant::now();
+  v.hold_moved((1, 1));
+  v.hold_moved((2, 2));
+  v.hold_over(true, now);
+  v.push(plain("q", "more"));
+  v.take_paint(&mut res, 100);
+  // onto plain text: let go only after the beat, and back onto a thing cancels it
+  v.hold_over(false, now);
+  assert!(!v.hold_tick(now), "not yet");
+  v.hold_over(true, now + Duration::from_millis(50));
+  assert!(v.hold_due().is_none());
+  v.hold_over(false, now + Duration::from_millis(60));
+  assert!(v.hold_tick(now + Duration::from_millis(200)));
+  assert!(v.pinned() && !v.held());
+  // a wheel while held is a plain pause where it is
+  v.hold_moved((3, 3));
+  v.hold_over(true, now);
+  v.push(plain("r", "more"));
+  v.take_paint(&mut res, 100);
+  v.scroll_by(60, &mut res);
+  assert!(!v.held());
+  assert!(!v.hold_leave(), "nothing to let go of");
+  assert!(v.jump().is_some(), "now it is a real pause with its bar");
+}
+
+#[test]
+fn a_list_scrolled_up_or_read_from_the_top_is_never_held() {
+  let mut res = Res::new(1.0);
+  let mut v = ChatView::new(200, "c".into());
+  v.resize(400);
+  for i in 0..40 {
+    v.push(plain(&format!("p{i}"), "hello"));
+  }
+  v.take_paint(&mut res, 100);
+  v.scroll_by(60, &mut res);
+  v.hold_moved((1, 1));
+  v.hold_moved((2, 2));
+  v.hold_over(true, Instant::now());
+  assert!(!v.held());
+  let mut f = ChatView::new(50, "feed".into());
+  f.top = true;
+  f.hold_moved((1, 1));
+  f.hold_moved((2, 2));
+  f.hold_over(true, Instant::now());
+  assert!(!f.held());
+}
+
+#[test]
 fn a_list_read_from_the_top_has_no_jump_bar() {
   let mut res = Res::new(1.0);
   let mut v = ChatView::new(50, "feed".into());
