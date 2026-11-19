@@ -623,3 +623,25 @@ fn an_overlay_typed_after_an_emoji_stacks_on_it_in_the_box() {
   app.chip_spaced();
   assert!(!app.line.chips.contains("what"));
 }
+
+// "/lclear" typed in full runs on the first Enter; the open list does not take it as a pick first
+#[test]
+fn a_whole_command_that_needs_nothing_runs_on_the_first_enter() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, Vec::new(), true);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.resized(520, 300);
+  app.line.set_text("/lclear".into());
+  app.line.cursor = app.line.text.len();
+  app.sync_suggest();
+  assert!(app.sug.list.is_some());
+  app.key_insert(Key::Named(NamedKey::Enter), None);
+  assert!(app.sug.list.is_none() && app.line.text.is_empty(), "ran: {:?}", app.line.text);
+  // one that wants an argument still fills in on Enter and waits
+  app.line.set_text("/op".into());
+  app.line.cursor = app.line.text.len();
+  app.sync_suggest();
+  app.key_insert(Key::Named(NamedKey::Enter), None);
+  assert_eq!(app.line.text, "/op ");
+}

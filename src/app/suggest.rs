@@ -63,6 +63,11 @@ impl App {
         let sel = (s.sel + n - 1) % n;
         self.suggest_pick(sel);
       }
+      // the whole command is typed and needs nothing more: Enter closes the list and falls through to send
+      Key::Named(NamedKey::Enter) if whole_command(s, &self.line.text) => {
+        self.sug.list = None;
+        return false;
+      }
       Key::Named(NamedKey::Tab | NamedKey::Enter) => {
         let sel = s.sel;
         self.suggest_pick(sel);
@@ -164,4 +169,13 @@ impl App {
     self.sug.rows = hits;
     Some(r)
   }
+}
+
+// the open list's pick is a command that is already all of what the box holds and takes no argument
+fn whole_command(s: &Suggest, typed: &str) -> bool {
+  s.kind == Kind::Command
+    && s
+      .items
+      .get(s.sel)
+      .is_some_and(|p| slash::all().iter().any(|c| *c.name == *p.name && slash::runs_as_typed(c, typed)))
 }

@@ -101,6 +101,19 @@ const FIXED: [Slash; 83] = [
   s("/unflip", "[text]", "keys.cmd.unflip"),
 ];
 
+impl Slash {
+  // takes no argument, or only an optional one: typed out in full it is complete
+  pub fn runs_alone(&self) -> bool {
+    self.args.is_empty() || self.args.starts_with('[')
+  }
+}
+
+// the box holds exactly this command, whole, and it needs nothing more: Enter runs it instead of filling
+// in what is already there (the ext's slashRunsAsTyped)
+pub fn runs_as_typed(c: &Slash, typed: &str) -> bool {
+  c.runs_alone() && typed.trim().eq_ignore_ascii_case(c.name)
+}
+
 pub fn all() -> Vec<Slash> {
   let switches = schema::DEFS.iter().filter_map(|d| match d.ctl {
     Ctl::Pill(..) => Some(s(d.cmd?, "", d.label_key())),
@@ -117,6 +130,18 @@ pub fn all() -> Vec<Slash> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_whole_command_that_needs_nothing_runs_as_typed() {
+    let all = all();
+    let by = |n: &str| all.iter().find(|c| c.name == n).unwrap();
+    assert!(runs_as_typed(by("/lclear"), "/lclear"));
+    assert!(runs_as_typed(by("/lclear"), " /LClear "));
+    // an optional argument still runs bare; a required one never does; a part of a name is not the name
+    assert!(runs_as_typed(by("/shrug"), "/shrug"));
+    assert!(!runs_as_typed(by("/op"), "/op"));
+    assert!(!runs_as_typed(by("/lclear"), "/lcle"));
+  }
 
   #[test]
   fn every_command_is_handled_and_listed_once() {
