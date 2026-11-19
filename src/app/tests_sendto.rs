@@ -383,3 +383,48 @@ fn enter_while_an_ime_composes_does_not_send() {
   app.key_insert(Key::Named(NamedKey::Enter), None);
   assert_eq!(sent(&mut rx).len(), 3);
 }
+
+// the id the last send left with
+fn last_send(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Box<str> {
+  std::iter::from_fn(|| rx.try_recv().ok())
+    .filter_map(|c| match c {
+      Cmd::Send { send, .. } => send,
+      _ => None,
+    })
+    .last()
+    .unwrap()
+}
+
+// a feed that says it never took a line gives the words back, only into an empty box on that feed's tab
+#[test]
+fn a_refused_line_comes_back_into_an_empty_box_and_never_over_newer_text() {
+  let (mut app, mut rx) = boot();
+  app.cycle_send();
+  app.cycle_send();
+  type_and_send(&mut app, "first words");
+  assert!(app.line.text.is_empty());
+  let id = last_send(&mut rx);
+  app.on_net(NetEvent::Unsent("someone-else".into()));
+  assert!(app.line.text.is_empty(), "another send's refusal is not ours");
+  app.on_net(NetEvent::Unsent(id.clone()));
+  assert_eq!(app.line.text, "first words");
+  assert_eq!(app.line.cursor, "first words".len());
+  // the line is spent: a second word of the same refusal gives nothing
+  app.line.set_text(String::new());
+  app.on_net(NetEvent::Unsent(id));
+  assert!(app.line.text.is_empty());
+  // newer typing wins
+  type_and_send(&mut app, "second");
+  let id = last_send(&mut rx);
+  app.line.set_text("already typing".into());
+  app.on_net(NetEvent::Unsent(id));
+  assert_eq!(app.line.text, "already typing");
+  // a merged send went to other feeds too: nothing to take back
+  while app.legs().len() < 3 {
+    app.cycle_send();
+  }
+  type_and_send(&mut app, "everywhere");
+  let id = last_send(&mut rx);
+  app.on_net(NetEvent::Unsent(id));
+  assert!(app.line.text.is_empty());
+}

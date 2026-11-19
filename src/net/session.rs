@@ -9,6 +9,7 @@ use tokio::time::{Instant, sleep_until};
 use super::auth::{self, Chat, Check, Provider};
 use super::emote_ops::{self, EmoteCmd};
 use super::hs_ws;
+use super::http::Refused;
 use super::irc::{self, Creds};
 use super::lanes::Lanes;
 use super::upload;
@@ -594,11 +595,14 @@ async fn youtube_job(
   send: Option<Box<str>>,
   out: Out,
 ) {
-  let why = match &token {
-    None => Some(t("net1.log_in_send").to_owned()),
+  let refused = match &token {
+    None => Some(Refused { why: t("net1.log_in_send").to_owned(), unsent: true }),
     Some(t) => super::youtube::send(&http, t, &chan, &text, send.as_deref()).await.err(),
   };
-  if let Some(why) = why {
+  if let Some(Refused { why, unsent }) = refused {
+    if let Some(id) = send.filter(|_| unsent) {
+      out.send(NetEvent::Unsent(id));
+    }
     let m = Message::system(now_ms(), Platform::Youtube, f("net1.session.not_sent_youtube", &[("why", &why)]));
     out.send(NetEvent::Relay { platform: Platform::Youtube, key: chan, msgs: vec![m], history: false });
   }
@@ -613,19 +617,24 @@ async fn kick_job(
   send: Option<Box<str>>,
   out: Out,
 ) {
-  let why = match &token {
-    None => Some(t("net1.log_in_send").to_owned()),
+  let refused = match &token {
+    None => Some(Refused { why: t("net1.log_in_send").to_owned(), unsent: true }),
     Some(t) => super::kicksend::send(&http, t, &chan, &text, reply.as_deref(), send.as_deref()).await.err(),
   };
   // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
-  let told = match why.as_deref() {
+  let told = match refused.as_ref() {
     None => Some(None),
-    Some(w) => crate::model::lock::from_kick(w).map(Some),
+    Some(r) => crate::model::lock::from_kick(&r.why).map(Some),
   };
+  let lasting = matches!(told, Some(Some(_)));
   if let Some(cause) = told {
     out.send(NetEvent::Lock(Platform::Kick, chan.clone(), cause));
   }
-  if let Some(why) = why {
+  if let Some(Refused { why, unsent }) = refused {
+    // not in chat and no lasting lock to explain it: the words go back in the box
+    if let Some(id) = send.filter(|_| unsent && !lasting) {
+      out.send(NetEvent::Unsent(id));
+    }
     let m = Message::system(now_ms(), Platform::Kick, f("net1.session.not_sent_kick", &[("why", &why)]));
     out.send(NetEvent::Relay { platform: Platform::Kick, key: chan, msgs: vec![m], history: false });
   }

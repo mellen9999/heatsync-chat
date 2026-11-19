@@ -12,6 +12,28 @@ use crate::net::{Cmd, Reply};
 use crate::ui::theme;
 use crate::util::time::now_ms;
 
+// the last line that went to one feed alone: if that feed says it never took it, the words come back
+pub(super) struct Solo {
+  pub(super) send: Box<str>,
+  pub(super) platform: Platform,
+  pub(super) chan: Box<str>,
+  pub(super) typed: String,
+}
+
+impl App {
+  // a feed refused a line that provably never went out. the words return to the box when it is empty and
+  // still on that feed's tab; newer text, or another tab, is left alone (the "not sent" line says why)
+  pub(super) fn give_back(&mut self, send: &str) {
+    let Some(s) = self.solo.take_if(|s| &*s.send == send) else { return };
+    let here = self.legs().iter().any(|(p, c)| *p == s.platform && *c == &*s.chan);
+    if here && self.line.text.is_empty() {
+      self.line.load(s.typed);
+      self.input_dirty = true;
+      self.wake();
+    }
+  }
+}
+
 // one piece of the box's tag: its text and ink
 pub(super) type Piece = (&'static str, u32);
 

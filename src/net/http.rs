@@ -4,6 +4,14 @@ use crate::i18n::t;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
+// a line heatsync did not take: what to tell, and whether it provably never went out (so its words can go
+// back in the box). a 5xx or a drop after connecting may well be in chat: not unsent
+#[derive(Debug)]
+pub struct Refused {
+  pub why: String,
+  pub unsent: bool,
+}
+
 // a failed request for the screen: plain words, the technical reason goes to stderr
 pub fn offline(what: &str, why: impl std::fmt::Display) -> String {
   eprintln!("{what}: {why}");

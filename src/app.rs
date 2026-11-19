@@ -475,6 +475,8 @@ pub struct App {
   heat: crate::model::hsorigin::Heat,
   // sends to several feeds, so their echoes fold into one line
   sentfold: crate::model::sentfold::Sent,
+  // the last line sent to one feed alone, to give back if that feed refuses it
+  solo: Option<sendto::Solo>,
   focused: bool,
   whisper: whispers::Whispers,
   unseen: crate::model::unseen::Unseen,
@@ -684,6 +686,7 @@ impl App {
       origins: Default::default(),
       heat: Default::default(),
       sentfold: Default::default(),
+      solo: None,
       focused: true,
       whisper: Default::default(),
       unseen: Default::default(),

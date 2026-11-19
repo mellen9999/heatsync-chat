@@ -3,7 +3,8 @@
 use crate::i18n::{f, t};
 use serde_json::{Value, json};
 
-use super::{ORIGIN, http};
+use super::ORIGIN;
+use super::http::{self, Refused};
 
 // the reply to one youtube send
 const MAX_REPLY: usize = 64 << 10;
@@ -50,9 +51,9 @@ pub async fn send(
   chan: &str,
   text: &str,
   send: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), Refused> {
   if let Some(why) = too_long(text) {
-    return Err(why);
+    return Err(Refused { why, unsent: true });
   }
   let r = http
     .post(format!("{ORIGIN}/api/youtube/chat/send"))
@@ -61,13 +62,20 @@ pub async fn send(
     .body(body(chan, text, send).to_string())
     .send()
     .await
-    .map_err(|e| http::offline("heatsync", e))?;
+    .map_err(|e| Refused { why: http::offline("heatsync", e), unsent: false })?;
   if r.status().is_success() {
     return Ok(());
   }
   let status = r.status().as_u16();
   let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
-  Err(explain(v.get("error_code").and_then(Value::as_str), status))
+  let code = v.get("error_code").and_then(Value::as_str);
+  Err(Refused { why: explain(code, status), unsent: never_went(code) })
+}
+
+// the refusals that leave the line unsent and its words worth giving back (the server's: a youtube that
+// wants the post permission or a link first)
+fn never_went(code: Option<&str>) -> bool {
+  matches!(code, Some("not_linked" | "needs_post_permission"))
 }
 
 #[cfg(test)]
@@ -81,6 +89,12 @@ mod tests {
       body("@somebody", "gm", Some("hsc-1")),
       json!({ "channel": "@somebody", "text": "gm", "send_id": "hsc-1" })
     );
+  }
+
+  #[test]
+  fn only_a_missing_link_or_permission_gives_the_words_back() {
+    assert!(never_went(Some("needs_post_permission")) && never_went(Some("not_linked")));
+    assert!(!never_went(Some("not_live")) && !never_went(Some("upstream")) && !never_went(None));
   }
 
   #[test]

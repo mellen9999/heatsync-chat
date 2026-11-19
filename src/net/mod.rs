@@ -119,6 +119,8 @@ pub enum NetEvent {
   },
   // a send on kick was refused for a reason that lasts, or went through (None): the box keeps saying why
   Lock(Platform, Box<str>, Option<crate::model::lock::Cause>),
+  // a line that provably never went out (by its send id): its words go back in the box if it is empty
+  Unsent(Box<str>),
   YtStatus {
     key: Box<str>,
     status: Box<str>,

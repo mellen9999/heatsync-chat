@@ -278,10 +278,15 @@ impl App {
       if let Some(v) = self.view() {
         v.deselect();
       }
+      let typed = text.clone();
       let text = crate::model::emoji::convert(&text).into_owned();
       let picks = self.auto_add(&text);
       // one id for the line's every leg and its origin tag
       let send = format!("hsc-{}", super::now_ms());
+      self.solo = match open.as_slice() {
+        [(p, c)] => Some(super::sendto::Solo { send: send.as_str().into(), platform: *p, chan: c.clone(), typed }),
+        _ => None,
+      };
       self.fan_out(&open, &text, reply, &send);
       self.tell_origin(&open, &text, &send, &picks);
       self.vouch(&open, picks);

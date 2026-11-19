@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 use super::ORIGIN;
-use super::http;
+use super::http::{self, Refused};
 
 const MAX_REPLY: usize = 64 << 10;
 
@@ -21,7 +21,7 @@ pub async fn send(
   text: &str,
   reply: Option<&str>,
   send: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), Refused> {
   let mut body = json!({ "channel": chan, "text": text });
   if let Some(id) = reply {
     body["reply_to_message_id"] = json!(id);
@@ -35,10 +35,10 @@ pub async fn send(
 }
 
 // one go: Err(why, whether a second go could help)
-type Go = Result<(), (String, bool)>;
+type Go = Result<(), (Refused, bool)>;
 
 // `again` until it lands, gives up, or may have landed, waiting between tries
-async fn retrying<F, Fut>(waits: &[Duration], mut again: F) -> Result<(), String>
+async fn retrying<F, Fut>(waits: &[Duration], mut again: F) -> Result<(), Refused>
 where
   F: FnMut() -> Fut,
   Fut: Future<Output = Go>,
@@ -51,7 +51,7 @@ where
         tokio::time::sleep(waits[tried]).await;
         tried += 1;
       }
-      Err((why, _)) => return Err(why),
+      Err((r, _)) => return Err(r),
     }
   }
 }
@@ -69,7 +69,7 @@ async fn once(http: &reqwest::Client, token: &str, body: &str) -> Go {
     // never connected: nothing reached heatsync. any other failure (a reset or a timeout mid-way) may have
     Err(e) => {
       let never = e.is_connect();
-      return Err((http::offline("heatsync", e), never));
+      return Err((Refused { why: http::offline("heatsync", e), unsent: never }, never));
     }
   };
   if r.status().is_success() {
@@ -92,7 +92,7 @@ async fn once(http: &reqwest::Client, token: &str, body: &str) -> Go {
   // again; one that needs the user (link, scope, login) will not
   let unsent = (400..500).contains(&code);
   let needs_user = matches!(error_code, Some("not_linked" | "scope_missing" | "token_expired"));
-  Err((why, unsent && !needs_user))
+  Err((Refused { why, unsent }, unsent && !needs_user))
 }
 
 #[cfg(test)]
@@ -100,11 +100,11 @@ mod tests {
   use super::*;
   use std::cell::Cell;
 
-  fn refused(again: bool) -> Go {
-    Err(("no".into(), again))
+  fn refused(unsent: bool, again: bool) -> Go {
+    Err((Refused { why: "no".into(), unsent }, again))
   }
 
-  async fn runs(answers: Vec<Go>) -> (usize, Result<(), String>) {
+  async fn runs(answers: Vec<Go>) -> (usize, Result<(), Refused>) {
     let calls = Cell::new(0);
     let mut answers = answers.into_iter();
     let got = retrying(&[Duration::ZERO; 2], || {
@@ -117,20 +117,26 @@ mod tests {
 
   #[tokio::test]
   async fn a_refusal_that_never_landed_is_tried_three_times_then_given_up() {
-    let (n, got) = runs(vec![refused(true), refused(true), refused(true)]).await;
-    assert_eq!((n, got.is_err()), (3, true));
+    let (n, got) = runs(vec![refused(true, true), refused(true, true), refused(true, true)]).await;
+    assert_eq!(n, 3);
+    assert!(got.is_err_and(|r| r.unsent));
   }
 
   #[tokio::test]
   async fn a_second_try_that_lands_ends_it() {
-    let (n, got) = runs(vec![refused(true), Ok(())]).await;
+    let (n, got) = runs(vec![refused(true, true), Ok(())]).await;
     assert_eq!((n, got.is_ok()), (2, true));
   }
 
   #[tokio::test]
   async fn an_unsure_or_user_bound_failure_is_not_posted_again() {
     // a 5xx or a drop after connecting may be in chat; a missing link or scope no second go fixes
-    let (n, got) = runs(vec![refused(false)]).await;
-    assert_eq!((n, got.is_err()), (1, true));
+    let (n, got) = runs(vec![refused(false, false)]).await;
+    assert_eq!(n, 1);
+    assert!(got.is_err_and(|r| !r.unsent));
+    // a 4xx that needs the user is a refusal (the line is not in chat) with no second go
+    let (n, got) = runs(vec![refused(true, false)]).await;
+    assert_eq!(n, 1);
+    assert!(got.is_err_and(|r| r.unsent));
   }
 }

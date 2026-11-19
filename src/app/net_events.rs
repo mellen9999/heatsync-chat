@@ -762,6 +762,7 @@ impl App {
       NetEvent::CatchUp { platform, key, msgs } => self.on_catch_up(platform, &key, msgs),
       NetEvent::LoginWait(on) => self.login_wait = on,
       NetEvent::Lock(p, key, cause) => self.lock_told(p, &key, cause),
+      NetEvent::Unsent(id) => self.give_back(&id),
       NetEvent::RelayClear { platform, key, login, secs } => {
         // a removal must find every line: what is still waiting shows first
         let waiting = self.pacer.flush(&key);
