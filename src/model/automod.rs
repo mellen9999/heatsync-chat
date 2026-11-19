@@ -20,6 +20,24 @@ pub fn scan(text: &str) -> &str {
   text.char_indices().nth(SCAN).map_or(text, |(i, _)| &text[..i])
 }
 
+// what a word is made of, for a keyword's edges: letters, digits, the underscore and combining marks, in any script
+fn is_word(c: char) -> bool {
+  c.is_alphanumeric()
+    || c == '_'
+    || matches!(c, '\u{300}'..='\u{36f}' | '\u{1ab0}'..='\u{1aff}' | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}')
+}
+
+// a keyword is a whole word: on a side where it is itself a word character it may not run on into another, so
+// "here" is in "(here)", "here-ish" and "here🥹" and not in "there" or "hereby". a keyword that starts or ends
+// with a mark or an emoji needs no edge on that side (the ext's rule)
+pub fn word_at(text: &str, val: &str) -> bool {
+  let (pre, post) = (val.chars().next().is_some_and(is_word), val.chars().next_back().is_some_and(is_word));
+  text.match_indices(val).any(|(i, _)| {
+    (!pre || !text[..i].chars().next_back().is_some_and(is_word))
+      && (!post || !text[i + val.len()..].chars().next().is_some_and(is_word))
+  })
+}
+
 pub fn build(src: &str, ci: bool) -> Option<Regex> {
   RegexBuilder::new(src).case_insensitive(ci).size_limit(1 << 20).dfa_size_limit(1 << 20).nest_limit(40).build().ok()
 }
@@ -103,6 +121,40 @@ mod tests {
 
   fn hits(src: &str, text: &str) -> bool {
     safe_regex(src, true).is_some_and(|re| re.is_match(scan(text)))
+  }
+
+  #[test]
+  fn a_keyword_ends_where_letters_and_digits_end() {
+    for t in [
+      "I was here\u{1f979}",
+      "\u{1f979}here",
+      "(here)",
+      "here-ish",
+      "here/there",
+      "\u{ab}here\u{bb}",
+      "here\u{2026}",
+      "here",
+    ] {
+      assert!(word_at(t, "here"), "{t}");
+    }
+    for t in
+      ["there", "hereby", "here2", "here_now", "where", "her\u{e8}", "\u{3053}\u{3053}here\u{3067}\u{3059}", "3here"]
+    {
+      assert!(!word_at(t, "here"), "{t}");
+    }
+    // a keyword that starts or ends with a mark or an emoji needs no edge on that side
+    assert!(
+      word_at("here\u{1f979}\u{1f979}", "\u{1f979}") && word_at("type!drop now", "!drop") && word_at("c++ is", "c++")
+    );
+    assert!(!word_at("!dropped", "!drop") && !word_at("abc++", "c++") && !word_at("axb", "a.b"));
+    assert!(word_at(
+      "\u{43d}\u{443} \u{43f}\u{440}\u{438}\u{432}\u{435}\u{442}!",
+      "\u{43f}\u{440}\u{438}\u{432}\u{435}\u{442}"
+    ));
+    assert!(!word_at(
+      "\u{43f}\u{440}\u{438}\u{432}\u{435}\u{442}\u{438}\u{43a}",
+      "\u{43f}\u{440}\u{438}\u{432}\u{435}\u{442}"
+    ));
   }
 
   #[test]

@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use serde_json::{Value, json};
 
-use crate::model::automod::{Pat, safe_regex, scan};
+use crate::model::automod::{Pat, safe_regex, scan, word_at};
 use crate::model::message::{Kind, Message, Platform, flag};
 use crate::ui::theme;
 use crate::util::sound::Preset;
@@ -414,13 +414,6 @@ fn truthy(v: Option<&Value>) -> bool {
     Some(Value::String(s)) => !s.is_empty(),
     Some(_) => true,
   }
-}
-
-fn word_at(text: &str, val: &str) -> bool {
-  let edge = |c: char| c.is_whitespace() || ",!?.:;'\"".contains(c);
-  text.match_indices(val).any(|(i, _)| {
-    text[..i].chars().next_back().is_none_or(edge) && text[i + val.len()..].chars().next().is_none_or(edge)
-  })
 }
 
 fn compile(raw: &Value) -> Option<Compiled> {
@@ -977,7 +970,10 @@ mod tests {
     for hit in ["spoiler", "no SPOILER!", "a spoiler, ok", "the 'spoiler'", "x\tspoiler"] {
       assert_eq!(judge(&r, &line("a", hit)), Verdict::Hide, "{hit}");
     }
-    for miss in ["spoilers", "unspoiler", "nospoiler here"] {
+    for hit in ["(spoiler)", "spoiler-ish", "spoiler\u{1f979}"] {
+      assert_eq!(judge(&r, &line("a", hit)), Verdict::Hide, "{hit}");
+    }
+    for miss in ["spoilers", "unspoiler", "nospoiler here", "spoiler2"] {
       assert_eq!(judge(&r, &line("a", miss)), Verdict::Pass, "{miss}");
     }
     let p = rules(&[rule("hide", "keyword", "big news")]);
