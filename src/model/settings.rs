@@ -442,7 +442,13 @@ impl Settings {
     let (mut old_badges, mut one_badges) = (None, false);
     for l in s.lines() {
       let Some((k, v)) = l.split_once('=') else { continue };
-      let on = v.trim() == "true";
+      // a switch is `true` or `false`; anything else is no word at all and leaves the default
+      let flag = match v.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+      };
+      let on = flag == Some(true);
       let k = k.trim();
       if matches!(k, "bttv_badges" | "ffz_badges" | "chatterino_badges") {
         old_badges = Some(old_badges.unwrap_or(false) || on);
@@ -450,7 +456,10 @@ impl Settings {
       }
       one_badges |= k == "third_party_badges";
       if schema::def(k).is_some_and(|d| {
-        d.put(&mut out, on) || d.pick(&mut out, v) || d.list_put(&mut out, v) || d.text_put(&mut out, v)
+        flag.is_some_and(|on| d.put(&mut out, on))
+          || d.pick(&mut out, v)
+          || d.list_put(&mut out, v)
+          || d.text_put(&mut out, v)
       }) {
         continue;
       }
@@ -1074,6 +1083,17 @@ mod tests {
     assert_eq!(Settings::parse("ping_sound=bell\n").ping_sound, PingSound::Ping);
     assert_eq!(PingSound::Chime.preset(), Some(Preset::Chime));
     assert_eq!(PingSound::Custom.preset(), None);
+  }
+
+  // a switch holds true or false: any other word in the file leaves it at its default, on or off
+  #[test]
+  fn a_switch_with_a_junk_word_keeps_its_default() {
+    let d = Settings::default();
+    assert!(d.zebra && !d.vi);
+    let got = Settings::parse("zebra=maybe\nvi=1\ntimestamps=\n");
+    assert!(got.zebra && !got.vi && !got.timestamps);
+    let got = Settings::parse("zebra=false\nvi=true\n");
+    assert!(!got.zebra && got.vi);
   }
 
   #[test]
