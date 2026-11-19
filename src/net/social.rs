@@ -202,7 +202,21 @@ pub(super) async fn call(req: reqwest::RequestBuilder) -> (u16, Value) {
     }
     buf.extend_from_slice(&c);
   }
-  (status, serde_json::from_slice(&buf).unwrap_or(Value::Null))
+  let body = serde_json::from_slice(&buf).unwrap_or(Value::Null);
+  if login_may_be_dead(status, &body) {
+    super::http::lapsed(status);
+  }
+  (status, body)
+}
+
+// a 401 that says our login may be dead: not a twitch relink (the login is fine, the twitch grant is not) and
+// not `login_required` (no token was sent, so there is no login to check)
+fn login_may_be_dead(status: u16, v: &Value) -> bool {
+  let err = v.get("error").and_then(Value::as_str).unwrap_or("");
+  status == 401
+    && v.get("relink_required").and_then(Value::as_bool) != Some(true)
+    && err != "relink_required"
+    && err != "login_required"
 }
 
 fn get(http: &reqwest::Client, token: &str, path: &str) -> reqwest::RequestBuilder {
@@ -874,6 +888,16 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn only_a_plain_401_asks_for_the_login_check() {
+    assert!(login_may_be_dead(401, &Value::Null));
+    assert!(login_may_be_dead(401, &json!({"error": "invalid token"})));
+    assert!(!login_may_be_dead(401, &json!({"error": "relink_required", "reason": "scope"})));
+    assert!(!login_may_be_dead(401, &json!({"error": "No Twitch token", "relink_required": true})));
+    assert!(!login_may_be_dead(401, &json!({"error": "login_required"})));
+    assert!(!login_may_be_dead(403, &Value::Null));
+  }
 
   #[test]
   fn dm_failures_read_plainly() {
