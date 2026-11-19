@@ -3,6 +3,7 @@
 // the cursor paging with its caps, the scope (this channel / all) and the permalink live here;
 // app/logs.rs drives it. every byte of a page is hostile: bounded, typed, urls allowlisted
 use super::ident;
+use crate::i18n::{f, t};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde_json::Value;
@@ -549,13 +550,13 @@ impl Logs {
       return None;
     }
     Some(if self.loading {
-      "loading…"
+      t("model.logs.load")
     } else if self.failed {
-      "couldn't load older lines — press r to retry"
+      t("model.logs.top_failed")
     } else if self.done {
-      "no older messages"
+      t("model.logs.top_done")
     } else {
-      "scroll up for older"
+      t("model.logs.top_more")
     })
   }
 
@@ -567,28 +568,24 @@ impl Logs {
     }
     v.extend(self.rows.iter().map(|r| self.view_msg(r)));
     if self.cut && !self.rows.is_empty() {
-      v.push(Message::system(
-        0,
-        self.who.platform,
-        "newer lines let go to save memory — press r to start from the newest",
-      ));
+      v.push(Message::system(0, self.who.platform, t("model.logs.cut")));
     }
     v
   }
 
   // what an empty view says
   pub fn empty_text(&self) -> String {
-    let room = self.channel().map(|c| format!(" in #{c}")).unwrap_or_default();
+    let room = self.channel().map(|c| format!(" {}", f("model.logs.room", &[("channel", c)]))).unwrap_or_default();
     if self.loading {
-      "loading…".into()
+      t("model.logs.load").into()
     } else if self.failed && !self.done {
-      "couldn't load the archive — press r to try again".into()
+      t("model.logs.none_failed").into()
     } else if self.backfill {
-      "fetching older logs… press r in half a minute".into()
+      t("model.logs.none_backfill").into()
     } else if let Some(q) = &self.query {
-      format!("no matches for \"{q}\"{room}")
+      f("model.logs.none_query", &[("q", q), ("room", &room)])
     } else {
-      format!("no logged messages from {}{room}", self.who.nick)
+      f("model.logs.none_who", &[("nick", &self.who.nick), ("room", &room)])
     }
   }
 
@@ -603,11 +600,17 @@ impl Logs {
   pub fn hint(&self) -> String {
     let scope = match (self.all, &self.home) {
       (false, Some(c)) => format!("#{c}"),
-      _ => "all channels".into(),
+      _ => t("model.logs.scope_all").into(),
     };
-    let what = self.query.as_ref().map_or_else(String::new, |q| format!(" · search \"{q}\""));
-    let swap = if self.home.is_some() { " · a all/this channel" } else { "" };
-    format!("{} · {scope}{what} · / search{swap} · y copy link · esc back", self.who.nick)
+    let mut parts = vec![self.who.nick.to_string(), scope];
+    parts.extend(self.query.as_ref().map(|q| f("model.logs.hint_search", &[("q", q)])));
+    parts.push(t("model.logs.hint_slash").into());
+    if self.home.is_some() {
+      parts.push(t("model.logs.hint_swap").into());
+    }
+    parts.push(t("model.logs.hint_copy").into());
+    parts.push(t("model.logs.hint_back").into());
+    parts.join(" · ")
   }
 }
 
