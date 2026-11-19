@@ -238,6 +238,13 @@ impl App {
 
   pub(super) fn on_chat(&mut self, ch: &str, ev: Chat) {
     let ev = match ev {
+      // an unban: their ban grey lifts, the notice shows as any other
+      Chat::Unban(login, m) => {
+        for i in self.tabs_with(Platform::Twitch, ch) {
+          self.tabs[i].chat().lift_ban(Platform::Twitch, &login);
+        }
+        Chat::Msg(m)
+      }
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
         if self.echo_folded(Platform::Twitch, &m) {
           return;
@@ -325,6 +332,7 @@ impl App {
       Chat::Mod(on) => return self.on_mod_state(ch, on),
       Chat::Lock(c) => return self.lock_told(Platform::Twitch, ch, Some(c)),
       Chat::Sent => return self.lock_told(Platform::Twitch, ch, None),
+      Chat::Unban(..) => return,
     }
     if i == self.active {
       self.wake();

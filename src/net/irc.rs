@@ -158,6 +158,8 @@ pub enum Chat {
   ClearMsg(Box<str>, Box<str>),
   ClearUser { login: Box<str>, secs: Option<u32> },
   ClearAll,
+  // a mod lifted a ban or timeout (twitch's notice, with its own line): that person's grey goes
+  Unban(Box<str>, Message),
   // room id keys the channel's 7tv/bttv/ffz sets (m2b); the chat modes it carries
   Room { id: Box<str>, modes: Vec<crate::model::modes::Set> },
   // our own badges here say we moderate (or own) the channel
@@ -345,8 +347,13 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       Chat::Msg(m)
     }
     "NOTICE" => {
-      let text = crate::model::notice::plain(l.tag("msg-id").as_deref(), l.trailing()?);
-      Chat::Msg(Message::system(ts_of(l), Platform::Twitch, clamp(&text, MAX_BODY)))
+      let id = l.tag("msg-id");
+      let text = crate::model::notice::plain(id.as_deref(), l.trailing()?);
+      let m = Message::system(ts_of(l), Platform::Twitch, clamp(&text, MAX_BODY));
+      match unbanned(id.as_deref(), l.trailing()?) {
+        Some(login) => Chat::Unban(login, m),
+        None => Chat::Msg(m),
+      }
     }
     "CLEARMSG" => Chat::ClearMsg(l.tag("target-msg-id")?.into(), l.tag("login").unwrap_or_default().into()),
     "CLEARCHAT" => match l.trailing() {
@@ -361,6 +368,13 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
     _ => return None,
   };
   Some((ch, ev))
+}
+
+// who an unban / untimeout notice names: its text starts with the login ("x is no longer banned from this chat room.")
+fn unbanned(id: Option<&str>, text: &str) -> Option<Box<str>> {
+  matches!(id?, "unban_success" | "untimeout_success").then_some(())?;
+  let who = text.split_whitespace().next()?.to_ascii_lowercase();
+  crate::model::ident::twitch_login(&who).then(|| who.into())
 }
 
 pub enum Cmd {
@@ -890,6 +904,18 @@ mod tests {
     assert!(matches!(to_chat(&l), Some((_, Chat::ClearAll))));
     let l = parse("@login=x;target-msg-id=abc :tmi.twitch.tv CLEARMSG #c :bad").unwrap();
     assert!(matches!(to_chat(&l), Some((_, Chat::ClearMsg(id, _))) if &*id == "abc"));
+  }
+
+  #[test]
+  fn an_unban_notice_names_who_it_lifts() {
+    let l =
+      parse("@msg-id=unban_success :tmi.twitch.tv NOTICE #c :Bob is no longer banned from this chat room.").unwrap();
+    assert!(matches!(to_chat(&l), Some((_, Chat::Unban(w, _))) if &*w == "bob"));
+    let l = parse("@msg-id=untimeout_success :tmi.twitch.tv NOTICE #c :bob is no longer timed out in this chat room.")
+      .unwrap();
+    assert!(matches!(to_chat(&l), Some((_, Chat::Unban(..)))));
+    let l = parse("@msg-id=slow_off :tmi.twitch.tv NOTICE #c :This room is no longer in slow mode.").unwrap();
+    assert!(matches!(to_chat(&l), Some((_, Chat::Msg(_)))));
   }
 
   #[test]

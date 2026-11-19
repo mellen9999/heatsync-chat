@@ -2281,3 +2281,20 @@ fn a_feed_post_wears_only_its_own_mark() {
     assert_eq!(at(&m), head, "{p:?}: nothing but the head's own marks before the name");
   }
 }
+
+#[test]
+fn an_unban_lifts_the_ban_grey_but_not_a_delete() {
+  let mut v = ChatView::new(10, "c".into());
+  for (id, p) in [("a", Platform::Twitch), ("b", Platform::Twitch), ("k", Platform::Kick)] {
+    let mut m = said("bob", "hi");
+    (m.id, m.platform) = (id.into(), p);
+    v.push(m);
+  }
+  v.clear_user(Platform::Twitch, "bob");
+  v.clear_user(Platform::Kick, "bob");
+  v.clear_msg("b");
+  let grey = |v: &ChatView| v.msgs().map(|m| m.has(flag::CLEARED)).collect::<Vec<_>>();
+  assert_eq!(grey(&v), [true, true, true]);
+  v.lift_ban(Platform::Twitch, "bob");
+  assert_eq!(grey(&v), [false, true, true], "the banned line is back; the deleted one and the kick one stay");
+}

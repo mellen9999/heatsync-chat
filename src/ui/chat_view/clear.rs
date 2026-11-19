@@ -11,36 +11,51 @@ fn send_of(m: &Message) -> Option<&str> {
 
 impl ChatView {
   pub fn clear_msg(&mut self, id: &str) {
-    self.clear_where(|m| &*m.id == id);
+    self.clear_where(flag::DELETED, |m| &*m.id == id);
   }
 
   // youtube lines by message id or author channel id (a ban takes back their backlog)
   pub fn clear_yt(&mut self, ids: &[Box<str>], authors: &[Box<str>]) {
-    self.clear_where(|m| {
-      m.platform == Platform::Youtube
-        && ((!m.id.is_empty() && ids.contains(&m.id)) || (!m.user_id.is_empty() && authors.contains(&m.user_id)))
-    });
+    let by_id = |m: &Message| !m.id.is_empty() && ids.contains(&m.id);
+    let by_author = |m: &Message| !m.user_id.is_empty() && authors.contains(&m.user_id);
+    self.clear_where(flag::DELETED, |m| m.platform == Platform::Youtube && by_id(m));
+    self.clear_where(0, |m| m.platform == Platform::Youtube && by_author(m));
   }
 
   // a ban or timeout on `p`: that feed's lines of the login. a tab on twitch and kick carries two people who
   // share a name, and a twitch ban greyed the kick one too
   pub fn clear_user(&mut self, p: Platform, login: &str) {
-    self.clear_where(|m| m.platform == p && &*m.login == login && m.kind != Kind::System);
+    self.clear_where(0, |m| m.platform == p && &*m.login == login && m.kind != Kind::System);
   }
 
-  // grey every line `hit` picks, then every copy of the sends they belong to
-  fn clear_where(&mut self, hit: impl Fn(&Message) -> bool) {
-    let sends = self.grey(hit);
+  // an unban on `p`: the grey a ban or timeout put on the login's lines goes; a deleted line stays grey
+  pub fn lift_ban(&mut self, p: Platform, login: &str) {
+    for r in self.rows.iter_mut() {
+      let m = &mut r.msg;
+      if m.platform == p && &*m.login == login && m.flags & flag::CLEARED != 0 && m.flags & flag::DELETED == 0 {
+        m.flags &= !flag::CLEARED;
+        Self::touch(r);
+        self.stale = true;
+      }
+    }
+  }
+
+  // grey every line `hit` picks, then every copy of the sends they belong to. `why` is DELETED for a deleted line
+  // (grey for good), 0 for a ban or timeout (an unban lifts it)
+  fn clear_where(&mut self, why: u16, hit: impl Fn(&Message) -> bool) {
+    let sends = self.grey(why, hit);
     if !sends.is_empty() {
-      self.grey(|m| send_of(m).is_some_and(|s| sends.iter().any(|t| **t == *s)));
+      self.grey(why, |m| send_of(m).is_some_and(|s| sends.iter().any(|t| **t == *s)));
     }
   }
 
   // grey what `hit` picks; the sends the greyed lines are copies of
-  fn grey(&mut self, hit: impl Fn(&Message) -> bool) -> Vec<Box<str>> {
+  fn grey(&mut self, why: u16, hit: impl Fn(&Message) -> bool) -> Vec<Box<str>> {
     let mut sends = Vec::new();
-    for r in self.rows.iter_mut().filter(|r| r.msg.flags & flag::CLEARED == 0 && hit(&r.msg)) {
-      r.msg.flags |= flag::CLEARED;
+    // a delete reaches a line a ban already greyed: it becomes a deleted one, which an unban leaves alone
+    let new = |f: u16| f & flag::CLEARED == 0 || f & why != why;
+    for r in self.rows.iter_mut().filter(|r| new(r.msg.flags) && hit(&r.msg)) {
+      r.msg.flags |= flag::CLEARED | why;
       Self::touch(r);
       self.stale = true;
       sends.extend(send_of(&r.msg).map(Box::from));

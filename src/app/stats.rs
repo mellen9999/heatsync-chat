@@ -132,7 +132,7 @@ mod tests {
     app.resized(720, 400);
     let tab = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
     app.select(tab);
-    let line = |nick: &str, body: &str, flags: u8| {
+    let line = |nick: &str, body: &str, flags: u16| {
       let mut m = Message::system(now_ms(), Platform::Twitch, body);
       m.kind = crate::model::message::Kind::Chat;
       (m.login, m.nick, m.flags) = (nick.to_lowercase().into(), nick.into(), flags);

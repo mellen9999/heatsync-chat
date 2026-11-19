@@ -466,7 +466,7 @@ impl App {
           if platform != Platform::Twitch {
             match (verb, &msg_id) {
               (Verb::Delete, Some(id)) => v.clear_msg(id),
-              (Verb::Unban, _) => {}
+              (Verb::Unban, _) => v.lift_ban(platform, &login),
               _ => v.clear_user(platform, &login),
             }
           }

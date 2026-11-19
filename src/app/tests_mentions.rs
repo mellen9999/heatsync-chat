@@ -29,7 +29,7 @@ fn app() -> App {
   a
 }
 
-fn rows(a: &App) -> Vec<(String, u8)> {
+fn rows(a: &App) -> Vec<(String, u16)> {
   let t = a.tabs.iter().find(|t| t.kind == Kind::Mentions).unwrap();
   t.view.msgs().map(|m| (m.body.to_string(), m.flags)).collect()
 }

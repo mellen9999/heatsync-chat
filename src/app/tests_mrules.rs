@@ -100,7 +100,7 @@ fn frame(app: &mut App, v: serde_json::Value) {
   }
 }
 
-fn mention_rows(app: &App) -> Vec<(String, String, u8, String)> {
+fn mention_rows(app: &App) -> Vec<(String, String, u16, String)> {
   let t = app.tabs.iter().find(|t| t.kind == Kind::Mentions).unwrap();
   t.view
     .msgs()

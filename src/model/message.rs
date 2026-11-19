@@ -56,18 +56,20 @@ impl Kind {
 }
 
 pub mod flag {
-  pub const CLEARED: u8 = 1;
-  pub const FIRST: u8 = 1 << 1;
-  pub const HIGHLIGHTED: u8 = 1 << 2;
-  pub const HISTORY: u8 = 1 << 3;
+  pub const CLEARED: u16 = 1;
+  pub const FIRST: u16 = 1 << 1;
+  pub const HIGHLIGHTED: u16 = 1 << 2;
+  pub const HISTORY: u16 = 1 << 3;
   // our own line, echoed from USERSTATE (no emote positions: resolve twitch globals by name)
-  pub const OWN: u8 = 1 << 4;
+  pub const OWN: u16 = 1 << 4;
   // first line from this person in this tab this session (the glow)
-  pub const NEW: u8 = 1 << 5;
+  pub const NEW: u16 = 1 << 5;
   // red edge: the line mentions you (the ext's mention tint, as an edge) or a send that failed
-  pub const ALERT: u8 = 1 << 6;
+  pub const ALERT: u16 = 1 << 6;
   // heatsync-orange edge: something you sent (whispers)
-  pub const BRAND: u8 = 1 << 7;
+  pub const BRAND: u16 = 1 << 7;
+  // with CLEARED: the grey is a deleted line (stays grey), not a ban or timeout (an unban lifts it)
+  pub const DELETED: u16 = 1 << 8;
 }
 
 // what kind of event a notice row is (ext main.js noticeKind): its words take the kind's color, bold,
@@ -185,7 +187,7 @@ pub struct Message {
   pub ts: i64,
   pub platform: Platform,
   pub kind: Kind,
-  pub flags: u8,
+  pub flags: u16,
   pub login: Box<str>,
   pub user_id: Box<str>,
   pub nick: Box<str>,
@@ -228,7 +230,7 @@ impl Message {
     }
   }
 
-  pub fn has(&self, f: u8) -> bool {
+  pub fn has(&self, f: u16) -> bool {
     self.flags & f != 0
   }
 

@@ -30,7 +30,7 @@ const MAX_BADGES: usize = 20;
 const MAX_BADGE: usize = 64;
 // the flags worth keeping: the red edge and the highlight. the rest (first, new, history…) are about a
 // session, and a restored line is history
-const KEPT: u8 = flag::ALERT | flag::HIGHLIGHTED;
+const KEPT: u16 = flag::ALERT | flag::HIGHLIGHTED;
 
 fn tag(p: Platform) -> &'static str {
   match p {
@@ -202,7 +202,7 @@ fn message(v: &Value) -> Option<Message> {
   m.reply_to = text(v, "rt", MAX_NAME).filter(|t| !t.is_empty()).map(Into::into);
   m.reply_text = text(v, "rx", 4 * REPLY_TEXT).filter(|t| !t.is_empty()).map(|t| clamp(&t, REPLY_TEXT).into());
   // restored lines are history: they never ping, notify or flash, and are not new people
-  let kept = u8::try_from(v.get("fl").and_then(Value::as_u64).unwrap_or(0) & u64::from(KEPT)).unwrap_or(0);
+  let kept = u16::try_from(v.get("fl").and_then(Value::as_u64).unwrap_or(0) & u64::from(KEPT)).unwrap_or(0);
   m.flags = kept | flag::HISTORY;
   let origin = v.get("o").and_then(Value::as_bool) == Some(true);
   m.x = Some(Box::new(Extra { chan: room.into(), origin, ..Extra::default() }));
