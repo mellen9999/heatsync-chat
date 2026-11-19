@@ -22,6 +22,9 @@ pub(super) struct Whispers {
   pub(super) epoch: u32,
   // the dm (by its row's key) waiting on "yes, delete for both"
   pub(super) pending_delete: Option<u64>,
+  // where each conversation's older messages start, and whether an ask for them is out
+  pub(super) pagers: Vec<whisper::Pager>,
+  pub(super) older_asked: bool,
   // the toasts still showing, for the per-sender count
   toasts: Vec<Toast>,
   toast_seq: u64,
@@ -104,10 +107,33 @@ impl App {
     }
   }
 
+  // the reader is at the top of the whispers tab: ask for the next older page of each conversation that has
+  // one (called after anything that scrolls, and after a read lands). one ask at a time; a full list stops
+  // it (the oldest rows would be the ones dropped)
+  pub(super) fn whispers_edge(&mut self) {
+    let w = &self.whisper;
+    if w.older_asked || self.kind() != Kind::Whispers || w.timeline.is_full() {
+      return;
+    }
+    if !w.pagers.iter().any(|p| p.cursor.is_some()) {
+      return;
+    }
+    let (h, res) = (self.chat_area().h, &mut self.res);
+    let Some(tab) = self.tabs.get_mut(self.active) else { return };
+    if !tab.chat().at_oldest(res, h) {
+      return;
+    }
+    self.whisper.older_asked = true;
+    let me = self.me.as_ref().and_then(|m| m.twitch_id);
+    let ask = social::Cmd::WhisperOlder { me, epoch: self.whisper.epoch, pagers: self.whisper.pagers.clone() };
+    self.net.send(Cmd::Social(ask));
+  }
+
   // a different login (or none): the old person's whispers must not stay on screen
   pub(super) fn whispers_reset(&mut self) {
     self.whisper.timeline = Default::default();
     self.whisper.pending_delete = None;
+    (self.whisper.pagers, self.whisper.older_asked) = (Vec::new(), false);
     self.whisper.loaded = false;
     self.whisper.epoch = self.whisper.epoch.wrapping_add(1);
     if let Some(i) = self.tab_of(Kind::Whispers) {
@@ -153,17 +179,17 @@ impl App {
       // history lands in time order among whatever is already here
       let hide = self.hides_whispers();
       let rows: Vec<_> = self.whisper.timeline.iter().map(|w| whisper::message(w, hide)).collect();
-      let v = self.tabs[i].chat();
-      v.clear();
-      for m in rows {
-        v.push(m);
-      }
+      // the scroll stays: an older page lands above the line being read
+      self.tabs[i].chat().reload(rows);
     }
     if i == self.active {
       self.input_dirty = true;
     }
     if live {
       self.unseen_note(crate::model::unseen::Surface::Whispers);
+    }
+    if !live {
+      self.whispers_edge();
     }
     // someone whispered while you are looking at something else (ext handleIncomingWhisper)
     if self.kind() != Kind::Whispers {
@@ -463,6 +489,64 @@ mod tests {
 
   fn said(app: &App) -> String {
     app.tabs[app.active].view.last_msg().map(|m| m.body.to_string()).unwrap_or_default()
+  }
+
+  fn asks(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<Vec<Option<String>>> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| match c {
+        Cmd::Social(social::Cmd::WhisperOlder { pagers, .. }) => {
+          Some(pagers.iter().map(|p| p.cursor.as_ref().map(|c| c.to_string())).collect())
+        }
+        _ => None,
+      })
+      .collect()
+  }
+
+  // the reader reaching the top of the whispers tab asks for the older page of each conversation that has
+  // one, once; the page lands above and the line being read stays; a conversation at its first message is
+  // not asked again; the last page ends the asking
+  #[test]
+  fn reaching_the_top_reads_older_messages_until_the_first() {
+    use crate::net::NetEvent;
+    let (net, mut rx) = crate::net::Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    for t in &mut app.tabs {
+      t.view.resize(720);
+    }
+    signed_in(&mut app, false);
+    app.whispers_load();
+    let (epoch, tab) = (app.whisper.epoch, app.tab_of(Kind::Whispers).unwrap());
+    app.select(tab);
+    app.redraw();
+    let who = |id: &str| Who { via: Via::Heatsync, id: id.into(), login: id.into(), name: id.into(), color: 0 };
+    let pager = |id: &str, c: Option<&str>| whisper::Pager { who: who(id), cursor: c.map(Into::into) };
+    let dm = |n: i64, id: &str| {
+      let v = serde_json::json!({"id": n, "content": format!("m{n}"), "created_at": format!("2026-11-0{n}T10:00:00Z"),
+        "from_user_id": id, "to_user_id": "1", "from_username": id});
+      whisper::parse_dm(&v, Some(&who(id))).unwrap()
+    };
+    // the first read: two conversations, one has older messages
+    app.on_net(NetEvent::WhisperPagers { epoch, pagers: vec![pager("7", Some("c1")), pager("8", None)] });
+    app.on_net(NetEvent::Whispers { items: vec![dm(5, "7"), dm(6, "8")], live: false, epoch: Some(epoch) });
+    app.whispers_edge();
+    let first = asks(&mut rx);
+    assert_eq!(first, [vec![Some("c1".to_string()), None]], "the short list is all on screen: older is asked");
+    // nothing more while that ask is out
+    app.whispers_edge();
+    assert!(asks(&mut rx).is_empty());
+    // the older page lands: more rows, the cursor is spent
+    app.on_net(NetEvent::WhisperPagers { epoch, pagers: vec![pager("7", None), pager("8", None)] });
+    app.on_net(NetEvent::Whispers { items: vec![dm(3, "7"), dm(4, "7")], live: false, epoch: Some(epoch) });
+    assert_eq!(app.tabs[tab].view.len(), 4);
+    app.whispers_edge();
+    assert!(asks(&mut rx).is_empty(), "every conversation reads to its first message");
+    // a read from an earlier login is dropped
+    app.on_net(NetEvent::WhisperPagers { epoch: epoch.wrapping_add(1), pagers: vec![pager("9", Some("x"))] });
+    app.whispers_edge();
+    assert!(asks(&mut rx).is_empty());
   }
 
   #[test]

@@ -47,6 +47,8 @@ pub enum Cmd {
   Post { text: String, reply_to: Option<Box<str>> },
   // `me` = our twitch id (None: a login without twitch, so dms only)
   WhisperHistory { me: Option<u64>, epoch: u32 },
+  // the next older page of each conversation that has one (`pagers` as the last read left them)
+  WhisperOlder { me: Option<u64>, epoch: u32, pagers: Vec<whisper::Pager> },
   // `id` is the twitch user id when we already know it, else it is looked up from the login
   WhisperSend { key: u64, login: Box<str>, id: Option<Box<str>>, text: String },
   // a heatsync dm. `id` is their heatsync user id when known, else it is looked up from the login
@@ -95,6 +97,11 @@ pub async fn run(http: reqwest::Client, token: Option<String>, cmd: Cmd, out: Ou
     Cmd::WhisperHistory { me, epoch } => {
       if let Some(t) = token {
         history(&http, &t, me, epoch, &out).await;
+      }
+    }
+    Cmd::WhisperOlder { me, epoch, pagers } => {
+      if let Some(t) = token {
+        older(&http, &t, me, epoch, pagers, &out).await;
       }
     }
     Cmd::UiStateGet => {
@@ -573,22 +580,91 @@ async fn publish(http: &reqwest::Client, token: Option<&str>, text: String, repl
 }
 
 async fn history(http: &reqwest::Client, token: &str, me: Option<u64>, epoch: u32, out: &Out) {
-  let mut all = match me {
+  let (mut all, mut pagers) = match me {
     Some(me) => twitch_history(http, token, me, out).await,
-    None => Vec::new(),
+    None => Default::default(),
   };
-  all.extend(dm_history(http, token, out).await);
+  let (dms, dm_pagers) = dm_history(http, token, out).await;
+  all.extend(dms);
+  pagers.extend(dm_pagers);
   all.sort_by_key(|w| w.ts);
+  out.send(NetEvent::WhisperPagers { epoch, pagers });
   out.send(NetEvent::Whispers { items: all, live: false, epoch: Some(epoch) });
 }
 
-async fn twitch_history(http: &reqwest::Client, token: &str, me: u64, out: &Out) -> Vec<Whisper> {
+// the next older page of every conversation that has one. a conversation whose read fails keeps its cursor
+// (asked again at the next look); one with no cursor is done
+async fn older(
+  http: &reqwest::Client,
+  token: &str,
+  me: Option<u64>,
+  epoch: u32,
+  pagers: Vec<whisper::Pager>,
+  out: &Out,
+) {
+  let mut all = Vec::new();
+  let mut next = Vec::with_capacity(pagers.len());
+  for p in pagers.into_iter().take(CONVERSATIONS * 2) {
+    let Some(cursor) = p.cursor.clone() else {
+      next.push(p);
+      continue;
+    };
+    match convo_page(http, token, &p.who, me, Some(&cursor)).await {
+      Some((items, cursor)) => {
+        all.extend(items);
+        next.push(whisper::Pager { who: p.who, cursor });
+      }
+      None => next.push(p),
+    }
+  }
+  out.send(NetEvent::WhisperPagers { epoch, pagers: next });
+  out.send(NetEvent::Whispers { items: all, live: false, epoch: Some(epoch) });
+}
+
+// one read of a conversation: its newest page, or the page below `cursor`. None = no answer
+async fn convo_page(
+  http: &reqwest::Client,
+  token: &str,
+  who: &Who,
+  me: Option<u64>,
+  cursor: Option<&str>,
+) -> Option<(Vec<Whisper>, Option<Box<str>>)> {
+  let base = match who.via {
+    Via::Twitch => format!("/api/whispers/{}", who.id),
+    Via::Heatsync => format!("/api/dm/{}", crate::util::path_seg(&who.id)),
+  };
+  let mut url = format!("{base}?limit={PER_CONVERSATION}");
+  if let Some(c) = cursor {
+    url.push_str(&format!("&cursor={}", crate::util::path_seg(c)));
+  }
+  let (status, thread) = call(get(http, token, &url)).await;
+  if status != 200 {
+    return None;
+  }
+  let rows = thread.get("messages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+  let rows = rows.iter().take(PER_CONVERSATION);
+  let items = match who.via {
+    Via::Twitch => {
+      let me = me?;
+      rows.filter_map(|m| whisper::parse(m, me, Some(who))).collect()
+    }
+    Via::Heatsync => rows.filter_map(|m| whisper::parse_dm(m, Some(who))).collect(),
+  };
+  Some((items, whisper::cursor_of(&thread)))
+}
+
+async fn twitch_history(
+  http: &reqwest::Client,
+  token: &str,
+  me: u64,
+  out: &Out,
+) -> (Vec<Whisper>, Vec<whisper::Pager>) {
   let (status, list) = call(get(http, token, "/api/whispers")).await;
   if status != 200 {
     out.status(f("net1.social.whispers_failed", &[("why", &fail_text(&classify(status, &list)))]));
-    return Vec::new();
+    return Default::default();
   }
-  let mut all = Vec::new();
+  let (mut all, mut pagers) = (Vec::new(), Vec::new());
   let convos = list.get("conversations").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
   for c in convos.iter().take(CONVERSATIONS) {
     let Some(id) =
@@ -623,36 +699,29 @@ async fn twitch_history(http: &reqwest::Client, token: &str, me: u64, out: &Out)
       .and_then(crate::model::color::parse_hex)
       .map_or(theme::WHITE, crate::model::color::readable);
     let who = Who { via: Via::Twitch, id: id.clone().into(), login, name, color };
-    let (status, thread) = call(get(http, token, &format!("/api/whispers/{id}?limit={PER_CONVERSATION}"))).await;
-    if status != 200 {
-      continue;
-    }
-    let rows = thread.get("messages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-    all.extend(rows.iter().take(PER_CONVERSATION).filter_map(|m| whisper::parse(m, me, Some(&who))));
+    let Some((items, cursor)) = convo_page(http, token, &who, Some(me), None).await else { continue };
+    all.extend(items);
+    pagers.push(whisper::Pager { who, cursor });
   }
-  all
+  (all, pagers)
 }
 
 // GET /api/dm (newest conversation first), then each one's messages
-async fn dm_history(http: &reqwest::Client, token: &str, out: &Out) -> Vec<Whisper> {
+async fn dm_history(http: &reqwest::Client, token: &str, out: &Out) -> (Vec<Whisper>, Vec<whisper::Pager>) {
   let (status, list) = call(get(http, token, "/api/dm")).await;
   if status != 200 {
     out.status(f("net1.social.dms_failed", &[("why", &fail_text(&classify_dm(status, &list, "")))]));
-    return Vec::new();
+    return Default::default();
   }
-  let mut all = Vec::new();
+  let (mut all, mut pagers) = (Vec::new(), Vec::new());
   let convos = list.get("conversations").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
   for c in convos.iter().take(CONVERSATIONS) {
     let Some(who) = dm_person(c) else { continue };
-    let url = format!("/api/dm/{}?limit={PER_CONVERSATION}", crate::util::path_seg(&who.id));
-    let (status, thread) = call(get(http, token, &url)).await;
-    if status != 200 {
-      continue;
-    }
-    let rows = thread.get("messages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-    all.extend(rows.iter().take(PER_CONVERSATION).filter_map(|m| whisper::parse_dm(m, Some(&who))));
+    let Some((items, cursor)) = convo_page(http, token, &who, None, None).await else { continue };
+    all.extend(items);
+    pagers.push(whisper::Pager { who, cursor });
   }
-  all
+  (all, pagers)
 }
 
 // the other side of one GET /api/dm conversation

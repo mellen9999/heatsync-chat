@@ -434,6 +434,11 @@ impl App {
           self.on_whispers(items, live)
         }
       }
+      NetEvent::WhisperPagers { epoch, pagers } => {
+        if whisper::current(Some(epoch), self.whisper.epoch) {
+          (self.whisper.pagers, self.whisper.older_asked) = (pagers, false);
+        }
+      }
       NetEvent::WhisperSent { key, res } => self.on_whisper_sent(key, res),
       NetEvent::DmStored { key, id } => self.on_dm_stored(key, &id),
       NetEvent::DmDeleted { id, res } => self.on_dm_deleted(&id, res),

@@ -21,6 +21,28 @@ const MAX_SEEN: usize = 2000;
 // a local echo and the server's copy of the same send land within this of each other
 const ECHO_MS: i64 = 120_000;
 
+// where one conversation's older messages start: the server's `nextCursor` of the page last read, None
+// once its first message is held. one per conversation, kept by the app, handed back to ask the next page
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pager {
+  pub who: Who,
+  pub cursor: Option<Box<str>>,
+}
+
+// the longest cursor the server takes (z.string().max(256)); it is base64 and nothing else
+const MAX_CURSOR: usize = 256;
+
+// a conversation read's `nextCursor`: only a base64 word within the server's bound, and not when the read
+// said there is no more
+pub fn cursor_of(v: &Value) -> Option<Box<str>> {
+  if v.get("hasMore").and_then(Value::as_bool) == Some(false) {
+    return None;
+  }
+  let c = v.get("nextCursor").and_then(Value::as_str)?;
+  let ok = (1..=MAX_CURSOR).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b));
+  ok.then(|| c.into())
+}
+
 // which wire a conversation rides (the ext keys them `twitch:` / `hs:`). the same digits can be a
 // twitch id and a heatsync id, so a person is always (via, id)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +237,11 @@ impl Timeline {
   #[cfg(test)]
   pub fn len(&self) -> usize {
     self.list.len()
+  }
+
+  // the ring is full: a page of older messages would only push its own oldest rows back out
+  pub fn is_full(&self) -> bool {
+    self.list.len() >= MAX
   }
 
   pub fn iter(&self) -> std::collections::vec_deque::Iter<'_, Whisper> {
@@ -472,6 +499,20 @@ mod tests {
   fn live(id: &str, from: &str, text: &str, ts: &str) -> Value {
     json!({"external_message_id": id, "from_twitch_id": from, "from_twitch_login": "Bob", "from_twitch_display": "Bob",
       "to_twitch_id": "1", "to_twitch_login": "me", "from_color": "#ff0000", "content": text, "created_at": ts})
+  }
+
+  #[test]
+  fn a_cursor_is_the_servers_base64_word_or_nothing() {
+    let page = |c: Value| json!({"nextCursor": c});
+    assert_eq!(cursor_of(&page(json!("eyJ0cyI6IjEifQ=="))).as_deref(), Some("eyJ0cyI6IjEifQ=="));
+    assert_eq!(cursor_of(&json!({"nextCursor": "abc", "hasMore": true})).as_deref(), Some("abc"));
+    assert_eq!(cursor_of(&json!({"nextCursor": "abc", "hasMore": false})), None, "the read says it is the end");
+    for bad in [json!(null), json!(""), json!(5), json!("a b"), json!("a/../b?x"), json!("é"), json!("a".repeat(257))]
+    {
+      assert_eq!(cursor_of(&page(bad.clone())), None, "{bad}");
+    }
+    assert_eq!(cursor_of(&json!({})), None);
+    assert!(cursor_of(&page(json!("a".repeat(256)))).is_some());
   }
 
   #[test]

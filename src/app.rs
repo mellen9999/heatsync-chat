@@ -724,6 +724,7 @@ impl App {
       t.view.scroll_by(px, res);
     }
     self.logs_edge();
+    self.whispers_edge();
     self.wake();
   }
 

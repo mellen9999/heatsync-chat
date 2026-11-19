@@ -226,6 +226,12 @@ pub enum NetEvent {
   },
   // twitch whispers: one pushed live, or the history read when the tab first opened
   // `epoch` tags a history read with the login it was asked under (live pushes carry none)
+  // where each conversation's older messages start, with every history read (the first, and each older
+  // page): replaces the last list. sent before the `Whispers` it came with
+  WhisperPagers {
+    epoch: u32,
+    pagers: Vec<crate::model::whisper::Pager>,
+  },
   Whispers {
     items: Vec<crate::model::whisper::Whisper>,
     live: bool,

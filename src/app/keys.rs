@@ -454,6 +454,7 @@ impl App {
         if let Some(t) = self.tabs.get_mut(self.active) {
           t.view.scroll_to_top(res);
         }
+        self.whispers_edge();
       }
       "G" => {
         if let Some(v) = self.view() {
