@@ -252,6 +252,8 @@ pub fn parse_row(v: &Value, who: &Who) -> Option<Row> {
   if v.get("deleted_at").is_some_and(|d| !d.is_null()) {
     flags |= flag::CLEARED;
   }
+  // `origin: "heatsync"` = sent through heatsync (the row wears [H] like a live one); anything else = the platform's own
+  let origin = text(v, "origin") == Some("heatsync");
   let msg = Message {
     id: clamp(text(v, "message_id").unwrap_or(""), 100).into(),
     ts,
@@ -269,7 +271,7 @@ pub fn parse_row(v: &Value, who: &Who) -> Option<Row> {
     reply_to: None,
     reply_text: None,
     system: None,
-    x: Some(Box::new(Extra { head: Box::new([stamp(ts)]), ..Extra::default() })),
+    x: Some(Box::new(Extra { head: Box::new([stamp(ts)]), origin, ..Extra::default() })),
   };
   Some(Row { msg, channel })
 }
@@ -626,6 +628,20 @@ mod tests {
     assert_eq!((&*r.msg.body, &*r.msg.id, &*r.channel, &*r.msg.login), ("line 5", "id5", "xqc", "bob"));
     assert_eq!((r.msg.color, &*r.msg.user_id, r.msg.kind), (0x0000ff, "42", Kind::Chat));
     assert_eq!(r.msg.x.unwrap().head[0].text.as_ref(), "10-30 20:05:00 ", "the time leads every row, utc");
+  }
+
+  #[test]
+  fn a_heatsync_sent_row_wears_the_heatsync_mark() {
+    let with = |o: Value| {
+      let mut r = row(1);
+      r["origin"] = o;
+      parse_row(&r, &who()).unwrap().msg.x.unwrap().origin
+    };
+    assert!(with(json!("heatsync")));
+    for other in [json!(null), json!("twitch"), json!("HEATSYNC"), json!(true), json!({"a": 1})] {
+      assert!(!with(other.clone()), "{other}");
+    }
+    assert!(!parse_row(&row(1), &who()).unwrap().msg.x.unwrap().origin, "no field, the platform's own mark");
   }
 
   #[test]
