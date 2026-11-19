@@ -101,7 +101,7 @@ impl App {
 
   // the oldest line is on screen: the next page is wanted (called after anything that scrolls)
   pub(super) fn logs_edge(&mut self) {
-    let due = self.logs.as_ref().is_some_and(|l| !(l.loading || l.done || l.trimmed || l.failed));
+    let due = self.logs.as_ref().is_some_and(|l| !(l.loading || l.done || l.failed));
     let (Some(i), true) = (self.takeover_tab(), due) else { return };
     let (h, res) = (self.chat_area().h, &mut self.res);
     if self.tabs[i].view.at_oldest(res, h) {
@@ -115,7 +115,14 @@ impl App {
     if logs::archive_name(platform, &m.login).as_deref() != Some(&*l.who.login) {
       return;
     }
-    let Some(row) = l.push_live(channel, m.clone()) else { return };
+    let was = l.cut;
+    let Some(row) = l.push_live(channel, m.clone()) else {
+      // the list just filled: its bottom now says it no longer ends at the newest line
+      if l.cut && !was {
+        self.logs_show();
+      }
+      return;
+    };
     self.logs_push(&row);
   }
 

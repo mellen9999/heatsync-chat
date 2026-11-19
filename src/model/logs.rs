@@ -355,8 +355,9 @@ pub struct Logs {
   pub loading: bool,
   // nothing older exists (or will be asked for)
   pub done: bool,
-  // the oldest lines were dropped at the cap: the cursor no longer joins up with what is left
-  pub trimmed: bool,
+  // the newest lines were let go at the cap: the list no longer starts at the newest line, so a new
+  // line has no place in it (and the cursor still joins up with what is kept)
+  pub cut: bool,
   pub failed: bool,
   pub backfill: bool,
   epoch: u32,
@@ -375,7 +376,7 @@ impl Logs {
       cursor: None,
       loading: false,
       done: false,
-      trimmed: false,
+      cut: false,
       failed: false,
       backfill: false,
       epoch: epoch(),
@@ -404,7 +405,7 @@ impl Logs {
     self.cursor = None;
     self.loading = false;
     self.done = false;
-    self.trimmed = false;
+    self.cut = false;
     self.failed = false;
     self.backfill = false;
     self.hops = 0;
@@ -434,7 +435,7 @@ impl Logs {
 
   // the next page to ask for, marking it in flight. None = one is already out, or nothing is left
   pub fn next(&mut self) -> Option<Req> {
-    if self.loading || self.done || self.trimmed {
+    if self.loading || self.done {
       return None;
     }
     self.loading = true;
@@ -469,11 +470,14 @@ impl Logs {
     self.done = page.cursor.is_none() || page.cursor == self.cursor;
     self.cursor = page.cursor;
     // older lines go in front; at the cap the newest are let go (the reader is looking up, and the
-    // cursor stays joined to what is kept)
+    // cursor stays joined to what is kept): the list says so at its bottom
     let mut older: Vec<Row> = page.rows;
     older.reverse();
     older.append(&mut self.rows);
-    older.truncate(CAP);
+    if older.len() > CAP {
+      older.truncate(CAP);
+      self.cut = true;
+    }
     self.rows = older;
     if empty && !self.done && self.hops < HOPS {
       self.hops += 1;
@@ -485,10 +489,10 @@ impl Logs {
     Applied::Shown
   }
 
-  // a line the person says while it is open, at the bottom. false = not for this view (a search is
-  // showing results, another room, or already here)
+  // a line the person says while it is open, at the bottom. None = not for this view (a search is
+  // showing results, another room, already here, or the list no longer ends at the newest line)
   pub fn push_live(&mut self, channel: &str, mut msg: Message) -> Option<Row> {
-    if self.query.is_some() || !msg.kind.said() || msg.body.is_empty() || msg.ts <= 0 {
+    if self.cut || self.query.is_some() || !msg.kind.said() || msg.body.is_empty() || msg.ts <= 0 {
       return None;
     }
     let channel = room(channel)?;
@@ -502,13 +506,14 @@ impl Logs {
     msg.user_id = self.who.user_id.clone();
     let x = msg.x.get_or_insert_with(Default::default);
     x.head = Box::new([stamp(msg.ts)]);
+    // a full list takes no new line: making room would drop the oldest row, which the next page
+    // starts after, leaving a hole in the archive. it is marked as cut instead
+    if self.rows.len() >= CAP {
+      self.cut = true;
+      return None;
+    }
     let row = Row { msg, channel };
     self.rows.push(row.clone());
-    if self.rows.len() > CAP {
-      self.rows.remove(0);
-      // what the cursor pointed past is gone from the top: older lines would leave a gap
-      self.trimmed = true;
-    }
     Some(row)
   }
 
@@ -547,8 +552,6 @@ impl Logs {
       "loading…"
     } else if self.failed {
       "couldn't load older lines — press r to retry"
-    } else if self.trimmed {
-      "older lines dropped to save memory — press r to reload"
     } else if self.done {
       "no older messages"
     } else {
@@ -563,6 +566,13 @@ impl Logs {
       v.push(Message::system(0, self.who.platform, n));
     }
     v.extend(self.rows.iter().map(|r| self.view_msg(r)));
+    if self.cut && !self.rows.is_empty() {
+      v.push(Message::system(
+        0,
+        self.who.platform,
+        "newer lines let go to save memory — press r to start from the newest",
+      ));
+    }
     v
   }
 
@@ -865,7 +875,7 @@ mod tests {
   }
 
   #[test]
-  fn the_cap_drops_the_newest_when_reading_up_and_the_oldest_when_live() {
+  fn the_cap_cuts_the_newest_when_reading_up_and_a_full_list_takes_no_live_line() {
     let mut l = Logs::new(who(), None);
     let r = l.next().unwrap();
     let full: Vec<Row> = (0..CAP as i64 - 2).rev().filter_map(|i| parse_row(&row(i), &who())).collect();
@@ -874,14 +884,21 @@ mod tests {
     l.apply(r.epoch, Ok(page(5000, 50, Some("c2"))));
     assert_eq!(l.len(), CAP, "an older page past the cap is cut to fit");
     assert_eq!(&*l.rows[0].msg.id, "id5000", "what was loaded older stays");
-    assert!(!l.trimmed && l.next().is_some(), "the cursor still joins up");
-    l.loading = false;
+    assert!(l.cut && l.next().is_some(), "newest let go, said so; the cursor still joins up");
+    assert!(l.lines().last().unwrap().body.contains("newer lines let go"));
+    l.refresh();
+    assert!(!l.cut, "a reload starts from the newest");
+    let r = l.next().unwrap();
+    let full: Vec<Row> = (0..CAP as i64).rev().filter_map(|i| parse_row(&row(i), &who())).collect();
+    l.apply(r.epoch, Ok(Page { rows: full, cursor: Some("c1".into()), backfill: false }));
+    assert!(!l.cut, "exactly full is whole");
     let live = |n: i64| parse_row(&row(n), &who()).unwrap().msg;
-    assert!(l.push_live("xqc", live(1)).is_some());
+    assert!(l.push_live("xqc", live(1)).is_none(), "a full list takes no line: the oldest row would go");
+    assert!(l.cut, "it is marked cut instead");
     assert_eq!(l.len(), CAP);
-    assert!(l.trimmed, "the oldest went: older pages would leave a gap");
-    assert!(l.next().is_none());
-    assert!(l.lines()[0].body.contains("press r"));
+    assert_eq!(&*l.rows[0].msg.id, "id0", "nothing dropped: the next page would leave a hole");
+    assert!(l.push_live("xqc", live(2)).is_none(), "and a cut list takes nothing more");
+    assert_eq!(l.len(), CAP);
   }
 
   #[test]
