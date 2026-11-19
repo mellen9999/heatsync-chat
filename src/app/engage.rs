@@ -129,7 +129,10 @@ impl App {
     self.feed.marks.end(&id, on, res.is_ok());
     match res {
       Ok(()) => self.say(if on { t("app.engage.bookmarked") } else { t("app.engage.bookmark_removed") }),
-      Err(401) => self.say(login_first()),
+      Err(401) => {
+        self.lapsed();
+        self.say(login_first())
+      }
       Err(_) => self.say(try_again()),
     }
   }
@@ -201,6 +204,9 @@ impl App {
         if let Some(e) = self.edit.as_mut().filter(|e| e.id == id) {
           e.busy = false;
         }
+        if status == 401 {
+          self.lapsed();
+        }
         self.say(match status {
           401 => login_first(),
           400 => t("app.engage.edit_refused"),
@@ -240,7 +246,10 @@ impl App {
         self.post_gone(&id, true);
         self.say(t("app.engage.deleted"));
       }
-      Err(401) => self.say(login_first()),
+      Err(401) => {
+        self.lapsed();
+        self.say(login_first())
+      }
       Err(403) => self.say(t("app.engage.not_yours")),
       Err(_) => self.say(t("app.engage.delete_failed")),
     }

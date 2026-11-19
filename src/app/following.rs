@@ -234,7 +234,12 @@ impl App {
         self.following.fetched = Some(Instant::now());
       }
       // the list we have stays: the screen says it could not be refreshed
-      Err(f) => self.following.failed = Some(f),
+      Err(f) => {
+        if f == Fail::Auth {
+          self.lapsed();
+        }
+        self.following.failed = Some(f)
+      }
     }
     self.following_changed();
   }

@@ -170,7 +170,10 @@ impl App {
         self.on_pin(platform, &chan, if set { pin } else { None });
         self.say(if set { t("app.pin.pinned") } else { t("app.pin.unpinned") });
       }
-      Err(Fail::Auth) => self.say(t("app.pin.login")),
+      Err(Fail::Auth) => {
+        self.lapsed();
+        self.say(t("app.pin.login"))
+      }
       Err(Fail::Relink) => {
         self.say(t("app.pin.link"));
         self.net.send(Cmd::Relink("mod"));

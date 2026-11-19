@@ -49,6 +49,9 @@ impl App {
       // the press showed at once: a refusal puts it back
       Err(status) => {
         self.feed.react_set(&id, &chip, !on);
+        if status == 401 {
+          self.lapsed();
+        }
         why = Some(if status == 401 { login_first() } else { try_again() });
       }
     }

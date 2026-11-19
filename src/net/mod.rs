@@ -657,6 +657,8 @@ pub enum Cmd {
   Send { platform: Platform, chan: Box<str>, text: String, reply: Option<Reply>, send: Option<Box<str>> },
   // read the account again (heatsync said it changed)
   Recheck,
+  // a 401 from heatsync while signed in: the login is checked (once a minute at most)
+  Unauthorized,
   // whispers and feed calls bound to the login
   Social(social::Cmd),
   // a newer release: look, or install it
@@ -1204,6 +1206,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Recheck => {
         let _ = sess_tx.send(session::Cmd::Recheck);
       }
+      Cmd::Unauthorized => drop(sess_tx.send(session::Cmd::Unauthorized)),
       Cmd::Logout => {
         let _ = sess_tx.send(session::Cmd::Logout);
       }

@@ -18,6 +18,16 @@ use crate::util::time::now_ms;
 // a thread's rows at most (the OP and its replies)
 const THREAD_ROWS: usize = 1000;
 
+impl App {
+  // a heatsync call came back 401: if we think we're signed in, the session is checked once, so a dead login
+  // signs out now and a renewed one carries on, instead of "log in first" until the next scheduled check
+  pub(super) fn lapsed(&self) {
+    if self.me.is_some() {
+      self.net.send(crate::net::Cmd::Unauthorized);
+    }
+  }
+}
+
 pub(super) fn login_first() -> &'static str {
   t("app.feed.login_first")
 }
@@ -205,6 +215,9 @@ impl App {
         if let Some(was) = prior {
           self.feed.voted(&id, was, None);
         }
+        if status == 401 {
+          self.lapsed();
+        }
         self.say(if status == 401 { login_first() } else { try_again() });
       }
     }
@@ -227,6 +240,9 @@ impl App {
           self.line.set_text(text);
         }
         self.input_dirty = true;
+        if status == 401 {
+          self.lapsed();
+        }
         self.say(match status {
           401 => t("app.feed.post_login"),
           429 => t("app.feed.post_slow"),

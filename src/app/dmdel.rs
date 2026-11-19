@@ -72,7 +72,10 @@ impl App {
         self.dm_drop(&whisper::dm_key(id));
         t("app.dmdel.gone")
       }
-      Err(Fail::Auth) => login_first(),
+      Err(Fail::Auth) => {
+        self.lapsed();
+        login_first()
+      }
       Err(Fail::Refused) => t("app.dmdel.refused"),
       Err(Fail::NoThread) => t("app.dmdel.no_thread"),
       Err(Fail::Limited) => t("app.dmdel.limited"),

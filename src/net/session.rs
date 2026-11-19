@@ -21,6 +21,8 @@ use crate::util::time::now_ms;
 const TOKEN: &str = "token";
 // /api/auth/check slides the session once <24h is left; checking this often keeps it alive forever
 const RENEW: Duration = Duration::from_secs(6 * 3600);
+// a burst of 401s (a feed load, a few clicks) asks for one check, not one each
+const PROBE_GAP: Duration = Duration::from_secs(60);
 
 // when a step that failed is tried again: ~16s, ~32s, then about a minute, never a hot loop
 // (`fails` counts the failures in a row, ≥1)
@@ -50,6 +52,8 @@ pub enum Cmd {
   // the heatsync socket was closed for a bad token: check the login now, and sign the socket in
   // again if the token stands
   HsRejected,
+  // a heatsync call came back 401 while we think we're signed in: check the login once (at most one a minute)
+  Unauthorized,
   Emote(EmoteCmd),
   Inventory(super::inventory::Op),
   Upload(std::path::PathBuf),
@@ -101,6 +105,8 @@ struct State {
   refusals: u32,
   // the next step is the whole account check, even while only the chat login is being retried
   recheck: bool,
+  // when a 401 last made us check the login (see PROBE_GAP)
+  probed: Option<Instant>,
   // kick + youtube sends: in order per channel, off the loop (a slow heatsync takes up to 12s)
   lanes: Lanes,
 }
@@ -160,6 +166,7 @@ pub async fn run(
     refused: None,
     refusals: 0,
     recheck: false,
+    probed: None,
     lanes: Lanes::default(),
   };
   let (emotes, emotes_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -213,6 +220,11 @@ pub async fn run(
         Some(Cmd::HsRejected) => {
           st.hs_rejected();
           next = Instant::now();
+        }
+        Some(Cmd::Unauthorized) => {
+          if st.probe_due() {
+            next = Instant::now();
+          }
         }
         Some(Cmd::Upload(p)) => st.upload(p),
         Some(Cmd::Picture(b)) => st.picture(b),
@@ -448,6 +460,16 @@ impl State {
   fn hs_rejected(&mut self) {
     self.hs_as = None;
     self.recheck = true;
+  }
+
+  // a 401 while signed in: true = check the login now (not within PROBE_GAP of the last such check)
+  fn probe_due(&mut self) -> bool {
+    if self.token.is_none() || self.probed.is_some_and(|at| at.elapsed() < PROBE_GAP) {
+      return false;
+    }
+    self.probed = Some(Instant::now());
+    self.recheck = true;
+    true
   }
 
   // a new session: nothing carried over from an earlier one's troubles
@@ -705,6 +727,7 @@ mod tests {
       refused: None,
       refusals: 0,
       recheck: false,
+      probed: None,
       lanes: Lanes::default(),
     };
     (st, orx, irx)
@@ -720,6 +743,21 @@ mod tests {
     st.hs_rejected();
     assert!(st.hs_as.is_none(), "the next check sends the token to the socket again");
     assert!(!st.chat_only(), "the whole account is checked, not just the chat login");
+  }
+
+  #[test]
+  fn a_401_checks_the_login_once_a_minute_and_only_while_signed_in() {
+    let (mut st, _out, _irc) = rig();
+    assert!(st.probe_due(), "the first 401 asks");
+    assert!(st.recheck);
+    st.recheck = false;
+    assert!(!st.probe_due(), "a burst of 401s is one check");
+    assert!(!st.recheck);
+    st.probed = Some(Instant::now() - PROBE_GAP - Duration::from_secs(1));
+    assert!(st.probe_due(), "a minute on, it may ask again");
+    st.probed = None;
+    st.token = None;
+    assert!(!st.probe_due(), "signed out: nothing to check");
   }
 
   #[test]

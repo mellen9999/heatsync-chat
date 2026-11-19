@@ -199,6 +199,9 @@ impl App {
   }
 
   pub(super) fn on_blocked(&mut self, room: Box<str>, res: Result<Got, Fail>) {
+    if matches!(res, Err(Fail::Auth)) {
+      self.lapsed();
+    }
     let Some(bt) = self.bt().filter(|b| b.room == room) else { return };
     let asking = bt.asking.take();
     match (res, asking) {

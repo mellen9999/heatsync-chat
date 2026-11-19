@@ -199,6 +199,21 @@ mod tests {
     assert!(text(&lines).contains(&"kick | mellen".to_owned()), "{:?}", text(&lines));
   }
 
+  // a 401 while signed in checks the login (once); signed out there is nothing to check
+  #[test]
+  fn a_401_while_signed_in_asks_for_a_login_check() {
+    let (net, mut rx) = crate::net::Net::tap();
+    let mut app = crate::app::App::new(net, vec![], false);
+    while rx.try_recv().is_ok() {}
+    app.on_bookmarked("p1".into(), true, Err(401));
+    assert!(std::iter::from_fn(|| rx.try_recv().ok()).all(|c| !matches!(c, crate::net::Cmd::Unauthorized)));
+    app.me = Some(me(Some("mellen"), None));
+    app.on_bookmarked("p1".into(), true, Err(401));
+    assert!(std::iter::from_fn(|| rx.try_recv().ok()).any(|c| matches!(c, crate::net::Cmd::Unauthorized)));
+    app.on_bookmarked("p1".into(), true, Err(500));
+    assert!(std::iter::from_fn(|| rx.try_recv().ok()).all(|c| !matches!(c, crate::net::Cmd::Unauthorized)));
+  }
+
   // heatsync says the account changed (linked or unlinked elsewhere): it is read again
   #[test]
   fn a_changed_account_is_read_again() {
