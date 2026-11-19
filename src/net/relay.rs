@@ -135,7 +135,7 @@ pub fn kick(v: &Value) -> Option<Message> {
   m.hs = hs_emotes(v.get("hsEmotes"));
   m.badges = crate::badges::relay::kick(v.get("badges"));
   m.reply_to = v.get("replyTo").and_then(|r| str_of(r, "username")).map(|u| clamp(u, MAX_NAME).into());
-  m.reply_text = v.get("replyTo").and_then(|r| str_of(r, "content")).map(|t| clamp(t, REPLY_TEXT).into());
+  m.reply_text = v.get("replyTo").and_then(|r| str_of(r, "content")).map(|t| clamp(&unkick(t), REPLY_TEXT).into());
   if let Some(r) = v.get("replyTo") {
     // ids come as strings (the ext's relay) or bare numbers
     let id = |k: &str| match r.get(k)? {
@@ -274,7 +274,7 @@ mod tests {
       "color": "#FF2C56", "timestamp": 5,
       "hsEmotes": {"catJAM": {"url": "https://cdn.heatsync.org/uploads/a.webp"}, "nope": {"url": "https://cdn.heatsync.org/b.webp", "nsfw": true},
         "gore": {"url": "https://cdn.heatsync.org/c.webp", "cw_cats": ["gore"]}, "evil": {"url": "https://evil.example/x"}},
-      "replyTo": {"username": "bob", "content": "first"}});
+      "replyTo": {"username": "bob", "content": "first [emote:37225:KEKLEO]"}});
     let m = kick(&v).unwrap();
     assert_eq!(&*m.body, "hi KEKLEO [emote:bad] gg");
     let (r, url) = &m.emotes[0];
@@ -282,7 +282,11 @@ mod tests {
     assert!(url.ends_with("/emotes/37225/fullsize"));
     assert_eq!(m.hs.len(), 1);
     assert_eq!(&*m.hs[0].0, "catJAM");
-    assert_eq!((m.reply_to.as_deref(), m.reply_text.as_deref()), (Some("bob"), Some("first")));
+    assert_eq!(
+      (m.reply_to.as_deref(), m.reply_text.as_deref()),
+      (Some("bob"), Some("first KEKLEO")),
+      "the quoted line names its emotes"
+    );
     assert_eq!((&*m.login, m.ts), ("sov", 5));
     assert!(m.x.is_none(), "a reply with no ids carries none");
     let r = kick(&json!({"username": "a", "content": "x", "replyTo": {"id": "m9", "threadId": 77, "username": "b"}}));
