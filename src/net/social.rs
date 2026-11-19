@@ -392,16 +392,47 @@ async fn twitch_user(http: &reqwest::Client, login: &str) -> (Option<u32>, Optio
   (crate::model::card::chat_color(&v), crate::model::card::twitch_avatar(&v))
 }
 
-// the OP and its replies, replies oldest first (the server pages newest first)
+// replies per request after a thread's first page, and where a thread stops being read: 20 requests.
+// a page stays well under the body cap (the route allows 1000 a page, which could pass it)
+const THREAD_PAGE: usize = 500;
+const THREAD_MAX: usize = 10_000;
+
+// the OP and its replies, replies oldest first (the server pages newest first, 100 a page by default).
+// follows the route's hasMore to the end; a page that fails fails the load, never a thread with a hole
 async fn thread(http: &reqwest::Client, token: Option<&str>, id: Box<str>, out: &Out) {
   let (status, v) = call(read(http, token, &format!("/api/thread/{id}"))).await;
-  let op = (status == 200).then(|| v.get("original").and_then(post::parse)).flatten();
-  let res = op.map(|op| {
-    let mut replies = posts_of(v.get("replies"), false, false);
-    replies.reverse();
-    (op, replies)
-  });
-  void(out.send(NetEvent::Thread { id, res: res.ok_or(status) }))
+  let Some(op) = (status == 200).then(|| v.get("original").and_then(post::parse)).flatten() else {
+    return void(out.send(NetEvent::Thread { id, res: Err(status) }));
+  };
+  let mut replies = Vec::new();
+  merge_replies(&mut replies, v.get("replies"));
+  let mut more = v.get("hasMore").and_then(Value::as_bool) == Some(true);
+  let mut offset = v.get("limit").and_then(Value::as_u64).map_or(replies.len(), |n| n as usize);
+  while more && offset > 0 && offset < THREAD_MAX {
+    let path = format!("/api/thread/{id}?offset={offset}&limit={THREAD_PAGE}");
+    let (st, page) = call(read(http, token, &path)).await;
+    let Some(rows) = (st == 200).then(|| page.get("replies")).flatten() else {
+      return void(out.send(NetEvent::Thread { id, res: Err(if st == 200 { 0 } else { st }) }));
+    };
+    let before = replies.len();
+    merge_replies(&mut replies, Some(rows));
+    more = page.get("hasMore").and_then(Value::as_bool) == Some(true) && replies.len() > before;
+    offset += THREAD_PAGE;
+  }
+  replies.reverse();
+  void(out.send(NetEvent::Thread { id, res: Ok((op, replies)) }))
+}
+
+// a page of replies onto the ones read so far. new replies shift the pages while they are read, so a
+// row can come twice: kept once
+fn merge_replies(into: &mut Vec<Post>, page: Option<&Value>) {
+  let rows = page.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+  let mut seen: std::collections::HashSet<Box<str>> = into.iter().map(|p| p.id.clone()).collect();
+  for p in rows.iter().take(THREAD_PAGE * 2).filter_map(post::parse) {
+    if seen.insert(p.id.clone()) {
+      into.push(p);
+    }
+  }
 }
 
 // logged out reads as not cleared: either way the answer is to log in as an adult
@@ -789,5 +820,17 @@ mod tests {
     assert_eq!(classify(429, &Value::Null), Fail::Other("slow down, try again in a bit".into()));
     // a bare 401 with an unknown reason is shown as the server said it
     assert_eq!(classify(401, &json!({"error": "nope"})), Fail::Other("nope".into()));
+  }
+
+  #[test]
+  fn thread_pages_join_once_each() {
+    let row = |id: &str| json!({"base36_id": id, "content": "x", "user_id": 1, "username": "amy"});
+    let mut all = Vec::new();
+    merge_replies(&mut all, Some(&json!([row("00002"), row("00001"), row("00002")])));
+    // a reply that arrived while paging shifts the next page down: its first row comes twice
+    merge_replies(&mut all, Some(&json!([row("00001"), row("00000")])));
+    merge_replies(&mut all, None);
+    let ids: Vec<&str> = all.iter().map(|p| &*p.id).collect();
+    assert_eq!(ids, ["00002", "00001", "00000"]);
   }
 }
