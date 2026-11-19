@@ -45,18 +45,20 @@ pub struct Judged {
   pub at: usize,
 }
 
-// a line as the rules look at it: the first SCAN characters, lowercased once if anything needs it, and the
-// channel tab it is in ("" = none: only rules for every channel apply)
+// a line as the rules look at it: the whole body (a keyword and `contains` read all of it), its first SCAN
+// characters for a regex, lowercased once if anything needs it, and the channel tab it is in ("" = none: only
+// rules for every channel apply)
 pub struct Line<'a> {
   m: &'a Message,
   chan: &'a str,
   text: &'a str,
+  head: &'a str,
   low: OnceCell<String>,
 }
 
 impl<'a> Line<'a> {
   pub fn new(m: &'a Message, chan: &'a str) -> Self {
-    Line { m, chan, text: scan(&m.body), low: OnceCell::new() }
+    Line { m, chan, text: &m.body, head: scan(&m.body), low: OnceCell::new() }
   }
 
   fn low(&self) -> &str {
@@ -144,7 +146,7 @@ impl Node {
       Node::Badge(v) => has_badge(l.m, v),
       Node::Type(t) => t.is_some_and(|t| t.holds(l.m)),
       Node::Contains(v) => l.low().contains(v.as_str()),
-      Node::Re(re) => re.is_match(l.text),
+      Node::Re(re) => re.is_match(l.head),
       // the window keeps no bits count: it is always 0
       Node::Bits(c, n) => match c {
         Cmp::Gt => 0.0 > *n,
@@ -478,7 +480,7 @@ impl Compiled {
   fn hits(&self, l: &Line) -> bool {
     match &self.test {
       Test::Keyword { val, cs } => word_at(if *cs { l.text } else { l.low() }, val),
-      Test::Re(re) => re.is_match(l.text),
+      Test::Re(re) => re.is_match(l.head),
       Test::Expr(n) => n.eval(l),
       Test::User { val, cs } => {
         let (a, b) = (bare(&l.m.login), bare(&l.m.nick));
@@ -1154,9 +1156,20 @@ mod tests {
   }
 
   #[test]
-  fn only_the_first_256_characters_are_read() {
+  fn a_keyword_reads_the_whole_line_a_regex_its_first_512() {
+    let far = format!("{} needle", "x".repeat(SCAN + 100));
+    for (ty, v, want) in [
+      ("keyword", "needle", Verdict::Hide),
+      ("expr", "contains:needle", Verdict::Hide),
+      ("regex", "needle", Verdict::Pass),
+      ("expr", "regex:needle", Verdict::Pass),
+    ] {
+      assert_eq!(judge(&rules(&[rule("hide", ty, v)]), &line("a", &far)), want, "{ty} {v}");
+    }
+    // a full-length line (500) is read to its end by a regex
+    let full = format!("{}badone", "x ".repeat(247));
+    assert_eq!(judge(&rules(&[rule("hide", "regex", "badone$")]), &line("a", &full)), Verdict::Hide);
     let r = rules(&[rule("hide", "keyword", "needle")]);
-    assert_eq!(judge(&r, &line("a", &format!("{} needle", "x".repeat(SCAN)))), Verdict::Pass);
     assert_eq!(judge(&r, &line("a", &format!("needle {}", "é".repeat(500)))), Verdict::Hide);
   }
 

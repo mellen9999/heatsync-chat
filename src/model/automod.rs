@@ -5,12 +5,14 @@
 // is too long or too big to compile is matched as plain text instead, never dropped
 use regex::{Regex, RegexBuilder};
 
-// the ext reads at most this much of a line against patterns
-pub const SCAN: usize = 256;
+// a user's own regex reads this much of a line, as in the ext: it holds the longest message of every site (500).
+// the ext also answers a slow pattern from the first 256 only, because js cannot stop a regex once it runs; rust's
+// is linear-time, so there is no slow pattern and no timing. keywords and `contains` read the whole line
+pub const SCAN: usize = 512;
 // what the ext treats as too long to trust as a regex
 const MAX_REGEX: usize = 512;
 
-// the first SCAN characters of a line
+// the first SCAN characters of a line, for a regex
 pub fn scan(text: &str) -> &str {
   if text.len() <= SCAN {
     return text;
@@ -129,8 +131,9 @@ mod tests {
     assert!(!hits(&long, "abc") && !hits(&long, "a.c"));
     // a repeat too big to compile falls back to text, never panics
     assert!(hits("x{9999}{9999}", "x{9999}{9999}"));
-    // only the first 256 characters are read
-    assert!(!hits("needle", &format!("{}needle", "x".repeat(300))));
-    assert!(hits("needle", &format!("needle{}", "x".repeat(300))));
+    // a regex reads the first SCAN characters
+    assert!(!hits("needle", &format!("{}needle", "x".repeat(SCAN + 40))));
+    assert!(hits("needle", &format!("needle{}", "x".repeat(SCAN + 40))));
+    assert!(hits("needle$", &format!("{}needle", "x ".repeat(247))));
   }
 }
