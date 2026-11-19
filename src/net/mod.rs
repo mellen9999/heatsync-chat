@@ -19,6 +19,7 @@ mod imgfetch;
 pub mod import;
 pub mod inventory;
 pub mod irc;
+mod joins;
 mod kick;
 mod kicksend;
 mod lanes;

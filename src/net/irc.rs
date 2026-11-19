@@ -6,11 +6,12 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
-use tokio::time::{Instant, interval, sleep, timeout};
+use tokio::time::{Instant, interval, sleep, sleep_until, timeout};
 use tokio_tungstenite::tungstenite::Message as Ws;
 
 use super::dupe::Dupes;
 use super::http::ws_connect;
+use super::joins::Joins;
 use super::{Out, Reply, backoff};
 use crate::model::chain;
 use crate::model::color;
@@ -525,10 +526,16 @@ fn unsent(out: &Out, chan: Box<str>, why: &str) {
   out.chat(chan, Chat::Msg(Message::system(now_ms(), Platform::Twitch, why)));
 }
 
-fn apply(chans: &mut BTreeSet<Box<str>>, c: Cmd) -> Option<String> {
+// what a command changes in the set of rooms we are in
+enum Change {
+  Join(Box<str>),
+  Part(Box<str>),
+}
+
+fn apply(chans: &mut BTreeSet<Box<str>>, c: Cmd) -> Option<Change> {
   match c {
-    Cmd::Join(ch) if ident::twitch_room(&ch) => chans.insert(ch.clone()).then(|| format!("JOIN #{ch}")),
-    Cmd::Part(ch) => chans.remove(&ch).then(|| format!("PART #{ch}")),
+    Cmd::Join(ch) if ident::twitch_room(&ch) => chans.insert(ch.clone()).then_some(Change::Join(ch)),
+    Cmd::Part(ch) => chans.remove(&ch).then_some(Change::Part(ch)),
     _ => None,
   }
 }
@@ -551,13 +558,13 @@ async fn session(
     Some(c) => (format!("oauth:{}", c.token), c.nick.clone()),
     None => ("SCHMOOPIIE".to_owned(), format!("justinfan{}", 10000 + now_ms() % 80000)),
   };
-  let mut hello =
+  let hello =
     vec!["CAP REQ :twitch.tv/tags twitch.tv/commands".to_owned(), format!("PASS {pass}"), format!("NICK {nick}")];
   let mut me_id: Box<str> = "".into();
-  // batched joins stay under the 20-per-10s anon limit for normal tab counts
-  let names: Vec<_> = chans.iter().map(|c| format!("#{c}")).collect();
-  for chunk in names.chunks(20) {
-    hello.push(format!("JOIN {}", chunk.join(",")));
+  // joins go out 20 per window (see joins.rs), on first connect and every reconnect alike
+  let mut joins = Joins::default();
+  for c in chans.iter() {
+    joins.push(c.clone());
   }
   for l in hello {
     if tx.send(Ws::text(l)).await.is_err() {
@@ -653,11 +660,23 @@ async fn session(
             l
           }
           Some(c) => match apply(chans, c) {
-            Some(l) => l,
+            Some(Change::Join(ch)) => {
+              joins.push(ch);
+              continue;
+            }
+            Some(Change::Part(ch)) if joins.cancel(&ch) => continue,
+            Some(Change::Part(ch)) => format!("PART #{ch}"),
             None => continue,
           },
         };
         if tx.send(Ws::text(line)).await.is_err() {
+          return End::Reconnect;
+        }
+      }
+      _ = sleep_until(joins.due(Instant::now()).unwrap_or_else(Instant::now)), if joins.waiting() => {
+        if let Some(l) = joins.take(Instant::now())
+          && tx.send(Ws::text(l)).await.is_err()
+        {
           return End::Reconnect;
         }
       }
