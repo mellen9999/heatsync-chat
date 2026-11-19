@@ -199,7 +199,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 75] = [
+pub static DEFS: [Def; 76] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -535,6 +535,18 @@ pub static DEFS: [Def; 75] = [
     ctl: pill!(suggest_inventory),
     fx: Fx::None,
     wire: Wire::Bool("suggestInventoryEmotes"),
+  },
+  Def {
+    id: "tab_list",
+    cmd: Some("/tablist"),
+    cat: Cat::Chat,
+    section: "input",
+    label: "tab opens a list",
+    tip: "tab on a word shows matching emotes in a list above the input. arrows pick, tab or enter inserts, esc closes. off completes in place",
+    alias: "tabOpensEmoteList",
+    ctl: pill!(tab_list),
+    fx: Fx::None,
+    wire: Wire::Bool("tabOpensEmoteList"),
   },
   Def {
     id: "right_click",

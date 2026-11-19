@@ -51,6 +51,28 @@ impl App {
     self.sug.list = Some(Suggest { kind, range, items, sel });
   }
 
+  // setting `tab_list`: the first tab on a bare word opens the `:` list of emotes for it instead of completing in
+  // place (ext tab-list.js). local emotes only; false = none match (or the word is a `:`/`@`/`/` one), so the
+  // classic tab, catalog search and all, runs
+  pub(super) fn open_tab_list(&mut self, range: std::ops::Range<usize>) -> bool {
+    let word = &self.line.text[range.clone()];
+    if word.starts_with([':', '@', '/']) {
+      return false;
+    }
+    let mut items = self.candidates(&format!(":{word}"), false);
+    items.retain(|p| p.emote);
+    items.truncate(Kind::Emote.max());
+    if items.is_empty() {
+      return false;
+    }
+    self.sug.at = (self.line.text.as_str().into(), self.line.cursor);
+    self.sug.hot = None;
+    self.sug.list = Some(Suggest { kind: Kind::Emote, range, items, sel: 0 });
+    self.input_dirty = true;
+    self.wake();
+    true
+  }
+
   // keys an open list takes first. true = handled
   pub(super) fn suggest_key(&mut self, key: &Key<&str>) -> bool {
     let Some(s) = &mut self.sug.list else { return false };

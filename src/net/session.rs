@@ -586,6 +586,14 @@ impl State {
   }
 }
 
+// a heatsync send leg is over: the app learns whether its POST may be in chat (never posted again) or never went out
+fn leg_done(out: &Out, send: Option<&str>, platform: Platform, chan: &str, refused: Option<&Refused>) {
+  if let Some(id) = send {
+    let landed = refused.is_none_or(|r| !r.unsent);
+    out.send(NetEvent::Leg { send: id.into(), platform, chan: chan.into(), landed });
+  }
+}
+
 // like kick: success shows up through the relay, a refusal is a system line in the tab
 async fn youtube_job(
   http: reqwest::Client,
@@ -599,6 +607,7 @@ async fn youtube_job(
     None => Some(Refused { why: t("net1.log_in_send").to_owned(), unsent: true }),
     Some(t) => super::youtube::send(&http, t, &chan, &text, send.as_deref()).await.err(),
   };
+  leg_done(&out, send.as_deref(), Platform::Youtube, &chan, refused.as_ref());
   if let Some(Refused { why, unsent }) = refused {
     if let Some(id) = send.filter(|_| unsent) {
       out.send(NetEvent::Unsent(id));
@@ -621,6 +630,7 @@ async fn kick_job(
     None => Some(Refused { why: t("net1.log_in_send").to_owned(), unsent: true }),
     Some(t) => super::kicksend::send(&http, t, &chan, &text, reply.as_deref(), send.as_deref()).await.err(),
   };
+  leg_done(&out, send.as_deref(), Platform::Kick, &chan, refused.as_ref());
   // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
   let told = match refused.as_ref() {
     None => Some(None),

@@ -74,6 +74,7 @@ mod quick;
 mod raise;
 mod react;
 mod render;
+mod resend;
 mod resume;
 mod rover;
 mod rulesound;
@@ -137,6 +138,8 @@ mod tests_pushed;
 mod tests_reach;
 #[cfg(test)]
 mod tests_react;
+#[cfg(test)]
+mod tests_resend;
 #[cfg(test)]
 mod tests_rowmode;
 #[cfg(test)]
@@ -477,6 +480,8 @@ pub struct App {
   sentfold: crate::model::sentfold::Sent,
   // the last line sent to one feed alone, to give back if that feed refuses it
   solo: Option<sendto::Solo>,
+  // every send, per leg, until its echo comes back: a miss gets a notice and a retry (model::pending)
+  pending: crate::model::pending::Pending,
   focused: bool,
   whisper: whispers::Whispers,
   unseen: crate::model::unseen::Unseen,
@@ -687,6 +692,7 @@ impl App {
       heat: Default::default(),
       sentfold: Default::default(),
       solo: None,
+      pending: Default::default(),
       focused: true,
       whisper: Default::default(),
       unseen: Default::default(),
@@ -997,6 +1003,9 @@ impl ApplicationHandler<NetEvent> for App {
     if self.flash_due.is_some_and(|t| t <= now) {
       self.flash_tick();
     }
+    if self.resend_due().is_some_and(|t| t <= now) {
+      self.resend_tick(now_ms());
+    }
     self.streamer_tick(now);
     self.notify_pace_tick(now);
     self.live_pace_tick(now);
@@ -1045,6 +1054,7 @@ impl ApplicationHandler<NetEvent> for App {
       self.feed_heat_due,
       self.pace_due,
       self.flash_due,
+      self.resend_due(),
       self.streamer.due,
       self.notify_pace.due(),
       self.live_pace.due(),

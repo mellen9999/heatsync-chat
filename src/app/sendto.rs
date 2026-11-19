@@ -6,6 +6,7 @@ use super::{App, Tab};
 use crate::i18n::f;
 use crate::model::mark::Mark;
 use crate::model::message::{Message, Platform};
+use crate::model::pending::Leg;
 use crate::model::sendto::{self, Targets};
 use crate::model::tabs::Kind;
 use crate::net::{Cmd, Reply};
@@ -137,13 +138,16 @@ impl App {
 
   // send `text` to each feed in `legs`, each its own copy; several feeds' echoes will fold into one row
   pub(super) fn fan_out(&mut self, legs: &[(Platform, Box<str>)], text: &str, reply: Option<Reply>, send: &str) {
+    let mut tracked = Vec::with_capacity(legs.len());
     for (platform, chan) in legs {
       let (mut text, reply) = leg_line(*platform, text, reply.as_ref());
       if *platform == Platform::Kick {
         text = self.res.emotes.kickify(chan, &text);
       }
+      tracked.push(Leg::new(*platform, chan.clone(), text.clone(), reply.clone()));
       self.net.send(Cmd::Send { platform: *platform, chan: chan.clone(), text, reply, send: Some(send.into()) });
     }
+    self.pending.track(now_ms(), send, tracked);
     if legs.len() > 1 {
       let bare = text.strip_prefix("/me ").unwrap_or(text);
       self.sentfold.track(now_ms(), bare, reply.is_some());

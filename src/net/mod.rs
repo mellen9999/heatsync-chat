@@ -121,6 +121,13 @@ pub enum NetEvent {
   Lock(Platform, Box<str>, Option<crate::model::lock::Cause>),
   // a line that provably never went out (by its send id): its words go back in the box if it is empty
   Unsent(Box<str>),
+  // a heatsync send leg (kick, youtube) finished: its POST was taken or may have been (landed), or never went out
+  Leg {
+    send: Box<str>,
+    platform: Platform,
+    chan: Box<str>,
+    landed: bool,
+  },
   YtStatus {
     key: Box<str>,
     status: Box<str>,
@@ -548,6 +555,7 @@ pub fn retrying(out: &Out, why: &str, attempt: u32, wait: Duration) {
 }
 
 // the line being answered: its platform, its message id, and @nick + its words for our own echo
+#[derive(Clone)]
 pub struct Reply {
   // the platform the line came from: only its own leg threads the reply
   pub platform: Platform,

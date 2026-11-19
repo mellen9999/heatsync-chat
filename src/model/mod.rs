@@ -52,6 +52,7 @@ pub mod notice;
 pub mod origin;
 pub mod pace;
 pub mod pathcomp;
+pub mod pending;
 pub mod picker;
 pub mod picker_search;
 pub mod pin;

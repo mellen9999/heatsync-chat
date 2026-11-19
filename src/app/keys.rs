@@ -128,6 +128,7 @@ impl App {
         }
       }
       Key::Character(c @ ("[" | "]")) if alt && !ctrl => self.select(self.step_tab(self.active, c == "[")),
+      Key::Named(NamedKey::Enter) if alt && !ctrl => return self.retry_send(),
       Key::Character("r") if alt && !ctrl => self.row_mode(),
       Key::Character(c @ ("t" | "k" | "y")) if alt && !ctrl => {
         let p = match c {

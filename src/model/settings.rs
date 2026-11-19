@@ -245,6 +245,8 @@ pub struct Settings {
   // (renderInventoryEmotes, suggestInventoryEmotes)
   pub render_inventory: bool,
   pub suggest_inventory: bool,
+  // tab opens the emote list instead of completing in place (ext tabOpensEmoteList). default off
+  pub tab_list: bool,
   // a 7tv subscriber's personal emotes draw in their own lines (chatterino and the 7tv extension do). default
   // on; the ext has no key for it
   pub personal_emotes: bool,
@@ -340,6 +342,7 @@ impl Default for Settings {
       links: true,
       render_inventory: true,
       suggest_inventory: true,
+      tab_list: false,
       personal_emotes: true,
       tab_feed: true,
       tab_whispers: true,
@@ -758,6 +761,7 @@ mod tests {
         links: true,
         render_inventory: true,
         suggest_inventory: true,
+        tab_list: false,
         personal_emotes: true,
         tab_feed: true,
         tab_whispers: true,

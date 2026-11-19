@@ -108,6 +108,10 @@ impl App {
       if !slash && word.chars().count() < MIN_WORD {
         return;
       }
+      if self.set.tab_list && !back && !slash && self.open_tab_list(r.clone()) {
+        return;
+      }
+      let word = &self.line.text[r.clone()];
       let matches = self.candidates(word, slash);
       // `:nyan` is nyan to the catalogs; the pick replaces the colon too
       let q = word.strip_prefix(':').unwrap_or(word);
@@ -348,6 +352,56 @@ mod tests {
     assert!(c.iter().any(|p| &*p.name == "delloreat" && p.what == "your sub emote · all twitch"), "{:?}", c.len());
     assert!(app.candidates(":dellore", false).iter().any(|p| &*p.name == "delloreat"));
     assert_eq!(app.box_url("delloreat").as_deref(), Some(url));
+  }
+
+  // setting tab_list: tab on a bare word opens the emote list instead of completing in place (ext 1de19fe5)
+  #[test]
+  fn tab_opens_the_emote_list_only_when_the_setting_is_on() {
+    use winit::keyboard::{Key, NamedKey};
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    let rows: Vec<_> = ["zzlistA", "zzlistB"]
+      .iter()
+      .map(|n| {
+        serde_json::json!({"custom_name": n, "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32,
+        "height": 32, "added_at": "2026-10-30T22:26:51.099Z"})
+      })
+      .collect();
+    app.res.senders.lookup(1, "zzlistA", 0);
+    app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!(rows)));
+    // off (the default): the classic tab completes in place and opens no list
+    app.line.insert("say zzli");
+    app.tab_complete(false);
+    assert!(app.sug.list.is_none() && app.line.text.starts_with("say zzlist"), "{}", app.line.text);
+    // on: the first tab lists, the text is untouched, down moves, enter inserts
+    app.complete = None;
+    app.line = Default::default();
+    app.set.tab_list = true;
+    app.line.insert("say zzli");
+    app.tab_complete(false);
+    let s = app.sug.list.as_ref().expect("the list is open");
+    assert_eq!((s.items.len(), s.sel, app.line.text.as_str()), (2, 0, "say zzli"));
+    app.sync_suggest();
+    assert!(app.sug.list.is_some(), "nothing typed keeps it open");
+    assert!(app.suggest_key(&Key::Named(NamedKey::ArrowDown)));
+    assert!(app.suggest_key(&Key::Named(NamedKey::Enter)));
+    assert!(app.sug.list.is_none() && app.line.text.starts_with("say zzlist"), "{}", app.line.text);
+    // esc closes without touching the text
+    app.complete = None;
+    app.line = Default::default();
+    app.line.insert("say zzli");
+    app.tab_complete(false);
+    assert!(app.suggest_key(&Key::Named(NamedKey::Escape)));
+    assert_eq!((app.sug.list.is_none(), app.line.text.as_str()), (true, "say zzli"));
+    // one letter is no word; a word nothing matches falls back to the classic tab
+    for typed in ["z", "qqxxnothing"] {
+      app.complete = None;
+      app.line = Default::default();
+      app.line.insert(typed);
+      app.tab_complete(false);
+      assert!(app.sug.list.is_none(), "{typed}");
+    }
   }
 
   // the first tab asks the catalogs even with a local match, and `:word` asks for the word

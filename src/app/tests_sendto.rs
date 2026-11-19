@@ -23,7 +23,7 @@ fn me() -> Me {
 }
 
 // a tab on all three platforms, signed in
-fn boot() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
+pub(super) fn boot() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
   let (net, mut rx) = Net::tap();
   let mut app = App::new(net, vec!["forsen kick:xqc yt:@abc".into()], false);
   app.dpi = 1.0;
@@ -47,12 +47,12 @@ fn sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<(Platform, St
     .collect()
 }
 
-fn type_and_send(app: &mut App, text: &str) {
+pub(super) fn type_and_send(app: &mut App, text: &str) {
   app.line.set_text(text.into());
   app.send();
 }
 
-fn own(p: Platform, body: &str) -> Message {
+pub(super) fn own(p: Platform, body: &str) -> Message {
   let mut m = Message::system(now_ms(), p, body);
   m.kind = MsgKind::Chat;
   m.login = "mellen".into();

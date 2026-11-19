@@ -65,6 +65,7 @@ impl App {
       self.res.chatters.heard(m);
       self.scan_mention(p, key, m);
       self.hs_origin(p, key, m);
+      self.leg_echo(p, key, m);
     }
     // youtube's batches drip out at their real pace (model::pace); the rest waits for pace_due
     if p == Platform::Youtube && !history {
@@ -79,7 +80,7 @@ impl App {
     if !m.kind.said() {
       return;
     }
-    if self.mentions.mine(m) && self.origins.sent(m.ts, &m.body) {
+    if self.mentions.mine(m) && self.origins.sent(m.ts, &m.body, m.reply_to.is_some()) {
       m.extra().origin = true;
     }
     if !m.id.is_empty()
@@ -109,6 +110,9 @@ impl App {
     let mut set = std::collections::HashMap::with_capacity(ids.len());
     for (id, sid) in ids {
       self.heat.note(p, key, &id, &sid);
+      if !sid.is_empty() {
+        self.pending.filed(p, key, &sid);
+      }
       set.insert(id, sid);
     }
     let mut any = false;
@@ -129,7 +133,10 @@ impl App {
     let landed = std::cell::Cell::new(None);
     for v in self.tabs.iter_mut().flat_map(Tab::views) {
       any |= v.mark_origin(|m| {
-        let hit = m.kind.said() && now - m.ts < RACE_MS && me.mine(m) && m.body.trim() == text.trim();
+        let hit = m.kind.said() && now - m.ts < RACE_MS && me.mine(m) && {
+          let body = m.body.trim();
+          body == text.trim() || (m.reply_to.is_some() && crate::model::origin::unreply(body) == Some(text.trim()))
+        };
         if hit {
           landed.set(Some(m.platform));
         }
@@ -246,6 +253,7 @@ impl App {
         Chat::Msg(m)
       }
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
+        self.leg_echo(Platform::Twitch, ch, &m);
         if self.echo_folded(Platform::Twitch, &m) {
           return;
         }
@@ -779,6 +787,7 @@ impl App {
       NetEvent::LoginWait(on) => self.login_wait = on,
       NetEvent::Lock(p, key, cause) => self.lock_told(p, &key, cause),
       NetEvent::Unsent(id) => self.give_back(&id),
+      NetEvent::Leg { send, platform, chan, landed } => self.pending.posted(&send, platform, &chan, landed),
       NetEvent::RelayClear { platform, key, login, secs } => {
         // a removal must find every line: what is still waiting shows first
         let waiting = self.pacer.flush(&key);

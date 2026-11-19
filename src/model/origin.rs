@@ -25,6 +25,12 @@ pub fn text(v: &serde_json::Value) -> Option<Box<str>> {
   Some(crate::net::relay::unkick(t).trim().into())
 }
 
+// a reply's echo without the leading `@parent `, None when it has none
+pub fn unreply(body: &str) -> Option<&str> {
+  let (at, rest) = body.split_once(char::is_whitespace)?;
+  (at.len() > 1 && at.starts_with('@')).then(|| rest.trim())
+}
+
 impl Origins {
   pub fn note(&mut self, now: i64, text: Box<str>) {
     self.0.retain(|(_, at)| now - at < WINDOW_MS);
@@ -36,9 +42,11 @@ impl Origins {
 
   // `ts`: when the line was said. an echo lands seconds after the send; the same words said natively
   // later are not that heatsync send (M1)
-  pub fn sent(&self, ts: i64, body: &str) -> bool {
+  // `reply`: the line answers someone, so twitch put `@parent ` in front of what was typed (server 7864a5c9)
+  pub fn sent(&self, ts: i64, body: &str, reply: bool) -> bool {
     let body = body.trim();
-    !body.is_empty() && self.0.iter().any(|(t, at)| (ts - at).abs() < ECHO_MS && **t == *body)
+    let typed = if reply { unreply(body) } else { None };
+    !body.is_empty() && self.0.iter().any(|(t, at)| (ts - at).abs() < ECHO_MS && (**t == *body || typed == Some(&**t)))
   }
 }
 
@@ -48,14 +56,27 @@ mod tests {
   use serde_json::json;
 
   #[test]
+  fn a_reply_echo_keeps_its_origin_without_the_parents_mention() {
+    let mut o = Origins::default();
+    o.note(0, "gg wp".into());
+    assert!(o.sent(1000, "@bob gg wp", true), "twitch puts @parent in front of a reply");
+    assert!(!o.sent(1000, "@bob gg wp", false), "a plain line is matched as it is");
+    assert!(!o.sent(1000, "@bob gg", true));
+    assert!(o.sent(1000, "gg wp", true), "a reply that came back bare still matches");
+    assert_eq!(unreply("@bob   hi there"), Some("hi there"));
+    assert_eq!(unreply("@ hi"), None);
+    assert_eq!(unreply("hi @bob"), None);
+  }
+
+  #[test]
   fn a_heatsync_send_is_known_by_its_words_and_moment() {
     let mut o = Origins::default();
     o.note(0, text(&json!({"type": "chat:origin_broadcast", "text": " gg wp ", "origin": "heatsync"})).unwrap());
-    assert!(o.sent(1000, "gg wp"));
-    assert!(!o.sent(1000, "gg"));
-    assert!(!o.sent(WINDOW_MS + 1, "gg wp"), "a day later it is forgotten");
+    assert!(o.sent(1000, "gg wp", false));
+    assert!(!o.sent(1000, "gg", false));
+    assert!(!o.sent(WINDOW_MS + 1, "gg wp", false), "a day later it is forgotten");
     // M1: the same words typed straight into twitch an hour later are not that heatsync send
-    assert!(!o.sent(3_600_000, "gg wp"), "an echo is seconds after the send, not hours");
+    assert!(!o.sent(3_600_000, "gg wp", false), "an echo is seconds after the send, not hours");
     assert!(text(&json!({"text": ""})).is_none());
     assert!(text(&json!({"text": "x".repeat(501)})).is_none());
     assert!(text(&json!({"text": 5})).is_none());

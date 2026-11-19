@@ -318,6 +318,11 @@
    "heat"
   ]
  },
+ "tabOpensEmoteList": {
+  "type": "bool",
+  "scope": "sync",
+  "default": false
+ },
  "tabPosition": {
   "type": "enum",
   "scope": "sync",

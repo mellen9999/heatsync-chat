@@ -127,6 +127,7 @@ pub static KEYS: [Group; 19] = [
       k("backspace  delete", "keys.typing.13"),
       k("ctrl-u ctrl-k", "keys.typing.14"),
       k("esc", "keys.typing.15"),
+      k("alt-enter", "keys.typing.16"),
     ],
   },
   Group {
