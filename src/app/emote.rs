@@ -25,7 +25,7 @@ pub enum Act {
 }
 
 pub struct Open {
-  menu: Menu<Act>,
+  pub(super) menu: Menu<Act>,
   hit: EmoteHit,
   owned: bool,
 }

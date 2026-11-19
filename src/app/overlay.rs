@@ -57,6 +57,18 @@ impl App {
     }
   }
 
+  // the wheel over an open menu scrolls it when it is taller than the window; false = not the menu's
+  pub(super) fn menu_wheel(&mut self, px: i32) -> bool {
+    let (x, y) = self.pointer;
+    match &mut self.overlay {
+      Some(Overlay::Pop(p)) => p.menu.wheel(x, y, px),
+      Some(Overlay::Card(c)) => c.menu.wheel(x, y, px),
+      Some(Overlay::Emote(o)) => o.menu.wheel(x, y, px),
+      Some(Overlay::Tab(m)) => m.menu.wheel(x, y, px),
+      None => false,
+    }
+  }
+
   // each close drops the overlay only if it is that one
   pub(super) fn close_pop(&mut self) {
     if self.pop().is_some() {

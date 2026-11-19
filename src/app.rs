@@ -948,6 +948,9 @@ impl ApplicationHandler<NetEvent> for App {
           self.screen_wheel(px);
         } else if self.img_view.is_some() {
           self.img_wheel(px);
+        if self.menu_wheel(px) {
+          return self.wake();
+        }
         } else if self.picker.is_some() {
           self.picker_wheel(px);
         } else {

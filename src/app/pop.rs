@@ -576,13 +576,13 @@ impl App {
       Key::Named(NamedKey::Enter) => return self.pop_pick(),
       // "unpin for everyone? y / enter, esc to cancel"
       Key::Character("y") if p.menu.items.first().is_some_and(|r| r.0 == Act::UnpinYes) => {
-        p.menu.at = 0;
+        p.menu.go(0);
         return self.pop_pick();
       }
       // a ban's reasons answer to their digit
       Key::Character(d) if p.todo.is_some() && d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => {
         match usize::from(d.as_bytes()[0] - b'0') {
-          n @ 1..=9 if n < p.menu.items.len() && matches!(p.menu.items[n].0, Act::Why(_)) => p.menu.at = n,
+          n @ 1..=9 if n < p.menu.items.len() && matches!(p.menu.items[n].0, Act::Why(_)) => p.menu.go(n),
           _ => return,
         }
         return self.pop_pick();

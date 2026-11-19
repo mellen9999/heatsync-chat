@@ -64,7 +64,7 @@ impl TabMenu {
 }
 
 pub struct TabMenu {
-  menu: Menu<TabAct>,
+  pub(super) menu: Menu<TabAct>,
   tab: usize,
 }
 
