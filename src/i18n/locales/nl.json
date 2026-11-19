@@ -146,6 +146,8 @@
  "app.following.login": "log in om te zien wie je volgt (ctrl-l)",
  "app.following.no_stream": "daar valt geen stream te kijken",
  "app.following.nobody": "niemand die je volgt is nu live",
+ "app.following.none": "je volgt nog niemand",
+ "app.following.none_how": "open de chat van een stream, klik op een naam en volg — ze verschijnen hier als ze live gaan",
  "app.following.nomatch": "niets gevonden",
  "app.following.stale": "vernieuwen mislukt: dit is de laatste lijst. r probeert opnieuw",
  "app.following.title": "gevolgd",

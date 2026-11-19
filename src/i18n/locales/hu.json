@@ -146,6 +146,8 @@
  "app.following.login": "jelentkezz be a követéseid megtekintéséhez (ctrl-l)",
  "app.following.no_stream": "ott nincs megnézhető adás",
  "app.following.nobody": "most senki sem él, akit követsz",
+ "app.following.none": "még senkit sem követsz",
+ "app.following.none_how": "nyisd meg bármelyik stream chatjét, kattints egy névre, és kövesd — itt jelennek meg, amikor élőben vannak",
  "app.following.nomatch": "nincs találat",
  "app.following.stale": "nem sikerült frissíteni: ez az utolsó lista. r újrapróbálja",
  "app.following.title": "követed",

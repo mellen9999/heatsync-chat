@@ -41,6 +41,8 @@ pub(super) struct Following {
   // an answer or the socket's catch-up has landed
   loaded: bool,
   failed: Option<Fail>,
+  // how many people the account follows, per the last full answer
+  pub(super) count: Option<u64>,
   asked: Option<Instant>,
   fetched: Option<Instant>,
   // when the open screen next reads the clock
@@ -54,13 +56,14 @@ pub(super) struct Following {
 }
 
 // why the screen has no rows to show, in plain words
-fn nothing(me: bool, loaded: bool, failed: Option<Fail>, q: &str) -> &'static str {
+fn nothing(me: bool, loaded: bool, failed: Option<Fail>, q: &str, follows: Option<u64>) -> &'static str {
   match (me, failed) {
     (false, _) => t("app.following.login"),
     (_, Some(Fail::Auth)) => t("app.following.auth"),
     (_, Some(_)) if !loaded => t("app.following.unreachable"),
     _ if !loaded => t("app.following.loading"),
     _ if !q.is_empty() => t("app.following.nomatch"),
+    _ if follows == Some(0) => t("app.following.none"),
     _ => t("app.following.nobody"),
   }
 }
@@ -71,8 +74,14 @@ fn rows(f: &Following, me: bool, q: &str, now: i64) -> (Vec<L>, Vec<Target>) {
   let shown: Vec<(usize, &Live)> =
     f.list.rows().iter().enumerate().filter(|(_, l)| me && q.split_whitespace().all(|w| l.hay().contains(w))).collect();
   if shown.is_empty() {
-    let say = nothing(me, f.loaded, f.failed, &q);
-    return (vec![L::Row { a: say.into(), b: String::new(), pill: None }], vec![Target::None]);
+    let say = nothing(me, f.loaded, f.failed, &q, f.count);
+    let mut lines = vec![L::Row { a: say.into(), b: String::new(), pill: None }];
+    // follows nobody at all: the next line says how, not just that
+    if me && f.loaded && f.failed.is_none() && q.is_empty() && f.count == Some(0) {
+      lines.push(L::Row { a: t("app.following.none_how").into(), b: String::new(), pill: None });
+    }
+    let marks = vec![Target::None; lines.len()];
+    return (lines, marks);
   }
   let lines = shown
     .iter()
@@ -442,6 +451,31 @@ mod tests {
       .collect();
     assert_eq!(played, ["https://www.twitch.tv/big".into()] as [Box<str>; 1]);
     assert!(app.screen.is_none());
+  }
+
+  #[test]
+  fn following_nobody_says_how_to_follow_and_nobody_live_says_nothing_of_it() {
+    let (mut app, _asked) = app();
+    app.toggle_following();
+    let said = |app: &App| {
+      app
+        .screen
+        .as_ref()
+        .unwrap()
+        .shown
+        .iter()
+        .map(|l| if let L::Row { a, .. } = l { a.clone() } else { String::new() })
+        .collect::<Vec<_>>()
+    };
+    app.on_net(NetEvent::FollowCount(Some(3)));
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    assert_eq!(said(&app), [t("app.following.nobody")], "follows people, none live");
+    app.on_net(NetEvent::FollowCount(Some(0)));
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    assert_eq!(said(&app), [t("app.following.none"), t("app.following.none_how")]);
+    app.on_net(NetEvent::FollowCount(None));
+    app.on_net(NetEvent::Following(Ok(Vec::new())));
+    assert_eq!(said(&app), [t("app.following.nobody")], "an older server says nothing: the old line");
   }
 
   #[test]

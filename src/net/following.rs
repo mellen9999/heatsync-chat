@@ -21,7 +21,11 @@ pub async fn run(http: reqwest::Client, token: Option<String>, out: Out) {
       let req =
         http.get(format!("{ORIGIN}/api/live/following")).bearer_auth(t).timeout(std::time::Duration::from_secs(15));
       let (status, v) = social::call(req).await;
-      read(status, &v)
+      let res = read(status, &v);
+      if res.is_ok() {
+        out.send(NetEvent::FollowCount(follow_count(&v)));
+      }
+      res
     }
   };
   out.send(NetEvent::Following(res));
@@ -40,10 +44,26 @@ fn read(status: u16, v: &Value) -> Result<Vec<Live>, Fail> {
   }
 }
 
+// `followCount`: a whole number of follows, nothing else
+fn follow_count(v: &Value) -> Option<u64> {
+  v.get("followCount").and_then(Value::as_u64)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[test]
+  fn the_follow_count_is_a_plain_number_or_nothing() {
+    assert_eq!(follow_count(&json!({"streams": [], "followCount": 0})), Some(0));
+    assert_eq!(follow_count(&json!({"followCount": 12})), Some(12));
+    for v in
+      [json!({}), json!({"followCount": -1}), json!({"followCount": "0"}), json!({"followCount": 1.5}), Value::Null]
+    {
+      assert_eq!(follow_count(&v), None, "{v}");
+    }
+  }
 
   #[test]
   fn only_a_real_answer_replaces_the_list() {

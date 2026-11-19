@@ -146,6 +146,8 @@
  "app.following.login": "kimleri takip ettiğini görmek için giriş yap (ctrl-l)",
  "app.following.no_stream": "orada izlenecek yayın yok",
  "app.following.nobody": "takip ettiklerinden şu an kimse canlı değil",
+ "app.following.none": "henüz kimseyi takip etmiyorsun",
+ "app.following.none_how": "herhangi bir yayının sohbetini aç, bir isme tıkla ve takip et — yayına girdiklerinde burada görünürler",
  "app.following.nomatch": "eşleşme yok",
  "app.following.stale": "yenilenemedi: bu son liste. r tekrar dener",
  "app.following.title": "takiptesin",

@@ -146,6 +146,8 @@
  "app.following.login": "ล็อกอินเพื่อดูคนที่คุณติดตาม (ctrl-l)",
  "app.following.no_stream": "ไม่มีสตรีมให้ดูที่นั่น",
  "app.following.nobody": "ตอนนี้ไม่มีใครที่คุณติดตามกำลังไลฟ์",
+ "app.following.none": "คุณยังไม่ได้ติดตามใคร",
+ "app.following.none_how": "เปิดแชทของสตรีมใดก็ได้ คลิกชื่อ แล้วกดติดตาม — พวกเขาจะแสดงที่นี่เมื่อไลฟ์",
  "app.following.nomatch": "ไม่พบที่ตรงกัน",
  "app.following.stale": "รีเฟรชไม่ได้: นี่คือรายการล่าสุด กด r เพื่อลองใหม่",
  "app.following.title": "ติดตาม",

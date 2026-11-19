@@ -146,6 +146,8 @@
  "app.following.login": "conectează-te ca să vezi pe cine urmărești (ctrl-l)",
  "app.following.no_stream": "niciun stream de văzut acolo",
  "app.following.nobody": "nimeni din cei urmăriți nu e live acum",
+ "app.following.none": "încă nu urmărești pe nimeni",
+ "app.following.none_how": "deschide chatul oricărui stream, apasă pe un nume, apoi urmărește — apar aici când sunt live",
  "app.following.nomatch": "nicio potrivire",
  "app.following.stale": "nu s-a putut reîmprospăta: asta e ultima listă. r reîncearcă",
  "app.following.title": "urmărești",

@@ -419,6 +419,9 @@ pub enum NetEvent {
   // who you follow is live: the full answer from heatsync, the socket's catch-up on sign-in (adds only),
   // and one go-live / game switch / sign-off of a followed channel
   Following(Result<Vec<crate::model::following::Live>, following::Fail>),
+  // how many people the account follows, with every full answer (None: the server did not say). 0 is
+  // "follows nobody yet", which wants a way to follow, not a wait
+  FollowCount(Option<u64>),
   // your twitch follows for /import
   Import(Result<import::Got, import::Fail>),
   // one live-status answer: per platform, the channels asked and who of them is live (None: no answer)

@@ -146,6 +146,8 @@
  "app.following.login": "mag-log in para makita kung sino ang fina-follow mo (ctrl-l)",
  "app.following.no_stream": "walang mapapanood na stream doon",
  "app.following.nobody": "walang fina-follow mo ang live ngayon",
+ "app.following.none": "wala ka pang sinusundan",
+ "app.following.none_how": "buksan ang chat ng kahit anong stream, i-click ang pangalan, tapos i-follow — lalabas sila dito kapag live",
  "app.following.nomatch": "walang tugma",
  "app.following.stale": "hindi na-refresh: ito ang huling listahan. r para subukan ulit",
  "app.following.title": "sinusundan",

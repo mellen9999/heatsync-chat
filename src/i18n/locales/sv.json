@@ -146,6 +146,8 @@
  "app.following.login": "logga in för att se vem du följer (ctrl-l)",
  "app.following.no_stream": "ingen stream att titta på där",
  "app.following.nobody": "ingen du följer är live just nu",
+ "app.following.none": "du följer ingen än",
+ "app.following.none_how": "öppna chatten för en stream, klicka på ett namn och följ — de dyker upp här när de går live",
  "app.following.nomatch": "inga träffar",
  "app.following.stale": "kunde inte uppdatera: det här är senaste listan. r försöker igen",
  "app.following.title": "följer",

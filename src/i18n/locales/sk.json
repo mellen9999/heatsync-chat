@@ -146,6 +146,8 @@
  "app.following.login": "prihlás sa, aby si videl, koho sleduješ (ctrl-l)",
  "app.following.no_stream": "tam nie je čo sledovať",
  "app.following.nobody": "nikto, koho sleduješ, teraz nevysiela",
+ "app.following.none": "zatiaľ nikoho nesleduješ",
+ "app.following.none_how": "otvor chat ľubovoľného streamu, klikni na meno a daj sledovať — objavia sa tu, keď budú naživo",
  "app.following.nomatch": "nič sa nenašlo",
  "app.following.stale": "obnovenie zlyhalo: toto je posledný zoznam. r skúsi znova",
  "app.following.title": "sleduješ",

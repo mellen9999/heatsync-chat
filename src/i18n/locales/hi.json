@@ -146,6 +146,8 @@
  "app.following.login": "कौन फ़ॉलो हैं देखने के लिए लॉग इन करो (ctrl-l)",
  "app.following.no_stream": "वहाँ देखने को कोई स्ट्रीम नहीं",
  "app.following.nobody": "तुम्हारे फ़ॉलो किए कोई अभी लाइव नहीं",
+ "app.following.none": "तुम अभी किसी को फ़ॉलो नहीं करते",
+ "app.following.none_how": "किसी भी स्ट्रीम की चैट खोलो, किसी नाम पर क्लिक करो, फिर फ़ॉलो करो — लाइव होने पर वे यहाँ दिखेंगे",
  "app.following.nomatch": "कुछ नहीं मिला",
  "app.following.stale": "रिफ़्रेश नहीं हुआ: यह पिछली सूची है। r से फिर कोशिश",
  "app.following.title": "फ़ॉलो कर रहे हैं",

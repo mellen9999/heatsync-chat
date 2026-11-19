@@ -146,6 +146,8 @@
  "app.following.login": "войдите, чтобы видеть свои подписки (ctrl-l)",
  "app.following.no_stream": "там нет стрима",
  "app.following.nobody": "из ваших подписок сейчас никто не в эфире",
+ "app.following.none": "ты пока ни на кого не подписан",
+ "app.following.none_how": "открой чат любого стрима, нажми на имя и подпишись — они появятся здесь, когда выйдут в эфир",
  "app.following.nomatch": "ничего не найдено",
  "app.following.stale": "не удалось обновить: это прошлый список. r повторит",
  "app.following.title": "подписки",

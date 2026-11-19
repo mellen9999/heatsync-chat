@@ -146,6 +146,8 @@
  "app.following.login": "влез, за да видиш кого следваш (ctrl-l)",
  "app.following.no_stream": "там няма стрийм за гледане",
  "app.following.nobody": "никой, когото следваш, не е на живо сега",
+ "app.following.none": "още не следваш никого",
+ "app.following.none_how": "отвори чата на някой стрийм, кликни име и последвай — ще се появят тук, когато са на живо",
  "app.following.nomatch": "няма съвпадения",
  "app.following.stale": "не се опресни: това е последният списък. r опитва пак",
  "app.following.title": "следваш",

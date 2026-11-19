@@ -146,6 +146,8 @@
  "app.following.login": "melde dich an, um zu sehen, wem du folgst (ctrl-l)",
  "app.following.no_stream": "dort gibt es keinen Stream",
  "app.following.nobody": "gerade ist niemand live, dem du folgst",
+ "app.following.none": "du folgst noch niemandem",
+ "app.following.none_how": "öffne den Chat eines Streams, klick auf einen Namen und folge — sie erscheinen hier, sobald sie live gehen",
  "app.following.nomatch": "keine Treffer",
  "app.following.stale": "aktualisieren fehlgeschlagen: das ist die letzte Liste. r versucht es nochmal",
  "app.following.title": "folgst",

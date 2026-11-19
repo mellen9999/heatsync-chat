@@ -392,7 +392,9 @@ impl App {
       NetEvent::HeldActed { chan, id, allow, res } => self.on_held_acted(chan, id, allow, res),
       NetEvent::Blocked { room, res } => self.on_blocked(room, res),
       // an answer that outlived its login must not show the next one
-      NetEvent::Following(_) | NetEvent::FollowSnapshot(_) | NetEvent::FollowChange(_) if self.me.is_none() => {}
+      NetEvent::Following(_) | NetEvent::FollowCount(_) | NetEvent::FollowSnapshot(_) | NetEvent::FollowChange(_)
+        if self.me.is_none() => {}
+      NetEvent::FollowCount(n) => self.following.count = n,
       NetEvent::Following(res) => self.on_following(res),
       NetEvent::Import(_) if self.me.is_none() => {}
       NetEvent::Import(res) => self.on_import(res),

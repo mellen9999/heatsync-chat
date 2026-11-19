@@ -146,6 +146,8 @@
  "app.following.login": "سجّل الدخول لترى من تتابع (ctrl-l)",
  "app.following.no_stream": "لا بث للمشاهدة هناك",
  "app.following.nobody": "لا أحد ممن تتابعهم مباشر الآن",
+ "app.following.none": "أنت لا تتابع أحدًا بعد",
+ "app.following.none_how": "افتح دردشة أي بث، اضغط على اسم، ثم تابِع — سيظهرون هنا عندما يبدأون البث",
  "app.following.nomatch": "لا نتائج",
  "app.following.stale": "تعذّر التحديث: هذه آخر قائمة. r للمحاولة مجددًا",
  "app.following.title": "تتابع",

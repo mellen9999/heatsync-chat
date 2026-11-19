@@ -146,6 +146,8 @@
  "app.following.login": "đăng nhập để xem bạn theo dõi ai (ctrl-l)",
  "app.following.no_stream": "không có luồng để xem ở đó",
  "app.following.nobody": "hiện không ai bạn theo dõi đang live",
+ "app.following.none": "bạn chưa theo dõi ai",
+ "app.following.none_how": "mở chat của bất kỳ stream nào, bấm vào một tên rồi theo dõi — họ sẽ hiện ở đây khi live",
  "app.following.nomatch": "không khớp",
  "app.following.stale": "không làm mới được: đây là danh sách cuối. nhấn r để thử lại",
  "app.following.title": "đang theo dõi",

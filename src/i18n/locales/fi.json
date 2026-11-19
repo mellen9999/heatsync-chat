@@ -146,6 +146,8 @@
  "app.following.login": "kirjaudu nähdäksesi ketä seuraat (ctrl-l)",
  "app.following.no_stream": "siellä ei ole katsottavaa streamia",
  "app.following.nobody": "kukaan seuraamistasi ei ole nyt livenä",
+ "app.following.none": "et seuraa vielä ketään",
+ "app.following.none_how": "avaa minkä tahansa striimin chat, klikkaa nimeä ja seuraa — he näkyvät täällä, kun he ovat livenä",
  "app.following.nomatch": "ei osumia",
  "app.following.stale": "päivitys ei onnistunut: tämä on viimeisin lista. r yrittää uudelleen",
  "app.following.title": "seuraat",

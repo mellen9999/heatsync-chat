@@ -146,6 +146,8 @@
  "app.following.login": "connecte-toi pour voir qui tu suis (ctrl-l)",
  "app.following.no_stream": "aucun stream à regarder là",
  "app.following.nobody": "personne que tu suis n'est en direct",
+ "app.following.none": "tu ne suis encore personne",
+ "app.following.none_how": "ouvre le chat d'un stream, clique sur un nom, puis suis — ils apparaissent ici quand ils sont en live",
  "app.following.nomatch": "aucun résultat",
  "app.following.stale": "actualisation impossible : voici la dernière liste. r pour réessayer",
  "app.following.title": "suivi",

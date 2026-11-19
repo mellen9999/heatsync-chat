@@ -146,6 +146,8 @@
  "app.following.login": "masuk untuk melihat siapa yang kamu ikuti (ctrl-l)",
  "app.following.no_stream": "tidak ada stream untuk ditonton di sana",
  "app.following.nobody": "tidak ada yang kamu ikuti sedang live",
+ "app.following.none": "kamu belum mengikuti siapa pun",
+ "app.following.none_how": "buka chat stream mana saja, klik sebuah nama, lalu ikuti — mereka muncul di sini saat live",
  "app.following.nomatch": "tidak ada yang cocok",
  "app.following.stale": "gagal menyegarkan: ini daftar terakhir. r untuk coba lagi",
  "app.following.title": "mengikuti",

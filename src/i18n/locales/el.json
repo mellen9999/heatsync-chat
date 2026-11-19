@@ -146,6 +146,8 @@
  "app.following.login": "συνδέσου για να δεις ποιους ακολουθείς (ctrl-l)",
  "app.following.no_stream": "δεν υπάρχει stream εκεί",
  "app.following.nobody": "κανείς που ακολουθείς δεν είναι live τώρα",
+ "app.following.none": "δεν ακολουθείς κανέναν ακόμα",
+ "app.following.none_how": "άνοιξε τη συνομιλία ενός stream, πάτα ένα όνομα και ακολούθησε — θα εμφανίζονται εδώ όταν είναι live",
  "app.following.nomatch": "κανένα αποτέλεσμα",
  "app.following.stale": "δεν ανανεώθηκε: αυτή είναι η τελευταία λίστα. το r ξαναδοκιμάζει",
  "app.following.title": "ακολουθείς",

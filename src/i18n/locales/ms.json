@@ -146,6 +146,8 @@
  "app.following.login": "log masuk untuk lihat siapa anda ikut (ctrl-l)",
  "app.following.no_stream": "tiada strim untuk ditonton di situ",
  "app.following.nobody": "tiada sesiapa yang anda ikut sedang live",
+ "app.following.none": "anda belum mengikuti sesiapa",
+ "app.following.none_how": "buka chat mana-mana strim, klik satu nama, kemudian ikut — mereka muncul di sini apabila live",
  "app.following.nomatch": "tiada padanan",
  "app.following.stale": "tak dapat muat semula: ini senarai terakhir. r untuk cuba lagi",
  "app.following.title": "mengikuti",

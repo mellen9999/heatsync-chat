@@ -146,6 +146,8 @@
  "app.following.login": "登录后可查看你关注的人 (ctrl-l)",
  "app.following.no_stream": "那里没有可观看的直播",
  "app.following.nobody": "你关注的人现在都没开播",
+ "app.following.none": "你还没有关注任何人",
+ "app.following.none_how": "打开任意直播的聊天，点一个名字，然后关注 — 他们开播时会出现在这里",
  "app.following.nomatch": "没有匹配项",
  "app.following.stale": "无法刷新：这是上次的列表。按 r 重试",
  "app.following.title": "已关注",

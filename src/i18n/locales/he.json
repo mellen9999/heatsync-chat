@@ -146,6 +146,8 @@
  "app.following.login": "התחבר כדי לראות אחרי מי אתה עוקב (ctrl-l)",
  "app.following.no_stream": "אין שם stream לצפייה",
  "app.following.nobody": "אף אחד ממי שאתה עוקב אחריו אינו בלייב כרגע",
+ "app.following.none": "אתה עדיין לא עוקב אחרי אף אחד",
+ "app.following.none_how": "פתח את הצ'אט של שידור כלשהו, לחץ על שם ואז עקוב — הם יופיעו כאן כשהם בשידור חי",
  "app.following.nomatch": "אין התאמות",
  "app.following.stale": "הרענון נכשל: זו הרשימה האחרונה. r מנסה שוב",
  "app.following.title": "עוקב",

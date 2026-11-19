@@ -146,6 +146,8 @@
  "app.following.login": "ログインしてフォロー中を表示 (ctrl-l)",
  "app.following.no_stream": "視聴できる配信なし",
  "app.following.nobody": "フォロー中で配信中の人はいません",
+ "app.following.none": "まだ誰もフォローしていない",
+ "app.following.none_how": "配信のチャットを開いて名前をクリックし、フォロー — ライブになるとここに表示される",
  "app.following.nomatch": "一致なし",
  "app.following.stale": "更新できません: 前回の一覧です。r で再試行",
  "app.following.title": "フォロー中",

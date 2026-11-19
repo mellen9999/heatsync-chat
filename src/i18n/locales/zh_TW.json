@@ -146,6 +146,8 @@
  "app.following.login": "登入後可查看你追蹤的人（ctrl-l）",
  "app.following.no_stream": "那裡沒有可觀看的直播",
  "app.following.nobody": "你追蹤的人目前都沒有開播",
+ "app.following.none": "你還沒有追隨任何人",
+ "app.following.none_how": "打開任一直播的聊天室，點一個名字，然後追隨 — 他們開台時會出現在這裡",
  "app.following.nomatch": "沒有符合的項目",
  "app.following.stale": "無法重新整理：這是上次的清單。按 r 重試",
  "app.following.title": "已追蹤",

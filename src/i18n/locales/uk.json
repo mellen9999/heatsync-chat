@@ -146,6 +146,8 @@
  "app.following.login": "увійди, щоб бачити, за ким стежиш (ctrl-l)",
  "app.following.no_stream": "там немає стріму",
  "app.following.nobody": "зараз ніхто з твоїх підписок не в ефірі",
+ "app.following.none": "ти ще ні на кого не підписаний",
+ "app.following.none_how": "відкрий чат будь-якого стриму, натисни на ім'я й підпишись — вони з'являться тут, коли вийдуть в ефір",
  "app.following.nomatch": "нічого не знайдено",
  "app.following.stale": "не вдалося оновити: це останній список. r — ще раз",
  "app.following.title": "підписаний",

@@ -146,6 +146,8 @@
  "app.following.login": "zaloguj się, by zobaczyć obserwowanych (ctrl-l)",
  "app.following.no_stream": "tam nie ma streamu do oglądania",
  "app.following.nobody": "nikt z obserwowanych nie jest teraz na żywo",
+ "app.following.none": "jeszcze nikogo nie obserwujesz",
+ "app.following.none_how": "otwórz czat dowolnego streamu, kliknij nazwę i obserwuj — pojawią się tutaj, gdy będą na żywo",
  "app.following.nomatch": "brak wyników",
  "app.following.stale": "nie udało się odświeżyć: to ostatnia lista. r ponawia",
  "app.following.title": "obserwujesz",

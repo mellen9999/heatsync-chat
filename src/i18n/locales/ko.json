@@ -146,6 +146,8 @@
  "app.following.login": "팔로우 목록을 보려면 로그인 (ctrl-l)",
  "app.following.no_stream": "거기엔 볼 방송이 없음",
  "app.following.nobody": "지금 라이브 중인 팔로우 없음",
+ "app.following.none": "아직 아무도 팔로우하지 않았어",
+ "app.following.none_how": "아무 방송 채팅을 열고 이름을 클릭한 뒤 팔로우해 — 라이브가 되면 여기에 보여",
  "app.following.nomatch": "일치하는 항목 없음",
  "app.following.stale": "새로고침 실패: 마지막 목록이에요. r로 다시 시도",
  "app.following.title": "팔로우 중",
