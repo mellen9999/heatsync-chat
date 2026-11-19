@@ -236,8 +236,8 @@ impl App {
   pub(super) fn on_deleted(&mut self, id: Box<str>, res: Result<(), u16>) {
     match res {
       Ok(()) => {
-        // an inline line in a chat tab reads as a deleted line, like a mod delete
-        self.post_gone(&id);
+        // an inline line in a chat tab reads "message deleted"
+        self.post_gone(&id, true);
         self.say(t("app.engage.deleted"));
       }
       Err(401) => self.say(login_first()),

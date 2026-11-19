@@ -418,6 +418,7 @@ impl App {
       NetEvent::MuteSync(s) => self.on_mute_sync(s),
       NetEvent::ProfileColor(_)
       | NetEvent::PostHidden(_)
+      | NetEvent::PostDeleted(_)
       | NetEvent::PostEdited(_)
       | NetEvent::PostMeta(_)
       | NetEvent::PostModerated(..)

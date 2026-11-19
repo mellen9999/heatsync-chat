@@ -86,8 +86,8 @@ pub fn hidden(v: &Value) -> Option<Box<str>> {
   post_id(body(v).get("id"))
 }
 
-// `message-deleted {message_id}`: the author (or a moderator, or an admin) took the post down for good. the same
-// ending as hidden, so it leaves every list the same way
+// `message-deleted {message_id}`: the author (or a moderator, or an admin) took the post down for good. it leaves
+// every list like a hidden one, and its chat copy empties instead of greying
 pub fn deleted(v: &Value) -> Option<Box<str>> {
   post_id(body(v).get("message_id"))
 }

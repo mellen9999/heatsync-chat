@@ -14,6 +14,20 @@ impl ChatView {
     self.clear_where(flag::DELETED, |m| &*m.id == id);
   }
 
+  // a post its author deleted: its line stays where it is but the words, emotes and picture are gone
+  pub fn empty_post(&mut self, id: &str, said: &str) {
+    for r in self.rows.iter_mut().filter(|r| &*r.msg.id == id) {
+      let m = &mut r.msg;
+      m.body = said.into();
+      (m.emotes, m.hs) = (Box::new([]), Box::new([]));
+      if let Some(x) = m.x.as_mut() {
+        (x.pic, x.react) = (None, Box::new([]));
+      }
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
+
   // youtube lines by message id or author channel id (a ban takes back their backlog)
   pub fn clear_yt(&mut self, ids: &[Box<str>], authors: &[Box<str>]) {
     let by_id = |m: &Message| !m.id.is_empty() && ids.contains(&m.id);

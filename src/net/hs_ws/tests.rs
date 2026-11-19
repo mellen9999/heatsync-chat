@@ -25,6 +25,10 @@ fn push_frames_become_events_and_bad_ones_become_nothing() {
   assert!(
     matches!(got(json!({"type": "message:hidden", "id": "4a"})).as_slice(), [NetEvent::PostHidden(i)] if &**i == "4a")
   );
+  assert!(matches!(
+    got(json!({"type": "message-deleted", "message_id": "4a"})).as_slice(),
+    [NetEvent::PostDeleted(i)] if &**i == "4a"
+  ));
   assert!(got(json!({"type": "message:hidden", "id": "4a4a4a4a4a"})).is_empty(), "an id past 8 is no id");
   assert!(matches!(
     got(json!({"type": "message-edited", "message_id": "4a", "content": "x"})).as_slice(),

@@ -16,7 +16,8 @@ impl App {
   pub(super) fn on_pushed(&mut self, ev: NetEvent) {
     match ev {
       NetEvent::ProfileColor(c) => self.on_profile_color(c),
-      NetEvent::PostHidden(id) => self.post_gone(&id),
+      NetEvent::PostHidden(id) => self.post_gone(&id, false),
+      NetEvent::PostDeleted(id) => self.post_gone(&id, true),
       NetEvent::PostEdited(e) => self.on_post_edited(e),
       NetEvent::PostMeta(m) => self.on_post_meta(m),
       NetEvent::PostModerated(id, m) => self.on_post_moderated(&id, &m),
@@ -140,11 +141,15 @@ impl App {
     }
   }
 
-  // a post is gone for everyone (hidden by moderation): out of every list and thread, its chat line greyed
-  // like any delete
-  pub(super) fn post_gone(&mut self, id: &str) {
+  // a post is gone for everyone: out of every list and thread. one its author deleted empties its chat line to
+  // "message deleted"; one moderation hid is greyed like any delete, its words still readable
+  pub(super) fn post_gone(&mut self, id: &str, deleted: bool) {
     for t in self.tabs.iter_mut().filter(|t| t.kind == Kind::Chat) {
-      t.chat().clear_msg(id);
+      if deleted {
+        t.chat().empty_post(id, crate::i18n::t("app.net.removed_line"));
+      } else {
+        t.chat().clear_msg(id);
+      }
     }
     self.feed.remove(id);
     if self.edit.as_ref().is_some_and(|e| &*e.id == id) {

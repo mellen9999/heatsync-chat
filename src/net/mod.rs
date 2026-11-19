@@ -348,6 +348,8 @@ pub enum NetEvent {
   ProfileColor(pushed::ProfileColor),
   // a feed post another person's action took away / rewrote / renumbered / moderated
   PostHidden(Box<str>),
+  // the post is deleted: its chat copy empties to "message deleted" where it stands
+  PostDeleted(Box<str>),
   PostEdited(pushed::Edit),
   PostMeta(pushed::Meta),
   PostModerated(Box<str>, pushed::Mod),

@@ -144,12 +144,18 @@ fn hidden_edited_updated_and_moderated_posts_change_everywhere() {
   frame(&mut app, json!({"type": "message:hidden", "id": "0000a3", "reason": "x"}));
   assert!(app.feed.find("0000a3").is_none());
   assert!(app.tabs[chat].view.msgs().any(|m| &*m.id == "0000a3" && m.flags & flag::CLEARED != 0));
+  assert!(app.tabs[chat].view.msgs().any(|m| &*m.id == "0000a3" && m.body.contains("hello")), "hidden keeps its words");
   frame(&mut app, json!({"type": "message:hidden", "id": "0000a1"}));
   assert!(app.feed.posts.iter().all(|p| &*p.id != "0000a1"));
   // deleted (author, moderator or admin): the same ending, from `message_id`
   app.feed.posts.push(post("0000a4", "dave", None));
   frame(&mut app, json!({"type": "message-deleted", "message_id": "0000a4"}));
   assert!(app.feed.find("0000a4").is_none());
+  // the author's delete empties the chat copy instead of greying it
+  app.on_feed_live(post("0000a5", "eve", None));
+  frame(&mut app, json!({"type": "message-deleted", "message_id": "0000a5"}));
+  let line = app.tabs[chat].view.msgs().find(|m| &*m.id == "0000a5").unwrap();
+  assert_eq!(&*line.body, "message deleted");
   frame(&mut app, json!({"type": "message-deleted", "message_id": "../x"}));
   frame(&mut app, json!({"type": "message-deleted"}));
   // hostile frames reach nothing
