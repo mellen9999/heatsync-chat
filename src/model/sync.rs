@@ -368,6 +368,12 @@ impl Acct {
     self.texts.values().any(|t| t.queued.is_some())
   }
 
+  // on the way out: whatever is waiting goes now, not after the debounce (the window is about to close)
+  pub fn outbound_now(&mut self, s: &Settings, now: i64, ready: bool) -> Option<Value> {
+    self.dirty = Some(now - DEBOUNCE_MS);
+    self.outbound(s, now, ready)
+  }
+
   // the patch to send now, if there is one: only rows you changed since the account last agreed
   pub fn outbound(&mut self, s: &Settings, now: i64, ready: bool) -> Option<Value> {
     // the common wake: nothing differs at all
@@ -927,6 +933,22 @@ mod tests {
     // in, the change goes (after its own wait)
     assert!(a.outbound(&s, NOW + 10_000, true).is_none());
     assert!(a.outbound(&s, NOW + 10_000 + DEBOUNCE_MS, true).is_some());
+  }
+
+  // a change made just before the window closes is still inside its wait: closing sends it now, once
+  #[test]
+  fn a_change_just_before_close_is_sent_at_once_and_only_once() {
+    let mut s = Settings::default();
+    let mut a = Acct::new(&s);
+    s.vi = true;
+    assert!(a.outbound(&s, NOW + 10, true).is_none(), "inside the wait");
+    let sent = a.outbound_now(&s, NOW + 20, true).expect("closing does not wait");
+    assert!(!sent.as_object().unwrap().is_empty());
+    assert!(a.outbound_now(&s, NOW + 30, true).is_none(), "nothing twice");
+    // signed out or the socket not in: nothing goes, and nothing is marked as sent
+    s.vi = false;
+    assert!(a.outbound_now(&s, NOW + 40, false).is_none());
+    assert!(a.outbound_now(&s, NOW + 50, true).is_some(), "still owed once it can go");
   }
 
   #[test]

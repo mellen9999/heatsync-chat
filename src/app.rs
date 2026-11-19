@@ -871,6 +871,10 @@ impl ApplicationHandler<NetEvent> for App {
     match ev {
       WindowEvent::CloseRequested => {
         self.flush_to_disk();
+        // the socket is another thread: a patch queued just now gets a moment to leave before the process ends
+        if self.ui_state_flush() {
+          std::thread::sleep(std::time::Duration::from_millis(250));
+        }
         el.exit()
       }
       WindowEvent::Resized(s) => self.resize(s.width, s.height),

@@ -141,6 +141,15 @@ impl App {
     }
   }
 
+  // the window is closing: a change still inside its 100ms wait goes up now, so the account's older copy
+  // does not come back over it at the next start. true = something was sent
+  pub(super) fn ui_state_flush(&mut self) -> bool {
+    let ready = self.me.is_some() && self.hs_authed;
+    let Some(patch) = self.acct.outbound_now(&self.set, now_ms(), ready) else { return false };
+    self.net.send(Cmd::Hs(HsCmd::UiSync(patch)));
+    true
+  }
+
   pub(super) fn ui_state_due(&self) -> Option<Instant> {
     self.acct.due().map(|t| Instant::now() + Duration::from_millis((t - now_ms()).max(0) as u64))
   }
