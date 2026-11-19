@@ -3,24 +3,20 @@
 use crate::i18n::{f, t};
 use std::time::Duration;
 
-use serde_json::{Value, json};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::time::{Instant, sleep_until};
 
 use super::auth::{self, Chat, Check, Provider};
 use super::emote_ops::{self, EmoteCmd};
 use super::hs_ws;
-use super::http;
 use super::irc::{self, Creds};
 use super::lanes::Lanes;
 use super::upload;
-use super::{NetEvent, ORIGIN, Out};
+use super::{NetEvent, Out};
 use crate::model::message::{Message, Platform};
 use crate::store;
 use crate::util::time::now_ms;
 
-// the reply to one kick send
-const MAX_REPLY: usize = 64 << 10;
 const TOKEN: &str = "token";
 // /api/auth/check slides the session once <24h is left; checking this often keeps it alive forever
 const RENEW: Duration = Duration::from_secs(6 * 3600);
@@ -619,7 +615,7 @@ async fn kick_job(
 ) {
   let why = match &token {
     None => Some(t("net1.log_in_send").to_owned()),
-    Some(t) => kick_send(&http, t, &chan, &text, reply.as_deref(), send.as_deref()).await.err(),
+    Some(t) => super::kicksend::send(&http, t, &chan, &text, reply.as_deref(), send.as_deref()).await.err(),
   };
   // a line that got through frees the box; a refusal only speaks when its words name a lasting reason
   let told = match why.as_deref() {
@@ -661,48 +657,6 @@ fn chat_step(got: Result<Chat, String>, refused: Option<&str>) -> Step {
       Step::Retry(t("net1.session.chat_login_failed").into())
     }
   }
-}
-
-// the line comes back through the heatsync relay like everyone else's
-async fn kick_send(
-  http: &reqwest::Client,
-  token: &str,
-  chan: &str,
-  text: &str,
-  reply: Option<&str>,
-  send: Option<&str>,
-) -> Result<(), String> {
-  let mut body = json!({ "channel": chan, "text": text });
-  if let Some(id) = reply {
-    body["reply_to_message_id"] = json!(id);
-  }
-  // the line's send id: heatsync records this kick leg under the same send as the twitch one
-  if let Some(id) = send {
-    body["send_id"] = json!(id);
-  }
-  let r = http
-    .post(format!("{ORIGIN}/api/kick/chat/send"))
-    .bearer_auth(token)
-    .header("content-type", "application/json")
-    .body(body.to_string())
-    .send()
-    .await
-    .map_err(|e| http::offline("heatsync", e))?;
-  if r.status().is_success() {
-    return Ok(());
-  }
-  let code = r.status().as_u16();
-  let v: Value = http::read_json(r, MAX_REPLY).await.unwrap_or(Value::Null);
-  Err(match v.get("error_code").and_then(Value::as_str) {
-    Some("not_linked") => t("net1.session.kick_not_linked").into(),
-    Some("scope_missing") => t("net1.session.kick_scope").into(),
-    Some("token_expired") => t("net1.session.kick_expired").into(),
-    Some("rate_limited") => t("net1.slow_down").into(),
-    _ => match http::server_words(v.get("error").and_then(Value::as_str).unwrap_or("")) {
-      w if w.is_empty() => http::plain_status(code),
-      w => w,
-    },
-  })
 }
 
 #[cfg(test)]

@@ -19,6 +19,7 @@ pub mod import;
 pub mod inventory;
 pub mod irc;
 mod kick;
+mod kicksend;
 mod lanes;
 mod links;
 mod live_dots;
