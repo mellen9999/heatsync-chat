@@ -56,14 +56,22 @@ pub const PAD_X: f32 = 4.0;
 mod tests {
   use super::*;
 
-  // the numbers above against heatsync's tokens.json when this machine has it (HSC_TOKENS, else the usual
-  // checkout); silently skipped elsewhere
+  // the numbers above against heatsync's tokens.json (HSC_TOKENS, else the checkout next to this repo or
+  // under $HOME/projects). a missing file fails the test: a skipped brand check is a silent drift
   #[test]
   fn fills_match_the_brand_tokens() {
-    let path = std::env::var("HSC_TOKENS")
-      .ok()
-      .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/projects/heatsync/shared/brand/tokens.json")));
-    let Some(raw) = path.and_then(|p| std::fs::read_to_string(p).ok()) else { return };
+    let rel = "heatsync/shared/brand/tokens.json";
+    let m = env!("CARGO_MANIFEST_DIR");
+    let mut tries: Vec<String> = std::env::var("HSC_TOKENS").into_iter().collect();
+    tries.push(format!("{m}/../{rel}"));
+    tries.push(format!("{m}/../../{rel}"));
+    if let Ok(h) = std::env::var("HOME") {
+      tries.push(format!("{h}/projects/{rel}"));
+    }
+    let raw = tries
+      .iter()
+      .find_map(|p| std::fs::read_to_string(p).ok())
+      .unwrap_or_else(|| panic!("brand tokens.json not found (set HSC_TOKENS to its path); tried {tries:?}"));
     let t: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let hex = |v: &serde_json::Value| u32::from_str_radix(v.as_str().unwrap().trim_start_matches('#'), 16).unwrap();
     let f = &t["fills"];
