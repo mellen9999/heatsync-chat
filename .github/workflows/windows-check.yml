@@ -10,7 +10,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         timeout-minutes: 5
       - name: rust toolchain
         timeout-minutes: 10
@@ -18,12 +18,12 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
-      - name: cargo test --release
+      - name: cargo test --release --locked
         timeout-minutes: 30
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          cargo test --release 2>&1 | Tee-Object -FilePath test.log
+          cargo test --release --locked 2>&1 | Tee-Object -FilePath test.log
           $code = $LASTEXITCODE
           $r = Select-String -Path test.log -Pattern '^test result:' | ForEach-Object { $_.Line }
           $p = 0; $f = 0; $i = 0
@@ -31,7 +31,7 @@ jobs:
           "passed=$p failed=$f ignored=$i exit=$code" | Tee-Object -FilePath test-summary.txt
           "### tests: passed=$p failed=$f ignored=$i" | Out-File -Append $env:GITHUB_STEP_SUMMARY
           exit $code
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         timeout-minutes: 5
         with:
@@ -118,7 +118,7 @@ jobs:
           Get-Process -Name heatsync-chat -ErrorAction SilentlyContinue | Stop-Process -Force
           $m | ConvertTo-Json | Tee-Object -FilePath out\metrics.json
           "### exe metrics`n``````n$($m | ConvertTo-Json)`n``````" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         timeout-minutes: 5
         with:
