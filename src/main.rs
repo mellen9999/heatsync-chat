@@ -12,6 +12,7 @@ mod fake;
 mod heatsync;
 mod i18n;
 mod images;
+mod law;
 mod model;
 mod net;
 mod store;
