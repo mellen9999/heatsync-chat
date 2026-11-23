@@ -6,7 +6,7 @@
 //! stores, with the step's picks as the draft's, and every word of its line is asked of `Draft::word`: the
 //! chips must be the law's. what the app has no way to say yet is counted, by reason, exactly.
 
-use super::drawing::{SENDER, TS, alias, emote, provider, sets_of, stage_owner, url};
+use super::drawing::{SENDER, TS, alias, emote, provider, sets_of, stage_owner, stage_third, url};
 use super::*;
 use crate::emotes::draft::Draft;
 use crate::emotes::personal::{Ev, Personal};
@@ -97,9 +97,11 @@ fn step(
       let third = strs(r.get("third"));
       // a room still loading has no sets yet: the box reads without them
       if r.get("loaded").and_then(Value::as_bool) != Some(false) {
+        let mut sets = Vec::new();
         for (p, set) in sets_of(&w, &rng.shuffled(&third))?.ok_or("two of one name in one provider")? {
-          emotes.set(Some(ch), provider(&p).ok_or("a third-party list holds an unknown provider")?, set);
+          sets.push((provider(&p).ok_or("a third-party list holds an unknown provider")?, set));
         }
+        stage_third(&mut emotes, feed, ch, sets);
       }
       if p == "kick" {
         // the app's one set for a kick channel: the channel's free emotes and kick's globals

@@ -64,7 +64,8 @@ impl App {
     let (res, chan, me) = (&self.res, self.tabs.get(self.active).map_or("", |t| &*t.view.channel), self.own_id());
     let e = |e: &crate::emotes::Emote| (&*e.url == url).then_some(e.zero_width);
     let owner = self.leg().map_or_else(Vec::new, |p| res.emotes.owner_all(chan, p));
-    let zw = (res.emotes.channel_all(chan).iter())
+    let room = self.leg().map_or_else(Vec::new, |p| res.emotes.channel_all(chan, p));
+    let zw = (room.iter())
       .chain(&res.emotes.global_all())
       .find_map(|(n, _, x)| (*n == name).then(|| e(x)).flatten())
       .or_else(|| owner.iter().find_map(|(n, x)| (*n == name).then(|| e(x)).flatten()))

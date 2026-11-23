@@ -83,7 +83,7 @@ impl<'a> Draft<'a> {
       return e(x, From::Personal);
     }
     let owner = |p| em.owner_on(self.chan, p, word).filter(|_| self.inventory);
-    let room = |p| owner(p).or_else(|| em.channel_on(self.chan, p == Platform::Kick, word));
+    let room = |p| owner(p).or_else(|| em.channel_on(self.chan, p, word));
     if let Some(x) = self.leg.and_then(room) {
       return e(x, From::Room);
     }
@@ -105,13 +105,14 @@ impl<'a> Draft<'a> {
       pic
     };
     let room = self.leg.map(|leg| {
-      let all = em.channel_all(self.chan);
+      // this platform's channel only: its third-party sets, and on kick the channel's own
+      let all = em.channel_all(self.chan, leg);
       let third: Vec<Pic> = all
         .iter()
         .filter(|(_, p, _)| *p != Provider::Kick)
         .map(|(n, p, e)| pic(n, &e.url, e.zero_width, tag(*p), Src::Channel(*p)))
         .collect();
-      let kick = all.iter().filter(|(_, p, _)| *p == Provider::Kick && leg == Platform::Kick);
+      let kick = all.iter().filter(|(_, p, _)| *p == Provider::Kick);
       let native: Vec<Pic> = kick.map(|(n, p, e)| pic(n, &e.url, e.zero_width, tag(*p), Src::Channel(*p))).collect();
       // the streamer's own: one list whatever provider each picture came from
       let owner = if self.inventory { em.owner_all(self.chan, leg) } else { Vec::new() };

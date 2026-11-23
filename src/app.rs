@@ -555,6 +555,7 @@ impl App {
     }
     // each channel a tab is: its streamer's own heatsync emotes, asked for beside the channel's others
     for l in res.emotes.route_owner(tabs.iter().map(tabs::room)).0 {
+      net.send(crate::net::Cmd::LegEmotes(l.clone(), true));
       net.send(crate::net::Cmd::Owner(l, true));
     }
     res.arts.set_motion(set.animate_emotes == crate::model::settings::Animate::Always);

@@ -265,7 +265,7 @@ impl App {
       vouches.push(Vouch { name: name.clone(), url: rec.url.clone(), provider: rec.provider });
       let owned = d.me.and_then(|id| res.senders.peek(id, &name, d.now)).map(|e| &*e.url);
       let here = |e: Option<&crate::emotes::Emote>| e.is_some_and(|e| e.url == rec.url);
-      let room = d.leg.is_some() && here(res.emotes.channel_on(chan, d.leg == Some(Platform::Kick), &name));
+      let room = d.leg.is_some_and(|p| here(res.emotes.channel_on(chan, p, &name)));
       // twitch draws its own emote of a name wherever it goes: never a heatsync emote under it
       let twitch = res.emotes.twitch_global(&name).is_some() || res.emotes.sub(&name).is_some();
       if room || twitch || owned == Some(&*rec.url) || (owned.is_none() && here(res.emotes.global(&name))) {

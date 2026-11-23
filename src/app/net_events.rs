@@ -227,9 +227,11 @@ impl App {
     self.route_kick();
     let (new, gone) = self.res.emotes.route_owner(self.tabs.iter().map(super::tabs::room));
     for l in gone {
+      self.net.send(Cmd::LegEmotes(l.clone(), false));
       self.net.send(Cmd::Owner(l, false));
     }
     for l in new {
+      self.net.send(Cmd::LegEmotes(l.clone(), true));
       self.net.send(Cmd::Owner(l, true));
     }
   }
@@ -558,6 +560,9 @@ impl App {
         for l in self.res.emotes.owners_read() {
           self.net.send(Cmd::Owner(l, true));
         }
+        for l in self.res.emotes.legs_read() {
+          self.net.send(Cmd::LegEmotes(l, true));
+        }
       }
       NetEvent::HsOrigin { platform, key, ids } => self.on_hs_origin(platform, &key, ids),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
@@ -598,6 +603,16 @@ impl App {
           self.tabs[i].views().for_each(ChatView::relayout);
         }
         self.wake();
+      }
+      NetEvent::LegEmotes(leg, sets) => {
+        let (p, key) = (leg.0, leg.1.clone());
+        if self.res.emotes.set_leg(leg, sets) {
+          for i in self.tabs_with(p, &key) {
+            self.tabs[i].views().for_each(ChatView::relayout);
+          }
+          self.input_dirty = true;
+          self.wake();
+        }
       }
       NetEvent::OwnerEmotes(leg, set) => {
         let (p, key) = (leg.0, leg.1.clone());

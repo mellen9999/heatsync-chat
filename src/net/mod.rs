@@ -98,6 +98,8 @@ pub enum NetEvent {
   KickEmotes(Box<str>, Set),
   // a streamer's own heatsync emotes, by the channel a tab is
   OwnerEmotes(Leg, Set),
+  // a kick or youtube channel's third-party emotes, a set per provider asked
+  LegEmotes(Leg, Vec<(Provider, Set)>),
   // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
   Relay {
     platform: Platform,
@@ -591,6 +593,8 @@ pub enum Cmd {
   Sender(u64, Option<Box<str>>),
   // read (true) or stop reading (false) a channel's streamer's own heatsync emotes
   Owner(Leg, bool),
+  // read (true) or stop reading (false) a kick or youtube channel's 7tv and bttv emotes
+  LegEmotes(Leg, bool),
   // sign in with this platform
   Login(auth::Provider),
   Link(auth::Provider),
@@ -1124,6 +1128,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
         let _ = snd_tx.send((id, ver));
       }
       Cmd::Owner(leg, on) => owner::ask(&http, &open, &out, leg, on),
+      Cmd::LegEmotes(leg, on) => chan_emotes::leg(&http, &open, &out, leg, on),
       Cmd::Avatar(p, login) => {
         let _ = av_tx.send((p, login));
       }

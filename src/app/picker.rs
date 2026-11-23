@@ -33,8 +33,8 @@ impl App {
     let owner = self.leg().filter(|_| self.res.look.inventory_emotes);
     let owner = owner.map_or_else(Vec::new, |p| self.res.emotes.owner_all(&chan, p));
     let mut channel: Vec<Item> = owner.into_iter().map(|(n, e)| item(Sec::Channel, n, &e.url, e.w, e.h)).collect();
-    let rest =
-      self.res.emotes.channel_entries(&chan).into_iter().filter(|(n, _)| !channel.iter().any(|c| &*c.name == *n));
+    let rest = self.leg().map_or_else(Vec::new, |p| self.res.emotes.channel_entries(&chan, p));
+    let rest = rest.into_iter().filter(|(n, _)| !channel.iter().any(|c| &*c.name == *n));
     let rest: Vec<Item> = rest.map(|(n, e)| item(Sec::Channel, n, &e.url, e.w, e.h)).collect();
     channel.extend(rest);
     let global =

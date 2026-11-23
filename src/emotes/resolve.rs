@@ -91,7 +91,7 @@ fn exact(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word: 
   if inventory && let Some(x) = src.emotes.owner_on(chan, m.platform, word) {
     return Some(e(x, Scope::Hs));
   }
-  if let Some(x) = src.emotes.channel_on(chan, m.platform == Platform::Kick, word) {
+  if let Some(x) = src.emotes.channel_on(chan, m.platform, word) {
     return Some(e(x, Scope::Channel));
   }
   if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
@@ -261,7 +261,7 @@ mod tests {
     assert_eq!(got(&mut w, &m, "kekw"), None, "case is exact");
     let mut kick = m.clone();
     kick.platform = Platform::Kick;
-    assert_eq!(got(&mut w, &kick, "KEKW").map(|f| f.0), Some(url("FFZ")), "a kick line: not the twitch streamer's");
+    assert_eq!(got(&mut w, &kick, "KEKW"), None, "a kick line: not the twitch streamer's, nor the twitch channel's");
     // the sender's 7tv personal emote and a pick are facts about the line: both stay above the room
     w.own(&[42], "SET", &[("KEKW", "PERSONAL")]);
     assert_eq!(got(&mut w, &m, "KEKW").map(|f| f.0), Some(url("PERSONAL")));

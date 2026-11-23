@@ -34,6 +34,8 @@ pub enum Provider {
 
 // the sets that close every walk, in order
 const LAST: [Provider; 2] = [Provider::Twitch, Provider::Kick];
+// a twitch line's walk of its room: the channel's three third-party sets, then twitch's own
+const TWITCH_ROOM: [Provider; 4] = [Provider::Ffz, Provider::SevenTv, Provider::Bttv, Provider::Twitch];
 
 #[derive(Clone, Debug)]
 pub struct Emote {
@@ -110,6 +112,9 @@ pub struct Emotes {
   owners: HashMap<Leg, Set>,
   // the channels each room (a tab's chat key) is
   legs: HashMap<Box<str>, Vec<Leg>>,
+  // a kick or youtube channel's own 7tv and bttv emotes, by channel (heatsync's read of them). a line reads
+  // its own platform's channel only: a kick line in a twitch + kick tab never draws the twitch channel's
+  third: HashMap<Leg, Scope>,
 }
 
 impl Emotes {
@@ -173,6 +178,7 @@ impl Emotes {
     }
     let legs = &self.legs;
     self.owners.retain(|l, _| legs.values().flatten().any(|x| x == l));
+    self.third.retain(|l, _| legs.values().flatten().any(|x| x == l));
     (new, gone)
   }
 
@@ -202,6 +208,23 @@ impl Emotes {
       self.owners.insert(leg, set);
     }
     on
+  }
+
+  // a kick or youtube channel's third-party sets: each provider given replaces that provider's last answer
+  // whole, an empty one included (an emote the channel dropped goes); one not given keeps what it had.
+  // false = no tab is this channel any more
+  pub fn set_leg(&mut self, leg: Leg, sets: Vec<(Provider, Set)>) -> bool {
+    let on = leg.0 != Platform::Twitch && self.routed(&leg);
+    if on {
+      self.third.entry(leg).or_default().sets.extend(sets);
+    }
+    on
+  }
+
+  // the kick and youtube channels whose third-party sets have been read: nothing pushes a change to those,
+  // so a reconnect reads them again
+  pub fn legs_read(&self) -> Vec<Leg> {
+    self.third.keys().cloned().collect()
   }
 
   // the channels whose streamer's set has been read: what a reconnect reads again (one still being asked
@@ -241,21 +264,33 @@ impl Emotes {
   }
 
   // within a scope, the provider order decides. callers check the channel before globals
+  #[cfg(test)]
   pub fn channel(&self, channel: &str, word: &str) -> Option<&Emote> {
     self.channels.get(channel)?.get(&CHANNEL_ORDER, word)
   }
 
-  // the room's emote of a name on one platform's lines (the law's "a line has a room"): the tab's kick
-  // channel answers a kick line only. a twitch or youtube line never draws it, and never sends it
-  pub fn channel_on(&self, channel: &str, kick: bool, word: &str) -> Option<&Emote> {
-    let sets = &self.channels.get(channel)?.sets;
-    let walk = CHANNEL_ORDER.iter().chain(&LAST).filter(|p| kick || **p != Provider::Kick);
-    walk.into_iter().find_map(|p| sets.get(p)?.get(word))
+  // a room's sets as one platform's lines walk them (the law's "a line has a room", one room per platform):
+  // a twitch line its channel's ffz, 7tv, bttv, then twitch's own; a kick or youtube line that channel's own
+  // third-party sets, a kick line then kick's. never another platform's channel in the same tab
+  fn sets_on<'a>(&'a self, room: &str, p: Platform) -> impl Iterator<Item = (Provider, &'a Set)> + 'a {
+    let own = self.channels.get(room).map(|s| &s.sets);
+    let twitch = own.filter(|_| p == Platform::Twitch).into_iter();
+    let twitch = twitch.flat_map(|s| TWITCH_ROOM.iter().filter_map(move |q| Some((*q, s.get(q)?))));
+    let legs = self.legs.get(room).into_iter().flatten().filter(move |l| l.0 == p);
+    let third = legs.filter_map(|l| self.third.get(l));
+    let third = third.flat_map(|s| CHANNEL_ORDER.iter().filter_map(move |q| Some((*q, s.sets.get(q)?))));
+    let kick = own.filter(|_| p == Platform::Kick).and_then(|s| Some((Provider::Kick, s.get(&Provider::Kick)?)));
+    twitch.chain(third).chain(kick)
   }
 
-  // every emote a room holds, each provider's copy of a shared name included
-  pub fn channel_all(&self, channel: &str) -> Vec<(&str, Provider, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, |c| c.all().collect())
+  // the room's emote of a name on one platform's lines
+  pub fn channel_on(&self, room: &str, p: Platform, word: &str) -> Option<&Emote> {
+    self.sets_on(room, p).find_map(|(_, s)| s.get(word))
+  }
+
+  // every emote a room holds for one platform's lines, each provider's copy of a shared name included
+  pub fn channel_all(&self, room: &str, p: Platform) -> Vec<(&str, Provider, &Emote)> {
+    self.sets_on(room, p).flat_map(|(q, s)| s.iter().map(move |(k, v)| (&**k, q, v))).collect()
   }
 
   pub fn global_all(&self) -> Vec<(&str, Provider, &Emote)> {
@@ -284,8 +319,11 @@ impl Emotes {
     self.global.sets.get(&Provider::Twitch)?.get(word)
   }
 
-  pub fn channel_entries(&self, channel: &str) -> Vec<(&str, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, |c| c.entries(&CHANNEL_ORDER))
+  // every emote of a room on one platform's lines, once: the set that wins a shared name first
+  pub fn channel_entries(&self, room: &str, p: Platform) -> Vec<(&str, &Emote)> {
+    let mut seen = std::collections::HashSet::new();
+    let all = self.sets_on(room, p).flat_map(|(_, s)| s.iter().map(|(k, v)| (&**k, v)));
+    all.filter(|(k, _)| seen.insert(*k)).collect()
   }
 
   pub fn global_entries(&self) -> Vec<(&str, &Emote)> {
@@ -357,9 +395,17 @@ mod tests {
     em.route_kick([("c", "k")]);
     assert_eq!(&*em.channel("c", "Clap").unwrap().url, "c-7tv", "the twitch channel's own name wins");
     assert_eq!(&*em.channel("c", "peepoDJ").unwrap().url, &kick_url(37245));
-    assert!(em.channel_on("c", false, "peepoDJ").is_none(), "a twitch line never reads the tab's kick channel");
-    assert_eq!(&*em.channel_on("c", true, "peepoDJ").unwrap().url, &kick_url(37245), "a kick line does");
-    assert_eq!(&*em.channel_on("c", true, "Clap").unwrap().url, "c-7tv");
+    assert!(
+      em.channel_on("c", Platform::Twitch, "peepoDJ").is_none(),
+      "a twitch line never reads the tab's kick channel"
+    );
+    assert_eq!(&*em.channel_on("c", Platform::Kick, "peepoDJ").unwrap().url, &kick_url(37245), "a kick line does");
+    assert_eq!(
+      &*em.channel_on("c", Platform::Kick, "Clap").unwrap().url,
+      &kick_url(1),
+      "and never the twitch channel's 7tv"
+    );
+    assert_eq!(&*em.channel_on("c", Platform::Twitch, "Clap").unwrap().url, "c-7tv");
     // a kick-only room has no twitch sets of its own
     em.route_kick([("c", "k"), ("kickonly", "k")]);
     assert!(em.channel("kickonly", "peepoDJ").is_some());
@@ -371,6 +417,57 @@ mod tests {
     em.drop_kick("k");
     em.route_kick([("c", "k")]);
     assert!(em.channel("c", "peepoDJ").is_none(), "a left kick channel routes nothing");
+  }
+
+  // one room per platform (the emote law): a tab on twitch + kick + youtube holds three channels, and a
+  // line reads its own. a kick or youtube channel's 7tv and bttv emotes are its own, read through heatsync
+  #[test]
+  fn a_line_reads_its_own_platforms_channel_and_never_the_tabs_other_ones() {
+    let leg = |p, k: &str| -> Leg { (p, k.into()) };
+    let (kick, yt) = (leg(Platform::Kick, "k"), leg(Platform::Youtube, "UCaaaaaaaaaaaaaaaaaaaaaa"));
+    let mut em = Emotes::default();
+    em.set(Some("c"), Provider::SevenTv, [("Clap".into(), e("tw-7tv")), ("TwOnly".into(), e("tw-only"))].into());
+    assert!(!em.set_leg(kick.clone(), vec![(Provider::SevenTv, Set::new())]), "no tab is that channel yet");
+    let legs = [leg(Platform::Twitch, "c"), kick.clone(), yt.clone()];
+    em.route_owner([("c", &legs[..])]);
+    assert!(!em.set_leg(leg(Platform::Twitch, "c"), vec![]), "a twitch channel's sets come from the providers");
+    em.set_kick("k", [("Clap".into(), e(&kick_url(1))), ("peepoDJ".into(), e(&kick_url(2)))].into());
+    em.route_kick([("c", "k")]);
+    // before the kick channel's own answer: kick's emotes only, never the twitch channel's 7tv
+    assert_eq!(&*em.channel_on("c", Platform::Kick, "Clap").unwrap().url, &kick_url(1));
+    assert!(em.channel_on("c", Platform::Kick, "TwOnly").is_none());
+    assert!(em.channel_on("c", Platform::Youtube, "Clap").is_none(), "a youtube line reads no other channel's");
+    let seven = |id: &str| (Provider::SevenTv, Set::from([("Clap".into(), e(id)), ("KickOnly".into(), e("k-only"))]));
+    assert!(em.set_leg(kick.clone(), vec![seven("k-7tv")]));
+    assert!(em.set_leg(yt.clone(), vec![seven("y-7tv"), (Provider::Bttv, [("Clap".into(), e("y-bttv"))].into())]));
+    assert_eq!(&*em.channel_on("c", Platform::Kick, "Clap").unwrap().url, "k-7tv", "its 7tv leads kick's own");
+    assert_eq!(&*em.channel_on("c", Platform::Kick, "peepoDJ").unwrap().url, &kick_url(2), "kick's own still answer");
+    assert_eq!(&*em.channel_on("c", Platform::Youtube, "Clap").unwrap().url, "y-7tv", "7tv before bttv");
+    assert_eq!(&*em.channel_on("c", Platform::Twitch, "Clap").unwrap().url, "tw-7tv");
+    assert!(em.channel_on("c", Platform::Twitch, "KickOnly").is_none(), "a twitch line never reads the kick channel's");
+    // tab, the picker and the chips ask the same room: one platform's names, a shared name once
+    let names = |p| -> Vec<&str> {
+      let mut v: Vec<&str> = em.channel_entries("c", p).into_iter().map(|x| x.0).collect();
+      v.sort_unstable();
+      v
+    };
+    assert_eq!(names(Platform::Twitch), ["Clap", "TwOnly"]);
+    assert_eq!(names(Platform::Kick), ["Clap", "KickOnly", "peepoDJ"]);
+    assert_eq!(names(Platform::Youtube), ["Clap", "KickOnly"]);
+    assert_eq!(em.channel_all("c", Platform::Youtube).len(), 3, "every provider's copy of a name is kept");
+    let mut read = em.legs_read();
+    read.sort_by_key(|l| l.0.name());
+    assert_eq!(read, [kick.clone(), yt.clone()]);
+    // a provider's answer replaces its last one whole (an emote the channel dropped goes); one not in the
+    // answer keeps what it had (heatsync could not reach it: a copy, or nothing, came instead)
+    assert!(em.set_leg(yt.clone(), vec![(Provider::Bttv, Set::new())]));
+    assert_eq!(&*em.channel_on("c", Platform::Youtube, "Clap").unwrap().url, "y-7tv");
+    assert_eq!(em.channel_all("c", Platform::Youtube).len(), 2, "bttv's copy of the name went");
+    assert!(em.set_leg(kick.clone(), vec![(Provider::SevenTv, Set::new())]));
+    assert_eq!(&*em.channel_on("c", Platform::Kick, "Clap").unwrap().url, &kick_url(1));
+    // the tab lost its youtube leg: its sets go with it
+    em.route_owner([("c", &legs[..2])]);
+    assert!(em.channel_on("c", Platform::Youtube, "Clap").is_none() && em.legs_read() == [kick]);
   }
 
   // the streamer's own heatsync emotes: asked for once per channel, read by its own platform's lines only,
@@ -441,7 +538,7 @@ mod tests {
     assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv", "7tv before bttv");
     em.set(Some("c"), Provider::Ffz, [("Same".into(), e("c-ffz"))].into());
     assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-ffz", "ffz before 7tv");
-    assert_eq!(em.channel_entries("c").len(), 1);
-    assert_eq!(em.channel_all("c").len(), 3);
+    assert_eq!(em.channel_entries("c", Platform::Twitch).len(), 1);
+    assert_eq!(em.channel_all("c", Platform::Twitch).len(), 3);
   }
 }

@@ -78,6 +78,18 @@ pub(super) fn stage_owner(w: &World, emotes: &mut Emotes, feed: Feed, ch: &str, 
   Ok(aliases.is_empty() || emotes.set_owner(leg, set))
 }
 
+// a room's third-party sets where the app keeps them: a twitch channel's by its chat key, a kick or youtube
+// channel's by the channel (`stage_owner` routed it)
+pub(super) fn stage_third(emotes: &mut Emotes, feed: Feed, ch: &str, sets: Vec<(Provider, Set)>) {
+  if feed == Feed::Twitch {
+    for (p, set) in sets {
+      emotes.set(Some(ch), p, set);
+    }
+  } else {
+    assert!(emotes.set_leg((feed, ch.into()), sets), "{ch}: the room is routed before its sets land");
+  }
+}
+
 // (emotes the app drew, emotes the law expects), or why the app cannot say the case
 type Said = Result<(Vec<String>, Vec<String>), Cannot>;
 
@@ -125,9 +137,11 @@ fn drawing(file: &Map<String, Value>, c: &Value, seed: u32) -> Res<Said> {
       let Some(third) = sets_of(&w, &rng.shuffled(&strs(r.get("third"))))? else {
         return Ok(Err(Cannot::TwoOfOneName));
       };
+      let mut sets = Vec::new();
       for (p, set) in third {
-        emotes.set(Some(ch), provider(&p).ok_or_else(|| format!("{id}: a third-party list holds provider {p}"))?, set);
+        sets.push((provider(&p).ok_or_else(|| format!("{id}: a third-party list holds provider {p}"))?, set));
       }
+      stage_third(&mut emotes, feed, ch, sets);
       let native = rng.shuffled(&strs(r.get("native")));
       if !native.is_empty() {
         let mut set = Set::new();

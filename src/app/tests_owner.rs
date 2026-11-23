@@ -96,7 +96,8 @@ fn the_streamers_emote_is_the_rooms_in_the_row_the_box_tab_and_the_picker() {
   assert_eq!(row(&mut app, Platform::Twitch, "Only"), Some(url7("ONLY")), "a name only the streamer has");
   assert_eq!(row(&mut app, Platform::Kick, "W"), Some(url7("KICKOWNER")));
   assert_eq!(row(&mut app, Platform::Kick, "Only"), None, "the twitch streamer's emote, a kick line");
-  assert_eq!(row(&mut app, Platform::Youtube, "W"), Some(url7("CHANFFZ")), "no youtube streamer's set here");
+  // a youtube line reads youtube's channel only, never the twitch channel's ffz: none here, so the global
+  assert_eq!(row(&mut app, Platform::Youtube, "W"), Some(url7("GLOBAL7")));
   // the box: a typed word is the room's, and the room's first answer is the streamer's (never your own W)
   assert_eq!(app.box_url("W").as_deref(), Some(&*url7("OWNER")));
   assert_eq!(app.box_url("Only").as_deref(), Some(&*url7("ONLY")));
@@ -153,4 +154,58 @@ fn the_socket_coming_back_reads_the_sets_it_has_again() {
     [(leg(Platform::Kick, "xqc"), true), (leg(Platform::Twitch, "forsen"), true)],
     "the two that answered, an empty set included; lirik's first ask is still its own"
   );
+}
+
+// what the network was asked about kick and youtube channels' 7tv and bttv emotes since the last look
+fn rooms_asked(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<(Leg, bool)> {
+  let all = std::iter::from_fn(|| rx.try_recv().ok());
+  let mut v: Vec<(Leg, bool)> =
+    all.filter_map(|c| if let Cmd::LegEmotes(l, on) = c { Some((l, on)) } else { None }).collect();
+  v.retain(|(l, _)| l.0 != Platform::Twitch);
+  v.sort_by(|a, b| (a.0.0.name(), &a.0.1).cmp(&(b.0.0.name(), &b.0.1)));
+  v
+}
+
+// a kick channel has its own 7tv emotes (a youtube one 7tv and bttv). the app asked for none, so a kick line
+// in a twitch + kick tab drew the twitch channel's emote of a name, and a kick-only tab drew no 7tv at all
+#[test]
+fn a_kick_line_draws_its_own_channels_7tv_emotes_and_never_the_twitch_channels() {
+  let (mut app, mut rx) = boot(&["forsen kick:xqc", "kick:trainwreckstv"]);
+  let (xqc, train) = (leg(Platform::Kick, "xqc"), leg(Platform::Kick, "trainwreckstv"));
+  assert_eq!(rooms_asked(&mut rx), [(train.clone(), true), (xqc.clone(), true)], "each kick channel, as the app opens");
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, set(&[("KW", "TWITCH7"), ("TwOnly", "TWONLY")]));
+  let row = |app: &mut App, room: &str, p: Platform, word: &str| {
+    let mut m = Message::system(now_ms(), p, word);
+    (m.kind, m.user_id, m.login) = (MsgKind::Chat, "7".into(), "bob".into());
+    crate::emotes::resolve::find_word(&mut app.res.sources(), room, &m, 0, word.len(), word).map(|f| f.0.to_string())
+  };
+  assert_eq!(row(&mut app, "forsen", Platform::Kick, "KW"), None, "the kick channel has not answered: a word");
+  app.on_net(NetEvent::LegEmotes(
+    xqc.clone(),
+    vec![(Provider::SevenTv, set(&[("KW", "KICK7"), ("KickOnly", "KONLY")]))],
+  ));
+  assert_eq!(row(&mut app, "forsen", Platform::Kick, "KW"), Some(url7("KICK7")));
+  assert_eq!(row(&mut app, "forsen", Platform::Kick, "TwOnly"), None, "the twitch channel's emote, a kick line");
+  assert_eq!(row(&mut app, "forsen", Platform::Twitch, "KW"), Some(url7("TWITCH7")));
+  assert_eq!(row(&mut app, "forsen", Platform::Twitch, "KickOnly"), None, "the kick channel's emote, a twitch line");
+  // a kick-only tab: the box, tab and the picker read the kick channel
+  app.on_net(NetEvent::LegEmotes(train.clone(), vec![(Provider::SevenTv, set(&[("TrainW", "TRAIN7")]))]));
+  app.active = app.tabs.iter().position(|t| t.sources.contains(&train)).unwrap();
+  assert_eq!(app.box_url("TrainW").as_deref(), Some(&*url7("TRAIN7")));
+  assert!(app.candidates("TrainW", false).iter().any(|p| p.pic.as_ref().is_some_and(|r| *r.url == *url7("TRAIN7"))));
+  app.toggle_picker();
+  let p = app.picker.as_ref().unwrap();
+  let tiles: Vec<&str> =
+    (0..p.len()).filter_map(|i| p.item(i)).filter(|i| i.sec == Sec::Channel).map(|i| &*i.name).collect();
+  assert_eq!(tiles, ["TrainW"]);
+  app.close_picker();
+  // nothing pushes a change to these: the socket coming back reads the ones that answered again
+  app.on_net(NetEvent::HsUp);
+  assert_eq!(rooms_asked(&mut rx), [(train.clone(), true), (xqc.clone(), true)]);
+  // a closed tab's channel is let go, and an answer that comes after is nobody's
+  let i = app.active;
+  app.remove_tab(i);
+  assert_eq!(rooms_asked(&mut rx), [(train.clone(), false)]);
+  app.on_net(NetEvent::LegEmotes(train, vec![(Provider::SevenTv, set(&[("TrainW", "LATE")]))]));
+  assert!(app.res.emotes.legs_read() == [xqc]);
 }

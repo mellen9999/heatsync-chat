@@ -32,7 +32,7 @@ impl App {
       .take(MAX_WORDS)
       .filter(|w| !w.is_empty() && w.len() <= MAX_WORD)
       .filter(|w| !m.emotes.iter().any(|(r, _)| body.get(r.start as usize..r.end as usize) == Some(*w)))
-      .filter(|w| emotes.channel(room, w).or_else(|| emotes.global(w)).is_some());
+      .filter(|w| emotes.channel_on(room, m.platform, w).or_else(|| emotes.global(w)).is_some());
     let s = self.tabs[i].stats.stats.get_or_insert_with(|| Box::new(Stats::new(now)));
     s.count(now, &m.nick, m.has(flag::ALERT), native.chain(words));
   }

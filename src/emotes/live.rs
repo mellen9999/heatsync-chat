@@ -185,6 +185,6 @@ mod tests {
       ..Delta::default()
     };
     em.patch("c", &d);
-    assert_eq!(em.channel_entries("c").len(), MAX_SET);
+    assert_eq!(em.channel_entries("c", crate::model::message::Platform::Twitch).len(), MAX_SET);
   }
 }
