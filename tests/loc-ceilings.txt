@@ -1,6 +1,6 @@
 # god-file ceilings: <max lines> <path>  # why. raise only with a reason in the same commit
 1518 src/ui/name_art/scene_cat.rs  # baseline
-1340 src/net/mod.rs  # picture fetch + decode moved to net/imgfetch.rs
+1310 src/net/mod.rs  # channel emote loader moved to net/chan_emotes.rs
 1350 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity); i18n keys; a keyword reads the whole line, a regex its first 512
 1415 src/model/schema.rs  # three settings rows: mention sound when, remember sent (ext parity); language; i18n text accessors + parity test; tab opens a list
 1231 src/model/vi.rs  # baseline

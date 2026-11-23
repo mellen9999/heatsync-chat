@@ -4,6 +4,7 @@ pub mod auth;
 mod avatars;
 pub mod blocked;
 mod catalog;
+mod chan_emotes;
 pub mod chantools;
 mod clip;
 mod cosmetics;
@@ -758,40 +759,6 @@ fn provider_name(p: Provider) -> &'static str {
   }
 }
 
-// a channel's emote sets, one retrying task per provider so a down one doesn't hold up the others.
-// they stop when the tab closes
-async fn channel_emotes(
-  http: reqwest::Client,
-  ch: Box<str>,
-  room: Box<str>,
-  stv: mpsc::UnboundedSender<seventv::Cmd>,
-  open: retry::Open,
-  out: Out,
-) {
-  if !room.bytes().all(|b| b.is_ascii_digit()) {
-    return;
-  }
-  for (p, u) in providers::channel_urls(&room) {
-    let Some(tab) = open.watch(&ch) else { return };
-    let (http, ch, room, stv, out) = (http.clone(), ch.clone(), room.clone(), stv.clone(), out.clone());
-    tokio::spawn(async move {
-      let what = format!("{ch}'s {} emotes", provider_name(p));
-      let Some(v) = retry::until(&out, &what, || tab.alive(), || providers::fetch(&http, &u)).await else { return };
-      if p == Provider::SevenTv
-        && let Some(set) = providers::seventv_set_id(&v)
-      {
-        // live edits for this channel's set; the broadcaster's own cosmetics too
-        let user = providers::seventv_user_id(&v).zip(room.parse().ok());
-        let _ = stv.send(seventv::Cmd::Watch { ch: ch.clone(), set, user });
-      }
-      if p == Provider::Ffz {
-        out.send(NetEvent::FfzRoomBadges(ch.clone(), badges::fetch::ffz_room(&v)));
-      }
-      out.send(NetEvent::Emotes(Some(ch), p, providers::parse_channel(p, &v)));
-    });
-  }
-}
-
 // the global badge sources, each tried until it answers
 async fn global_badges(http: reqwest::Client, out: Out) {
   let (h, o) = (http.clone(), out.clone());
@@ -1181,7 +1148,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Room(ch, room) => {
         watch(
           "channel emotes",
-          channel_emotes(http.clone(), ch, room, stv_tx.clone(), open.clone(), out.clone()),
+          chan_emotes::channel_emotes(http.clone(), ch, room, stv_tx.clone(), open.clone(), out.clone()),
           out.clone(),
         );
       }

@@ -72,7 +72,23 @@ pub async fn until<T, Fut>(out: &Out, what: &str, alive: impl Fn() -> bool, f: i
 where
   Fut: Future<Output = Result<T, String>>,
 {
-  until_with(out, &LAST_SAID, what, u32::MAX, alive, backoff, f).await
+  until_with(out, &LAST_SAID, what, u32::MAX, alive, backoff, || async {}, f).await
+}
+
+// the same, with a stand-in: `stand_in` runs once, when the first try fails, before the wait. it is where
+// a kept copy of the thing is put on screen while its source is asked again
+pub async fn until_or<T, Fut, S>(
+  out: &Out,
+  what: &str,
+  alive: impl Fn() -> bool,
+  stand_in: impl FnOnce() -> S,
+  f: impl FnMut() -> Fut,
+) -> Option<T>
+where
+  Fut: Future<Output = Result<T, String>>,
+  S: Future<Output = ()>,
+{
+  until_with(out, &LAST_SAID, what, u32::MAX, alive, backoff, stand_in, f).await
 }
 
 // the same, but gives up (and says so) after `max` failures
@@ -86,7 +102,7 @@ pub async fn until_n<T, Fut>(
 where
   Fut: Future<Output = Result<T, String>>,
 {
-  until_with(out, &LAST_SAID, what, max, alive, backoff, f).await
+  until_with(out, &LAST_SAID, what, max, alive, backoff, || async {}, f).await
 }
 
 // a failure that will come back the same: the server said no (4xx, but not "slow down" or "timed out") or what
@@ -99,20 +115,24 @@ fn permanent(e: &str) -> bool {
       .is_some_and(|c| (400..500).contains(&c) && !matches!(c, 408 | 425 | 429))
 }
 
-async fn until_with<T, Fut>(
+#[allow(clippy::too_many_arguments)]
+async fn until_with<T, Fut, S>(
   out: &Out,
   last_said: &AtomicI64,
   what: &str,
   max: u32,
   alive: impl Fn() -> bool,
   wait_for: impl Fn(u32) -> Duration,
+  stand_in: impl FnOnce() -> S,
   mut f: impl FnMut() -> Fut,
 ) -> Option<T>
 where
   Fut: Future<Output = Result<T, String>>,
+  S: Future<Output = ()>,
 {
   let mut tries = 0u32;
   let mut told = false;
+  let mut stand_in = Some(stand_in);
   while alive() {
     match f().await {
       Ok(v) => {
@@ -124,6 +144,10 @@ where
       Err(e) => {
         tries += 1;
         eprintln!("{what}: {e}");
+        // a source that said no for good leaves its stand-in up too
+        if let Some(s) = stand_in.take() {
+          s().await;
+        }
         // asking again can't change a "no" or a body that is too big: stop instead of every minute forever
         if tries >= max || permanent(&e) {
           out.status(crate::i18n::f("net2.retry.gave_up", &[("what", what)]));
@@ -167,6 +191,7 @@ mod tests {
       u32::MAX,
       || true,
       |_| Duration::from_millis(1),
+      || async {},
       || {
         calls.set(calls.get() + 1);
         let n = calls.get();
@@ -195,6 +220,7 @@ mod tests {
         u32::MAX,
         || true,
         |_| Duration::from_millis(1),
+        || async {},
         || {
           tries.set(tries.get() + 1);
           let n = tries.get();
@@ -221,6 +247,7 @@ mod tests {
       3,
       || true,
       |_| Duration::from_millis(1),
+      || async {},
       || {
         calls.set(calls.get() + 1);
         async { Err("http 500".into()) }
@@ -249,6 +276,7 @@ mod tests {
         3,
         || true,
         |_| Duration::from_millis(1),
+        || async {},
         || {
           n.set(n.get() + 1);
           async move { Err(err.into()) }
@@ -269,6 +297,7 @@ mod tests {
       u32::MAX,
       || true,
       |_| Duration::from_millis(1),
+      || async {},
       || {
         n.set(n.get() + 1);
         async { Err("http 404".into()) }
@@ -276,6 +305,63 @@ mod tests {
     )
     .await;
     assert_eq!((got, n.get()), (None, 1));
+  }
+
+  // a source that is down: its kept copy goes up once, at the first failure, and the source's own answer
+  // still arrives after it. a source that answers first try never reads the copy
+  #[tokio::test]
+  async fn a_stand_in_goes_up_once_when_the_first_try_fails_and_the_answer_still_comes() {
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let out = Out::Pipe(tx);
+    let log = std::cell::RefCell::new(Vec::new());
+    let quiet = AtomicI64::new(0);
+    let n = std::cell::Cell::new(0);
+    let got = until_with(
+      &out,
+      &quiet,
+      "x",
+      u32::MAX,
+      || true,
+      |_| Duration::from_millis(1),
+      || async { log.borrow_mut().push("copy") },
+      || {
+        n.set(n.get() + 1);
+        let i = n.get();
+        log.borrow_mut().push(if i < 3 { "down" } else { "answer" });
+        async move { if i < 3 { Err("http 503".to_string()) } else { Ok(i) } }
+      },
+    )
+    .await;
+    assert_eq!(got, Some(3));
+    assert_eq!(*log.borrow(), ["down", "copy", "down", "answer"], "once, after the first failure, before the wait");
+
+    log.borrow_mut().clear();
+    let got = until_with(
+      &out,
+      &quiet,
+      "x",
+      u32::MAX,
+      || true,
+      |_| Duration::from_millis(1),
+      || async { log.borrow_mut().push("copy") },
+      || async { Ok(1) },
+    )
+    .await;
+    assert_eq!((got, log.borrow().len()), (Some(1), 0), "an answer on the first try reads no copy");
+
+    // a source that says no for good (it is not asked again) leaves the copy up
+    let got: Option<()> = until_with(
+      &out,
+      &quiet,
+      "x",
+      u32::MAX,
+      || true,
+      |_| Duration::from_millis(1),
+      || async { log.borrow_mut().push("copy") },
+      || async { Err("http 403".to_string()) },
+    )
+    .await;
+    assert_eq!((got, &**log.borrow()), (None, &["copy"][..]));
   }
 
   #[tokio::test]
@@ -293,6 +379,7 @@ mod tests {
       u32::MAX,
       || w.alive(),
       |_| Duration::from_millis(1),
+      || async {},
       || {
         calls.set(calls.get() + 1);
         if calls.get() == 2 {

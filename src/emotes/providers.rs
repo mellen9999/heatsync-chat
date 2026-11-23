@@ -244,6 +244,45 @@ pub fn channel_urls(room_id: &str) -> [(Provider, String); 3] {
   ]
 }
 
+// heatsync's copy of a channel's 7tv/bttv/ffz emotes (`/api/channel/<login>/emotes`): what each provider
+// last confirmed there, kept through its outages. None for a name that is no twitch login: it goes in a path
+pub fn kept_url(origin: &str, ch: &str) -> Option<String> {
+  crate::model::ident::twitch_room(ch).then(|| format!("{origin}/api/channel/{ch}/emotes"))
+}
+
+// one provider's rows out of that copy: `{ emotes: [{ name, url, provider, zeroWidth }] }`, behind the same
+// gates as any heatsync row (name, host, hidden categories). it stands in while the provider itself is not
+// answering, and the provider's own answer replaces it. each picture is named as that answer names it (the
+// 1x file: the copy lists ffz at 2x, bttv with no format, 7tv at 2x where it saw no 1x), so the swap back
+// reloads nothing; the copy's sizes are another file's, so the size is read off the picture
+pub fn kept(p: Provider, v: &Value, origin: &str) -> Set {
+  let tag = match p {
+    Provider::SevenTv => "7tv",
+    Provider::Bttv => "bttv",
+    Provider::Ffz => "ffz",
+    Provider::Twitch | Provider::Kick => return Set::new(),
+  };
+  let rows = v.get("emotes").and_then(Value::as_array).into_iter().flatten();
+  let mine: Vec<&Value> =
+    rows.filter(|r| r.get("provider").and_then(Value::as_str) == Some(tag)).take(MAX_SET).collect();
+  let mut set = crate::heatsync::senders::parse_owner(&serde_json::json!({ "emotes": mine }), origin);
+  for (name, e) in &mut set {
+    let (dir, file) = e.url.rsplit_once('/').unwrap_or((&e.url, ""));
+    let same = match p {
+      Provider::SevenTv if file != "1x.webp" => Some(format!("{dir}/1x.webp")),
+      Provider::Bttv if file == "1x" => Some(format!("{dir}/1x.webp")),
+      Provider::Ffz if file == "2" => Some(format!("{dir}/1")),
+      _ => None,
+    };
+    if let Some(u) = same {
+      e.url = u.into();
+    }
+    e.zero_width |= p == Provider::Bttv && BTTV_ZERO_WIDTH.contains(&&**name);
+    (e.w, e.h) = (0, 0);
+  }
+  set
+}
+
 pub fn parse_channel(p: Provider, v: &Value) -> Set {
   match p {
     Provider::SevenTv => seventv_user(v),
@@ -258,6 +297,68 @@ pub fn parse_channel(p: Provider, v: &Value) -> Set {
 mod tests {
   use super::*;
   use serde_json::json;
+
+  // the provider is down: heatsync's copy of what it last said stands in, one provider's rows at a time
+  #[test]
+  fn heatsyncs_copy_of_a_channel_gives_one_providers_emotes() {
+    let v = json!({ "degraded": true, "lastFresh": { "7tv": "2026-11-22T10:00:00.000Z" }, "emotes": [
+      { "name": "Seven", "url": "https://cdn.7tv.app/emote/01ABC/1x.webp", "provider": "7tv", "id": "01ABC", "zeroWidth": true, "width": 32, "height": 32 },
+      { "name": "Better", "url": "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/1x", "provider": "bttv", "id": "x" },
+      { "name": BTTV_ZERO_WIDTH[0], "url": "https://cdn.betterttv.net/emote/5e76d338d6581c3724c0f0b2/1x", "provider": "bttv", "id": "y" },
+      { "name": "Franker", "url": "https://cdn.frankerfacez.com/emote/128054/2", "provider": "ffz", "id": "128054", "width": 56, "height": 56 },
+      { "name": "Moving", "url": "https://cdn.frankerfacez.com/emote/9/animated/2", "provider": "ffz", "id": "9" },
+      { "name": "Evil", "url": "https://evil.example/x/1x.webp", "provider": "7tv", "id": "e" },
+      { "name": "bad name", "url": "https://cdn.7tv.app/emote/01ABD/1x.webp", "provider": "7tv", "id": "f" },
+      { "name": "Flagged", "url": "https://cdn.7tv.app/emote/01ABE/1x.webp", "provider": "7tv", "id": "g", "nsfw": true },
+      { "name": "Seven", "url": "https://cdn.7tv.app/emote/SECOND/1x.webp", "provider": "7tv", "id": "h" },
+      { "name": "NoProvider", "url": "https://cdn.7tv.app/emote/01ABF/1x.webp" },
+      "junk", 7
+    ]});
+    let stv = kept(Provider::SevenTv, &v, "https://h");
+    assert_eq!(stv.len(), 1, "its own rows only, behind the usual gates: {:?}", stv.keys());
+    let seven = &stv["Seven"];
+    assert_eq!(
+      (&*seven.url, seven.zero_width),
+      ("https://cdn.7tv.app/emote/01ABC/1x.webp", true),
+      "the first of a name"
+    );
+    assert_eq!((seven.w, seven.h), (0, 0), "the size is read off the picture, never taken from another file's");
+    let bttv = kept(Provider::Bttv, &v, "https://h");
+    assert_eq!(bttv.len(), 2, "{:?}", bttv.keys());
+    assert_eq!(
+      &*bttv["Better"].url, "https://cdn.betterttv.net/emote/5f1b0186cf6d2144653d2970/1x.webp",
+      "the file bttv's own answer names"
+    );
+    assert!(bttv[BTTV_ZERO_WIDTH[0]].zero_width && !bttv["Better"].zero_width, "bttv's overlays are known by name");
+    let big =
+      json!({ "emotes": [{ "name": "Big", "url": "https://cdn.7tv.app/emote/01ABC/2x.webp", "provider": "7tv" }] });
+    assert_eq!(
+      &*kept(Provider::SevenTv, &big, "https://h")["Big"].url,
+      "https://cdn.7tv.app/emote/01ABC/1x.webp",
+      "never a 2x file at 1x"
+    );
+    let ffz = kept(Provider::Ffz, &v, "https://h");
+    assert_eq!(
+      &*ffz["Franker"].url, "https://cdn.frankerfacez.com/emote/128054/1",
+      "the 1x file, as ffz's own answer gives"
+    );
+    assert_eq!(&*ffz["Moving"].url, "https://cdn.frankerfacez.com/emote/9/animated/1");
+    assert_eq!((ffz["Franker"].w, ffz["Franker"].h), (0, 0));
+    for p in [Provider::Twitch, Provider::Kick] {
+      assert!(kept(p, &v, "https://h").is_empty(), "the copy holds 7tv, bttv and ffz only");
+    }
+    for junk in [json!(null), json!({}), json!({"emotes": "x"}), json!([1, 2])] {
+      assert!(kept(Provider::SevenTv, &junk, "https://h").is_empty());
+    }
+  }
+
+  #[test]
+  fn the_copys_address_takes_a_twitch_login_and_nothing_else() {
+    assert_eq!(kept_url("https://h", "forsen_1").unwrap(), "https://h/api/channel/forsen_1/emotes");
+    for bad in ["", "..", "a/b", "a?b", "Forsen", "x-qc", "a b", "a%2f", "aaaaaaaaaaaaaaaaaaaaaaaaaa"] {
+      assert!(kept_url("https://h", bad).is_none(), "{bad}");
+    }
+  }
 
   #[test]
   fn heatsync_catalog_twitch_rows_only() {
