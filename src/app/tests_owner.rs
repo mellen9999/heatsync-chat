@@ -209,3 +209,29 @@ fn a_kick_line_draws_its_own_channels_7tv_emotes_and_never_the_twitch_channels()
   app.on_net(NetEvent::LegEmotes(train, vec![(Provider::SevenTv, set(&[("TrainW", "LATE")]))]));
   assert!(app.res.emotes.legs_read() == [xqc]);
 }
+
+// a youtube tab opened by `@handle` has no channel id: 7tv and bttv were never asked, so its lines drew
+// none of that channel's emotes. the read learns the id from the live stream, so it is asked for when
+// the tab opens and again when its feed connects
+#[test]
+fn a_youtube_tab_opened_by_handle_asks_for_its_channels_emotes_when_its_feed_connects() {
+  let uc = "UCabcdefghijklmnopqrstuv";
+  let (mut app, mut rx) = boot(&["yt:@some.one", &format!("yt:{uc}")]);
+  let (handle, by_id) = (leg(Platform::Youtube, "@some.one"), leg(Platform::Youtube, uc));
+  assert_eq!(rooms_asked(&mut rx), [(handle.clone(), true), (by_id.clone(), true)], "both, as the app opens");
+  app.on_net(NetEvent::YtStatus { key: "@some.one".into(), status: "connected".into() });
+  assert_eq!(rooms_asked(&mut rx), [(handle.clone(), true)], "live now: the id can be learned");
+  // a tab that has its id was asked by it already; a feed no tab shows asks nothing; not live asks nothing
+  app.on_net(NetEvent::YtStatus { key: uc.into(), status: "connected".into() });
+  app.on_net(NetEvent::YtStatus { key: "@no.tab".into(), status: "connected".into() });
+  app.on_net(NetEvent::YtStatus { key: "@some.one".into(), status: "not-live".into() });
+  assert_eq!(rooms_asked(&mut rx), []);
+  // and the answer is that tab's room: a line in it draws the channel's emote
+  app.on_net(NetEvent::LegEmotes(handle.clone(), vec![(Provider::SevenTv, set(&[("YtW", "YT7")]))]));
+  let mut m = Message::system(now_ms(), Platform::Youtube, "YtW");
+  (m.kind, m.user_id, m.login) = (MsgKind::Chat, "7".into(), "bob".into());
+  let room = app.tabs.iter().find(|t| t.sources.contains(&handle)).unwrap().view.channel.clone();
+  let drawn =
+    crate::emotes::resolve::find_word(&mut app.res.sources(), &room, &m, 0, 3, "YtW").map(|f| f.0.to_string());
+  assert_eq!(drawn, Some(url7("YT7")));
+}

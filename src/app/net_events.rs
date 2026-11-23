@@ -917,7 +917,14 @@ impl App {
       }
       NetEvent::YtStatus { key, status } => {
         match &*status {
-          "connected" => self.live_mark(Platform::Youtube, &key, true),
+          "connected" => {
+            self.live_mark(Platform::Youtube, &key, true);
+            // a tab opened by `@handle` has no channel id until its stream is live: its channel's emotes
+            // are asked for now (net/chan_emotes.rs), when there are lines to draw them on
+            if key.starts_with('@') && !self.tabs_with(Platform::Youtube, &key).is_empty() {
+              self.net.send(Cmd::LegEmotes((Platform::Youtube, key.clone()), true));
+            }
+          }
           "not-live" | "ended" | "chat-off" => self.live_mark(Platform::Youtube, &key, false),
           _ => {}
         }

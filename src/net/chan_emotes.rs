@@ -12,6 +12,8 @@ use crate::model::message::Platform;
 // channel's kick id, 7tv and bttv by a youtube channel's id. ffz is twitch only
 const KICK: [Provider; 1] = [Provider::SevenTv];
 const YOUTUBE: [Provider; 2] = [Provider::SevenTv, Provider::Bttv];
+// a handle's channel id is asked for this many times: the feed connecting asks again
+const RESOLVE_TRIES: u32 = 3;
 
 // the `Open` key of a channel's read: no twitch login and no `owner:` read can spell it
 fn leg_key(leg: &Leg) -> String {
@@ -30,6 +32,19 @@ fn leg_url(origin: &str, (p, k): &Leg) -> Option<(String, &'static [Provider])> 
   ok.then(|| (format!("{origin}/api/channel/{k}/emotes?platform={}", p.name()), asked))
 }
 
+// a youtube tab opened by `@handle` has no channel id, and 7tv and bttv know a youtube channel by nothing
+// else. heatsync's resolve names the id of the stream that handle is live on
+fn handle_url(origin: &str, (p, k): &Leg) -> Option<String> {
+  let name = k.strip_prefix('@')?;
+  let ok = *p == Platform::Youtube && ident::relay_key(name) && !name.contains('@');
+  ok.then(|| format!("{origin}/api/youtube/resolve?url=https%3A%2F%2Fwww.youtube.com%2F%40{name}%2Flive"))
+}
+
+// the id in that answer: a real one, or none (not live, an older server, an answer naming something else)
+fn live_id(v: &serde_json::Value) -> Option<Box<str>> {
+  v.get("channelId").and_then(serde_json::Value::as_str).filter(|c| ident::yt_channel_id(c)).map(Into::into)
+}
+
 // heatsync could not reach a provider for this answer: `degraded` (it holds a copy, or nothing), `missing`
 // (the providers it has nothing for). not a whole answer: an empty list here is not "the channel has none"
 fn held(v: &serde_json::Value) -> bool {
@@ -40,15 +55,30 @@ fn held(v: &serde_json::Value) -> bool {
 // `on`: read a kick or youtube channel's 7tv and bttv emotes, until they arrive or no tab is the channel
 // any more; asked again, the newer read takes over. off: stop asking. a kick line draws its own channel's
 // 7tv emotes from this, as kick viewers with 7tv see them; before it, a kick or youtube room had none
+// a youtube tab opened by `@handle` learns its channel id first (handle_url): it had no emotes at all
 pub(super) fn leg(http: &reqwest::Client, open: &retry::Open, out: &Out, leg: Leg, on: bool) {
   let key = leg_key(&leg);
   if !on {
     return open.part(&key);
   }
-  let Some((url, asked)) = leg_url(ORIGIN, &leg) else { return };
+  let (direct, by_handle) = (leg_url(ORIGIN, &leg), handle_url(ORIGIN, &leg));
+  if direct.is_none() && by_handle.is_none() {
+    return;
+  }
   let (http, tab, to) = (http.clone(), open.join(&key), out.clone());
   let read = async move {
     let what = format!("{}'s {} emotes", leg.1, leg.0.name());
+    let found = match (direct, by_handle) {
+      (Some(d), _) => Some(d),
+      // not live (heatsync answers 404, read as nothing) or no id in the answer: nothing to ask by. the
+      // app asks again when the feed connects, which is when there are lines to draw
+      (None, Some(u)) => retry::until_n(&to, &what, RESOLVE_TRIES, || tab.alive(), || providers::fetch(&http, &u))
+        .await
+        .and_then(|v| live_id(&v))
+        .and_then(|uc| leg_url(ORIGIN, &(Platform::Youtube, uc))),
+      (None, None) => None,
+    };
+    let Some((url, asked)) = found else { return };
     let ask = || async {
       let v = providers::fetch(&http, &url).await?;
       let sets: Vec<(Provider, Set)> = asked.iter().map(|p| (*p, providers::kept(*p, &v, ORIGIN))).collect();
@@ -136,12 +166,44 @@ mod tests {
     let (url, asked) = at(Platform::Youtube, uc).unwrap();
     assert_eq!(url, format!("https://h/api/channel/{uc}/emotes?platform=youtube"));
     assert_eq!(asked, [Provider::SevenTv, Provider::Bttv]);
-    // a youtube tab opened by @handle has no channel id to ask by; a twitch channel asks the providers
+    // a youtube tab opened by @handle has no channel id to ask by yet (handle_url); a twitch channel asks the providers
     assert!(at(Platform::Youtube, "@some.one").is_none() && at(Platform::Twitch, "forsen").is_none());
     for bad in ["", "..", "a/b", "a?b", "a b", "a#b", "a%2f", "XQC"] {
       assert!(at(Platform::Kick, bad).is_none() && at(Platform::Youtube, bad).is_none(), "{bad}");
     }
     assert_ne!(leg_key(&(Platform::Kick, "xqc".into())), leg_key(&(Platform::Youtube, "xqc".into())));
+  }
+
+  #[test]
+  fn a_youtube_handle_asks_heatsync_for_its_channel_id_and_only_a_real_id_is_taken() {
+    use serde_json::json;
+    let at = |p, k: &str| handle_url("https://h", &(p, k.into()));
+    assert_eq!(
+      at(Platform::Youtube, "@some.one").unwrap(),
+      "https://h/api/youtube/resolve?url=https%3A%2F%2Fwww.youtube.com%2F%40some.one%2Flive"
+    );
+    // a channel id is asked by directly; a kick or twitch name is no handle; nothing odd goes into the address
+    for (p, bad) in [
+      (Platform::Youtube, "UCabcdefghijklmnopqrstuv"),
+      (Platform::Youtube, "some.one"),
+      (Platform::Youtube, "@"),
+      (Platform::Youtube, "@a/b"),
+      (Platform::Youtube, "@a&x=1"),
+      (Platform::Youtube, "@@a"),
+      (Platform::Kick, "@some.one"),
+      (Platform::Twitch, "@some.one"),
+    ] {
+      assert!(at(p, bad).is_none(), "{bad}");
+    }
+    let uc = "UCabcdefghijklmnopqrstuv";
+    assert_eq!(live_id(&json!({"videoId": "v", "channelId": uc})).as_deref(), Some(uc));
+    for none in [json!({"videoId": "v", "channelId": null}), json!({"videoId": "v"}), json!(null)] {
+      assert!(live_id(&none).is_none(), "{none}");
+    }
+    // a lowercased id, a video id, a handle: not a channel id, so nothing is asked by it
+    for wrong in ["ucabcdefghijklmnopqrstuv", "dQw4w9WgXcQ", "@some.one", "UCshort", "UCabcdefghijklmnopqrstu/"] {
+      assert!(live_id(&json!({"channelId": wrong})).is_none(), "{wrong}");
+    }
   }
 
   // 11-23: heatsync answered a kick channel with no emotes and `degraded` while 7tv timed out, and 969 a
