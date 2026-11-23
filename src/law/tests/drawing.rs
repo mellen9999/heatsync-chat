@@ -47,8 +47,6 @@ enum Cannot {
   Fold,
   // heatsync's own global emotes are not a set the app loads
   HsGlobal,
-  // `name0` as the name drawn as an overlay: the app has no such reading
-  NameZero,
   // one provider list holding two emotes of one name: a provider's set is name -> emote here
   TwoOfOneName,
 }
@@ -94,10 +92,7 @@ fn drawing(file: &Map<String, Value>, c: &Value, seed: u32) -> Res<Said> {
   let expect = c["expect"].as_array().ok_or("expect")?;
   let globals = rng.shuffled(&strs(Some(&raw["globals"])));
   for d in expect {
-    let (Some(word), Some(a)) = (d["word"].as_str(), d["emote"].as_str()) else { continue };
-    if word.strip_suffix('0') == Some(w.emote(a)?.name.as_str()) {
-      return Ok(Err(Cannot::NameZero));
-    }
+    let Some(a) = d["emote"].as_str() else { continue };
     if w.emote(a)?.p == "hs" && globals.iter().any(|g| g == a) {
       return Ok(Err(Cannot::HsGlobal));
     }
@@ -249,8 +244,8 @@ fn the_apps_drawing_path_agrees_with_the_law_on_every_read_case_it_can_say() {
   // cases into `said`
   let n = |k| cannot.get(&k).copied().unwrap_or(0);
   assert_eq!(
-    (said, n(Cannot::Fold), n(Cannot::HsGlobal), n(Cannot::NameZero), n(Cannot::TwoOfOneName)),
-    (22, 2, 1, 2, 0),
+    (said, n(Cannot::Fold), n(Cannot::HsGlobal), n(Cannot::TwoOfOneName)),
+    (24, 2, 1, 0),
     "the drawing split moved"
   );
 }

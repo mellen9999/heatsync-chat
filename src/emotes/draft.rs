@@ -57,10 +57,21 @@ impl<'a> Draft<'a> {
   //   5. yours
   //   6. a global
   // case is exact. `picks` None = the word as hand-typed
+  //
+  // `name0`: the word as written goes through every step first; only when nothing answers it is it `name`
+  // as an overlay (and twitch marks the exact word only, so `Kappa0` is never twitch's)
   pub fn word(&self, picks: Option<&Registry>, word: &str) -> Option<(Found, From)> {
+    self.exact(picks, word, false).or_else(|| {
+      let ((url, size, _), from) = self.exact(picks, super::overlay_base(word)?, true)?;
+      Some(((url, size, true), from))
+    })
+  }
+
+  fn exact(&self, picks: Option<&Registry>, word: &str, stripped: bool) -> Option<(Found, From)> {
     let e = |e: &Emote, from| Some(((e.url.clone(), (e.w, e.h), e.zero_width), from));
     let em = self.emotes;
-    if self.leg == Some(Platform::Twitch)
+    if !stripped
+      && self.leg == Some(Platform::Twitch)
       && let Some(x) = em.twitch_global(word).or_else(|| em.sub(word))
     {
       return e(x, From::Native);

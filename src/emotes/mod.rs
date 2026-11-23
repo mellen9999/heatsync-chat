@@ -46,6 +46,11 @@ pub struct Emote {
 
 pub type Set = HashMap<Box<str>, Emote>;
 
+// `name0` read as the name it overlays (the emote law): only tried when nothing answers the word as written
+pub fn overlay_base(word: &str) -> Option<&str> {
+  word.strip_suffix('0').filter(|b| !b.is_empty())
+}
+
 pub(crate) const MAX_SET: usize = 5000;
 const MAX_NAME: usize = 100;
 

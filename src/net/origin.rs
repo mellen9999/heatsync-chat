@@ -45,7 +45,8 @@ fn ref_of(url: &str) -> Option<(&'static str, &str)> {
 fn refs(text: &str, picks: &[Vouch]) -> Map<String, Value> {
   let mut out = Map::new();
   for v in picks {
-    if out.len() >= MAX_REFS || !text.split_whitespace().any(|w| w == &*v.name) {
+    let word = |w: &str| w == &*v.name || crate::emotes::overlay_base(w) == Some(&*v.name);
+    if out.len() >= MAX_REFS || !text.split_whitespace().any(word) {
       continue;
     }
     if let Some((p, id)) = ref_of(&v.url) {
@@ -97,6 +98,12 @@ mod tests {
     assert!(bare.get("refs").is_none(), "no pick in the line, no refs key");
     let part = frame("forsen", "catJAMs", "hsc-1", &picks).unwrap();
     assert!(part.get("refs").is_none(), "a pick is a whole word");
+    let over = frame("forsen", "hi catJAM0", "hsc-1", &picks).unwrap();
+    assert_eq!(
+      over["refs"],
+      json!({"catJAM": {"p": "7tv", "id": ID7}}),
+      "an overlay ships under the name without the 0"
+    );
   }
 
   #[test]

@@ -29,8 +29,6 @@ enum Cannot {
   KickOwn,
   // a line too long for kick in kick's format goes out as words: the box still shows the chips
   KickOverflow,
-  // `name0` as the name drawn as an overlay
-  NameZero,
 }
 
 type Chips = Vec<(String, String)>;
@@ -61,10 +59,7 @@ fn step(
     .iter()
     .filter_map(|d| Some((d["word"].as_str()?.to_owned(), d["emote"].as_str()?.to_owned())))
     .collect();
-  for (word, a) in &want {
-    if word.strip_suffix('0') == Some(w.emote(a)?.name.as_str()) {
-      return Ok(Err(Cannot::NameZero));
-    }
+  for (_, a) in &want {
     if w.emote(a)?.p == "hs" && globals.iter().any(|g| g == a) {
       return Ok(Err(Cannot::HsGlobal));
     }
@@ -210,14 +205,7 @@ fn the_box_agrees_with_the_law_on_every_send_step_it_can_say() {
   // exact, so a quietly shrinking set fails. each reason is a gap with a name: closing one moves its
   // steps into `said`
   let n = |k| cannot.get(&k).copied().unwrap_or(0);
-  let split = (
-    said,
-    n(Cannot::Edit),
-    n(Cannot::Fold),
-    n(Cannot::HsGlobal),
-    n(Cannot::KickOwn),
-    n(Cannot::KickOverflow),
-    n(Cannot::NameZero),
-  );
-  assert_eq!(split, (15, 7, 1, 0, 1, 1, 2), "the sending split moved");
+  let split =
+    (said, n(Cannot::Edit), n(Cannot::Fold), n(Cannot::HsGlobal), n(Cannot::KickOwn), n(Cannot::KickOverflow));
+  assert_eq!(split, (17, 7, 1, 0, 1, 1), "the sending split moved");
 }

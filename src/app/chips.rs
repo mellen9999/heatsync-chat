@@ -54,7 +54,9 @@ impl App {
   }
 
   fn drawn(d: &Draft, picks: &Registry, blocked: &Blocked, word: &str) -> Option<Found> {
-    d.word(Some(picks), word).map(|f| f.0).filter(|(url, _, _)| !blocked.contains(word, url))
+    let base = crate::emotes::overlay_base(word);
+    let hidden = |url: &str| blocked.contains(word, url) || base.is_some_and(|b| blocked.contains(b, url));
+    d.word(Some(picks), word).map(|f| f.0).filter(|(url, _, _)| !hidden(url))
   }
 
   // an emote here under this name with this picture, as a pick: tab's, a picker tile's, one clicked in chat

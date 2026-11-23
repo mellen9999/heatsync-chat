@@ -387,7 +387,9 @@ impl Registry {
     if self.map.is_empty() {
       return;
     }
-    self.map.retain(|n, _| text.split(' ').any(|w| w == &**n));
+    // `name0` with no pick of its own is the pick of `name`, as an overlay: still that pick's word
+    let held = |n: &str| text.split(' ').any(|w| w == n || crate::emotes::overlay_base(w) == Some(n));
+    self.map.retain(|n, _| held(n));
     self.order.retain(|n| self.map.contains_key(n));
   }
 
@@ -403,9 +405,15 @@ impl Registry {
       if out.len() >= MAX_PICKS {
         break;
       }
-      let Some(rec) = self.map.get(w) else { continue };
-      if !out.iter().any(|o| &*o.0 == w) {
-        out.push((w.into(), rec.clone()));
+      // the word's own pick, else (a `name0`) the pick of the name it overlays: filed under that name
+      let pick = |n: &str| self.map.get(n).map(|rec| (n.into(), rec.clone()));
+      let Some((name, rec)): Option<(Box<str>, Rec)> =
+        pick(w).or_else(|| crate::emotes::overlay_base(w).and_then(pick))
+      else {
+        continue;
+      };
+      if !out.iter().any(|o| o.0 == name) {
+        out.push((name, rec));
       }
     }
     out
@@ -683,5 +691,14 @@ mod tests {
     let got = reg.sent("hi emote20 emote20 emote30 nope");
     assert_eq!(got.iter().map(|g| &*g.0).collect::<Vec<_>>(), ["emote20", "emote30"]);
     assert!(reg.sent("EMOTE25 emote 25").is_empty(), "exact words only");
+    // `name0` with no pick of its own is the pick of `name` (the overlay reading), filed under that name
+    let over: Vec<Box<str>> = reg.sent("emote3190 emote319").into_iter().map(|(n, _)| n).collect();
+    assert_eq!(over, ["emote319".into()], "one pick, once, under the name it overlays");
+    let mut held = Registry::default();
+    held.put("catJAM", Some(Rec { url: "u".into(), zero_width: false, provider: "7tv" }));
+    held.prune("hi catJAM0");
+    assert_eq!(held.len(), 1, "its overlay word keeps the pick");
+    held.prune("hi catJAM00");
+    assert_eq!(held.len(), 0, "any other word ends it");
   }
 }

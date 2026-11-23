@@ -50,12 +50,31 @@ pub fn find_word(src: &mut Sources, chan: &str, m: &Message, a: usize, b: usize,
 //   6. the globals
 // the sender's own sets are the only heatsync / personal sources (privacy invariant): nothing of the
 // viewer's can reach someone else's line, because nothing of the viewer's is passed in
+//
+// `name0`: the word as written goes through every step first (an emote really named `name0` wins in any
+// of them). only when nothing answers it is it `name` drawn as an overlay
 fn resolve(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
+  // a pick that was taken down is text, never a look-alike of the same name and never its overlay reading
+  let gone = |w: &str| m.x.as_ref().is_some_and(|x| x.picks.iter().any(|(n, u, _)| **n == *w && u.is_empty()));
+  if src.inventory && gone(word) {
+    return None;
+  }
+  if let Some(found) = exact(src, chan, m, sender, word, false) {
+    return Some(found);
+  }
+  let base = super::overlay_base(word)?;
+  exact(src, chan, m, sender, base, true).map(|(url, size, _, scope)| (url, size, true, scope))
+}
+
+// one reading of the word through the read order. `stripped` = the overlay reading of a `name0`
+fn exact(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word: &str, stripped: bool) -> Option<Found> {
   let e = |e: &Emote, sc| (e.url.clone(), (e.w, e.h), e.zero_width, sc);
   // the one gate for renderInventoryEmotes: off, nothing that came through heatsync ever draws
   let inventory = src.inventory;
-  // our own echoed line carries no emote positions: twitch's globals and our sub emotes by name, there only
-  if m.has(flag::OWN)
+  // our own echoed line carries no emote positions: twitch's globals and our sub emotes by name, there
+  // only. twitch marks the exact word: `Kappa0` is never twitch's
+  if !stripped
+    && m.has(flag::OWN)
     && m.platform == Platform::Twitch
     && let Some(x) = src.emotes.twitch_global(word).or_else(|| src.emotes.sub(word))
   {
@@ -133,6 +152,56 @@ mod tests {
     m.nick = "bob".into();
     m.body = body.into();
     m
+  }
+
+  // `IDK0`: nothing is named that, so it is IDK drawn as an overlay. an emote really named `IDK0` wins, in
+  // any step. a taken-down pick of either name is text, never the other reading
+  #[test]
+  fn name0_is_the_name_as_an_overlay_unless_an_emote_is_really_called_that() {
+    let mut w = World::new();
+    w.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), cdn("BASE"))].into());
+    let m = plain("a", "IDK IDK0");
+    let got = |w: &mut World, m: &Message, word: &str| {
+      resolve(&mut w.sources(), "c", m, None, word).map(|f| (f.0.to_string(), f.2))
+    };
+    assert_eq!(got(&mut w, &m, "IDK"), Some((cdn("BASE").url.into(), false)));
+    assert_eq!(got(&mut w, &m, "IDK0"), Some((cdn("BASE").url.into(), true)), "the overlay reading");
+    assert_eq!(got(&mut w, &m, "IDK00"), None, "one 0 is stripped, once");
+    assert_eq!(got(&mut w, &m, "0"), None);
+    // a global really named IDK0 is lower than the room, and still wins the word as written
+    w.emotes.set(None, Provider::Bttv, [("IDK0".into(), cdn("LITERAL"))].into());
+    assert_eq!(got(&mut w, &m, "IDK0"), Some((cdn("LITERAL").url.into(), false)), "the literal name first");
+    // the sender's app shipped a pick for IDK: IDK0 with no pick of its own is that pick, as an overlay
+    let mut w = World::new();
+    w.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), cdn("BASE"))].into());
+    let mut p = plain("a", "IDK0");
+    p.extra().picks = vec![("IDK".into(), cdn("PICK").url, false)].into();
+    assert_eq!(got(&mut w, &p, "IDK0"), Some((cdn("PICK").url.into(), true)));
+    // taken down: text, under either reading
+    p.extra().picks = vec![("IDK".into(), "".into(), false)].into();
+    assert_eq!(got(&mut w, &p, "IDK0"), None, "a gone pick of the base name is not the room's look-alike");
+    p.extra().picks = vec![("IDK0".into(), "".into(), false)].into();
+    assert_eq!(got(&mut w, &p, "IDK0"), None, "a gone pick of the word itself is not its overlay reading");
+  }
+
+  // on our own echoed twitch line twitch's Kappa is by name; `Kappa0` is never twitch's (it marks the exact
+  // word), so it is the room's or our own Kappa as an overlay
+  #[test]
+  fn twitch_marks_the_exact_word_only() {
+    let mut w = World::new();
+    let tw = "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0";
+    w.emotes.set(
+      None,
+      Provider::Twitch,
+      [("Kappa".into(), Emote { url: tw.into(), w: 28, h: 28, zero_width: false })].into(),
+    );
+    w.emotes.set(Some("c"), Provider::SevenTv, [("Kappa".into(), cdn("ROOM"))].into());
+    let mut m = plain("a", "Kappa Kappa0");
+    m.flags |= flag::OWN;
+    let got =
+      |w: &mut World, word: &str| resolve(&mut w.sources(), "c", &m, None, word).map(|f| (f.0.to_string(), f.2));
+    assert_eq!(got(&mut w, "Kappa"), Some((tw.to_string(), false)));
+    assert_eq!(got(&mut w, "Kappa0"), Some((cdn("ROOM").url.into(), true)));
   }
 
   // a channel's IDK and the sender's own, different IDK: a typed IDK is the channel's for everyone (the
