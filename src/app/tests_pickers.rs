@@ -539,7 +539,7 @@ mod catalog_search {
     let at = shown(&app).iter().position(|t| t.1 == "zzonlyKek").unwrap();
     app.picker.as_mut().unwrap().sel = at;
     app.picker_key(Key::Named(NamedKey::Enter), None);
-    assert!(app.catalog_reg.get("zzonlyKek").is_some());
+    assert!(app.line.picks.get("zzonlyKek").is_some());
     for who in ["7", "1"] {
       assert!(!resolves(&mut app, who, "zzonlyKek"), "sender {who}, picked");
     }

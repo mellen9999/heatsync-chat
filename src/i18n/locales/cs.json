@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globální · ffz uživatelé",
  "app.complete.global_twitch": "globální · celý twitch",
  "app.complete.no_match": "nic pro {word}",
+ "app.complete.wont_show": "tady se nezobrazí",
  "app.complete.your_command": "tvůj příkaz",
  "app.complete.your_inventory": "tvůj inventář · jen heatsync",
  "app.complete.your_set": "tvůj osobní set · 7tv uživatelé",

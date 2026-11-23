@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "global · ffz users",
  "app.complete.global_twitch": "global · lahat ng twitch",
  "app.complete.no_match": "walang tugma sa {word}",
+ "app.complete.wont_show": "hindi lalabas dito",
  "app.complete.your_command": "iyong command",
  "app.complete.your_inventory": "iyong inventory · heatsync lang",
  "app.complete.your_set": "iyong personal set · 7tv users",

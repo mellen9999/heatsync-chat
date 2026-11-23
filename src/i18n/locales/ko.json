@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "글로벌 · ffz 사용자",
  "app.complete.global_twitch": "글로벌 · 모든 twitch",
  "app.complete.no_match": "{word} 일치 없음",
+ "app.complete.wont_show": "여기서는 보이지 않음",
  "app.complete.your_command": "내 명령어",
  "app.complete.your_inventory": "내 인벤토리 · heatsync 전용",
  "app.complete.your_set": "내 개인 세트 · 7tv 사용자",

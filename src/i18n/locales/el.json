@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "καθολικά · χρήστες ffz",
  "app.complete.global_twitch": "καθολικά · όλο το twitch",
  "app.complete.no_match": "κανένα αποτέλεσμα για {word}",
+ "app.complete.wont_show": "δεν θα εμφανιστεί εδώ",
  "app.complete.your_command": "η εντολή σου",
  "app.complete.your_inventory": "το inventory σου · μόνο heatsync",
  "app.complete.your_set": "το προσωπικό σου σετ · χρήστες 7tv",

@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "グローバル · ffz ユーザー",
  "app.complete.global_twitch": "グローバル · twitch 全員",
  "app.complete.no_match": "{word} に一致なし",
+ "app.complete.wont_show": "ここでは表示されません",
  "app.complete.your_command": "あなたのコマンド",
  "app.complete.your_inventory": "あなたのインベントリ · heatsync のみ",
  "app.complete.your_set": "あなたの個人セット · 7tv ユーザー",

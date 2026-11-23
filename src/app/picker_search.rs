@@ -1,7 +1,7 @@
 // the picker's catalog search (ext emotes.js mcTriggerProviderSearches): the word in the filter box is also
 // asked of 7tv, ffz and heatsync after a short rest, and more pages follow when the pick nears the end of
 // what is shown. what comes back is tiles in the picker and nothing more: a click registers the name the
-// way tab-complete does (`catalog_reg`), and only a line SENT with it puts it in your inventory
+// way tab-complete does (the draft's picks), and only a line SENT with it puts it in your inventory
 use crate::i18n::t;
 use std::time::{Duration, Instant};
 

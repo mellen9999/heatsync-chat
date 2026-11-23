@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "global · pengguna ffz",
  "app.complete.global_twitch": "global · semua twitch",
  "app.complete.no_match": "tidak ada yang cocok dengan {word}",
+ "app.complete.wont_show": "tidak akan tampil di sini",
  "app.complete.your_command": "perintahmu",
  "app.complete.your_inventory": "inventarismu · hanya heatsync",
  "app.complete.your_set": "set pribadimu · pengguna 7tv",

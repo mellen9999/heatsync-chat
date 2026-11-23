@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "גלובלי · משתמשי ffz",
  "app.complete.global_twitch": "גלובלי · כל twitch",
  "app.complete.no_match": "אין התאמה ל-{word}",
+ "app.complete.wont_show": "לא יוצג כאן",
  "app.complete.your_command": "הפקודה שלך",
  "app.complete.your_inventory": "המלאי שלך · heatsync בלבד",
  "app.complete.your_set": "הסט האישי שלך · משתמשי 7tv",

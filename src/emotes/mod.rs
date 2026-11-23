@@ -3,6 +3,7 @@
 // this is the CATALOG of what a channel has enabled — heatsync per-sender emotes live elsewhere.
 // resolve.rs is the one place a chat word becomes an emote (the privacy chokepoint)
 pub mod block;
+pub mod draft;
 pub mod entitle;
 pub mod live;
 pub mod personal;
@@ -57,9 +58,9 @@ impl Scope {
     order.iter().chain(&LAST).find_map(|p| self.sets.get(p)?.get(word))
   }
 
-  // every name once, with the provider that wins it
-  fn names(&self, order: &[Provider; 3]) -> Vec<(&str, Provider, &Emote)> {
-    self.provided(order).collect()
+  // every emote of every set: a name two sets hold comes twice (the law names the winner, emotes/draft.rs)
+  fn all(&self) -> impl Iterator<Item = (&str, Provider, &Emote)> {
+    self.sets.iter().flat_map(|(p, s)| s.iter().map(move |(k, v)| (&**k, *p, v)))
   }
 
   // every emote once, the provider that wins a shared name first
@@ -130,14 +131,15 @@ impl Emotes {
   }
 
   // `text` as kick's wire wants it: a word that is one of `slug`'s kick emotes becomes its
-  // `[emote:<id>:<name>]` token, or kick shows the bare word to everyone. a message the tokens push past
+  // `[emote:<id>:<name>]` token, or kick shows the bare word to everyone. a word the line already answered
+  // as another emote (`other`) stays bare, so it keeps its one meaning. a message the tokens push past
   // kick's limit goes as words: delivered without images beats rejected
-  pub fn kickify(&self, slug: &str, text: &str) -> String {
+  pub fn kickify(&self, slug: &str, text: &str, other: impl Fn(&str) -> bool) -> String {
     const KICK_MAX: usize = 500;
     let Some(set) = self.kick.get(slug) else { return text.to_owned() };
     let out: Vec<String> = text
       .split(' ')
-      .map(|w| match set.get(w).and_then(|e| kick_id(&e.url)) {
+      .map(|w| match set.get(w).filter(|_| !other(w)).and_then(|e| kick_id(&e.url)) {
         Some(id) => format!("[emote:{id}:{w}]"),
         None => w.to_owned(),
       })
@@ -149,6 +151,23 @@ impl Emotes {
   // within a scope, the provider order decides. callers check the channel before globals
   pub fn channel(&self, channel: &str, word: &str) -> Option<&Emote> {
     self.channels.get(channel)?.get(&CHANNEL_ORDER, word)
+  }
+
+  // the room's emote of a name on one platform's lines (the law's "a line has a room"): the tab's kick
+  // channel answers a kick line only. a twitch or youtube line never draws it, and never sends it
+  pub fn channel_on(&self, channel: &str, kick: bool, word: &str) -> Option<&Emote> {
+    let sets = &self.channels.get(channel)?.sets;
+    let walk = CHANNEL_ORDER.iter().chain(&LAST).filter(|p| kick || **p != Provider::Kick);
+    walk.into_iter().find_map(|p| sets.get(p)?.get(word))
+  }
+
+  // every emote a room holds, each provider's copy of a shared name included
+  pub fn channel_all(&self, channel: &str) -> Vec<(&str, Provider, &Emote)> {
+    self.channels.get(channel).map_or_else(Vec::new, |c| c.all().collect())
+  }
+
+  pub fn global_all(&self) -> Vec<(&str, Provider, &Emote)> {
+    self.global.all().collect()
   }
 
   pub fn global(&self, word: &str) -> Option<&Emote> {
@@ -173,20 +192,12 @@ impl Emotes {
     self.global.sets.get(&Provider::Twitch)?.get(word)
   }
 
-  pub fn channel_names(&self, channel: &str) -> Vec<(&str, Provider, &Emote)> {
-    self.channels.get(channel).map_or_else(Vec::new, |c| c.names(&CHANNEL_ORDER))
-  }
-
   pub fn channel_entries(&self, channel: &str) -> Vec<(&str, &Emote)> {
     self.channels.get(channel).map_or_else(Vec::new, |c| c.entries(&CHANNEL_ORDER))
   }
 
   pub fn global_entries(&self) -> Vec<(&str, &Emote)> {
     self.global.entries(&GLOBAL_ORDER)
-  }
-
-  pub fn global_names(&self) -> Vec<(&str, Provider, &Emote)> {
-    self.global.names(&GLOBAL_ORDER)
   }
 }
 
@@ -241,7 +252,8 @@ mod tests {
     assert_eq!(&*em.global("G").unwrap().url, "g-bttv", "bttv before ffz");
     assert_eq!(&*em.global_entries()[0].1.url, "g-bttv");
     em.set(None, Provider::SevenTv, [("G".into(), e("g-7tv"))].into());
-    assert_eq!(em.global_names()[0].1, Provider::SevenTv);
+    assert_eq!(&*em.global_entries()[0].1.url, "g-7tv");
+    assert_eq!(em.global_all().len(), 3, "every provider's copy is kept: the law names the winner for tab");
   }
 
   #[test]
@@ -253,7 +265,9 @@ mod tests {
     em.route_kick([("c", "k")]);
     assert_eq!(&*em.channel("c", "Clap").unwrap().url, "c-7tv", "the twitch channel's own name wins");
     assert_eq!(&*em.channel("c", "peepoDJ").unwrap().url, &kick_url(37245));
-    assert_eq!(em.channel_names("c").iter().find(|n| n.0 == "peepoDJ").unwrap().1, Provider::Kick);
+    assert!(em.channel_on("c", false, "peepoDJ").is_none(), "a twitch line never reads the tab's kick channel");
+    assert_eq!(&*em.channel_on("c", true, "peepoDJ").unwrap().url, &kick_url(37245), "a kick line does");
+    assert_eq!(&*em.channel_on("c", true, "Clap").unwrap().url, "c-7tv");
     // a kick-only room has no twitch sets of its own
     em.route_kick([("c", "k"), ("kickonly", "k")]);
     assert!(em.channel("kickonly", "peepoDJ").is_some());
@@ -271,11 +285,13 @@ mod tests {
   fn kickify_tokens_kick_emotes_only_and_never_overflows() {
     let mut em = Emotes::default();
     em.set_kick("k", [("peepoDJ".into(), e(&kick_url(37245))), ("odd".into(), e("https://cdn.7tv.app/x"))].into());
-    assert_eq!(em.kickify("k", "peepoDJ turn  it up odd"), "[emote:37245:peepoDJ] turn  it up odd");
-    assert_eq!(em.kickify("other", "peepoDJ"), "peepoDJ", "another channel's emotes stay words");
-    assert_eq!(em.kickify("k", "peepodj [emote:1:x]"), "peepodj [emote:1:x]");
+    let no = |_: &str| false;
+    assert_eq!(em.kickify("k", "peepoDJ turn  it up odd", no), "[emote:37245:peepoDJ] turn  it up odd");
+    assert_eq!(em.kickify("other", "peepoDJ", no), "peepoDJ", "another channel's emotes stay words");
+    assert_eq!(em.kickify("k", "peepodj [emote:1:x]", no), "peepodj [emote:1:x]");
+    assert_eq!(em.kickify("k", "peepoDJ hi", |w| w == "peepoDJ"), "peepoDJ hi", "a word that means another emote");
     let long = "peepoDJ ".repeat(60);
-    assert_eq!(em.kickify("k", &long), long, "500 chars of words beat a rejected send");
+    assert_eq!(em.kickify("k", &long, no), long, "500 chars of words beat a rejected send");
   }
 
   #[test]
@@ -286,8 +302,7 @@ mod tests {
     assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-7tv", "7tv before bttv");
     em.set(Some("c"), Provider::Ffz, [("Same".into(), e("c-ffz"))].into());
     assert_eq!(&*em.channel("c", "Same").unwrap().url, "c-ffz", "ffz before 7tv");
-    let names = em.channel_names("c");
-    assert_eq!(names.len(), 1);
-    assert_eq!(names[0].1, Provider::Ffz);
+    assert_eq!(em.channel_entries("c").len(), 1);
+    assert_eq!(em.channel_all("c").len(), 3);
   }
 }

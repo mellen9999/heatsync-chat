@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "ग्लोबल · ffz यूज़र",
  "app.complete.global_twitch": "ग्लोबल · सारे twitch",
  "app.complete.no_match": "{word} के लिए कोई मेल नहीं",
+ "app.complete.wont_show": "यहाँ नहीं दिखेगा",
  "app.complete.your_command": "तुम्हारा कमांड",
  "app.complete.your_inventory": "तुम्हारी इन्वेंटरी · सिर्फ़ heatsync",
  "app.complete.your_set": "तुम्हारा निजी सेट · 7tv यूज़र",

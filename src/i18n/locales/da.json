@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globale · ffz-brugere",
  "app.complete.global_twitch": "globale · alle på twitch",
  "app.complete.no_match": "ingen match for {word}",
+ "app.complete.wont_show": "vises ikke her",
  "app.complete.your_command": "din kommando",
  "app.complete.your_inventory": "dit inventar · kun heatsync",
  "app.complete.your_set": "dit personlige sæt · 7tv-brugere",

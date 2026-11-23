@@ -14,23 +14,23 @@ use crate::emotes::{Emote, Emotes, Provider, Set};
 use crate::heatsync::senders::{Senders, parse_set};
 use crate::model::message::{HsEmote, Kind, Message, Platform as Feed};
 
-const SENDER: u64 = 42;
-const TS: i64 = 1_793_399_211_099;
+pub(super) const SENDER: u64 = 42;
+pub(super) const TS: i64 = 1_793_399_211_099;
 
 // a picture's address, carrying its alias: an address the app's image allowlist takes
-fn url(alias: &str) -> String {
+pub(super) fn url(alias: &str) -> String {
   format!("https://cdn.7tv.app/emote/{alias}/1x.webp")
 }
 
-fn alias(url: &str) -> String {
+pub(super) fn alias(url: &str) -> String {
   url.rsplit('/').nth(1).unwrap_or("").to_owned()
 }
 
-fn emote(w: &World, a: &str) -> Res<Emote> {
+pub(super) fn emote(w: &World, a: &str) -> Res<Emote> {
   Ok(Emote { url: url(a).into(), w: 28, h: 28, zero_width: w.emote(a)?.zw })
 }
 
-fn provider(p: &str) -> Option<Provider> {
+pub(super) fn provider(p: &str) -> Option<Provider> {
   Some(match p {
     "7tv" => Provider::SevenTv,
     "bttv" => Provider::Bttv,
@@ -56,7 +56,7 @@ enum Cannot {
 }
 
 // one provider's emotes as the set the app keeps, or None when two share a name
-fn sets_of(w: &World, aliases: &[String]) -> Res<Option<HashMap<String, Set>>> {
+pub(super) fn sets_of(w: &World, aliases: &[String]) -> Res<Option<HashMap<String, Set>>> {
   let mut out: HashMap<String, Set> = HashMap::new();
   for a in aliases {
     let e = w.emote(a)?;

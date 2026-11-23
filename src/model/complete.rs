@@ -1,11 +1,10 @@
-// tab-complete, in the ext's order (input.js findEmoteMatches + compareAcMatches): the word around the
-// cursor matches names that start with it, then ones that hold it, any case. emotes come from the
-// channel, your heatsync inventory, then globals; an exact name leads, then what you use (frecency),
-// then the nearer tier. bare words put people who spoke here lately first; `@` completes people
+// tab-complete: the word around the cursor, the candidates for it and the one shown. which emotes are
+// offered, and in what order, is the emote law's (src/law `offer`, asked in app/complete.rs); people who
+// spoke here join it at the two places the law names, `@` completes people only, `/` commands
+use super::catalog::Rec;
 use crate::i18n::{f, t};
-use std::cmp::Ordering;
 
-const MAX: usize = 200;
+pub const MAX: usize = 200;
 // the first tab needs this much of a word
 pub const MIN_WORD: usize = 2;
 
@@ -17,6 +16,9 @@ pub struct Pick {
   pub emote: bool,
   // an emoji's shortcode (`name` is the glyph that goes in the box)
   pub code: Option<&'static str>,
+  // the picture an emote candidate stands for: two of one name are two candidates, and the one stepped
+  // onto is the draft's pick for that name
+  pub pic: Option<Rec>,
 }
 
 impl Pick {
@@ -37,6 +39,9 @@ pub struct Complete {
   pub at: usize,
   // the shown pick's chip, when the cycle added it (dropped again on the next step)
   pub chipped: Option<Box<str>>,
+  // the shown pick's name and what the draft held for it before this step: put back when the cycle moves
+  // on, so a step only passed leaves the name as it found it
+  pub passed: Option<(Box<str>, Option<Rec>)>,
   // the catalog leg of this cycle (None for `@`, `/`, `:` and short words)
   pub remote: Option<super::catalog::Cycle>,
 }
@@ -67,35 +72,6 @@ impl Complete {
   }
 }
 
-// an emote in one of the three pools: 0 channel, 1 your inventory, 2 global
-pub struct Cand<'a> {
-  pub name: &'a str,
-  pub tier: u8,
-  pub what: &'static str,
-}
-
-struct Hit<'a> {
-  c: Cand<'a>,
-  exact: bool,
-  prefix: bool,
-  score: f64,
-}
-
-fn order(a: &Hit, b: &Hit) -> Ordering {
-  let used = |h: &Hit| h.score > 0.0;
-  b.exact
-    .cmp(&a.exact)
-    .then_with(|| if a.exact && b.exact { a.c.tier.cmp(&b.c.tier) } else { Ordering::Equal })
-    .then_with(|| used(b).cmp(&used(a)))
-    .then_with(|| match used(a) && used(b) {
-      true => b.prefix.cmp(&a.prefix).then(b.score.total_cmp(&a.score)).then(a.c.tier.cmp(&b.c.tier)),
-      false => a.c.tier.cmp(&b.c.tier).then(b.prefix.cmp(&a.prefix)),
-    })
-    .then_with(|| if a.prefix && b.prefix { a.c.name.len().cmp(&b.c.name.len()) } else { Ordering::Equal })
-    .then_with(|| a.c.name.to_lowercase().cmp(&b.c.name.to_lowercase()))
-    .then_with(|| a.c.name.cmp(b.c.name))
-}
-
 // starts-with or holds the query, any case: (exact, prefix)
 fn hit(name: &str, low: &str) -> Option<(bool, bool)> {
   let n = name.to_lowercase();
@@ -111,26 +87,9 @@ pub fn emoji(query: &str) -> Vec<Pick> {
       what: t("chat1.complete.what.emoji"),
       emote: false,
       code: Some(code),
+      pic: None,
     })
     .collect()
-}
-
-// emote candidates, pools in tier order; a name a nearer pool has is skipped further out
-pub fn emotes<'a>(query: &str, pools: impl IntoIterator<Item = Cand<'a>>, score: impl Fn(&str) -> f64) -> Vec<Pick> {
-  let low = query.to_lowercase();
-  let mut seen = std::collections::HashSet::new();
-  let mut hits: Vec<Hit> = pools
-    .into_iter()
-    .filter(|c| seen.insert(c.name))
-    .filter_map(|c| {
-      let (exact, prefix) = hit(c.name, &low)?;
-      let score = score(c.name);
-      Some(Hit { c, exact, prefix, score })
-    })
-    .collect();
-  hits.sort_by(order);
-  hits.truncate(MAX);
-  hits.into_iter().map(|h| Pick { name: h.c.name.into(), what: h.c.what, emote: true, code: None }).collect()
 }
 
 // people, `recent` in recency order (newest first) then everyone else: an exact name, then who spoke
@@ -165,7 +124,7 @@ pub fn commands(query: &str, groups: impl IntoIterator<Item = Vec<&'static str>>
   let mut out: Vec<Pick> = Vec::new();
   for c in groups.into_iter().flatten() {
     if c.starts_with(&low) && !out.iter().any(|o| *o.name == *c) {
-      out.push(Pick { name: c.into(), what: t("chat1.complete.what.command"), emote: false, code: None });
+      out.push(Pick { name: c.into(), what: t("chat1.complete.what.command"), emote: false, code: None, pic: None });
     }
   }
   out
@@ -179,22 +138,6 @@ mod tests {
     p.iter().map(|p| &*p.name).collect()
   }
 
-  fn cands<'a>(tier: u8, n: &[&'a str]) -> Vec<Cand<'a>> {
-    n.iter().map(|name| Cand { name, tier, what: "x" }).collect()
-  }
-
-  #[test]
-  fn exact_then_used_then_tier_then_prefix() {
-    let pools =
-      [cands(0, &["PogU", "pog", "Pogger", "xpogx"]), cands(1, &["PogBones", "PogU"]), cands(2, &["PogChamp"])]
-        .into_iter()
-        .flatten();
-    let r = emotes("pog", pools, |n| if n == "PogChamp" { 3.0 } else { 0.0 });
-    // the exact name first, then the one you use, then the channel's (prefix, shorter first, a hold last)
-    assert_eq!(names(&r), ["pog", "PogChamp", "PogU", "Pogger", "xpogx", "PogBones"]);
-    assert!(r.iter().all(|p| p.emote));
-  }
-
   #[test]
   fn people_recent_first() {
     let r = people("al", &["alex", "albert"], &["al", "alice", "xalx"], false);
@@ -205,13 +148,14 @@ mod tests {
 
   #[test]
   fn tip_and_emote_pick() {
-    let p = |name: &str, emote| Pick { name: name.into(), what: "channel · 7tv users", emote, code: None };
+    let p = |name: &str, emote| Pick { name: name.into(), what: "channel · 7tv users", emote, code: None, pic: None };
     let c = Complete {
       start: 0,
       end: 0,
       matches: vec![p("Kappa", true), p("alice", false)],
       at: 0,
       chipped: None,
+      passed: None,
       remote: None,
     };
     assert_eq!(c.emote(), Some("Kappa"));
@@ -228,7 +172,7 @@ mod tests {
     assert_eq!(r[0].shown(), "😄 :smile:");
     assert!(r.len() <= crate::model::emoji::MAX && r.iter().all(|p| p.what == "emoji"));
     assert!(emoji("").is_empty() && emoji("zzzzzzzz").is_empty());
-    let c = Complete { start: 0, end: 0, matches: r, at: 0, chipped: None, remote: None };
+    let c = Complete { start: 0, end: 0, matches: r, at: 0, chipped: None, passed: None, remote: None };
     assert_eq!(c.tip().as_deref().map(|t| t.ends_with("😄 :smile: · emoji")), Some(true));
     assert_eq!(c.emote(), None, "an emoji is text, never a chip");
   }

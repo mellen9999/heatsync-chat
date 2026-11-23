@@ -18,6 +18,11 @@ pub struct Line {
   pub chips: HashSet<Box<str>>,
   // the chips that are overlays (zero-width): one right after another chip stacks onto it
   pub overlays: HashSet<Box<str>>,
+  // the pictures picked on purpose in this draft, by name (tab, the picker, a clicked emote). the draft's
+  // own: gone when the line is sent, swapped out or loaded over
+  pub picks: super::catalog::Registry,
+  // the draft's picks, set aside with it while a sent line is looked at: a recalled line is its own text
+  draft_picks: super::catalog::Registry,
   history: VecDeque<String>,
   // Some(i) while browsing history; `draft` holds what was typed before
   browsing: Option<usize>,
@@ -168,6 +173,7 @@ impl Line {
     self.text = text;
     self.chips.clear();
     self.overlays.clear();
+    self.picks = Default::default();
     self.undo.clear();
     self.redo.clear();
     self.browsing = None;
@@ -263,6 +269,7 @@ impl Line {
     self.text.clear();
     self.chips.clear();
     self.overlays.clear();
+    self.picks = Default::default();
     self.cursor = 0;
     self.undo.clear();
     self.redo.clear();
@@ -302,6 +309,7 @@ impl Line {
   pub fn clear_sent(&mut self) {
     if self.browsing.take().is_some() {
       self.text = std::mem::take(&mut self.draft);
+      self.picks = std::mem::take(&mut self.draft_picks);
       self.cursor = self.text.len();
     }
     self.history.clear();
@@ -313,6 +321,7 @@ impl Line {
       None if self.history.is_empty() => return,
       None => {
         self.draft = std::mem::take(&mut self.text);
+        self.draft_picks = std::mem::take(&mut self.picks);
         self.history.len() - 1
       }
       Some(0) => return,
@@ -331,6 +340,7 @@ impl Line {
     } else {
       self.browsing = None;
       self.text = std::mem::take(&mut self.draft);
+      self.picks = std::mem::take(&mut self.draft_picks);
     }
     self.cursor = self.text.len();
   }
@@ -558,6 +568,28 @@ mod tests {
     l.restore_sent(many);
     assert_eq!(l.sent().count(), HISTORY);
     assert_eq!(l.sent().last(), Some("newer"));
+  }
+
+  // a draft's picks are the draft's: a sent line looked at meanwhile has none of them, coming back to the
+  // draft brings them back, and a line that leaves or is loaded over takes them with it
+  #[test]
+  fn picks_stay_with_their_draft() {
+    use crate::model::catalog::Rec;
+    let rec = || Rec { url: "https://cdn.7tv.app/emote/A/1x.webp".into(), zero_width: false, provider: "7tv" };
+    let mut l = Line::default();
+    l.insert("W old");
+    l.take();
+    l.insert("W");
+    l.picks.put("W", Some(rec()));
+    l.older();
+    assert_eq!((l.text.as_str(), l.picks.is_empty()), ("W old", true), "the sent line's W is a plain word");
+    l.newer();
+    assert_eq!((l.text.as_str(), l.picks.get("W").is_some()), ("W", true));
+    l.take();
+    assert!(l.picks.is_empty(), "sent: the pick went with it");
+    l.picks.put("W", Some(rec()));
+    l.load("other".into());
+    assert!(l.picks.is_empty());
   }
 
   #[test]

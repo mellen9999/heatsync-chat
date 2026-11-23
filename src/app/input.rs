@@ -267,6 +267,8 @@ impl App {
     if !self.net.alive() {
       return self.say(t("app.input.net_down"));
     }
+    // the picks belong to this message: they leave the box with it
+    let picked = std::mem::take(&mut self.line.picks);
     if let Some(text) = self.line.take() {
       for (p, k) in &shut {
         if let Some(l) = self.locks.get(*p, k, now) {
@@ -280,14 +282,17 @@ impl App {
       }
       let typed = text.clone();
       let text = crate::model::emoji::convert(&text).into_owned();
-      let picks = self.auto_add(&text);
+      let picks = self.ship_picks(&text, &picked);
       // one id for the line's every leg and its origin tag
       let send = format!("hsc-{}", super::now_ms());
       self.solo = match open.as_slice() {
-        [(p, c)] => Some(super::sendto::Solo { send: send.as_str().into(), platform: *p, chan: c.clone(), typed }),
+        [(p, c)] => {
+          let picks = picked.clone();
+          Some(super::sendto::Solo { send: send.as_str().into(), platform: *p, chan: c.clone(), typed, picks })
+        }
         _ => None,
       };
-      self.fan_out(&open, &text, reply, &send);
+      self.fan_out(&open, &text, reply, &send, &picked);
       self.tell_origin(&open, &text, &send, &picks);
       self.vouch(&open, picks);
       if let Some(v) = self.view() {

@@ -2,9 +2,12 @@
 // cursor, the next ones cycle them in place, and a tooltip over the box names the shown one
 use super::App;
 use crate::emotes::Provider;
+use crate::emotes::draft::{From, Pic, Src};
 use crate::i18n::{f, t};
-use crate::model::catalog::{self, Cycle, Page, Rec};
-use crate::model::complete::{Cand, Complete, MIN_WORD, Pick, commands, emoji, emotes, people};
+use crate::law;
+use crate::model::catalog::{self, Cycle, Page, Rec, Registry};
+use crate::model::complete::{Complete, MAX, MIN_WORD, Pick, commands, emoji, people};
+use crate::model::message::Platform;
 use crate::model::slash;
 use crate::net::Cmd;
 use crate::net::emote_ops::EmoteCmd;
@@ -31,6 +34,22 @@ fn what(channel: bool, p: Provider) -> &'static str {
   }
 }
 
+// one of the law's candidates as tab shows it: its name, its own picture, where it is from
+fn offered(c: &law::Candidate<Pic>) -> Pick {
+  let e = c.emote;
+  // a copy of a name twitch marks itself: offered, but twitch will draw its own there
+  let what = match e.src {
+    _ if c.shadowed => t("app.complete.wont_show"),
+    Src::Channel(p) => what(true, p),
+    Src::Global(p) => what(false, p),
+    Src::Inventory => t("app.complete.your_inventory"),
+    Src::Personal => t("app.complete.your_set"),
+    Src::Sub => t("app.complete.your_sub"),
+  };
+  let pic = Rec { url: e.url.into(), zero_width: e.zw, provider: e.p };
+  Pick { name: e.name.into(), what, emote: true, code: None, pic: Some(pic) }
+}
+
 impl App {
   // your own commands that start with what's typed, ahead of the built-in ones (a built-in's name is its own)
   fn own_commands(&self, word: &str) -> Vec<Pick> {
@@ -40,7 +59,7 @@ impl App {
       .iter()
       .map(|(n, _)| format!("/{n}"))
       .filter(|n| n.starts_with(&low) && !super::usercmd::builtin(&n[1..]))
-      .map(|n| Pick { name: n.into(), what: t("app.complete.your_command"), emote: false, code: None })
+      .map(|n| Pick { name: n.into(), what: t("app.complete.your_command"), emote: false, code: None, pic: None })
       .collect()
   }
 
@@ -50,9 +69,33 @@ impl App {
     self.tabs.iter().flat_map(|t| t.view.chatters()).filter(|n| seen.insert(n.to_lowercase())).collect()
   }
 
+  // the emote law's offer for `q` in the room this line goes to (docs/emote-law.md, offer): the exact name,
+  // the names you use, the room's, yours, the globals, and copies of one name in send order, so the first
+  // is the one typing it would send. with the two places people may join
+  fn offer(&self, q: &str) -> (Vec<Pick>, usize, usize) {
+    let d = self.draft();
+    let w = d.world(&self.res.blocked);
+    let usage = |n: &str| self.frecency.score(n, d.now);
+    let hidden = |k: &str| w.hidden.contains(k);
+    let ctx = law::OfferCtx {
+      room: w.room.as_ref(),
+      own: &w.own,
+      globals: &w.globals,
+      catalog: &[],
+      emoji: &[],
+      usage: Some(&usage),
+      pop: None,
+      blocked: (!w.hidden.is_empty()).then_some(&hidden),
+      suggest_own: self.set.suggest_inventory,
+      favorites: &[],
+    };
+    let o = law::offer_seams(q, &ctx, Some(MAX));
+    (o.list.iter().map(offered).collect(), o.exact, o.room)
+  }
+
   pub(super) fn candidates(&self, word: &str, slash: bool) -> Vec<Pick> {
     let tab = self.tabs.get(self.active);
-    let chat = |n: Box<str>| Pick { name: n, what: t("app.complete.chatter"), emote: false, code: None };
+    let chat = |n: Box<str>| Pick { name: n, what: t("app.complete.chatter"), emote: false, code: None, pic: None };
     if slash {
       let mut out = self.own_commands(word);
       let builtin = commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
@@ -67,32 +110,21 @@ impl App {
     }
     // `:kek` searches emotes too, then emoji shortcodes (any length, like the ext)
     let q = word.strip_prefix(':').filter(|q| q.len() >= MIN_WORD).unwrap_or(word);
-    let chan = tab.map_or("", |t| &*t.view.channel);
-    let now = now_ms();
-    let blocked = |n: &str, url: &str| self.res.blocked.contains(n, url);
-    let channel = self.res.emotes.channel_names(chan).into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
-    let channel = channel.map(|(name, p, _)| Cand { name, tier: 0, what: what(true, p) });
-    let own = self.own_id().filter(|_| self.set.suggest_inventory);
-    let own = own.map_or_else(Vec::new, |id| self.res.senders.entries(id, now));
-    let own = own.into_iter().filter(|(n, e)| !blocked(n, &e.url));
-    let own = own.map(|(name, _)| Cand { name, tier: 1, what: t("app.complete.your_inventory") });
-    // your own 7tv personal set, only if 7tv has said it is yours (emotes/personal.rs)
-    let mine = self.own_id().map_or_else(Vec::new, |id| self.res.personal.entries(id));
-    let mine = mine.into_iter().filter(|(n, e)| !blocked(n, &e.url));
-    let mine = mine.map(|(name, _)| Cand { name, tier: 1, what: t("app.complete.your_set") });
-    let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, e)| !blocked(n, &e.url));
-    let subs: Vec<Cand> = subs.map(|(name, _)| Cand { name, tier: 1, what: t("app.complete.your_sub") }).collect();
-    let global = self.res.emotes.global_names().into_iter().filter(|(n, _, e)| !blocked(n, &e.url));
-    let global = global.map(|(name, p, _)| Cand { name, tier: 2, what: what(false, p) });
-    let found = emotes(q, own.chain(mine).chain(subs).chain(channel).chain(global), |n| self.frecency.score(n, now));
-    // a bare word: people who spoke here lately first; with no emote at all, anyone heard anywhere
-    let mut out: Vec<Pick> =
-      if q == word { people(q, &recent, &[], false) } else { Vec::new() }.into_iter().map(|(n, _)| chat(n)).collect();
-    if found.is_empty() && q == word {
-      let all: Vec<&str> = self.everyone().into_iter().filter(|n| !recent.contains(n)).collect();
-      out.extend(people(q, &[], &all, true).into_iter().map(|(n, _)| chat(n)));
+    let (mut out, exact, room) = self.offer(q);
+    // a bare word is a name too. the law ranks emotes; people join it where it says its groups end: the
+    // person typed whole after the emote of that exact name, the other recent talkers after the names you
+    // use and the room's emotes, before everything else. with no emote at all, anyone heard anywhere
+    if q == word {
+      let low = q.to_lowercase();
+      let mut who: Vec<Box<str>> = people(q, &recent, &[], false).into_iter().map(|(n, _)| n).collect();
+      if out.is_empty() {
+        let all: Vec<&str> = self.everyone().into_iter().filter(|n| !recent.contains(n)).collect();
+        who.extend(people(q, &[], &all, true).into_iter().map(|(n, _)| n));
+      }
+      let (whole, rest): (Vec<_>, Vec<_>) = who.into_iter().partition(|n| n.to_lowercase() == low);
+      out.splice(room..room, rest.into_iter().map(chat));
+      out.splice(exact..exact, whole.into_iter().map(chat));
     }
-    out.extend(found);
     if let Some(e) = word.strip_prefix(':') {
       out.extend(emoji(e));
     }
@@ -124,8 +156,15 @@ impl App {
       let cycle = remote.then(|| Cycle::new(q));
       self.line.checkpoint(false);
       let empty = matches.is_empty();
-      self.complete =
-        Some(Complete { start: r.start, end: r.end, matches, at: usize::MAX, chipped: None, remote: cycle });
+      self.complete = Some(Complete {
+        start: r.start,
+        end: r.end,
+        matches,
+        at: usize::MAX,
+        chipped: None,
+        passed: None,
+        remote: cycle,
+      });
       // the catalogs are asked on the first tab, local matches or not (ext): their picks join the end
       // of the cycle. nothing local: the first hit lands in the box when they answer
       self.ask_catalog(true);
@@ -177,23 +216,15 @@ impl App {
   // a catalog page came back. an answer to anything but the latest ask (the word moved on, the cycle
   // ended) is dropped. new picks only append, so the cycle under the user's fingers never shifts
   pub(super) fn on_catalog(&mut self, epoch: u32, stv: Option<Page>, ffz: Option<Page>) {
+    // a name that already means an emote here keeps it: a search look-alike never joins the cycle (the
+    // picker's search is where another picture of a name is picked on purpose). nor does what you blocked
+    let (d, blocked) = (self.draft(), &self.res.blocked);
+    let held = |h: &&catalog::Hit| blocked.contains(&h.name, &h.url) || d.word(None, &h.name).is_some();
+    let hits = stv.iter().chain(&ffz).flat_map(|p| &p.hits);
+    let held: std::collections::HashSet<Box<str>> = hits.filter(held).map(|h| h.url.clone()).collect();
     let Some(c) = &mut self.complete else { return };
     let Some(r) = c.remote.as_mut().filter(|r| r.pending && r.epoch == epoch) else { return };
-    let (res, chan, own, now) = (
-      &self.res,
-      self.tabs.get(self.active).map_or("", |t| &*t.view.channel),
-      self.me.as_ref().and_then(|m| m.twitch_id),
-      now_ms(),
-    );
-    // this very picture already answers to the name here: offering it again would be a twin
-    let mine = |n: &str, u: &str| {
-      res.emotes.channel(chan, n).is_some_and(|e| *e.url == *u)
-        || own.and_then(|id| res.senders.peek(id, n, now)).is_some_and(|e| *e.url == *u)
-        || own.and_then(|id| res.personal.peek(id, n)).is_some_and(|e| *e.url == *u)
-        || res.emotes.global(n).is_some_and(|e| *e.url == *u)
-    };
-    let step =
-      r.absorb(stv, ffz, &mut c.matches, &mut self.catalog_reg, |n, u| res.blocked.contains(n, u) || mine(n, u));
+    let step = r.absorb(stv, ffz, &mut c.matches, |_, u| held.contains(u));
     let (word, none, done) = (r.search.clone(), c.matches.is_empty(), r.done());
     if step.chase {
       self.ask_catalog(false);
@@ -209,35 +240,43 @@ impl App {
     self.wake();
   }
 
-  // a sent line adds the catalog picks in it to your heatsync inventory, so they show for everyone
-  // from then on (the ext's autoAddInputEmotes): your inventory's emote beats the channel's of the same
-  // name, so a different IDK you picked is the IDK people see. not what you block, a twitch global
-  // (twitch draws those itself), or the very emote you already own; another emote you own under that
-  // name is swapped for the one you picked. the line never waits on the add (rule 7): the picks come
-  // back as vouches, which the room draws from while the add lands, and a swap that fails leaves your
-  // old emote in place
-  pub(super) fn auto_add(&mut self, text: &str) -> Vec<Vouch> {
-    if self.me.is_none() {
+  // a line is leaving with the picks made in it (tab, the picker, a clicked emote). a pick that is not
+  // what the word would have sent anyway is told to the room (`emotes:used`, the vouches returned), so
+  // everyone draws the picture you saw in the box. one that is not here yet (not yours, not the room's, not
+  // a global) also joins your heatsync inventory, as on the site; another emote you own under that name is
+  // swapped for the one you picked, on purpose. the line never waits on the add (rule 7): the room draws
+  // from the vouch while it lands, and a swap that fails leaves your old emote in place. never what you
+  // block, and never over a name twitch marks itself on twitch (twitch draws its own whatever we say)
+  pub(super) fn ship_picks(&mut self, text: &str, picks: &Registry) -> Vec<Vouch> {
+    if self.me.is_none() || picks.is_empty() {
       return Vec::new();
     }
-    let (own, now, res) = (self.own_id(), now_ms(), &self.res);
-    let owned = |w: &str| own.and_then(|id| res.senders.peek(id, w, now)).map(|e| e.url.clone());
-    let skip = |w: &str, rec: &Rec| {
-      res.blocked.contains(w, &rec.url)
-        || owned(w).is_some_and(|u| u == rec.url)
-        || res.emotes.twitch_global(w).is_some()
-        || res.emotes.sub(w).is_some()
-    };
-    let picked = self.catalog_reg.take_sent(text, skip);
-    let mut vouches = Vec::with_capacity(picked.len());
-    for (name, rec) in picked {
+    let (d, res) = (self.draft(), &self.res);
+    let chan = self.tabs.get(self.active).map_or("", |t| &*t.view.channel);
+    let mut vouches = Vec::new();
+    let mut adds = Vec::new();
+    for (name, rec) in picks.sent(text) {
+      let plain = d.word(None, &name);
+      let native = d.leg == Some(Platform::Twitch) && matches!(plain, Some((_, From::Native)));
+      if native || res.blocked.contains(&name, &rec.url) || plain.as_ref().is_some_and(|(f, _)| f.0 == rec.url) {
+        continue;
+      }
+      vouches.push(Vouch { name: name.clone(), url: rec.url.clone(), provider: rec.provider });
+      let owned = d.me.and_then(|id| res.senders.peek(id, &name, d.now)).map(|e| &*e.url);
+      let here = |e: Option<&crate::emotes::Emote>| e.is_some_and(|e| e.url == rec.url);
+      let room = d.leg.is_some() && here(res.emotes.channel_on(chan, d.leg == Some(Platform::Kick), &name));
+      // twitch draws its own emote of a name wherever it goes: never a heatsync emote under it
+      let twitch = res.emotes.twitch_global(&name).is_some() || res.emotes.sub(&name).is_some();
+      if room || twitch || owned == Some(&*rec.url) || (owned.is_none() && here(res.emotes.global(&name))) {
+        continue;
+      }
       let (url, zero_width) = (rec.url, rec.zero_width);
-      vouches.push(Vouch { name: name.clone(), url: url.clone(), provider: rec.provider });
-      let cmd = if owned(&name).is_some() {
-        EmoteCmd::Swap { name, url, zero_width }
-      } else {
-        EmoteCmd::Add { name, url, hash: None, zero_width }
-      };
+      adds.push(match owned {
+        Some(_) => EmoteCmd::Swap { name, url, zero_width },
+        None => EmoteCmd::Add { name, url, hash: None, zero_width },
+      });
+    }
+    for cmd in adds {
       self.net.send(Cmd::Emote(cmd));
     }
     vouches
@@ -247,15 +286,18 @@ impl App {
   // doubled, while cycling). an emote shows as its picture; the one it replaces stops showing
   pub(super) fn show_pick(&mut self) {
     let Some(c) = &mut self.complete else { return };
-    let Some(pick) = c.matches.get(c.at).map(|m| m.name.clone()) else { return };
+    let Some((pick, pic)) = c.matches.get(c.at).map(|m| (m.name.clone(), m.pic.clone())) else { return };
     if let Some(old) = c.chipped.take() {
       self.line.chips.remove(&old);
     }
-    // a catalog pick is remembered the moment it's taken, for the box's picture and auto-add on send;
-    // moving on to another emote of the same name means that one instead
-    match c.remote.as_ref().and_then(|r| r.hit(c.at)) {
-      Some(h) => self.catalog_reg.track(h),
-      None => self.catalog_reg.forget(&pick),
+    // the candidate stepped onto is this draft's pick for its name: the box draws that picture and the
+    // line ships it. a step only passed gives its name back as it found it, so an earlier pick of that
+    // name in the same message stays
+    if let Some((name, was)) = c.passed.take() {
+      self.line.picks.put(&name, was);
+    }
+    if let Some(rec) = pic {
+      c.passed = Some((pick.clone(), self.line.picks.put(&pick, Some(rec))));
     }
     self.line.replace(c.start..c.end, &pick);
     c.end = c.start + pick.len();
@@ -436,11 +478,13 @@ mod tests {
     }
   }
 
-  // the channel has an IDK; tab on finds another IDK in the catalogs, the box shows that one, and
-  // sending it puts it in your inventory (swapping out an IDK you already had)
+  // IDK means an emote here; the catalogs hold another IDK. tab never offers the look-alike (the name typed
+  // in full keeps its one meaning), and the picker's search is where the other one is picked on purpose:
+  // the box shows it, and sending it puts it in your inventory (swapping out an IDK you already had)
   #[test]
-  fn another_emote_of_a_channel_name_can_be_picked_and_sent() {
+  fn another_emote_of_a_name_is_never_in_tab_and_is_picked_on_purpose_in_the_picker() {
     use crate::emotes::{Emote, Provider};
+    use crate::model::catalog::Rec;
     use crate::net::NetEvent;
     let (net, mut rx) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into()], false);
@@ -462,21 +506,19 @@ mod tests {
         [Cmd::Catalog { epoch, .. }] => *epoch,
         _ => panic!("one catalog ask"),
       };
-      let local = app.box_url("IDK");
+      let before: Vec<Box<str>> = app.complete.as_ref().unwrap().matches.iter().map(|p| p.name.clone()).collect();
       app.on_net(NetEvent::Catalog {
         epoch,
-        stv: Some(page(vec![hit("IDK", "CHAN"), hit("IDK", "OTHER")], false)),
+        stv: Some(page(vec![hit("IDK", "CHAN"), hit("IDK", "OTHER"), hit("IDKnew", "NEW")], false)),
         ffz: None,
       });
       let names: Vec<&str> = app.complete.as_ref().unwrap().matches.iter().map(|p| &*p.name).collect();
-      assert_eq!(names.iter().filter(|n| **n == "IDK").count(), 2, "{names:?}");
-      assert_eq!(app.box_url("IDK"), local, "typing IDK still means the one you'd get anyway");
-      // tab onto the catalog's IDK: the box shows it
-      while app.box_url("IDK").as_deref() != Some(&*url("OTHER")) {
-        app.tab_complete(false);
-        assert!(app.complete.as_ref().unwrap().at < 5, "never reached the other IDK");
-      }
-      app.complete = None;
+      assert_eq!(names.len(), before.len() + 1, "only the name nothing here answers joined: {names:?}");
+      assert_eq!(names.last(), Some(&"IDKnew"));
+      // the picker's tile of the other IDK: the box shows it
+      (app.complete, app.line) = (None, Default::default());
+      app.insert_pick("IDK", Rec::of(&hit("IDK", "OTHER")));
+      assert_eq!(app.box_url("IDK").as_deref(), Some(&*url("OTHER")));
       app.send();
       let sent = asked(&mut rx);
       let cmd =
@@ -493,7 +535,7 @@ mod tests {
   // tab with nothing local asks the catalogs, a stale answer is dropped, the live one fills the cycle
   // (box only), and sending the tabbed name adds it to your inventory exactly once
   #[test]
-  fn catalog_tab_search_cycle_and_auto_add_on_send() {
+  fn catalog_tab_search_cycle_and_the_pick_is_added_on_send() {
     use crate::net::NetEvent;
     let (net, mut rx) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into()], false);
@@ -538,9 +580,12 @@ mod tests {
     app.tab_complete(false);
     assert_eq!(app.line.text, "say zzcat ");
     assert!(asked(&mut rx).is_empty());
-    // end the cycle on zzcatLol and send: it is the one that gets added, once
+    // end the cycle on zzcatLol and send: it is the one that gets added, once. zzcatWide was only passed
+    // on the way round, so typed by hand it is a word (a step you only passed is no pick)
     app.tab_complete(false);
     app.complete = None;
+    assert!(app.line.picks.get("zzcatLol").is_some());
+    assert!(app.line.picks.get("zzcat").is_none() && app.line.picks.get("zzcatWide").is_none());
     app.line.insert("zzcatLol hello zzcatLol zzcatWide zzcatNever");
     app.send();
     let sent = asked(&mut rx);
@@ -555,11 +600,8 @@ mod tests {
       .collect();
     assert_eq!(
       adds,
-      [
-        ("zzcatLol", "https://cdn.7tv.app/emote/A1/1x.webp", true, false),
-        ("zzcatWide", "https://cdn.7tv.app/emote/A3/1x.webp", true, false)
-      ],
-      "only names that were tabbed onto, each once"
+      [("zzcatLol", "https://cdn.7tv.app/emote/A1/1x.webp", true, false)],
+      "only the name the cycle ended on, once"
     );
     assert!(sent.iter().any(|c| matches!(c, Cmd::Send { text, .. } if text.contains("zzcatLol hello"))));
     // rule 7: the line never waits on those adds, and the room is told what was picked, once per room
@@ -574,12 +616,9 @@ mod tests {
       .collect();
     assert_eq!(
       vouched,
-      [(
-        crate::model::message::Platform::Twitch,
-        "forsen".to_string(),
-        vec![("zzcatLol".to_string(), "7tv"), ("zzcatWide".to_string(), "7tv")]
-      )]
+      [(crate::model::message::Platform::Twitch, "forsen".to_string(), vec![("zzcatLol".to_string(), "7tv")])]
     );
+    assert!(app.line.picks.is_empty(), "the picks left with their message");
     app.line.insert("zzcatLol");
     app.send();
     let again = asked(&mut rx);
@@ -592,15 +631,16 @@ mod tests {
   // a name you own, block or get as a global is never added; logged out adds nothing; blocked names
   // never surface from the catalog
   #[test]
-  fn auto_add_skips_owned_blocked_and_logged_out() {
+  fn a_sent_pick_skips_owned_blocked_and_logged_out() {
     use crate::emotes::block::Scope;
     let (net, mut rx) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into()], false);
     let url = |i: &str| format!("https://cdn.7tv.app/emote/{i}/1x.webp");
+    let mut picks = crate::model::catalog::Registry::default();
     for (n, i) in [("aaown", "1"), ("aablk", "2"), ("aaok", "3")] {
-      app.catalog_reg.track(&hit(n, i));
+      picks.track(&hit(n, i));
     }
-    app.auto_add("aaok");
+    assert!(app.ship_picks("aaok", &picks).is_empty());
     assert!(asked(&mut rx).is_empty(), "logged out");
     signed_in(&mut app);
     let row = serde_json::json!({"custom_name": "aaown", "url": url("1"), "width": 32, "height": 32,
@@ -608,7 +648,12 @@ mod tests {
     app.res.senders.lookup(1, "aaown", 0);
     app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
     app.res.blocked.block("aablk", &url("2"), Scope::Hs);
-    app.auto_add("aaown aablk aaok");
+    let vouched = app.ship_picks("aaown aablk aaok", &picks);
+    assert_eq!(
+      vouched.iter().map(|v| &*v.name).collect::<Vec<_>>(),
+      ["aaok"],
+      "the pick of what the word already is says nothing"
+    );
     let names: Vec<_> = asked(&mut rx)
       .into_iter()
       .filter_map(|c| match c {
@@ -620,10 +665,9 @@ mod tests {
     // a blocked name is filtered out of a catalog page
     let mut cy = crate::model::catalog::Cycle::new("aa");
     let mut m = Vec::new();
-    let mut reg = crate::model::catalog::Registry::default();
     cy.ask(1, 0, true);
     let blocked = |n: &str, u: &str| app.res.blocked.contains(n, u);
-    cy.absorb(Some(page(vec![hit("aablk", "2"), hit("aafine", "4")], false)), None, &mut m, &mut reg, blocked);
+    cy.absorb(Some(page(vec![hit("aablk", "2"), hit("aafine", "4")], false)), None, &mut m, blocked);
     assert_eq!(m.iter().map(|p| &*p.name).collect::<Vec<_>>(), ["aafine"]);
   }
 
@@ -674,38 +718,133 @@ mod tests {
   // the same word W in every source at once, for the composer rules below: the channel's ffz, a global 7tv,
   // and (when `own`) W in your own inventory
   fn w_everywhere(app: &mut App, own: bool) {
+    everywhere(app, "W", own);
+  }
+
+  fn everywhere(app: &mut App, name: &str, own: bool) {
     use crate::emotes::{Emote, Provider};
     let e = |id: &str| Emote { url: url7(id).into(), w: 28, h: 28, zero_width: false };
-    app.res.emotes.set(Some("forsen"), Provider::Ffz, [("W".into(), e("CHANFFZ"))].into());
-    app.res.emotes.set(None, Provider::SevenTv, [("W".into(), e("GLOBAL7"))].into());
+    app.res.emotes.set(Some("forsen"), Provider::Ffz, [(name.into(), e("CHANFFZ"))].into());
+    app.res.emotes.set(None, Provider::SevenTv, [(name.into(), e("GLOBAL7"))].into());
     if own {
-      let row = serde_json::json!({"custom_name": "W", "url": url7("INV"), "width": 32, "height": 32,
+      let row = serde_json::json!({"custom_name": name, "url": url7("INV"), "width": 32, "height": 32,
         "added_at": "2026-10-30T22:26:51.099Z"});
-      app.res.senders.lookup(1, "W", 0);
+      app.res.senders.lookup(1, name, 0);
       app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
     }
   }
 
-  // rule 6: the composer chip is exactly what sends: the pick, else your inventory, else the channel, else
-  // the globals. tab says the same about where W comes from
+  // the emote law's send order in the box: the chip is exactly what sends. a pick, else the channel's, else
+  // yours, else a global: a typed word is the room's emote even where you own a copy of the name, and tab
+  // lists the copies of a name in that same order, each its own candidate with its own picture
   #[test]
-  fn rule_6_the_chip_shows_what_sends_pick_then_inventory_then_channel_then_globals() {
+  fn the_chip_shows_what_sends_pick_then_channel_then_yours_then_globals() {
     let (net, _rx) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into()], false);
     signed_in(&mut app);
     w_everywhere(&mut app, true);
     let chip = |app: &App| app.box_url("W").map(|u| u.to_string());
-    app.catalog_reg.track(&hit("W", "PICK"));
+    app.line.picks.track(&hit("W", "PICK"));
     assert_eq!(chip(&app), Some(url7("PICK")), "the pick");
-    app.catalog_reg.forget("W");
-    assert_eq!(chip(&app), Some(url7("INV")), "your inventory beats the channel's and the globals'");
-    let what = app.candidates("W", false).iter().find(|p| &*p.name == "W").map(|p| p.what);
-    assert_eq!(what, Some("your inventory · heatsync only"), "tab names the one that sends");
-    app.res.senders.stale(1, Some("W"));
-    assert_eq!(chip(&app), Some(url7("CHANFFZ")), "removed: the channel's");
+    app.line.picks.put("W", None);
+    assert_eq!(chip(&app), Some(url7("CHANFFZ")), "hand-typed: the channel's, over your own copy");
+    let copies: Vec<(&str, String)> = app
+      .candidates("W", false)
+      .iter()
+      .filter(|p| &*p.name == "W")
+      .map(|p| (p.what, p.pic.as_ref().unwrap().url.to_string()))
+      .collect();
+    assert_eq!(
+      copies,
+      [
+        ("channel · ffz users", url7("CHANFFZ")),
+        ("your inventory · heatsync only", url7("INV")),
+        ("global · 7tv users", url7("GLOBAL7"))
+      ],
+      "tab's first W is the one typing it sends"
+    );
     app.res.emotes.set(Some("forsen"), crate::emotes::Provider::Ffz, Default::default());
+    assert_eq!(chip(&app), Some(url7("INV")), "the channel has none: yours");
+    app.res.senders.stale(1, Some("W"));
     assert_eq!(chip(&app), Some(url7("GLOBAL7")), "then the globals");
     assert_eq!(chip_case(&app, "w"), None, "case is exact");
+  }
+
+  // tab onto the second copy of a name and that picture is the draft's pick: the box shows it and the room
+  // is told. a copy only passed on the way leaves the name as it was, and a pick whose word left the box
+  // is over once anything is typed
+  #[test]
+  fn stepping_onto_a_copy_picks_it_and_passing_one_does_not() {
+    let (net, mut rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    everywhere(&mut app, "Wide", true);
+    app.line.insert("Wide");
+    app.tab_complete(false);
+    assert_eq!(app.box_url("Wide").as_deref(), Some(&*url7("CHANFFZ")));
+    app.tab_complete(false);
+    assert_eq!(app.box_url("Wide").as_deref(), Some(&*url7("INV")), "the second Wide is yours");
+    app.tab_complete(false);
+    app.tab_complete(true);
+    assert_eq!(
+      app.line.picks.get("Wide").map(|r| &*r.url),
+      Some(&*url7("INV")),
+      "back on yours: the global was passed"
+    );
+    app.complete = None;
+    app.send();
+    let sent = asked(&mut rx);
+    let vouched: Vec<String> = sent
+      .iter()
+      .filter_map(|c| match c {
+        Cmd::Hs(crate::net::hs_ws::Cmd::Used(_, _, v)) => Some(v.iter().map(|e| e.url.to_string()).collect::<Vec<_>>()),
+        _ => None,
+      })
+      .flatten()
+      .collect();
+    assert_eq!(vouched, [url7("INV")], "the room is told which Wide this line means");
+    assert!(sent.iter().all(|c| !matches!(c, Cmd::Emote(_))), "it is already yours: nothing is added or swapped");
+    // the channel's own Wide, picked: it is what the word sends anyway, so nothing is said
+    app.line.insert("Wide");
+    app.tab_complete(false);
+    app.complete = None;
+    asked(&mut rx);
+    app.send();
+    assert!(asked(&mut rx).iter().all(|c| matches!(c, Cmd::Send { .. } | Cmd::Hs(crate::net::hs_ws::Cmd::Origin(..)))));
+    // a pick whose word left the box ends with the next thing typed
+    app.line.picks.track(&hit("W", "PICK"));
+    app.line.picks.prune("hello ");
+    assert!(app.line.picks.is_empty());
+  }
+
+  // people are not emotes: the law ranks the emotes and says where its groups end. the person typed whole
+  // follows the emote of that exact name, the other recent talkers follow the room's emotes, and what is
+  // only yours or global comes after them
+  #[test]
+  fn people_join_tab_after_the_exact_name_and_after_the_rooms_emotes() {
+    use crate::emotes::{Emote, Provider};
+    use crate::model::message::{Kind, Message, Platform};
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    let e = |id: &str| Emote { url: url7(id).into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(
+      Some("forsen"),
+      Provider::SevenTv,
+      [("zorp".into(), e("Z1")), ("zorpRoom".into(), e("Z2"))].into(),
+    );
+    app.res.emotes.set(None, Provider::Bttv, [("zorpGlobal".into(), e("Z3"))].into());
+    for nick in ["Zorp", "zorpTalker"] {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "hi");
+      m.kind = Kind::Chat;
+      (m.login, m.nick) = (nick.to_lowercase().into(), nick.into());
+      let at = app.active;
+      app.tabs[at].view.push(m);
+    }
+    let names: Vec<String> = app.candidates("zorp", false).iter().map(|p| p.name.to_string()).collect();
+    assert_eq!(names, ["zorp", "Zorp", "zorpRoom", "zorpTalker", "zorpGlobal"]);
+    let at: Vec<String> = app.candidates("@zorp", false).iter().map(|p| p.name.to_string()).collect();
+    assert!(at.iter().all(|n| n.starts_with('@')) && at.len() == 2, "@ is people only: {at:?}");
   }
 
   fn chip_case(app: &App, w: &str) -> Option<String> {
@@ -721,7 +860,7 @@ mod tests {
     let mut app = App::new(net, vec!["forsen".into()], false);
     signed_in(&mut app);
     // no W of mine: the pick is an add, the line goes, the room is vouched
-    app.catalog_reg.track(&hit("W", "PICK"));
+    app.line.picks.track(&hit("W", "PICK"));
     app.line.insert("W");
     app.send();
     let sent = asked(&mut rx);
@@ -739,7 +878,7 @@ mod tests {
     assert_eq!(kinds, ["add", "send", "origin", "vouch"]);
     // a different W of mine: the pick replaces it on purpose, in one swap
     w_everywhere(&mut app, true);
-    app.catalog_reg.track(&hit("W", "PICK"));
+    app.line.picks.track(&hit("W", "PICK"));
     app.line.insert("W");
     app.send();
     assert!(asked(&mut rx).iter().any(|c| matches!(c, Cmd::Emote(EmoteCmd::Swap { name, .. }) if &**name == "W")));

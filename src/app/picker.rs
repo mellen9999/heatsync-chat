@@ -105,20 +105,16 @@ impl App {
     }
     let Some(it) = self.picker.as_ref().and_then(|p| p.selected()) else { return };
     let (name, url) = (it.name.clone(), it.url.clone());
-    // a catalog tile is a candidate in the box, remembered like a tab-completed one: sending the line is
-    // what adds it to your inventory. anything local is the emote you mean by that name
+    // a tile is the picture you mean by its name in this message, catalog or local: the draft's pick, as a
+    // tab-completed one is. sending the line is what adds a catalog one to your inventory
     let remote = self.picker.as_ref().and_then(|p| p.selected_hit()).cloned();
     if self.res.blocked.contains(&name, &url) {
       self.say(f("app.picker.blocked", &[("name", &name)]));
       self.bar_dirty = true;
       return self.wake();
     }
-    match &remote {
-      Some(h) => self.catalog_reg.track(h),
-      None => self.catalog_reg.forget(&name),
-    }
-    self.line.insert_chip(&name);
-    self.used_emote(&name);
+    let rec = remote.as_ref().map_or_else(|| self.pick_of(&name, &url), crate::model::catalog::Rec::of);
+    self.insert_pick(&name, rec);
     self.complete = None;
     if !keep {
       self.close_picker();

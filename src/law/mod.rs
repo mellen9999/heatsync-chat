@@ -914,9 +914,22 @@ fn total(a: f64, b: f64) -> Ordering {
 /// inside a tier: starts-with, word-start, inside; then ones you use, more carried, shorter, a-z.
 /// copies of one name always sit in send order wherever they land.
 pub fn offer<'a, E: Pic>(typed: &str, ctx: &OfferCtx<'a, E>, limit: Option<usize>) -> Vec<Candidate<'a, E>> {
+  offer_seams(typed, ctx, limit).list
+}
+
+/// the offer, and the two places a client may set something that is not an emote (the room's people)
+/// into it: the first `exact` are the exact name; the first `room` are those, the names you use and
+/// the room's. the law ranks emotes only, but it alone knows where its groups end
+pub struct Offered<'a, E> {
+  pub list: Vec<Candidate<'a, E>>,
+  pub exact: usize,
+  pub room: usize,
+}
+
+pub fn offer_seams<'a, E: Pic>(typed: &str, ctx: &OfferCtx<'a, E>, limit: Option<usize>) -> Offered<'a, E> {
   let q = typed.to_lowercase();
   if q.is_empty() {
-    return Vec::new();
+    return Offered { list: Vec::new(), exact: 0, room: 0 };
   }
   let mut pool = gather(ctx, Some(&q));
   for c in &mut pool {
@@ -977,6 +990,9 @@ pub fn offer<'a, E: Pic>(typed: &str, ctx: &OfferCtx<'a, E>, limit: Option<usize
         .then_with(|| tail(a, b)),
     }
   });
+  // counted by slot, before copies trade places inside the slots their name earned
+  let exact = pool.iter().filter(|c| group(c) == 0).count();
+  let room = pool.iter().filter(|c| group(c) <= 2).count();
   // copies of one name keep the slots they earned, but stand in send order within them
   let mut slots: HashMap<&str, Vec<usize>> = HashMap::new();
   for (i, c) in pool.iter().enumerate() {
@@ -1010,10 +1026,11 @@ pub fn offer<'a, E: Pic>(typed: &str, ctx: &OfferCtx<'a, E>, limit: Option<usize
     by_slot.sort_by_key(|(i, _)| *i);
     by_slot.into_iter().map(|(_, c)| c).collect()
   };
-  match limit {
+  let list: Vec<Candidate<E>> = match limit {
     Some(n) if n > 0 => list.into_iter().take(n).collect(),
     _ => list,
-  }
+  };
+  Offered { exact: exact.min(list.len()), room: room.min(list.len()), list }
 }
 
 /// something arrived mid-cycle (a room set, a catalog answer). everything up to

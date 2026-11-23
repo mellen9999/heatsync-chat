@@ -19,6 +19,8 @@ pub(super) struct Solo {
   pub(super) platform: Platform,
   pub(super) chan: Box<str>,
   pub(super) typed: String,
+  // the picks made in it: a line handed back comes back with them
+  pub(super) picks: crate::model::catalog::Registry,
 }
 
 impl App {
@@ -29,6 +31,9 @@ impl App {
     let here = self.legs().iter().any(|(p, c)| *p == s.platform && *c == &*s.chan);
     if here && self.line.text.is_empty() {
       self.line.load(s.typed);
+      let named: Vec<Box<str>> = s.picks.sent(&self.line.text).into_iter().map(|p| p.0).collect();
+      self.line.chips.extend(named);
+      self.line.picks = s.picks;
       self.input_dirty = true;
       self.wake();
     }
@@ -137,12 +142,24 @@ impl App {
   }
 
   // send `text` to each feed in `legs`, each its own copy; several feeds' echoes will fold into one row
-  pub(super) fn fan_out(&mut self, legs: &[(Platform, Box<str>)], text: &str, reply: Option<Reply>, send: &str) {
+  pub(super) fn fan_out(
+    &mut self,
+    legs: &[(Platform, Box<str>)],
+    text: &str,
+    reply: Option<Reply>,
+    send: &str,
+    picks: &crate::model::catalog::Registry,
+  ) {
+    // the line was answered once, against its first feed (the emote law): a word that means another emote
+    // there goes to kick as a bare word, never as kick's look-alike of the name
+    let d = self.draft();
+    let means = |w: &str| d.word(Some(picks), w).is_some_and(|(f, _)| !f.0.starts_with("https://files.kick.com/"));
+    let other: std::collections::HashSet<Box<str>> = text.split(' ').filter(|w| means(w)).map(Into::into).collect();
     let mut tracked = Vec::with_capacity(legs.len());
     for (platform, chan) in legs {
       let (mut text, reply) = leg_line(*platform, text, reply.as_ref());
       if *platform == Platform::Kick {
-        text = self.res.emotes.kickify(chan, &text);
+        text = self.res.emotes.kickify(chan, &text, |w| other.contains(w));
       }
       tracked.push(Leg::new(*platform, chan.clone(), text.clone(), reply.clone()));
       self.net.send(Cmd::Send { platform: *platform, chan: chan.clone(), text, reply, send: Some(send.into()) });

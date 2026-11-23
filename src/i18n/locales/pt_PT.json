@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globais · utilizadores ffz",
  "app.complete.global_twitch": "globais · todo o twitch",
  "app.complete.no_match": "nada para {word}",
+ "app.complete.wont_show": "não aparece aqui",
  "app.complete.your_command": "o teu comando",
  "app.complete.your_inventory": "o teu inventário · só heatsync",
  "app.complete.your_set": "o teu set pessoal · utilizadores 7tv",

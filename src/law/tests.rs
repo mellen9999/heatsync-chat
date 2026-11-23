@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
 mod drawing;
+mod sending;
 
 const FILE: &str = include_str!("emote-law.vectors.json");
 const SHUFFLES: [u32; 5] = [1, 7, 1337, 90210, 424242];

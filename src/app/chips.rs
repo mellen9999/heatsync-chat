@@ -1,12 +1,15 @@
-// emotes in the message box (the ext's input preview): which words show as their emote, and when a
-// typed word turns into one (a catalog pick you tabbed onto shows too, box only). a chip is only a name in the line's set; the text sent is unchanged
+// emotes in the message box: which words show as their emote, and when a typed word turns into one. a chip
+// is only a name in the line's set, the text sent is unchanged; which picture a name is comes from the emote
+// law (emotes/draft.rs), with the draft's own picks
 use super::App;
+use crate::emotes::block::Blocked;
+use crate::emotes::draft::{Draft, Found};
+use crate::model::catalog::{Rec, Registry};
+use crate::model::message::Platform;
+use crate::model::tabs::Kind;
 use crate::ui::input_bar::Chip;
 use crate::ui::res::EMOTE_PX;
 use crate::util::time::now_ms;
-
-// an emote as the box resolves it: (url, native size, zero-width)
-type Found = (Box<str>, (u16, u16), bool);
 
 impl App {
   pub(super) fn own_id(&self) -> Option<u64> {
@@ -19,21 +22,62 @@ impl App {
     Some((x.url.clone(), (x.w, x.h), x.zero_width))
   }
 
-  // what the name will be once sent: a catalog pick you just took (box only: nothing that draws a chat
-  // line asks this; it joins your inventory on send), then render order like a line you sent: your
-  // inventory, your 7tv personal set, the channel's set, globals
+  // the platform a line written now resolves against (the emote law: of the feeds it goes to, twitch, else
+  // kick, else youtube). None where the box writes no chat line: a post, a reply, a whisper
+  fn leg(&self) -> Option<Platform> {
+    if self.feedish() || self.edit.is_some() || matches!(self.kind(), Kind::Whispers | Kind::Mentions) {
+      return None;
+    }
+    let legs = self.legs();
+    let first = [Platform::Twitch, Platform::Kick, Platform::Youtube];
+    first.into_iter().find(|p| legs.iter().any(|(l, _)| l == p)).or_else(|| self.target().map(|t| t.0))
+  }
+
+  // what the box's words are read against: the room this line goes to, and what is yours
+  pub(super) fn draft(&self) -> Draft<'_> {
+    Draft {
+      emotes: &self.res.emotes,
+      senders: &self.res.senders,
+      personal: &self.res.personal,
+      me: self.own_id(),
+      inventory: self.res.look.inventory_emotes,
+      leg: self.leg(),
+      chan: self.tabs.get(self.active).map_or("", |t| &*t.view.channel),
+      now: now_ms(),
+    }
+  }
+
+  // what the name will be once sent, by the emote law's send order (emotes/draft.rs): the chip is what
+  // ships, and what the line draws when it comes back. a picture you blocked is not shown
   fn box_emote(&self, word: &str) -> Option<Found> {
-    let chan = self.tabs.get(self.active).map_or("", |t| &*t.view.channel);
-    let e = |e: &crate::emotes::Emote| (e.url.clone(), (e.w, e.h), e.zero_width);
-    let found = self.catalog_reg.get(word).map(|r| (r.url.clone(), (0, 0), r.zero_width));
-    let found = found
-      .or_else(|| self.owned_emote(word))
-      .or_else(|| self.own_id().and_then(|id| self.res.personal.peek(id, word)).map(e))
-      .or_else(|| self.res.emotes.sub(word).map(e))
-      .or_else(|| self.res.emotes.channel(chan, word).map(e));
-    let found =
-      found.or_else(|| self.res.emotes.twitch_global(word).map(e)).or_else(|| self.res.emotes.global(word).map(e));
-    found.filter(|(url, _, _)| !self.res.blocked.contains(word, url))
+    Self::drawn(&self.draft(), &self.line.picks, &self.res.blocked, word)
+  }
+
+  fn drawn(d: &Draft, picks: &Registry, blocked: &Blocked, word: &str) -> Option<Found> {
+    d.word(Some(picks), word).map(|f| f.0).filter(|(url, _, _)| !blocked.contains(word, url))
+  }
+
+  // an emote here under this name with this picture, as a pick: tab's, a picker tile's, one clicked in chat
+  pub(super) fn pick_of(&self, name: &str, url: &str) -> Rec {
+    let (res, chan, me) = (&self.res, self.tabs.get(self.active).map_or("", |t| &*t.view.channel), self.own_id());
+    let e = |e: &crate::emotes::Emote| (&*e.url == url).then_some(e.zero_width);
+    let zw = (res.emotes.channel_all(chan).iter())
+      .chain(&res.emotes.global_all())
+      .find_map(|(n, _, x)| (*n == name).then(|| e(x)).flatten())
+      .or_else(|| me.and_then(|id| res.personal.peek(id, name)).and_then(e))
+      .or_else(|| res.emotes.sub(name).and_then(e))
+      .or_else(|| {
+        me.and_then(|id| res.senders.peek(id, name, now_ms())).filter(|x| &*x.url == url).map(|x| x.zero_width)
+      });
+    Rec { url: url.into(), zero_width: zw.unwrap_or(false), provider: crate::emotes::draft::host(url) }
+  }
+
+  // an emote of this name went into the box on purpose (the picker, a click in chat): it is this draft's
+  // pick, shown as its picture
+  pub(super) fn insert_pick(&mut self, name: &str, rec: Rec) {
+    self.line.picks.put(name, Some(rec));
+    self.line.insert_chip(name);
+    self.used_emote(name);
   }
 
   // an emote went into the box: the picker's recents and tab's ranking both learn it
@@ -49,7 +93,9 @@ impl App {
 
   // which chips are overlays, so the line knows its stacks (drawing, and vi stepping over them whole)
   pub(super) fn sync_overlays(&mut self) {
-    let ov = self.line.chips.iter().filter(|w| self.box_emote(w).is_some_and(|f| f.2)).cloned().collect();
+    let d = self.draft();
+    let over = |w: &str| Self::drawn(&d, &self.line.picks, &self.res.blocked, w).is_some_and(|f| f.2);
+    let ov = self.line.chips.iter().filter(|w| over(w)).cloned().collect();
     self.line.overlays = ov;
   }
 
@@ -57,13 +103,20 @@ impl App {
   pub(super) fn input_chips(&mut self) -> Vec<Chip> {
     self.sync_overlays();
     let h = self.res.images.px(EMOTE_PX);
+    // every stack's words read once, against one draft
+    let d = self.draft();
+    let read = |r: &std::ops::Range<usize>| -> Vec<Found> {
+      let words = self.line.text[r.clone()].split(' ');
+      words.filter_map(|w| Self::drawn(&d, &self.line.picks, &self.res.blocked, w)).collect()
+    };
+    let stacks: Vec<(std::ops::Range<usize>, Vec<Found>)> =
+      self.line.stacks().into_iter().map(|r| (r.clone(), read(&r))).collect();
     let mut out: Vec<Chip> = Vec::new();
-    for r in self.line.stacks() {
+    for (r, found) in stacks {
       let words = &self.line.text[r.clone()];
       // a stack that starts on a lone emoji (not an emote): the emoji is drawn under its overlays
       let first = words.split(' ').next().unwrap_or("");
       let glyph = (!self.line.chips.contains(first) && crate::ui::text::lone_emoji(first)).then(|| first.into());
-      let found: Vec<Found> = words.split(' ').filter_map(|w| self.box_emote(w)).collect();
       let Some(dims) = found.first().map(|f| f.1) else { continue };
       let layers: Vec<_> = found.iter().map(|f| self.res.images.id(&f.0, EMOTE_PX)).collect();
       let w = self.res.images.width(layers[0], dims);

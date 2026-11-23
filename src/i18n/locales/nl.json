@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globaal · ffz-gebruikers",
  "app.complete.global_twitch": "globaal · alle twitch",
  "app.complete.no_match": "geen resultaat voor {word}",
+ "app.complete.wont_show": "verschijnt hier niet",
  "app.complete.your_command": "jouw commando",
  "app.complete.your_inventory": "jouw inventaris · alleen heatsync",
  "app.complete.your_set": "jouw persoonlijke set · 7tv-gebruikers",

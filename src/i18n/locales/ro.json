@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globale · utilizatori ffz",
  "app.complete.global_twitch": "globale · tot twitch",
  "app.complete.no_match": "nicio potrivire pentru {word}",
+ "app.complete.wont_show": "nu se va afișa aici",
  "app.complete.your_command": "comanda ta",
  "app.complete.your_inventory": "inventarul tău · doar heatsync",
  "app.complete.your_set": "setul tău personal · utilizatori 7tv",

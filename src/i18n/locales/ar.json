@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "عام · مستخدمو ffz",
  "app.complete.global_twitch": "عام · كل twitch",
  "app.complete.no_match": "لا نتائج لـ {word}",
+ "app.complete.wont_show": "لن يظهر هنا",
  "app.complete.your_command": "أمرك",
  "app.complete.your_inventory": "مخزونك · heatsync فقط",
  "app.complete.your_set": "مجموعتك الشخصية · مستخدمو 7tv",

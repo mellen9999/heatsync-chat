@@ -1,7 +1,7 @@
 // tab-complete's remote leg (ext input.js fetchRemoteEmoteMatches): when the local pools run out, the 7tv
 // and ffz catalogs are searched a page at a time and appended to the cycle. a catalog hit is only ever a
-// candidate in the box; it reaches chat the one way anything does, by being in your heatsync inventory
-// (auto-add on send, `Registry`). every response is hostile: names, ids and urls are checked here
+// candidate in the box; stepped onto, it is the draft's pick (`Registry`): the sent line vouches it to the
+// room and adds it to your heatsync inventory. every response is hostile: names, ids and urls are checked here
 use crate::i18n::t;
 use std::collections::HashMap;
 
@@ -21,10 +21,10 @@ pub const LOOKAHEAD: usize = 5;
 pub const MAX_MATCHES: usize = 1000;
 // all-duplicate pages chased per trigger before giving up on it
 pub const CHASE: u8 = 4;
-// tab-completed names remembered for auto-add
+// picks one draft can hold
 pub const REGISTRY_CAP: usize = 300;
-// adds one sent line can start
-const MAX_ADDS: usize = 25;
+// picks one sent line can carry
+const MAX_PICKS: usize = 25;
 const MIN_NAME: usize = 2;
 const MAX_NAME: usize = 64;
 // longest search sent to a third party
@@ -250,6 +250,7 @@ impl Cycle {
     self.maxed || self.ex == [true; 2]
   }
 
+  #[cfg(test)]
   pub fn hit(&self, at: usize) -> Option<&Hit> {
     self.hits.get(&at)
   }
@@ -274,15 +275,13 @@ impl Cycle {
 
   // an answer (None = that provider failed or was not asked: it is finished for this search). new picks
   // only ever go on the END of `matches`: what the user already cycled never moves. the first exact
-  // name leads the new block, and is registered for auto-add (the one name typed in full and sent
-  // without ever tabbing onto it) unless a local pick answers to it. what `skip` vetoes never surfaces
-  // (blocked, or this very emote already yours here)
+  // name leads the new block. nothing is picked by arriving: a result is the draft's pick only once it
+  // is stepped onto. what `skip` vetoes never surfaces (blocked, or a name that already means an emote here)
   pub fn absorb(
     &mut self,
     stv: Option<Page>,
     ffz: Option<Page>,
     matches: &mut Vec<Pick>,
-    reg: &mut Registry,
     skip: impl Fn(&str, &str) -> bool,
   ) -> Step {
     self.pending = false;
@@ -294,29 +293,31 @@ impl Cycle {
     // the emote provider priority (ext emoteProviderPriority default): ffz lists before 7tv
     let incoming = ffz.into_iter().chain(stv).flat_map(|p| p.hits);
     let low = self.search.to_lowercase();
-    // another emote under a name already offered is still offered (the point: a different IDK); the
-    // very same picture twice is not. `skip` also vetoes what is already yours here under that name
-    let mut have: std::collections::HashSet<Box<str>> = self.hits.values().map(|h| h.url.clone()).collect();
+    // one result per name, the first to come (the emote law: a look-alike never sits in the cycle; the
+    // picker's search is where another picture of a name is picked on purpose). `skip` vetoes a name that
+    // already means something here, and what is blocked
+    let mut have: std::collections::HashSet<Box<str>> = self.hits.values().map(|h| h.name.clone()).collect();
     let mut add: Vec<Hit> = Vec::new();
     for h in incoming {
-      if !h.name.to_lowercase().contains(&low) || have.contains(&h.url) || skip(&h.name, &h.url) {
+      if !h.name.to_lowercase().contains(&low) || have.contains(&h.name) || skip(&h.name, &h.url) {
         continue;
       }
-      have.insert(h.url.clone());
+      have.insert(h.name.clone());
       add.push(h);
     }
     // exact name first inside the new block, the rest in the order they came
     add.sort_by_key(|h| !h.name.eq_ignore_ascii_case(&low));
     let was_empty = matches.is_empty();
     add.truncate(MAX_MATCHES.saturating_sub(matches.len()));
-    // the name typed in full counts as picked, unless something here already answers to it
-    let local = |n: &str| matches.iter().any(|m| m.emote && *m.name == *n);
-    if let Some(h) = add.first().filter(|h| h.name.eq_ignore_ascii_case(&low) && !local(&h.name)) {
-      reg.track(h);
-    }
     let added = add.len();
     for h in add {
-      matches.push(Pick { name: h.name.clone(), what: h.source.what(), emote: true, code: None });
+      matches.push(Pick {
+        name: h.name.clone(),
+        what: h.source.what(),
+        emote: true,
+        code: None,
+        pic: Some(Rec::of(&h)),
+      });
       self.hits.insert(matches.len() - 1, h);
     }
     if matches.len() >= MAX_MATCHES {
@@ -337,36 +338,57 @@ pub struct Rec {
   pub provider: &'static str,
 }
 
-// names tab-completed from the catalogs, newest last, bounded. this is the ONLY thing that carries a
-// catalog hit past its cycle: the box draws them, and a sent line adds them to your inventory
-#[derive(Default)]
+impl Rec {
+  pub fn of(h: &Hit) -> Rec {
+    Rec { url: h.url.clone(), zero_width: h.zero_width, provider: h.source.provider() }
+  }
+}
+
+// the pictures picked on purpose in the message being written (tab, the picker, an emote clicked in chat),
+// by name: one meaning per name in a draft (the emote law's send rule 2). a pick belongs to its draft: it
+// leaves with the line, and it ends when its word has left the box. the box draws them, the sent line
+// vouches them to the room, and one that is not here yet joins your inventory
+#[derive(Clone, Default)]
 pub struct Registry {
   order: Vec<Box<str>>,
   map: HashMap<Box<str>, Rec>,
 }
 
 impl Registry {
+  #[cfg(test)]
   pub fn track(&mut self, h: &Hit) {
-    self.order.retain(|n| *n != h.name);
-    self.order.push(h.name.clone());
-    self
-      .map
-      .insert(h.name.clone(), Rec { url: h.url.clone(), zero_width: h.zero_width, provider: h.source.provider() });
-    while self.order.len() > REGISTRY_CAP {
-      let old = self.order.remove(0);
-      self.map.remove(&old);
-    }
+    self.put(&h.name, Some(Rec::of(h)));
   }
 
   pub fn get(&self, name: &str) -> Option<&Rec> {
     self.map.get(name)
   }
 
-  // the cycle moved on to a pick of this name that isn't from the catalogs: that one is meant now
-  pub fn forget(&mut self, name: &str) {
-    if self.map.remove(name).is_some() {
-      self.order.retain(|n| &**n != name);
+  pub fn is_empty(&self) -> bool {
+    self.map.is_empty()
+  }
+
+  // `name` means this picture now (None: it is a hand-typed word again). what it meant before comes back,
+  // so a tab step that was only passed can leave the name as it found it
+  pub fn put(&mut self, name: &str, rec: Option<Rec>) -> Option<Rec> {
+    self.order.retain(|n| &**n != name);
+    let Some(rec) = rec else { return self.map.remove(name) };
+    self.order.push(name.into());
+    let was = self.map.insert(name.into(), rec);
+    while self.order.len() > REGISTRY_CAP {
+      let old = self.order.remove(0);
+      self.map.remove(&old);
     }
+    was
+  }
+
+  // a pick whose word is no longer in the box is over: typing the name again is a hand-typed word
+  pub fn prune(&mut self, text: &str) {
+    if self.map.is_empty() {
+      return;
+    }
+    self.map.retain(|n, _| text.split(' ').any(|w| w == &**n));
+    self.order.retain(|n| self.map.contains_key(n));
   }
 
   #[cfg(test)]
@@ -374,23 +396,17 @@ impl Registry {
     self.map.len()
   }
 
-  // the words of a sent line that were catalog picks and `skip` doesn't veto (owned, blocked, a
-  // global). each is handed over once and forgotten: it is being added now
-  pub fn take_sent(&mut self, text: &str, skip: impl Fn(&str, &Rec) -> bool) -> Vec<(Box<str>, Rec)> {
+  // the picks a sent line names, in the line's order, each once
+  pub fn sent(&self, text: &str) -> Vec<(Box<str>, Rec)> {
     let mut out: Vec<(Box<str>, Rec)> = Vec::new();
     for w in text.split_whitespace() {
-      if out.len() >= MAX_ADDS {
+      if out.len() >= MAX_PICKS {
         break;
       }
       let Some(rec) = self.map.get(w) else { continue };
-      if out.iter().any(|o| &*o.0 == w) || skip(w, rec) {
-        continue;
+      if !out.iter().any(|o| &*o.0 == w) {
+        out.push((w.into(), rec.clone()));
       }
-      out.push((w.into(), rec.clone()));
-    }
-    for (n, _) in &out {
-      self.map.remove(n);
-      self.order.retain(|o| o != n);
     }
     out
   }
@@ -531,13 +547,12 @@ mod tests {
   }
 
   fn pick(n: &str) -> Pick {
-    Pick { name: n.into(), what: "x", emote: true, code: None }
+    Pick { name: n.into(), what: "x", emote: true, code: None, pic: None }
   }
 
   #[test]
   fn merge_only_appends_exact_first_dedupes_and_filters() {
     let mut cy = Cycle::new("sad");
-    let mut reg = Registry::default();
     let mut m = vec![pick("sadge"), pick("Other")];
     let a = cy.ask(1, m.len(), true).unwrap();
     assert_eq!(a, Ask { page: 1, stv: true, ffz: true });
@@ -550,17 +565,16 @@ mod tests {
       }),
       Some(page(&["SadSub", "SAD", "nothing", "SadBlocked", "sadsub"], true)),
       &mut m,
-      &mut reg,
       blocked,
     );
-    // what was there stays put; the exact name leads the new block, then ffz before 7tv. other emotes
-    // under a similar or the same name all come (SADGE beside the local sadge, sadsub beside SadSub);
-    // the same picture twice (7tv's SadSub, the very one ffz gave) does not
+    // what was there stays put; the exact name leads the new block, then ffz before 7tv. another spelling
+    // is another name (SADGE beside the local sadge, sadsub beside SadSub); a name comes once (7tv's SadSub
+    // after ffz's does not)
     assert_eq!(names(&m), ["sadge", "Other", "SAD", "SadSub", "sadsub", "NotSad", "SADGE"]);
+    assert_eq!(m[2].pic.as_ref().map(|r| r.provider), Some("ffz"), "a result carries its own picture");
     assert_eq!(s, Step { added: 5, first: false, chase: false });
     assert_eq!(cy.hit(2).map(|h| h.source), Some(Source::Ffz));
     assert!(cy.hit(0).is_none() && cy.hit(1).is_none(), "local picks aren't the catalog's");
-    assert!(reg.get("SAD").is_some() && reg.len() == 1, "only the exact name registers up front");
     assert!(!cy.pending);
   }
 
@@ -572,53 +586,67 @@ mod tests {
       cy.ask(1, 0, true).unwrap();
       let stv = Page { hits: vec![hit("SadA", Source::SevenTv), hit("SadDup", Source::SevenTv)], more: false };
       let ffz = Page { hits: vec![hit("SadB", Source::Ffz), hit("SadDup", Source::Ffz)], more: false };
-      cy.absorb(Some(stv), Some(ffz), &mut m, &mut Registry::default(), |_, _| false);
+      cy.absorb(Some(stv), Some(ffz), &mut m, |_, _| false);
       (names(&m).into_iter().map(String::from).collect::<Vec<_>>(), cy.hit(1).map(|h| h.source))
     };
     assert_eq!(run(), (["SadB", "SadDup", "SadA"].map(String::from).to_vec(), Some(Source::Ffz)));
   }
 
-  // the channel's IDK and another IDK: both on offer, and the name typed in full stays the channel's
-  // until the other one is tabbed onto
+  // the channel has IDK: a search result of that name is a look-alike and never joins the cycle, so the
+  // name typed in full stays the channel's. two results of one new name are one candidate, the first
   #[test]
-  fn another_emote_under_a_local_name_is_offered_but_not_assumed() {
+  fn a_look_alike_of_a_name_that_means_something_here_is_never_offered() {
     let mut cy = Cycle::new("IDK");
-    let mut reg = Registry::default();
     let mut m = vec![pick("IDK")];
     cy.ask(1, m.len(), true).unwrap();
-    let mine = |_: &str, u: &str| u.contains("/ChannelIDK/");
-    let channel = Hit { url: "https://cdn.7tv.app/emote/ChannelIDK/1x.webp".into(), ..hit("IDK", Source::SevenTv) };
+    let here = |n: &str, _: &str| n == "IDK";
+    let other = Hit { url: "https://cdn.7tv.app/emote/IDKmore2/1x.webp".into(), ..hit("IDKmore", Source::SevenTv) };
     let s = cy.absorb(
-      Some(Page { hits: vec![channel, hit("IDK", Source::SevenTv)], more: false }),
+      Some(Page { hits: vec![hit("IDK", Source::SevenTv), hit("IDKmore", Source::SevenTv), other], more: false }),
       None,
       &mut m,
-      &mut reg,
-      mine,
+      here,
     );
-    assert_eq!(names(&m), ["IDK", "IDK"], "the channel's own picture isn't offered twice");
+    assert_eq!(names(&m), ["IDK", "IDKmore"]);
     assert_eq!(s.added, 1);
-    assert!(cy.hit(1).is_some_and(|h| h.url.contains("/IDK/")));
-    assert!(reg.get("IDK").is_none(), "typing IDK still means the channel's");
-    reg.track(cy.hit(1).unwrap());
-    assert!(reg.get("IDK").is_some());
-    reg.forget("IDK");
-    assert!(reg.get("IDK").is_none() && reg.len() == 0);
+    assert!(cy.hit(1).is_some_and(|h| h.url.contains("/IDKmore/")), "the first to come is the one");
+  }
+
+  // a draft's picks: a name means one picture, a passed step gives the name back as it was, a pick whose
+  // word left the box is over, and a sent line hands over the picks it names
+  #[test]
+  fn a_pick_is_its_drafts() {
+    let mut reg = Registry::default();
+    let rec = |id: &str| Rec {
+      url: format!("https://cdn.7tv.app/emote/{id}/1x.webp").into(),
+      zero_width: false,
+      provider: "7tv",
+    };
+    assert_eq!(reg.put("W", Some(rec("A"))), None);
+    let was = reg.put("W", Some(rec("B")));
+    assert_eq!(was, Some(rec("A")), "the step onto B knows what W meant");
+    reg.put("W", was);
+    assert_eq!(reg.get("W"), Some(&rec("A")), "passed: W is A again");
+    reg.put("Kept", Some(rec("K")));
+    reg.prune("hello Kept w");
+    assert!(reg.get("W").is_none() && reg.get("Kept").is_some() && reg.len() == 1, "exact words only");
+    reg.put("Kept", None);
+    assert!(reg.is_empty());
   }
 
   #[test]
   fn first_hit_when_there_were_no_locals_and_chasing_dupes() {
     let mut cy = Cycle::new("kek");
-    let mut reg = Registry::default();
     let mut m: Vec<Pick> = Vec::new();
     cy.ask(1, 0, true).unwrap();
-    let s = cy.absorb(None, Some(page(&["Kekw"], true)), &mut m, &mut reg, |_, _| false);
+    let s = cy.absorb(None, Some(page(&["Kekw"], true)), &mut m, |_, _| false);
     assert_eq!(s, Step { added: 1, first: true, chase: false });
     assert!(cy.ex == [true, false] && !cy.done(), "a failed provider is finished, the other pages on");
     assert_eq!(cy.ask(2, 1, true), Some(Ask { page: 2, stv: false, ffz: true }));
     // an all-duplicate page chases, up to the budget
     let mut chased = 0;
     loop {
-      let s = cy.absorb(None, Some(page(&["Kekw"], true)), &mut m, &mut reg, |_, _| false);
+      let s = cy.absorb(None, Some(page(&["Kekw"], true)), &mut m, |_, _| false);
       if !s.chase {
         break;
       }
@@ -629,23 +657,22 @@ mod tests {
     assert!(!cy.done());
     // a short last page ends it
     cy.ask(11, m.len(), true).unwrap();
-    cy.absorb(None, Some(page(&[], false)), &mut m, &mut reg, |_, _| false);
+    cy.absorb(None, Some(page(&[], false)), &mut m, |_, _| false);
     assert!(cy.done() && cy.ask(12, m.len(), true).is_none());
   }
 
   #[test]
   fn the_cycle_is_capped() {
     let mut cy = Cycle::new("em");
-    let mut reg = Registry::default();
     let mut m: Vec<Pick> = (0..MAX_MATCHES - 2).map(|i| pick(&format!("loc{i}"))).collect();
     cy.ask(1, m.len(), true).unwrap();
-    let s = cy.absorb(None, Some(page(&["Em1", "Em2", "Em3", "Em4"], true)), &mut m, &mut reg, |_, _| false);
+    let s = cy.absorb(None, Some(page(&["Em1", "Em2", "Em3", "Em4"], true)), &mut m, |_, _| false);
     assert_eq!((m.len(), s.added), (MAX_MATCHES, 2));
     assert!(cy.done());
   }
 
   #[test]
-  fn registry_is_bounded_and_hands_each_name_over_once() {
+  fn registry_is_bounded_and_names_the_picks_a_line_sends() {
     let mut reg = Registry::default();
     for i in 0..REGISTRY_CAP + 20 {
       reg.track(&hit(&format!("emote{i}"), Source::SevenTv));
@@ -653,10 +680,8 @@ mod tests {
     assert_eq!(reg.len(), REGISTRY_CAP);
     assert!(reg.get("emote0").is_none() && reg.get("emote319").is_some());
     reg.track(&hit("emote20", Source::SevenTv));
-    let got = reg.take_sent("hi emote20 emote20 emote25 emote30 nope", |w, _| w == "emote25");
+    let got = reg.sent("hi emote20 emote20 emote30 nope");
     assert_eq!(got.iter().map(|g| &*g.0).collect::<Vec<_>>(), ["emote20", "emote30"]);
-    assert!(reg.get("emote20").is_none() && reg.get("emote25").is_some());
-    assert!(reg.take_sent("emote20", |_, _| false).is_empty());
-    assert!(reg.take_sent("EMOTE25 emote 25", |_, _| false).is_empty(), "exact words only");
+    assert!(reg.sent("EMOTE25 emote 25").is_empty(), "exact words only");
   }
 }

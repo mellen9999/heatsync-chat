@@ -90,8 +90,9 @@ impl App {
       if blocked {
         self.run_act(Act::Unblock, &hit, owned);
       } else {
-        self.line.insert_chip(&hit.name);
-        self.used_emote(&hit.name);
+        // the emote clicked is the picture meant: this draft's pick for its name
+        let rec = self.pick_of(&hit.name, &hit.url);
+        self.insert_pick(&hit.name, rec);
         self.complete = None;
         self.enter_insert();
         self.input_dirty = true;

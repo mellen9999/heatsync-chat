@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "全局 · ffz 用户",
  "app.complete.global_twitch": "全局 · 全部 twitch",
  "app.complete.no_match": "没有匹配 {word}",
+ "app.complete.wont_show": "在这里不会显示",
  "app.complete.your_command": "你的命令",
  "app.complete.your_inventory": "你的库存 · 仅 heatsync",
  "app.complete.your_set": "你的个人表情集 · 7tv 用户",

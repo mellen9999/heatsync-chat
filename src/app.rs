@@ -450,7 +450,6 @@ pub struct App {
   frecency: Frecency,
   // tab-complete's catalog search: the newest ask's number, and what was taken from it (never read by chat)
   catalog_epoch: u32,
-  catalog_reg: crate::model::catalog::Registry,
   // the built-in path prompt (no file dialog installed), and an upload or dialog in flight
   prompt: Option<Line>,
   // the newest tab-completion asked of the path prompt; an answer to an older one is dropped
@@ -676,7 +675,6 @@ impl App {
       recents: Recents::load(),
       frecency: Frecency::load(Recents::load().names(), now_ms()),
       catalog_epoch: 0,
-      catalog_reg: Default::default(),
       prompt: None,
       path_seq: 0,
       uploading: false,

@@ -315,9 +315,10 @@ fn a_send_is_told_to_heatsync_once_whatever_the_feeds() {
 }
 
 // a kick emote named in a merged tab: kick gets its token (or kick shows everyone the word), twitch and
-// youtube the word; any line in the tab draws it, and it goes with the tab's kick leg
+// youtube the word. a line draws its own room's emotes (the emote law): the tab's kick lines draw it, a
+// twitch line is the word everyone on twitch sees; and it goes with the tab's kick leg
 #[test]
-fn a_kick_emote_is_a_token_on_kick_a_word_elsewhere_and_drawn_on_every_line() {
+fn a_kick_emote_is_a_token_on_kick_a_word_elsewhere_and_drawn_on_kick_lines_only() {
   let (mut app, mut rx) = boot();
   let set = crate::emotes::providers::kick(&serde_json::json!([
     {"name": "Global", "emotes": [{"id": 37245, "name": "peepoDJ", "subscribers_only": false}]}
@@ -329,14 +330,15 @@ fn a_kick_emote_is_a_token_on_kick_a_word_elsewhere_and_drawn_on_every_line() {
   assert_eq!(text(Platform::Kick), Some("[emote:37245:peepoDJ] turn it up"));
   assert_eq!(text(Platform::Twitch), Some("peepoDJ turn it up"));
   assert_eq!(text(Platform::Youtube), Some("peepoDJ turn it up"));
-  let line = own(Platform::Twitch, "peepoDJ");
-  let drawn = |app: &mut App| {
+  let drawn = |app: &mut App, p: Platform| {
+    let line = own(p, "peepoDJ");
     crate::emotes::resolve::find_word(&mut app.res.sources(), "forsen", &line, 0, 7, "peepoDJ").map(|f| f.0.to_string())
   };
-  assert_eq!(drawn(&mut app).as_deref(), Some("https://files.kick.com/emotes/37245/fullsize"));
+  assert_eq!(drawn(&mut app, Platform::Kick).as_deref(), Some("https://files.kick.com/emotes/37245/fullsize"));
+  assert_eq!(drawn(&mut app, Platform::Twitch), None, "twitch shows the word, so the twitch line is the word");
   let spec = crate::model::chan::Spec::parse("forsen", "", "@abc").unwrap();
   app.edit_tab(app.active, &spec);
-  assert_eq!(drawn(&mut app), None, "the kick leg is gone, and its emotes with it");
+  assert_eq!(drawn(&mut app, Platform::Kick), None, "the kick leg is gone, and its emotes with it");
 }
 
 // one line is one send: every leg and the origin tag carry the same id, so heatsync ties the kick leg (which

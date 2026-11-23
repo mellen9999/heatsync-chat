@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "глобальні · користувачі ffz",
  "app.complete.global_twitch": "глобальні · весь twitch",
  "app.complete.no_match": "немає збігів для {word}",
+ "app.complete.wont_show": "тут не відобразиться",
  "app.complete.your_command": "твоя команда",
  "app.complete.your_inventory": "твій інвентар · лише heatsync",
  "app.complete.your_set": "твій особистий набір · користувачі 7tv",

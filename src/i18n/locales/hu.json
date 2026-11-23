@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globális · ffz felhasználók",
  "app.complete.global_twitch": "globális · minden twitch",
  "app.complete.no_match": "nincs találat: {word}",
+ "app.complete.wont_show": "itt nem jelenik meg",
  "app.complete.your_command": "a te parancsod",
  "app.complete.your_inventory": "a te leltárad · csak heatsync",
  "app.complete.your_set": "a te szettjed · 7tv felhasználók",

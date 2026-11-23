@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "küresel · ffz kullanıcıları",
  "app.complete.global_twitch": "küresel · tüm twitch",
  "app.complete.no_match": "{word} için eşleşme yok",
+ "app.complete.wont_show": "burada görünmez",
  "app.complete.your_command": "senin komutun",
  "app.complete.your_inventory": "envanterin · yalnızca heatsync",
  "app.complete.your_set": "kişisel setin · 7tv kullanıcıları",

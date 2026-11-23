@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "toàn cầu · người dùng ffz",
  "app.complete.global_twitch": "toàn cầu · mọi người twitch",
  "app.complete.no_match": "không khớp với {word}",
+ "app.complete.wont_show": "sẽ không hiển thị ở đây",
  "app.complete.your_command": "lệnh của bạn",
  "app.complete.your_inventory": "kho của bạn · chỉ heatsync",
  "app.complete.your_set": "bộ cá nhân của bạn · người dùng 7tv",

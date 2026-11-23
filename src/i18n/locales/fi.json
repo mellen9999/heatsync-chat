@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "globaali · ffz-käyttäjät",
  "app.complete.global_twitch": "globaali · koko twitch",
  "app.complete.no_match": "ei osumia: {word}",
+ "app.complete.wont_show": "ei näy täällä",
  "app.complete.your_command": "oma komentosi",
  "app.complete.your_inventory": "varastosi · vain heatsync",
  "app.complete.your_set": "oma setti · 7tv-käyttäjät",

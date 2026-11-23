@@ -118,8 +118,15 @@ impl App {
   fn suggest_pick(&mut self, i: usize) {
     let Some(s) = self.sug.list.take() else { return };
     self.line.checkpoint(false);
-    self.complete =
-      Some(Complete { start: s.range.start, end: s.range.end, matches: s.items, at: i, chipped: None, remote: None });
+    self.complete = Some(Complete {
+      start: s.range.start,
+      end: s.range.end,
+      matches: s.items,
+      at: i,
+      chipped: None,
+      passed: None,
+      remote: None,
+    });
     self.show_pick();
   }
 
@@ -148,6 +155,8 @@ impl App {
     };
     let (kind, sel) = (s.kind, s.sel);
     let names: Vec<Box<str>> = s.items.iter().map(|p| p.shown().into()).collect();
+    // each row draws its own candidate's picture: two of one name are two rows
+    let pics: Vec<Option<Box<str>>> = s.items.iter().map(|p| p.pic.as_ref().map(|r| r.url.clone())).collect();
     let platform = self.target().map_or(Platform::Twitch, |t| t.0);
     let cmds = if kind == Kind::Command { slash::all() } else { Vec::new() };
     let own: Vec<(String, String)> = if kind == Kind::Command {
@@ -156,12 +165,11 @@ impl App {
       Vec::new()
     };
     let mut rows = Vec::with_capacity(names.len());
-    for name in &names {
+    for (name, pic) in names.iter().zip(pics) {
       let mut row = Row { img: None, name, ink: theme::WHITE, bold: false, args: "", desc: "" };
       match kind {
         Kind::Emote => {
-          let url = self.box_url(name);
-          row.img = url.map(|u| self.res.images.id(&u, EMOTE_PX));
+          row.img = pic.or_else(|| self.box_url(name)).map(|u| self.res.images.id(&u, EMOTE_PX));
         }
         Kind::People => {
           let who = self.res.chatters.person(platform, name.trim_start_matches('@'), true);

@@ -49,6 +49,7 @@
  "app.complete.global_ffz": "ทั่วไป · ผู้ใช้ ffz",
  "app.complete.global_twitch": "ทั่วไป · twitch ทั้งหมด",
  "app.complete.no_match": "ไม่พบ {word}",
+ "app.complete.wont_show": "จะไม่แสดงที่นี่",
  "app.complete.your_command": "คำสั่งของคุณ",
  "app.complete.your_inventory": "คลังของคุณ · เฉพาะ heatsync",
  "app.complete.your_set": "ชุดส่วนตัวของคุณ · ผู้ใช้ 7tv",

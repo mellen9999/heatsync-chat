@@ -42,7 +42,8 @@ pub fn find_word(src: &mut Sources, chan: &str, m: &Message, a: usize, b: usize,
 //      whatever else we hold (a platform token by position is `find_word`'s, above)
 //   2. the line's pick: what the sender's app said the word is
 //   3. the sender's 7tv personal set (as chatterino7 and the 7tv extension read it)
-//   4. the room: the channel's ffz, 7tv, bttv, then the platform's own channel emotes
+//   4. the room, the line's own platform's: the channel's ffz, 7tv, bttv, and on a kick line the tab's
+//      kick channel's own emotes (a twitch or youtube line never reads those)
 //   5. the sender's own heatsync emote of the name, on the sender's lines only: the server's name-match
 //      on the line, then their set
 //   6. the globals
@@ -67,7 +68,7 @@ fn resolve(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word
   if let Some(x) = sender.and_then(|id| src.personal.lookup(id, word)) {
     return Some(e(x, Scope::Channel));
   }
-  if let Some(x) = src.emotes.channel(chan, word) {
+  if let Some(x) = src.emotes.channel_on(chan, m.platform == Platform::Kick, word) {
     return Some(e(x, Scope::Channel));
   }
   if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
