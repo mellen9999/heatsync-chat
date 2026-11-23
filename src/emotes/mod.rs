@@ -202,6 +202,12 @@ impl Emotes {
     on
   }
 
+  // the channels whose streamer's set has been read: what a reconnect reads again (one still being asked
+  // for the first time is already in flight)
+  pub fn owners_read(&self) -> Vec<Leg> {
+    self.owners.keys().cloned().collect()
+  }
+
   // the streamer's own emote of a name on one platform's lines: the room's first answer (the law's read
   // and send order), and only that platform's streamer's
   pub fn owner_on(&self, room: &str, p: Platform, word: &str) -> Option<&Emote> {

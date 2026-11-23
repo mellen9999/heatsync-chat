@@ -136,3 +136,21 @@ fn a_streamer_changing_their_emotes_reads_the_set_again() {
   // someone who is no channel here: nothing is read
   assert_eq!(stale(&mut app, vec![5], vec![leg(Platform::Kick, "forsen"), leg(Platform::Youtube, "xqc")]), []);
 }
+
+// a streamer who changed their emotes while the heatsync socket was down told nobody here. when it comes
+// back every set already read is read again; one still being asked for the first time is left to that ask
+#[test]
+fn the_socket_coming_back_reads_the_sets_it_has_again() {
+  let (mut app, mut rx) = boot(&["forsen kick:xqc", "lirik"]);
+  asked(&mut rx);
+  app.on_net(NetEvent::HsUp);
+  assert_eq!(asked(&mut rx), [], "nothing has answered yet: the first asks are still out");
+  app.on_net(NetEvent::OwnerEmotes(leg(Platform::Twitch, "forsen"), set(&[("W", "OWNER")])));
+  app.on_net(NetEvent::OwnerEmotes(leg(Platform::Kick, "xqc"), Set::new()));
+  app.on_net(NetEvent::HsUp);
+  assert_eq!(
+    asked(&mut rx),
+    [(leg(Platform::Kick, "xqc"), true), (leg(Platform::Twitch, "forsen"), true)],
+    "the two that answered, an empty set included; lirik's first ask is still its own"
+  );
+}

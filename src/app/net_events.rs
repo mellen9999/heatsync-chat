@@ -552,7 +552,13 @@ impl App {
       NetEvent::Stream(l) => self.on_stream(l),
       NetEvent::StreamHistory(rows) => self.on_stream_history(rows),
       NetEvent::Origin(text) => self.on_origin(text),
-      NetEvent::HsUp => self.reseed_origins(),
+      NetEvent::HsUp => {
+        self.reseed_origins();
+        // a streamer who changed their emotes while the socket was down told nobody here: read again
+        for l in self.res.emotes.owners_read() {
+          self.net.send(Cmd::Owner(l, true));
+        }
+      }
       NetEvent::HsOrigin { platform, key, ids } => self.on_hs_origin(platform, &key, ids),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
