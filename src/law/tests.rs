@@ -254,9 +254,10 @@ struct Surroundings {
   pop: Option<HashMap<String, f64>>,
   blocked: HashSet<String>,
   suggest_own: bool,
+  favorites: Vec<Em>,
 }
 
-const OFFER_PART: [&str; 7] = ["room", "catalog", "emoji", "usage", "pop", "blocked", "suggestOwn"];
+const OFFER_PART: [&str; 8] = ["room", "catalog", "emoji", "usage", "pop", "blocked", "suggestOwn", "favorites"];
 
 impl Surroundings {
   fn of(w: &World, part: &Map<String, Value>) -> Res<Surroundings> {
@@ -275,6 +276,7 @@ impl Surroundings {
       pop: nums("pop"),
       blocked,
       suggest_own: part.get("suggestOwn").and_then(Value::as_bool).unwrap_or(true),
+      favorites: list("favorites")?,
     })
   }
 }
@@ -299,6 +301,7 @@ fn offer_ctx<'a>(
     pop: s.pop.as_ref().map(|_| pop),
     blocked: Some(blocked),
     suggest_own: s.suggest_own,
+    favorites: &s.favorites,
   })
 }
 
@@ -338,12 +341,16 @@ const KNOWN_KIND: [(&str, &[&str]); 5] = [
       "pop",
       "blocked",
       "suggestOwn",
+      "favorites",
       "limit",
       "expect",
     ],
   ),
   ("extend", &["kind", "name", "world", "who", "typed", "cursor", "prev", "next", "limit", "expect"]),
-  ("browse", &["kind", "name", "world", "room", "who", "recents", "usage", "blocked", "suggestOwn", "expect"]),
+  (
+    "browse",
+    &["kind", "name", "world", "room", "who", "recents", "usage", "blocked", "suggestOwn", "favorites", "expect"],
+  ),
 ];
 const STEP: [&str; 8] = ["room", "legs", "picks", "stored", "fold", "text", "textRepeat", "expect"];
 const STEP_EXPECT: [&str; 6] = ["from", "refs", "tokens", "wire", "wireIsText", "chips"];
@@ -503,8 +510,11 @@ fn run(file: &Map<String, Value>, c: &Value, seed: u32) -> Res<Value> {
         strs(c.get("recents")).iter().map(|a| w.emote(a).map(law::key_of)).collect::<Res<_>>()?;
       let b = law::browse(&ctx, &recents);
       let names = |l: &[law::Candidate<Em>]| Value::Array(l.iter().map(|x| w.alias(Some(x.emote))).collect());
+      // a favorite says its tier: the same picture is the room's here and a pick somewhere else
+      let pinned: Vec<Value> =
+        b.favorite.iter().map(|x| json!({ "emote": w.alias(Some(x.emote)), "tier": x.tier.as_str() })).collect();
       Ok(
-        json!({ "recent": names(&b.recent), "room": names(&b.room), "own": names(&b.own), "global": names(&b.global) }),
+        json!({ "favorite": pinned, "recent": names(&b.recent), "room": names(&b.room), "own": names(&b.own), "global": names(&b.global) }),
       )
     }
   }
