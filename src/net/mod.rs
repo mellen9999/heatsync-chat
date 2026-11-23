@@ -156,8 +156,9 @@ pub enum NetEvent {
     ver: Option<Box<str>>,
     removed: Option<Box<str>>,
   },
-  // a chatter used one of their heatsync emotes in a room we are in: their set is read again (lowercase login)
-  SenderUsed(Box<str>),
+  // a chatter's app told a room we are in which emote a word of their line is (lowercase login): their
+  // set is read again, and the pick is their line's (None: the emote is one this viewer keeps hidden)
+  SenderUsed(Box<str>, Option<crate::model::message::HsEmote>),
   // logged in as / logged out
   Me(Option<auth::Me>),
   // a sign-in is waiting on the browser (esc gives it up) / is not any more

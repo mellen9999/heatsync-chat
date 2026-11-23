@@ -21,7 +21,22 @@ pub(super) fn seventv_id(twitch_id: Option<u64>, paints: bool) -> Option<u64> {
   twitch_id.filter(|_| paints)
 }
 
+// a vouch that lands after its line reaches back this far for it: the line and the vouch leave the sender
+// together, so one that old is some earlier line's word, typed by hand
+const LATE_PICK_MS: i64 = 15_000;
+
 impl App {
+  // a line just arrived: the picks its sender's app vouched for it, when they got here first
+  fn take_picks(&mut self, m: &mut Message) {
+    if !m.kind.said() || m.login.is_empty() {
+      return;
+    }
+    let picks = self.vouches.take(&m.login, &m.body);
+    if !picks.is_empty() {
+      crate::heatsync::vouches::merge(&mut m.extra().picks, picks);
+    }
+  }
+
   pub(super) fn pace_next(&mut self) {
     let now = now_ms();
     self.pace_due = self.pacer.next().map(|t| Instant::now() + Duration::from_millis((t - now).max(0) as u64));
@@ -63,6 +78,9 @@ impl App {
         m.flags |= flag::HISTORY;
       }
       self.res.chatters.heard(m);
+      if !history {
+        self.take_picks(m);
+      }
       self.scan_mention(p, key, m);
       self.hs_origin(p, key, m);
       self.leg_echo(p, key, m);
@@ -265,6 +283,7 @@ impl App {
         if let Some(refs) = self.late_refs.take(ch, &m.id) {
           crate::net::relay::merge_hs(&mut m.hs, &refs);
         }
+        self.take_picks(&mut m);
         self.scan_mention(Platform::Twitch, ch, &mut m);
         self.hs_origin(Platform::Twitch, ch, &mut m);
         self.logs_live(Platform::Twitch, ch, &m);
@@ -690,13 +709,26 @@ impl App {
           }
         }
       }
-      NetEvent::SenderUsed(login) => {
+      NetEvent::SenderUsed(login, pick) => {
         if let Some(id) = self.res.chatters.twitch_id(&login)
           && let Some(scrubbed) = self.res.senders.stale(id, None)
         {
           self.net.send(Cmd::Sender(id, Some(now_ms().to_string().into())));
           if scrubbed {
             self.touch_sender(id);
+          }
+        }
+        // the pick is their line's: on the line when it is already here, else kept for it
+        if let Some(pick) = pick {
+          let since = now_ms() - LATE_PICK_MS;
+          let mut hit = false;
+          for v in self.tabs.iter_mut().flat_map(Tab::views) {
+            hit |= v.late_pick(&login, &pick, since);
+          }
+          if hit {
+            self.wake();
+          } else {
+            self.vouches.hold(&login, pick);
           }
         }
       }

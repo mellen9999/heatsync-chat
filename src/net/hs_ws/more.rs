@@ -60,15 +60,20 @@ pub(super) fn unknown(st: &mut State, ty: &str) {
 pub(super) fn more(ty: &str, v: &Value, st: &mut State, out: &Out) -> Option<End> {
   let send = |ev: NetEvent| (!out.send(ev)).then_some(End::Quit);
   match ty {
-    // someone in a room we are in used a heatsync emote of theirs (`username`, `emoteName`, `emoteData`): their
-    // set is read again at once, so the word draws as the picture now and not when the set ages out. the
-    // frame itself is never trusted as the emote: ownership comes from their set (emote rule: the sender owns it)
+    // someone in a room we are in sent a line with a pick (`username`, `emoteName`, `emoteData`): their app
+    // saying which emote that word of their line is. the server relays it only from a signed-in member of the
+    // room, with its own moderation flags on it. it is their line's pick (the emote law: a pick draws over the
+    // room's emote of the name), and their set is read again at once, so a word of theirs with no pick draws
+    // as the picture now and not when the set ages out
     "emote:broadcast" => {
       let login: Box<str> =
         v.get("username").and_then(Value::as_str).filter(|u| ident::relay_key(u))?.to_lowercase().into();
-      v.get("emoteName").and_then(Value::as_str).filter(|n| valid_name(n))?;
-      v.pointer("/emoteData/url").and_then(Value::as_str).filter(|u| allowed(u))?;
-      send(NetEvent::SenderUsed(login))
+      let name = v.get("emoteName").and_then(Value::as_str).filter(|n| valid_name(n))?;
+      let data = v.get("emoteData")?;
+      let url = data.get("url").and_then(Value::as_str).filter(|u| allowed(u))?;
+      let zero = ["zeroWidth", "zero_width"].iter().any(|k| data.get(k).and_then(Value::as_bool) == Some(true));
+      let pick = (!crate::heatsync::content::emote_hidden(data)).then(|| (name.into(), url.into(), zero));
+      send(NetEvent::SenderUsed(login, pick))
     }
     // a new archive line for a person whose logs are open (the room is `feed:ulog:<platform>:<login>`)
     "user-log" => {

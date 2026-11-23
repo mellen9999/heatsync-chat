@@ -126,6 +126,9 @@ pub struct Extra {
   pub notice: Notice,
   // a cheer: the `N bits` chip before the badges
   pub bits: u32,
+  // what the sender's own app said a word of this line is (their pick: tab, the picker). it draws over the
+  // room's emote of that name. an empty url is a pick that was taken down: the word stays a word
+  pub picks: Box<[HsEmote]>,
   // your own line sent through heatsync.org (model::origin): tagged [H] in heatsync orange
   pub origin: bool,
   // the send id heatsync gave the line (`chat:origin`): rows of one send on several feeds share it
@@ -195,7 +198,9 @@ pub struct Message {
   pub body: Box<str>,
   // platform-native emotes by byte range of body → image url (twitch tag, kick tokens, yt emoji)
   pub emotes: Box<[Placed]>,
-  // heatsync emotes the server resolved from the SENDER's own inventory: word → (url, zero-width)
+  // heatsync emotes the server matched to the SENDER's words by name, from their own inventory: word →
+  // (url, zero-width). a name-match is not a pick: it draws only where the room has no emote of that name
+  // (a pick is `Extra::picks`). a feed post's refs are here too: a post has no room, so the two read alike
   pub hs: Box<[HsEmote]>,
   // (set, version) pairs from the twitch `badges=` tag
   pub badges: Box<[(Box<str>, Box<str>)]>,

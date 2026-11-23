@@ -11,6 +11,8 @@ use super::{self as law, Index, OfferCtx, Own, Pic, Platform, Ref, Room, RoomLis
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
+mod drawing;
+
 const FILE: &str = include_str!("emote-law.vectors.json");
 const SHUFFLES: [u32; 5] = [1, 7, 1337, 90210, 424242];
 

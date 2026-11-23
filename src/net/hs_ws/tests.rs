@@ -573,7 +573,7 @@ fn a_new_sub_is_a_line_in_its_own_room_only() {
 // a channel emote broadcast asks for the sender's set again: only for a real login, a real name and an image
 // host we allow
 #[test]
-fn an_emote_broadcast_names_the_sender_to_refetch() {
+fn an_emote_broadcast_names_the_sender_and_carries_their_pick() {
   let (tx, rx) = std::sync::mpsc::channel();
   let out = Out::Pipe(tx);
   let mut st = State::default();
@@ -583,12 +583,22 @@ fn an_emote_broadcast_names_the_sender_to_refetch() {
     assert!(dispatch(&v, &mut st, &out).is_none());
     rx.try_iter().collect::<Vec<_>>()
   };
-  assert!(matches!(f(json!("Bob"), json!("KEKW"), json!(url)).as_slice(), [NetEvent::SenderUsed(l)] if &**l == "bob"));
+  match f(json!("Bob"), json!("KEKW"), json!(url)).as_slice() {
+    [NetEvent::SenderUsed(l, Some(pick))] => {
+      assert_eq!((&**l, &*pick.0, &*pick.1, pick.2), ("bob", "KEKW", url, false), "the sender, and their pick");
+    }
+    other => panic!("expected the sender and their pick, got {} event(s)", other.len()),
+  }
   assert!(f(json!("bad name"), json!("KEKW"), json!(url)).is_empty());
   assert!(f(json!("bob"), json!("not a name!"), json!(url)).is_empty());
   assert!(f(json!("bob"), json!("KEKW"), json!("https://evil.example/a.png")).is_empty());
   assert!(f(json!("bob"), json!("KEKW"), json!(null)).is_empty());
   assert!(f(json!(7), json!("KEKW"), json!(url)).is_empty());
+  // an emote this viewer keeps hidden is no pick: the sender is still named, so their set is read again
+  let v = json!({"type": "emote:broadcast", "username": "bob", "emoteName": "KEKW",
+    "emoteData": {"url": url, "nsfw": true, "zeroWidth": true}});
+  assert!(dispatch(&v, &mut st, &out).is_none());
+  assert!(matches!(rx.try_iter().collect::<Vec<_>>().as_slice(), [NetEvent::SenderUsed(l, None)] if &**l == "bob"));
   assert!(st.unknown.is_empty(), "emote:broadcast is read now");
 }
 

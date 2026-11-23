@@ -589,6 +589,57 @@ fn headless_late_refs_land_on_their_line() {
   assert_eq!(app.tabs[f].view.len(), before + 2, "never a second copy of the line");
 }
 
+// a sender's pick (their app's vouch to the room) lands on their own line whichever comes first, on the one
+// line it was sent with: the word typed by hand on their next line is not picked, and nobody else's is
+#[test]
+fn headless_a_senders_pick_lands_on_its_line() {
+  let (net, _asked) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  let f = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  let line = |id: &str, who: &str, body: &str| {
+    let mut m = Message::system(now_ms(), Platform::Twitch, body);
+    m.kind = crate::model::message::Kind::Chat;
+    (m.id, m.nick, m.login) = (id.into(), who.into(), who.into());
+    m
+  };
+  let url = |n: &str| format!("https://cdn.7tv.app/emote/{n}/1x.webp");
+  let pick = |w: &str, u: &str| -> crate::model::message::HsEmote { (w.into(), url(u).into(), false) };
+  let picks = |app: &App, id: &str| -> Vec<(String, String)> {
+    let m = app.tabs[f].view.msgs().find(|m| &*m.id == id).expect("the line is in the tab");
+    m.x.iter().flat_map(|x| x.picks.iter()).map(|h| (h.0.to_string(), h.1.to_string())).collect()
+  };
+  let used = |app: &mut App, who: &str, p| app.on_net(NetEvent::SenderUsed(who.into(), Some(p)));
+  // the line first, then its vouch
+  app.on_chat("forsen", Chat::Msg(line("a", "bob", "so KEKW")));
+  app.on_chat("forsen", Chat::Msg(line("c", "carol", "KEKW")));
+  used(&mut app, "bob", pick("KEKW", "BOBS"));
+  assert_eq!(picks(&app, "a"), [("KEKW".into(), url("BOBS"))]);
+  assert!(picks(&app, "c").is_empty(), "carol typed hers");
+  // it was that send's: bob's next KEKW is typed by hand
+  app.on_chat("forsen", Chat::Msg(line("a2", "bob", "KEKW")));
+  assert!(picks(&app, "a2").is_empty());
+  // the vouch first: it waits for the line that names its word
+  used(&mut app, "bob", pick("Pog", "P"));
+  app.on_chat("forsen", Chat::Msg(line("b0", "bob", "no emote here")));
+  app.on_chat("forsen", Chat::Msg(line("b", "bob", "Pog")));
+  assert!(picks(&app, "b0").is_empty());
+  assert_eq!(picks(&app, "b"), [("Pog".into(), url("P"))]);
+  app.on_chat("forsen", Chat::Msg(line("b2", "bob", "Pog")));
+  assert!(picks(&app, "b2").is_empty(), "taken once");
+  // a second vouch for a word that line already has a pick for is some other line's: it waits
+  used(&mut app, "bob", pick("Pog", "LATER"));
+  assert_eq!(picks(&app, "b"), [("Pog".into(), url("P"))], "the first pick stays");
+  assert_eq!(picks(&app, "b2"), [("Pog".into(), url("LATER"))], "it goes to the newest line without one");
+  // a line too old to be the vouch's send is left alone: the vouch waits for the next one
+  let mut old = line("o", "dan", "KEKW");
+  old.ts = now_ms() - 60_000;
+  app.on_chat("forsen", Chat::Msg(old));
+  used(&mut app, "dan", pick("KEKW", "DANS"));
+  assert!(picks(&app, "o").is_empty());
+  app.on_chat("forsen", Chat::Msg(line("o2", "dan", "KEKW")));
+  assert_eq!(picks(&app, "o2"), [("KEKW".into(), url("DANS"))]);
+}
+
 // a channel tab's right-click menu is edit + remove, and every other action lives in the edit form
 //   cargo test -j2 --release headless_tab_menu
 #[test]

@@ -5,6 +5,7 @@ pub mod heat;
 pub mod late_refs;
 pub mod marks;
 pub mod senders;
+pub mod vouches;
 
 pub const MAX_NAME: usize = 100;
 

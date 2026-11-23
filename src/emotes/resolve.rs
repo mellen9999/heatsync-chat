@@ -36,23 +36,32 @@ pub fn find_word(src: &mut Sources, chan: &str, m: &Message, a: usize, b: usize,
   }
 }
 
-// order: the line's own server-verified refs, the sender's heatsync inventory (the ext's refs carry
-// exactly that, ahead of the channel), the sender's 7tv personal set, the channel catalog, then globals.
-// the sender's own sets are the only heatsync / personal sources (privacy invariant).
-// personal vs channel: the personal set wins, as in chatterino7 and the 7tv extension: it is the one the
-// sender picked, and the same name stays the channel's for everyone else's lines. heatsync vs personal:
-// heatsync wins, as in the ext, which lays the sender's heatsync set over the 7tv personal one it merges
+// the emote law's read order (the site's docs/emote-law.md; src/law is the same rule as one pure module,
+// and `law::tests` runs the site's read cases through this function). first hit wins:
+//   1. on our own twitch line, twitch's own emote of the name: twitch marks it on the line it delivers
+//      whatever else we hold (a platform token by position is `find_word`'s, above)
+//   2. the line's pick: what the sender's app said the word is
+//   3. the sender's 7tv personal set (as chatterino7 and the 7tv extension read it)
+//   4. the room: the channel's ffz, 7tv, bttv, then the platform's own channel emotes
+//   5. the sender's own heatsync emote of the name, on the sender's lines only: the server's name-match
+//      on the line, then their set
+//   6. the globals
+// the sender's own sets are the only heatsync / personal sources (privacy invariant): nothing of the
+// viewer's can reach someone else's line, because nothing of the viewer's is passed in
 fn resolve(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word: &str) -> Option<Found> {
   let e = |e: &Emote, sc| (e.url.clone(), (e.w, e.h), e.zero_width, sc);
-  // the one gate for renderInventoryEmotes: off, nothing from a heatsync inventory ever draws
+  // the one gate for renderInventoryEmotes: off, nothing that came through heatsync ever draws
   let inventory = src.inventory;
-  if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
-    return Some((u.clone(), (0, 0), *zw, Scope::Hs));
+  // our own echoed line carries no emote positions: twitch's globals and our sub emotes by name, there only
+  if m.has(flag::OWN)
+    && m.platform == Platform::Twitch
+    && let Some(x) = src.emotes.twitch_global(word).or_else(|| src.emotes.sub(word))
+  {
+    return Some(e(x, Scope::Global));
   }
-  // the sender's own emote of this name beats the channel's: it is the one they picked (heatsync's
-  // own per-line refs say the same for relayed lines, above)
-  if let Some(x) = sender.filter(|_| inventory).and_then(|id| src.senders.lookup(id, word, m.ts)) {
-    return Some((x.url.clone(), (x.w, x.h), x.zero_width, Scope::Hs));
+  if inventory && let Some((_, u, zw)) = m.x.as_ref().and_then(|x| x.picks.iter().find(|(w, _, _)| **w == *word)) {
+    // a pick that was taken down is text, never a look-alike of the same name
+    return (!u.is_empty()).then(|| (u.clone(), (0, 0), *zw, Scope::Hs));
   }
   // a 7tv personal emote is a 7tv emote: a block files it under its 7tv id, like a channel's
   if let Some(x) = sender.and_then(|id| src.personal.lookup(id, word)) {
@@ -61,11 +70,11 @@ fn resolve(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word
   if let Some(x) = src.emotes.channel(chan, word) {
     return Some(e(x, Scope::Channel));
   }
-  // our own echoed line carries no emote positions: twitch's globals and our sub emotes by name
-  if m.has(flag::OWN)
-    && let Some(x) = src.emotes.twitch_global(word).or_else(|| src.emotes.sub(word))
-  {
-    return Some(e(x, Scope::Global));
+  if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
+    return Some((u.clone(), (0, 0), *zw, Scope::Hs));
+  }
+  if let Some(x) = sender.filter(|_| inventory).and_then(|id| src.senders.lookup(id, word, m.ts)) {
+    return Some((x.url.clone(), (x.w, x.h), x.zero_width, Scope::Hs));
   }
   src.emotes.global(word).map(|x| e(x, Scope::Global))
 }
@@ -121,10 +130,11 @@ mod tests {
     m
   }
 
-  // a channel's IDK and the sender's own, different IDK: the sender's is drawn (it is the one they
-  // picked); anyone else's IDK is still the channel's
+  // a channel's IDK and the sender's own, different IDK: a typed IDK is the channel's for everyone (the
+  // law: in a room a word is the room's emote). the sender's own draws where the channel has none, and
+  // over the channel's only when their app said so (a pick)
   #[test]
-  fn the_senders_own_emote_beats_the_channels_of_the_same_name() {
+  fn a_typed_word_is_the_channels_and_the_senders_own_draws_where_the_channel_has_none() {
     let mut w = World::new();
     let url = |id: &str| format!("https://cdn.7tv.app/emote/{id}/1x.webp");
     let e = Emote { url: url("CHAN").into(), w: 28, h: 28, zero_width: false };
@@ -136,13 +146,21 @@ mod tests {
     w.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
     let mut m = plain("a", "IDK");
     (m.user_id, m.ts) = ("42".into(), ts);
-    let got = |w: &mut World, m: &Message, who: Option<u64>| {
-      resolve(&mut w.sources(), "c", m, who, "IDK").map(|f| f.0.to_string())
+    let got = |w: &mut World, m: &Message, chan: &str, who: Option<u64>| {
+      resolve(&mut w.sources(), chan, m, who, "IDK").map(|f| f.0.to_string())
     };
-    assert_eq!(got(&mut w, &m, Some(42)), Some(url("MINE")));
-    assert_eq!(got(&mut w, &m, Some(7)), Some(url("CHAN")), "someone without their own IDK");
+    assert_eq!(got(&mut w, &m, "c", Some(42)), Some(url("CHAN")), "typed: the channel's, their own IDK or not");
+    assert_eq!(got(&mut w, &m, "c", Some(7)), Some(url("CHAN")), "someone without their own IDK");
+    assert_eq!(got(&mut w, &m, "elsewhere", Some(42)), Some(url("MINE")), "a channel with no IDK: theirs");
+    // the server's name-match on the line is the same emote of theirs: no more than their set
+    m.hs = Box::new([("IDK".into(), url("MINE").into(), false)]);
+    assert_eq!(got(&mut w, &m, "c", Some(42)), Some(url("CHAN")), "a name-match is not a pick");
+    // their app said this line's IDK is theirs: that is the line's emote
+    m.extra().picks = Box::new([("IDK".into(), url("MINE").into(), false)]);
+    assert_eq!(got(&mut w, &m, "c", Some(42)), Some(url("MINE")), "picked: theirs, over the channel's");
     w.inventory = false;
-    assert_eq!(got(&mut w, &m, Some(42)), Some(url("CHAN")), "inventory emotes off: the channel's");
+    assert_eq!(got(&mut w, &m, "c", Some(42)), Some(url("CHAN")), "heatsync emotes off: the channel's");
+    assert_eq!(got(&mut w, &m, "elsewhere", Some(42)), None, "and nothing of theirs anywhere");
   }
 
   // our own echoed line has no emote positions: our sub emotes draw by name there, nowhere else
@@ -158,6 +176,34 @@ mod tests {
       resolve(&mut w.sources(), "c", &plain("b", "delloreat"), None, "delloreat").is_none(),
       "someone else's line"
     );
+    // a kick line of ours: kick shows the word, so does the row
+    let mut on_kick = own.clone();
+    on_kick.platform = Platform::Kick;
+    assert!(resolve(&mut w.sources(), "c", &on_kick, None, "delloreat").is_none(), "our kick line");
+  }
+
+  // twitch marks its own emote on the line it delivers, whatever the channel or our pick calls that name:
+  // our own twitch row draws what everyone else will see
+  #[test]
+  fn on_our_own_twitch_line_twitchs_emote_of_a_name_leads() {
+    let mut w = World::new();
+    let tw = "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0";
+    w.emotes.set(
+      None,
+      Provider::Twitch,
+      [("Kappa".into(), Emote { url: tw.into(), w: 28, h: 28, zero_width: false })].into(),
+    );
+    w.emotes.set(Some("c"), Provider::SevenTv, [("Kappa".into(), cdn("CHAN"))].into());
+    let mut own = plain("a", "Kappa");
+    own.flags |= flag::OWN;
+    own.extra().picks = Box::new([("Kappa".into(), cdn("PICK").url, false)]);
+    let got = |w: &mut World, m: &Message| resolve(&mut w.sources(), "c", m, None, "Kappa").map(|f| f.0.to_string());
+    assert_eq!(got(&mut w, &own).as_deref(), Some(tw));
+    // someone else's untagged Kappa is an ordinary word: the channel's
+    assert_eq!(got(&mut w, &plain("b", "Kappa")), Some(cdn("CHAN").url.to_string()));
+    // on kick nothing marks it: our pick is what ships
+    own.platform = Platform::Kick;
+    assert_eq!(got(&mut w, &own), Some(cdn("PICK").url.to_string()));
   }
 
   // a heatsync image placed on a line by position (any producer) is not the platform's own: it goes
@@ -232,30 +278,40 @@ mod tests {
     assert_eq!((got.0.contains("jtvnw"), got.3), (true, Scope::Native));
   }
 
-  // order: the line's own refs, the sender's heatsync inventory, their personal set, the channel, globals
+  // order: the line's pick, the sender's 7tv personal set, the channel, the sender's own heatsync emote, globals
   #[test]
-  fn heatsync_beats_personal_beats_channel_beats_global() {
+  fn pick_beats_personal_beats_channel_beats_the_senders_own_beats_global() {
     let mut w = World::new();
     let ts = 1_793_399_211_099;
+    let mut m = plain("a", "IDK");
+    (m.user_id, m.ts) = ("42".into(), ts);
+    let id = |w: &mut World, m: &Message| find_word(&mut w.sources(), "c", m, 0, 3, "IDK").map(|f| f.0.to_string());
     w.emotes.set(None, Provider::Bttv, [("IDK".into(), cdn("GLOBAL"))].into());
-    let id = |w: &mut World| word_of(w, "c", "42", Platform::Twitch, "IDK").map(|f| f.0);
-    assert_eq!(id(&mut w), Some(cdn("GLOBAL").url.to_string()));
-    w.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), cdn("CHAN"))].into());
-    assert_eq!(id(&mut w), Some(cdn("CHAN").url.to_string()));
-    w.own(&[42], "SET", &[("IDK", "PERSONAL")]);
-    assert_eq!(id(&mut w), Some(cdn("PERSONAL").url.to_string()));
+    assert_eq!(id(&mut w, &m), Some(cdn("GLOBAL").url.to_string()));
     let row = serde_json::json!({"custom_name": "IDK", "url": cdn("HS").url, "width": 32, "height": 32,
       "added_at": "2026-10-30T22:26:51.099Z"});
     w.senders.lookup(42, "IDK", ts);
     w.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
-    let mut m = plain("a", "IDK");
-    (m.user_id, m.ts) = ("42".into(), ts);
-    let got = find_word(&mut w.sources(), "c", &m, 0, 3, "IDK").map(|f| f.0.to_string());
-    assert_eq!(got, Some(cdn("HS").url.to_string()));
-    // heatsync emotes off: the personal one is next
+    assert_eq!(id(&mut w, &m), Some(cdn("HS").url.to_string()), "their own, over a global");
+    w.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), cdn("CHAN"))].into());
+    assert_eq!(id(&mut w, &m), Some(cdn("CHAN").url.to_string()), "the channel's, over their own");
+    w.own(&[42], "SET", &[("IDK", "PERSONAL")]);
+    assert_eq!(id(&mut w, &m), Some(cdn("PERSONAL").url.to_string()), "their 7tv personal, over the channel's");
+    m.extra().picks = Box::new([("IDK".into(), cdn("PICK").url, false)]);
+    assert_eq!(id(&mut w, &m), Some(cdn("PICK").url.to_string()), "the line's pick, over everything");
+    // heatsync emotes off: the pick and their own set are gone, the rest stands
     w.inventory = false;
-    let got = find_word(&mut w.sources(), "c", &m, 0, 3, "IDK").map(|f| f.0.to_string());
-    assert_eq!(got, Some(cdn("PERSONAL").url.to_string()));
+    assert_eq!(id(&mut w, &m), Some(cdn("PERSONAL").url.to_string()));
+  }
+
+  // a pick whose emote was taken down is text: no look-alike of the name steps in
+  #[test]
+  fn a_taken_down_pick_is_text() {
+    let mut w = World::new();
+    w.emotes.set(Some("c"), Provider::SevenTv, [("IDK".into(), cdn("CHAN"))].into());
+    let mut m = plain("a", "IDK");
+    m.extra().picks = Box::new([("IDK".into(), "".into(), false)]);
+    assert!(find_word(&mut w.sources(), "c", &m, 0, 3, "IDK").is_none());
   }
 
   // ---- the emote rules (docs/planning/emote-rules-2026-11-07.md), each staged with the same word W in
@@ -307,12 +363,12 @@ mod tests {
     let tw = "https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0";
     let mut m = line("42", "W W");
     m.emotes = Box::new([(0..1, tw.into())]);
-    m.hs = Box::new([("W".into(), cdn("ref").url, false)]);
+    m.extra().picks = Box::new([("W".into(), cdn("ref").url, false)]);
     let first = find_word(&mut w.sources(), "c", &m, 0, 1, "W").unwrap();
     assert_eq!((&*first.0, first.3), (tw, Scope::Native), "the token at 0..1");
     // the same word at a place no token covers is an ordinary word
     let second = find_word(&mut w.sources(), "c", &m, 2, 3, "W").unwrap();
-    assert_eq!(second.3, Scope::Hs, "the line's own ref, not the token's picture");
+    assert_eq!(second.3, Scope::Hs, "the line's own pick, not the token's picture");
     // a kick token is the same
     let mut k = line("42", "W");
     k.platform = Platform::Kick;
@@ -327,9 +383,9 @@ mod tests {
     let mut w = World::new();
     collide(&mut w, &[42]);
     let mut m = line("42", "W");
-    m.hs = Box::new([("W".into(), cdn("pick").url, false)]);
+    m.extra().picks = Box::new([("W".into(), cdn("pick").url, false)]);
     assert_eq!(drawn(&mut w, &m, "W").as_deref(), Some("pick"));
-    // a sender with no inventory at all (a kick chatter, a relayed line) still has the ref honoured
+    // a sender with no inventory at all (a kick chatter, a relayed line) still has the pick honoured
     m.user_id = "".into();
     m.platform = Platform::Kick;
     assert_eq!(drawn(&mut w, &m, "W").as_deref(), Some("pick"));
@@ -377,13 +433,25 @@ mod tests {
       w.emotes.set(Some("c"), p, Default::default());
     }
     assert_eq!(drawn(&mut w, &theirs, "W").as_deref(), Some("g-7tv"), "then the global");
-    // mine draws on my own line only
+    w.emotes.set(None, Provider::Twitch, Default::default());
+    for p in [Provider::SevenTv, Provider::Bttv, Provider::Ffz] {
+      w.emotes.set(None, p, Default::default());
+    }
+    assert_eq!(drawn(&mut w, &theirs, "W"), None, "nothing left for them: mine is still not theirs");
+    // mine draws on my own line only, where no room emote takes the name
     let mine = line("1", "W");
     assert_eq!(drawn(&mut w, &mine, "W").as_deref(), Some("inv1"));
     // a second chatter who owns a different W draws their own, never mine
     collide(&mut w, &[2]);
+    for p in [Provider::Ffz, Provider::SevenTv, Provider::Bttv] {
+      w.emotes.set(Some("c"), p, Default::default());
+    }
     assert_eq!(drawn(&mut w, &line("2", "W"), "W").as_deref(), Some("inv2"));
-    assert_eq!(drawn(&mut w, &theirs, "W").as_deref(), Some("c-ffz"));
+    // with the channel's W back, every typed W is the channel's: mine, theirs, anyone's
+    collide(&mut w, &[]);
+    for who in ["1", "2", "7"] {
+      assert_eq!(drawn(&mut w, &line(who, "W"), "W").as_deref(), Some("c-ffz"), "{who}");
+    }
   }
 
   // rule 5: case is exact in every source: two emotes whose names differ by case stay two
@@ -404,9 +472,12 @@ mod tests {
     w.senders.lookup(42, "kekw", TS);
     w.senders.put(42, crate::heatsync::senders::parse_set(&serde_json::json!([row])));
     let mut theirs = line("42", "x");
-    theirs.hs = Box::new([("Kekw".into(), cdn("ref").url, false)]);
-    assert_eq!(drawn(&mut w, &theirs, "kekw").as_deref(), Some("inv"));
+    theirs.extra().picks = Box::new([("Kekw".into(), cdn("ref").url, false)]);
+    assert_eq!(drawn(&mut w, &theirs, "kekw").as_deref(), Some("c-low"), "the channel's kekw, over their own");
     assert_eq!(drawn(&mut w, &theirs, "KEKW").as_deref(), Some("c-up"), "not their kekw");
-    assert_eq!(drawn(&mut w, &theirs, "Kekw").as_deref(), Some("ref"));
+    assert_eq!(drawn(&mut w, &theirs, "Kekw").as_deref(), Some("ref"), "their pick of Kekw, exact");
+    w.emotes.set(Some("c"), Provider::Ffz, [("KEKW".into(), cdn("c-up"))].into());
+    assert_eq!(drawn(&mut w, &theirs, "kekw").as_deref(), Some("inv"), "no channel kekw: theirs, exact");
+    assert_eq!(drawn(&mut w, &theirs, "kEKW"), None);
   }
 }

@@ -66,6 +66,7 @@ fn row(m: &Message) -> Value {
     "o": super::mark::Mark::of(m) == super::mark::Mark::Heatsync,
     "em": m.emotes.iter().map(|(r, u)| json!([r.start, r.end, u])).collect::<Vec<_>>(),
     "hs": m.hs.iter().map(|(w, u, z)| json!([w, u, z])).collect::<Vec<_>>(),
+    "pk": m.x.iter().flat_map(|x| x.picks.iter()).map(|(w, u, z)| json!([w, u, z])).collect::<Vec<_>>(),
     "bd": m.badges.iter().map(|(s, v)| json!([s, v])).collect::<Vec<_>>(),
     "rt": m.reply_to,
     "rx": m.reply_text,
@@ -171,14 +172,18 @@ fn message(v: &Value) -> Option<Message> {
       ok.then(|| (a..b, url.into()))
     })
     .collect();
-  let hs: Vec<HsEmote> = pairs(v, "hs", MAX_EMOTES)
-    .into_iter()
-    .filter_map(|e| {
-      let word = e.first()?.as_str().filter(|w| valid_name(w))?;
-      let url = e.get(1)?.as_str().filter(|u| allowed(u))?;
-      Some((word.into(), url.into(), e.get(2).and_then(Value::as_bool) == Some(true)))
-    })
-    .collect();
+  let refs = |key: &str| -> Vec<HsEmote> {
+    pairs(v, key, MAX_EMOTES)
+      .into_iter()
+      .filter_map(|e| {
+        let word = e.first()?.as_str().filter(|w| valid_name(w))?;
+        let url = e.get(1)?.as_str().filter(|u| allowed(u))?;
+        Some((word.into(), url.into(), e.get(2).and_then(Value::as_bool) == Some(true)))
+      })
+      .collect()
+  };
+  // the sender's own emotes by name, and the picks their app vouched for this line
+  let (hs, picks) = (refs("hs"), refs("pk"));
   let badges = pairs(v, "bd", MAX_BADGES)
     .into_iter()
     .filter_map(|b| {
@@ -205,7 +210,7 @@ fn message(v: &Value) -> Option<Message> {
   let kept = u16::try_from(v.get("fl").and_then(Value::as_u64).unwrap_or(0) & u64::from(KEPT)).unwrap_or(0);
   m.flags = kept | flag::HISTORY;
   let origin = v.get("o").and_then(Value::as_bool) == Some(true);
-  m.x = Some(Box::new(Extra { chan: room.into(), origin, ..Extra::default() }));
+  m.x = Some(Box::new(Extra { chan: room.into(), origin, picks: picks.into(), ..Extra::default() }));
   Some(m)
 }
 
@@ -240,8 +245,12 @@ mod tests {
     m.badges = vec![("subscriber".into(), "12".into())].into();
     m.reply_to = Some("wollip".into());
     m.reply_text = Some("is this on".into());
+    // the sender's pick for a word of the line: it keeps the picture it was sent with
+    let pick: HsEmote = ("ok".into(), "https://cdn.7tv.app/emote/p/1x.webp".into(), false);
+    m.extra().picks = vec![pick.clone()].into();
     let back = rows(decode(&encode("mellen", NOW, [m.clone()].iter()), "mellen", NOW + 5000));
     let b = &back[0];
+    assert_eq!(b.x.as_ref().map(|x| x.picks.to_vec()), Some(vec![pick]));
     assert_eq!(
       (&*b.id, &*b.login, &*b.nick, &*b.user_id, b.color, &*b.body),
       ("a", "bob", "Bob", "42", 0x00ff00, &*m.body)

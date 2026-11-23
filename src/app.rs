@@ -321,6 +321,8 @@ pub struct App {
   pace_due: Option<Instant>,
   // heatsync refs that beat their twitch line here
   late_refs: crate::heatsync::late_refs::LateRefs,
+  // picks told to a room before their line got here (heatsync::vouches)
+  vouches: crate::heatsync::vouches::Vouches,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
   sug: suggest::SuggestUi,
@@ -599,6 +601,7 @@ impl App {
       pacer: Default::default(),
       pace_due: None,
       late_refs: Default::default(),
+      vouches: Default::default(),
       input_next: None,
       input_hit: None,
       login_link: None,
