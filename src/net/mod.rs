@@ -34,6 +34,7 @@ pub mod mrules;
 pub mod mutes;
 mod origin;
 mod origins;
+mod owner;
 mod personal;
 pub mod pin;
 pub mod pinact;
@@ -63,7 +64,7 @@ use tokio::sync::{Semaphore, mpsc};
 use winit::event_loop::EventLoopProxy;
 
 use crate::badges::{self, Source, TwitchSet, UserBadges};
-use crate::emotes::{Provider, Set, providers};
+use crate::emotes::{Leg, Provider, Set, providers};
 use crate::heatsync::senders::Set as SenderSet;
 use crate::images::{ImgId, decode};
 use crate::model::message::{Message, Platform};
@@ -94,6 +95,8 @@ pub enum NetEvent {
   KickBadges(Box<str>, Vec<(u32, Box<str>)>),
   // a kick channel's emotes (its own + kick's globals), by slug
   KickEmotes(Box<str>, Set),
+  // a streamer's own heatsync emotes, by the channel a tab is
+  OwnerEmotes(Leg, Set),
   // kick/youtube lines relayed by heatsync, keyed by kick slug / youtube handle
   Relay {
     platform: Platform,
@@ -153,6 +156,7 @@ pub enum NetEvent {
   AccountChanged,
   SendersStale {
     ids: Vec<u64>,
+    chans: Vec<Leg>,
     ver: Option<Box<str>>,
     removed: Option<Box<str>>,
   },
@@ -584,6 +588,8 @@ pub enum Cmd {
   Backfill(Platform, Box<str>, Box<str>),
   // twitch user id → their heatsync inventory (version set after a ws invalidation)
   Sender(u64, Option<Box<str>>),
+  // read (true) or stop reading (false) a channel's streamer's own heatsync emotes
+  Owner(Leg, bool),
   // sign in with this platform
   Login(auth::Provider),
   Link(auth::Provider),
@@ -1150,6 +1156,7 @@ async fn main(mut rx: mpsc::UnboundedReceiver<Cmd>, out: Out) {
       Cmd::Sender(id, ver) => {
         let _ = snd_tx.send((id, ver));
       }
+      Cmd::Owner(leg, on) => owner::ask(&http, &open, &out, leg, on),
       Cmd::Avatar(p, login) => {
         let _ = av_tx.send((p, login));
       }

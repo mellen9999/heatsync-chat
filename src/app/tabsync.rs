@@ -160,6 +160,7 @@ impl App {
         self.leave(p, k);
       }
     }
+    self.route();
     let find = |app: &App, k: Option<Key>| k.and_then(|k| app.tabs.iter().position(|t| key(t) == k));
     let at = find(self, rover).unwrap_or(self.active).min(self.tabs.len().saturating_sub(1));
     if let Some(r) = self.rover.as_mut() {

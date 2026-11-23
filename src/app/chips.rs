@@ -24,7 +24,7 @@ impl App {
 
   // the platform a line written now resolves against (the emote law: of the feeds it goes to, twitch, else
   // kick, else youtube). None where the box writes no chat line: a post, a reply, a whisper
-  fn leg(&self) -> Option<Platform> {
+  pub(super) fn leg(&self) -> Option<Platform> {
     if self.feedish() || self.edit.is_some() || matches!(self.kind(), Kind::Whispers | Kind::Mentions) {
       return None;
     }
@@ -61,9 +61,11 @@ impl App {
   pub(super) fn pick_of(&self, name: &str, url: &str) -> Rec {
     let (res, chan, me) = (&self.res, self.tabs.get(self.active).map_or("", |t| &*t.view.channel), self.own_id());
     let e = |e: &crate::emotes::Emote| (&*e.url == url).then_some(e.zero_width);
+    let owner = self.leg().map_or_else(Vec::new, |p| res.emotes.owner_all(chan, p));
     let zw = (res.emotes.channel_all(chan).iter())
       .chain(&res.emotes.global_all())
       .find_map(|(n, _, x)| (*n == name).then(|| e(x)).flatten())
+      .or_else(|| owner.iter().find_map(|(n, x)| (*n == name).then(|| e(x)).flatten()))
       .or_else(|| me.and_then(|id| res.personal.peek(id, name)).and_then(e))
       .or_else(|| res.emotes.sub(name).and_then(e))
       .or_else(|| {

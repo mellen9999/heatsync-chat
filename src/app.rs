@@ -122,6 +122,8 @@ mod tests_mrules;
 #[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
+mod tests_owner;
+#[cfg(test)]
 mod tests_parity;
 #[cfg(test)]
 mod tests_path;
@@ -550,6 +552,10 @@ impl App {
     res.cosmetics.hidden = crate::cosmetics::hidden::Hidden::load();
     for t in &tabs {
       tabs::seat_hosts(&mut res.chatters, &t.sources);
+    }
+    // each channel a tab is: its streamer's own heatsync emotes, asked for beside the channel's others
+    for l in res.emotes.route_owner(tabs.iter().map(tabs::room)).0 {
+      net.send(crate::net::Cmd::Owner(l, true));
     }
     res.arts.set_motion(set.animate_emotes == crate::model::settings::Animate::Always);
     res.personal.set_on(set.personal_emotes);

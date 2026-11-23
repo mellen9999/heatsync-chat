@@ -87,6 +87,7 @@ impl App {
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
+    self.route();
     self.live_soon();
     self.activate(self.tabs.len() - 1);
     self.say(t("app.temp.note"));

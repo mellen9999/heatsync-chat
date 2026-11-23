@@ -2,6 +2,7 @@
 
 use super::{App, FLOOD_TAB, Tab};
 use crate::cosmetics::id::PaintId;
+use crate::emotes::Leg;
 use crate::i18n::{f, t};
 use crate::model::message::{Message, Platform, flag};
 use crate::model::origin::RACE_MS;
@@ -221,6 +222,31 @@ impl App {
     self.res.badges.route_kick(self.tabs.iter().filter_map(kick));
   }
 
+  // the tabs changed: each chat key draws on its tabs' channels again
+  pub(super) fn route(&mut self) {
+    self.route_kick();
+    let (new, gone) = self.res.emotes.route_owner(self.tabs.iter().map(super::tabs::room));
+    for l in gone {
+      self.net.send(Cmd::Owner(l, false));
+    }
+    for l in new {
+      self.net.send(Cmd::Owner(l, true));
+    }
+  }
+
+  // an account's emotes changed: a tab that is its channel reads the streamer's set again. a twitch
+  // account is known by its id, which the room told us; kick and youtube by the names the server sent
+  fn owner_stale(&mut self, ids: &[u64], chans: Vec<Leg>) {
+    let twitch = self.rooms.iter().filter(|r| r.1.parse().is_ok_and(|id: u64| ids.contains(&id)));
+    let mut legs: Vec<Leg> = twitch.map(|r| (Platform::Twitch, r.0.clone())).collect();
+    for (p, name) in chans {
+      legs.extend(self.res.emotes.legs_named(p, &name));
+    }
+    for l in legs {
+      self.net.send(Cmd::Owner(l, true));
+    }
+  }
+
   pub(super) fn on_links(&mut self, tab: &str, kick: Option<Box<str>>, yt: Option<(Box<str>, Option<Box<str>>)>) {
     let Some(i) = self.tabs_with(Platform::Twitch, tab).first().copied() else { return };
     // a feed the tab already has is the tab's own: never a second kick leg, never one swapped under you
@@ -249,7 +275,7 @@ impl App {
     if saved {
       self.save_tabs();
     }
-    self.route_kick();
+    self.route();
     self.live_soon();
     let t = &mut self.tabs[i];
     let v = t.chat();
@@ -567,6 +593,16 @@ impl App {
         }
         self.wake();
       }
+      NetEvent::OwnerEmotes(leg, set) => {
+        let (p, key) = (leg.0, leg.1.clone());
+        if self.res.emotes.set_owner(leg, set) {
+          for i in self.tabs_with(p, &key) {
+            self.tabs[i].views().for_each(ChatView::relayout);
+          }
+          self.input_dirty = true;
+          self.wake();
+        }
+      }
       NetEvent::KickEmotes(slug, set) => {
         self.res.emotes.set_kick(&slug, set);
         self.route_kick();
@@ -697,10 +733,11 @@ impl App {
         self.res.flairs.stale();
         self.wake();
       }
-      NetEvent::SendersStale { ids, ver, removed } => {
+      NetEvent::SendersStale { ids, chans, ver, removed } => {
         if self.prof {
           eprintln!("senders stale {}", ids.len());
         }
+        self.owner_stale(&ids, chans);
         for id in ids {
           let Some(scrubbed) = self.res.senders.stale(id, removed.as_deref()) else { continue };
           self.net.send(Cmd::Sender(id, ver.clone()));

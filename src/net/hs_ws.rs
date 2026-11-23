@@ -541,14 +541,14 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     // another user's inventory changed: the viewer push carries `username` + `senderKeys`
     // (the owner's own sync carries `data` instead: not logged in yet, ignore)
     "emote:added" | "emote:removed" if v.get("username").is_some() => {
-      let (ids, ver) = senders::stale(v);
-      if ids.is_empty() {
+      let ((ids, ver), chans) = (senders::stale(v), super::owner::stale(v));
+      if ids.is_empty() && chans.is_empty() {
         return None;
       }
       let removed = (ty == "emote:removed")
         .then(|| v.get("emoteName").and_then(Value::as_str).filter(|n| valid_name(n)).map(Into::into))
         .flatten();
-      send(NetEvent::SendersStale { ids, ver, removed })
+      send(NetEvent::SendersStale { ids, chans, ver, removed })
     }
     // a bulk change to YOUR inventory from the site (apply a set, import, undo/redo): refetch it, exactly
     // like an add (the ext's scheduleInventoryRefresh). no payload is read; only your own sockets get it

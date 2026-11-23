@@ -49,8 +49,6 @@ enum Cannot {
   HsGlobal,
   // `name0` as the name drawn as an overlay: the app has no such reading
   NameZero,
-  // the streamer's own heatsync set is not loaded by the app yet
-  OwnerSet,
   // one provider list holding two emotes of one name: a provider's set is name -> emote here
   TwoOfOneName,
 }
@@ -65,6 +63,21 @@ pub(super) fn sets_of(w: &World, aliases: &[String]) -> Res<Option<HashMap<Strin
     }
   }
   Ok(Some(out))
+}
+
+// the streamer's own heatsync emotes as the app keeps them: one set for the room's channel, routed to its
+// tab the way the app routes it. false when two share a name (the set is name -> emote)
+pub(super) fn stage_owner(w: &World, emotes: &mut Emotes, feed: Feed, ch: &str, aliases: &[String]) -> Res<bool> {
+  let mut set = Set::new();
+  for a in aliases {
+    if set.insert(w.emote(a)?.name.as_str().into(), emote(w, a)?).is_some() {
+      return Ok(false);
+    }
+  }
+  let leg = [(feed, Box::from(ch))];
+  emotes.route_owner([(ch, &leg[..])]);
+  let [leg] = leg;
+  Ok(aliases.is_empty() || emotes.set_owner(leg, set))
 }
 
 // (emotes the app drew, emotes the law expects), or why the app cannot say the case
@@ -106,8 +119,13 @@ fn drawing(file: &Map<String, Value>, c: &Value, seed: u32) -> Res<Said> {
     Some(id) => {
       let (p, ch) = id.split_once(':').ok_or("room id")?;
       let r = obj(&raw["rooms"][id], id)?;
-      if !strs(r.get("owner")).is_empty() {
-        return Ok(Err(Cannot::OwnerSet));
+      let feed = match p {
+        "kick" => Feed::Kick,
+        "youtube" => Feed::Youtube,
+        _ => Feed::Twitch,
+      };
+      if !stage_owner(&w, &mut emotes, feed, ch, &rng.shuffled(&strs(r.get("owner"))))? {
+        return Ok(Err(Cannot::TwoOfOneName));
       }
       let Some(third) = sets_of(&w, &rng.shuffled(&strs(r.get("third"))))? else {
         return Ok(Err(Cannot::TwoOfOneName));
@@ -124,11 +142,6 @@ fn drawing(file: &Map<String, Value>, c: &Value, seed: u32) -> Res<Said> {
         emotes.set_kick(ch, set);
         emotes.route_kick([(ch, ch)]);
       }
-      let feed = match p {
-        "kick" => Feed::Kick,
-        "youtube" => Feed::Youtube,
-        _ => Feed::Twitch,
-      };
       (feed, ch)
     }
   };
@@ -236,8 +249,8 @@ fn the_apps_drawing_path_agrees_with_the_law_on_every_read_case_it_can_say() {
   // cases into `said`
   let n = |k| cannot.get(&k).copied().unwrap_or(0);
   assert_eq!(
-    (said, n(Cannot::Fold), n(Cannot::HsGlobal), n(Cannot::NameZero), n(Cannot::OwnerSet), n(Cannot::TwoOfOneName)),
-    (21, 2, 1, 2, 1, 0),
+    (said, n(Cannot::Fold), n(Cannot::HsGlobal), n(Cannot::NameZero), n(Cannot::TwoOfOneName)),
+    (22, 2, 1, 2, 0),
     "the drawing split moved"
   );
 }

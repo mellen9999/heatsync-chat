@@ -97,6 +97,11 @@ pub(super) fn seat_hosts(c: &mut crate::model::chatters::Chatters, sources: &[(P
   }
 }
 
+// a tab's chat key and the channels it is: what its room's emotes are routed by
+pub(super) fn room(t: &Tab) -> (&str, &[(Platform, Box<str>)]) {
+  (&t.view.channel, &t.sources)
+}
+
 pub(super) fn sources_of(s: &Spec) -> Vec<(Platform, Box<str>)> {
   let mut v = Vec::with_capacity(3);
   if !s.twitch.is_empty() {
@@ -281,7 +286,7 @@ impl App {
     for (p, key) in t.sources {
       self.leave(p, key);
     }
-    self.route_kick();
+    self.route();
     if i < self.active {
       self.active -= 1;
     }
@@ -307,6 +312,7 @@ impl App {
     tab.view.resize(self.body().w);
     seat_hosts(&mut self.res.chatters, &tab.sources);
     self.tabs.push(tab);
+    self.route();
     self.live_soon();
   }
 
@@ -359,7 +365,7 @@ impl App {
         self.leave(p, key);
       }
     }
-    self.route_kick();
+    self.route();
     self.save_tabs();
     self.bar_dirty = true;
     self.input_dirty = true;

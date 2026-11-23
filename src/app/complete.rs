@@ -40,6 +40,7 @@ fn offered(c: &law::Candidate<Pic>) -> Pick {
   // a copy of a name twitch marks itself: offered, but twitch will draw its own there
   let what = match e.src {
     _ if c.shadowed => t("app.complete.wont_show"),
+    Src::Owner => t("app.complete.channel_hs"),
     Src::Channel(p) => what(true, p),
     Src::Global(p) => what(false, p),
     Src::Inventory => t("app.complete.your_inventory"),

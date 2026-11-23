@@ -1,9 +1,9 @@
 // THE render chokepoint: the one place a word in a chat line becomes an emote. privacy invariant: a
 // word renders as a heatsync emote iff the SENDER's own inventory has it (or the line's own
-// server-verified refs say so), and as a 7tv personal emote iff 7tv's entitlements name the SENDER's own
-// twitch id as owner of the set. catalog and search caches never feed this path, and the only inputs it
-// can see are the ones in `Sources` — change what a heatsync or personal emote is and it is changed here,
-// nowhere else
+// server-verified refs say so) or the line's room's STREAMER has it (their set is the room's, public by
+// the owner route), and as a 7tv personal emote iff 7tv's entitlements name the SENDER's own twitch id as
+// owner of the set. catalog and search caches never feed this path, and the only inputs it can see are the
+// ones in `Sources` — change what a heatsync or personal emote is and it is changed here, nowhere else
 use super::block::Scope;
 use super::personal::Personal;
 use super::{Emote, Emotes};
@@ -42,8 +42,9 @@ pub fn find_word(src: &mut Sources, chan: &str, m: &Message, a: usize, b: usize,
 //      whatever else we hold (a platform token by position is `find_word`'s, above)
 //   2. the line's pick: what the sender's app said the word is
 //   3. the sender's 7tv personal set (as chatterino7 and the 7tv extension read it)
-//   4. the room, the line's own platform's: the channel's ffz, 7tv, bttv, and on a kick line the tab's
-//      kick channel's own emotes (a twitch or youtube line never reads those)
+//   4. the room, the line's own platform's: the streamer's own heatsync emotes, then the channel's ffz,
+//      7tv, bttv, and on a kick line the tab's kick channel's own emotes (a twitch or youtube line never
+//      reads those)
 //   5. the sender's own heatsync emote of the name, on the sender's lines only: the server's name-match
 //      on the line, then their set
 //   6. the globals
@@ -67,6 +68,9 @@ fn resolve(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word
   // a 7tv personal emote is a 7tv emote: a block files it under its 7tv id, like a channel's
   if let Some(x) = sender.and_then(|id| src.personal.lookup(id, word)) {
     return Some(e(x, Scope::Channel));
+  }
+  if inventory && let Some(x) = src.emotes.owner_on(chan, m.platform, word) {
+    return Some(e(x, Scope::Hs));
   }
   if let Some(x) = src.emotes.channel_on(chan, m.platform == Platform::Kick, word) {
     return Some(e(x, Scope::Channel));
@@ -162,6 +166,41 @@ mod tests {
     w.inventory = false;
     assert_eq!(got(&mut w, &m, "c", Some(42)), Some(url("CHAN")), "heatsync emotes off: the channel's");
     assert_eq!(got(&mut w, &m, "elsewhere", Some(42)), None, "and nothing of theirs anywhere");
+  }
+
+  // the streamer's own heatsync emote is the room's first answer: over the channel's ffz, 7tv and bttv,
+  // under a pick and the sender's 7tv personal emote, and on its own platform's lines only
+  #[test]
+  fn the_streamers_own_emote_leads_the_room_on_its_platforms_lines() {
+    let mut w = World::new();
+    let url = |id: &str| format!("https://cdn.7tv.app/emote/{id}/1x.webp");
+    for (p, id) in [(Provider::Ffz, "FFZ"), (Provider::SevenTv, "7TV"), (Provider::Bttv, "BTTV")] {
+      w.emotes.set(Some("c"), p, [("KEKW".into(), cdn(id))].into());
+    }
+    let leg = [(Platform::Twitch, Box::from("c"))];
+    w.emotes.route_owner([("c", &leg[..])]);
+    let [leg] = leg;
+    assert!(w.emotes.set_owner(leg, [("KEKW".into(), cdn("OWNER")), ("Theirs".into(), cdn("ONLY"))].into()));
+    let got = |w: &mut World, m: &Message, word: &str| {
+      let who = m.user_id.parse().ok();
+      resolve(&mut w.sources(), "c", m, who, word).map(|f| (f.0.to_string(), f.3))
+    };
+    let mut m = plain("a", "KEKW Theirs");
+    m.user_id = "42".into();
+    assert_eq!(got(&mut w, &m, "KEKW"), Some((url("OWNER"), Scope::Hs)));
+    assert_eq!(got(&mut w, &m, "Theirs"), Some((url("ONLY"), Scope::Hs)), "a name only the streamer has");
+    assert_eq!(got(&mut w, &m, "kekw"), None, "case is exact");
+    let mut kick = m.clone();
+    kick.platform = Platform::Kick;
+    assert_eq!(got(&mut w, &kick, "KEKW").map(|f| f.0), Some(url("FFZ")), "a kick line: not the twitch streamer's");
+    // the sender's 7tv personal emote and a pick are facts about the line: both stay above the room
+    w.own(&[42], "SET", &[("KEKW", "PERSONAL")]);
+    assert_eq!(got(&mut w, &m, "KEKW").map(|f| f.0), Some(url("PERSONAL")));
+    m.extra().picks = Box::new([("KEKW".into(), url("PICK").into(), false)]);
+    assert_eq!(got(&mut w, &m, "KEKW").map(|f| f.0), Some(url("PICK")));
+    w.inventory = false;
+    assert_eq!(got(&mut w, &plain("b", "KEKW"), "KEKW").map(|f| f.0), Some(url("FFZ")), "heatsync emotes off");
+    assert_eq!(got(&mut w, &plain("b", "Theirs"), "Theirs"), None);
   }
 
   // our own echoed line has no emote positions: our sub emotes draw by name there, nowhere else

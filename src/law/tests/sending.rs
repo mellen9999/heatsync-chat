@@ -6,7 +6,7 @@
 //! stores, with the step's picks as the draft's, and every word of its line is asked of `Draft::word`: the
 //! chips must be the law's. what the app has no way to say yet is counted, by reason, exactly.
 
-use super::drawing::{SENDER, TS, alias, emote, provider, sets_of, url};
+use super::drawing::{SENDER, TS, alias, emote, provider, sets_of, stage_owner, url};
 use super::*;
 use crate::emotes::draft::Draft;
 use crate::emotes::personal::{Ev, Personal};
@@ -31,8 +31,6 @@ enum Cannot {
   KickOverflow,
   // `name0` as the name drawn as an overlay
   NameZero,
-  // the streamer's own heatsync set is not loaded by the app yet
-  OwnerSet,
 }
 
 type Chips = Vec<(String, String)>;
@@ -93,8 +91,13 @@ fn step(
     Some(id) => {
       let (p, ch) = id.split_once(':').ok_or("room id")?;
       let r = obj(&raw["rooms"][id], id)?;
-      if !strs(r.get("owner")).is_empty() {
-        return Ok(Err(Cannot::OwnerSet));
+      let feed = match p {
+        "kick" => Feed::Kick,
+        "youtube" => Feed::Youtube,
+        _ => Feed::Twitch,
+      };
+      if !stage_owner(&w, &mut emotes, feed, ch, &rng.shuffled(&strs(r.get("owner"))))? {
+        return Err("two of one name in a streamer's set".into());
       }
       let third = strs(r.get("third"));
       // a room still loading has no sets yet: the box reads without them
@@ -119,11 +122,6 @@ fn step(
           return Ok(Err(Cannot::KickOwn));
         }
       }
-      let feed = match p {
-        "kick" => Feed::Kick,
-        "youtube" => Feed::Youtube,
-        _ => Feed::Twitch,
-      };
       (Some(feed), ch)
     }
   };
@@ -220,7 +218,6 @@ fn the_box_agrees_with_the_law_on_every_send_step_it_can_say() {
     n(Cannot::KickOwn),
     n(Cannot::KickOverflow),
     n(Cannot::NameZero),
-    n(Cannot::OwnerSet),
   );
-  assert_eq!(split, (15, 7, 1, 0, 1, 1, 2, 0), "the sending split moved");
+  assert_eq!(split, (15, 7, 1, 0, 1, 1, 2), "the sending split moved");
 }

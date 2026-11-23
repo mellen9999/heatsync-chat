@@ -50,9 +50,10 @@ impl<'a> Draft<'a> {
   //   1. on twitch, twitch's own emote of the name you can use: twitch marks it whatever else we attach
   //   2. the pick made in this draft
   //   3. your 7tv personal emote
-  //   4. the room's: ffz, 7tv, bttv, and on kick the kick channel's own (with kick's globals: the one set
-  //      the app holds for a kick channel, all of it free to send; a sub-only emote is never loaded). kick
-  //      draws only what goes out in its format, so anything above can win a name there (`kickify`)
+  //   4. the room's: the streamer's own heatsync emotes, ffz, 7tv, bttv, and on kick the kick channel's own
+  //      (with kick's globals: the one set the app holds for a kick channel, all of it free to send; a
+  //      sub-only emote is never loaded). kick draws only what goes out in its format, so anything above
+  //      can win a name there (`kickify`)
   //   5. yours
   //   6. a global
   // case is exact. `picks` None = the word as hand-typed
@@ -70,7 +71,9 @@ impl<'a> Draft<'a> {
     if let Some(x) = self.me.and_then(|id| self.personal.peek(id, word)) {
       return e(x, From::Personal);
     }
-    if let Some(x) = self.leg.and_then(|p| em.channel_on(self.chan, p == Platform::Kick, word)) {
+    let owner = |p| em.owner_on(self.chan, p, word).filter(|_| self.inventory);
+    let room = |p| owner(p).or_else(|| em.channel_on(self.chan, p == Platform::Kick, word));
+    if let Some(x) = self.leg.and_then(room) {
       return e(x, From::Room);
     }
     if let Some(x) = self.me.filter(|_| self.inventory).and_then(|id| self.senders.peek(id, word, self.now)) {
@@ -99,7 +102,11 @@ impl<'a> Draft<'a> {
         .collect();
       let kick = all.iter().filter(|(_, p, _)| *p == Provider::Kick && leg == Platform::Kick);
       let native: Vec<Pic> = kick.map(|(n, p, e)| pic(n, &e.url, e.zero_width, tag(*p), Src::Channel(*p))).collect();
-      law::build_room(platform(leg), self.chan, law::RoomLists { owner: &[], third: &third, native: &native }, true)
+      // the streamer's own: one list whatever provider each picture came from
+      let owner = if self.inventory { em.owner_all(self.chan, leg) } else { Vec::new() };
+      let owner: Vec<Pic> =
+        owner.into_iter().map(|(n, e)| pic(n, &e.url, e.zero_width, host(&e.url), Src::Owner)).collect();
+      law::build_room(platform(leg), self.chan, law::RoomLists { owner: &owner, third: &third, native: &native }, true)
     });
     let all = em.global_all().into_iter();
     let globals: Vec<Pic> = all.map(|(n, p, e)| pic(n, &e.url, e.zero_width, tag(p), Src::Global(p))).collect();
@@ -134,6 +141,8 @@ pub struct Pic<'a> {
 // where a picture was found: what tab's tooltip says about it
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Src {
+  // the streamer's own heatsync emote
+  Owner,
   Channel(Provider),
   Global(Provider),
   Inventory,

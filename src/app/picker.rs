@@ -29,13 +29,14 @@ impl App {
     let subs = self.res.emotes.sub_entries().into_iter().filter(|(n, _)| !mine.iter().any(|m| &*m.name == *n));
     let subs: Vec<Item> = subs.map(|(n, e)| item(Sec::Mine, n, &e.url, e.w, e.h)).collect();
     mine.extend(subs);
-    let channel = self
-      .res
-      .emotes
-      .channel_entries(&chan)
-      .into_iter()
-      .map(|(n, e)| item(Sec::Channel, n, &e.url, e.w, e.h))
-      .collect();
+    // the room's: the streamer's own heatsync emotes, then the channel's sets for the names those leave
+    let owner = self.leg().filter(|_| self.res.look.inventory_emotes);
+    let owner = owner.map_or_else(Vec::new, |p| self.res.emotes.owner_all(&chan, p));
+    let mut channel: Vec<Item> = owner.into_iter().map(|(n, e)| item(Sec::Channel, n, &e.url, e.w, e.h)).collect();
+    let rest =
+      self.res.emotes.channel_entries(&chan).into_iter().filter(|(n, _)| !channel.iter().any(|c| &*c.name == *n));
+    let rest: Vec<Item> = rest.map(|(n, e)| item(Sec::Channel, n, &e.url, e.w, e.h)).collect();
+    channel.extend(rest);
     let global =
       self.res.emotes.global_entries().into_iter().map(|(n, e)| item(Sec::Global, n, &e.url, e.w, e.h)).collect();
     self.close_menu();

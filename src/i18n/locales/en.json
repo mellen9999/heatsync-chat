@@ -41,6 +41,7 @@
  "app.complete.channel_7tv": "channel · 7tv users",
  "app.complete.channel_bttv": "channel · bttv users",
  "app.complete.channel_ffz": "channel · ffz users",
+ "app.complete.channel_hs": "channel · heatsync only",
  "app.complete.channel_twitch": "channel · all twitch",
  "app.complete.channel_kick": "channel · all kick",
  "app.complete.chatter": "chatter",

@@ -274,6 +274,33 @@ pub fn parse_set(v: &Value) -> Set {
   set
 }
 
+// a streamer's own emotes from `/api/emotes/user/<channel>?platform=`: `{emotes: [{name, url, width, height,
+// zeroWidth, nsfw}]}`, the same gates as a sender's rows. the rows come in slot order and the first of a
+// name is the name's. an upload's address can be root-relative: it is ours, so it is anchored on `origin`.
+// a size the server does not know yet is 0 (read off the picture when it loads), never a guess
+pub fn parse_owner(v: &Value, origin: &str) -> crate::emotes::Set {
+  let mut set = crate::emotes::Set::new();
+  let rows = v.get("emotes").and_then(Value::as_array).into_iter().flatten();
+  for r in rows.take(MAX_ROWS) {
+    let s = |k: &str| r.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let Some(name) = s("name").filter(|n| valid_name(n)) else { continue };
+    let Some(url) = s("url") else { continue };
+    let url = if url.starts_with('/') && !url.starts_with("//") { format!("{origin}{url}") } else { url.to_owned() };
+    if url.len() > MAX_URL || !allowed(&url) || emote_hidden(r) {
+      continue;
+    }
+    let dim = |k: &str| r.get(k).and_then(Value::as_u64).map_or(0, |n| n.min(u16::MAX as u64) as u16);
+    let zero_width = r.get("zeroWidth").and_then(Value::as_bool) == Some(true);
+    set.entry(name.into()).or_insert(crate::emotes::Emote {
+      url: url.into(),
+      w: dim("width"),
+      h: dim("height"),
+      zero_width,
+    });
+  }
+  set
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -284,6 +311,31 @@ mod tests {
   fn row(name: &str) -> Value {
     json!({"custom_name": name, "url": "https://cdn.7tv.app/emote/x/1x.webp", "width": 32, "height": 32,
       "added_at": "2026-10-30T22:26:51.099Z"})
+  }
+
+  #[test]
+  fn a_streamers_rows_pass_the_same_gates_and_the_first_of_a_name_wins() {
+    crate::heatsync::content::set_shown([]);
+    let rows = json!({"emotes": [
+      {"name": "Hi", "url": "https://cdn.7tv.app/emote/a/1x.webp", "width": 32, "height": 28, "provider": "7tv"},
+      {"name": "Hi", "url": "https://cdn.7tv.app/emote/b/1x.webp", "width": 32, "height": 32},
+      {"name": "Up", "url": "/uploads/emotes/u.webp", "width": null, "height": null, "zeroWidth": true},
+      {"name": "nsfw", "url": "https://cdn.7tv.app/a", "nsfw": true},
+      {"name": "evil", "url": "https://evil.example/a"},
+      {"name": "sly", "url": "//evil.example/a"},
+      {"name": "two words", "url": "https://cdn.7tv.app/a"},
+      {"url": "https://cdn.7tv.app/a"},
+      {"name": "nourl"},
+    ]});
+    let set = parse_owner(&rows, "https://heatsync.org");
+    let mut names: Vec<&str> = set.keys().map(|k| &**k).collect();
+    names.sort();
+    assert_eq!(names, ["Hi", "Up"]);
+    assert_eq!((&*set["Hi"].url, set["Hi"].w, set["Hi"].h), ("https://cdn.7tv.app/emote/a/1x.webp", 32, 28));
+    let up = &set["Up"];
+    assert_eq!((&*up.url, up.w, up.h, up.zero_width), ("https://heatsync.org/uploads/emotes/u.webp", 0, 0, true));
+    assert!(parse_owner(&Value::Null, "https://heatsync.org").is_empty(), "a channel that is not on heatsync");
+    assert!(parse_owner(&json!({"emotes": []}), "https://heatsync.org").is_empty());
   }
 
   #[test]

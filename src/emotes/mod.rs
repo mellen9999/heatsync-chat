@@ -1,6 +1,7 @@
 // third-party emote sets (7tv / bttv / ffz), global + per channel, plus twitch's own by id and a merged
 // tab's kick channel (its own + kick's globals).
-// this is the CATALOG of what a channel has enabled — heatsync per-sender emotes live elsewhere.
+// this is the CATALOG of what a channel has enabled, the streamer's own heatsync emotes included (`owners`)
+// — heatsync per-sender emotes live elsewhere.
 // resolve.rs is the one place a chat word becomes an emote (the privacy chokepoint)
 pub mod block;
 pub mod draft;
@@ -11,6 +12,11 @@ pub mod providers;
 pub mod resolve;
 
 use std::collections::HashMap;
+
+use crate::model::message::Platform;
+
+// a channel on one platform: a twitch "ninja" and a kick "ninja" are different people
+pub type Leg = (Platform, Box<str>);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Provider {
@@ -93,6 +99,12 @@ pub struct Emotes {
   subs: Set,
   // each joined kick channel's set, by slug. a room draws on one through `route_kick`
   kick: HashMap<Box<str>, Set>,
+  // each streamer's own heatsync emotes (the site's owner route), whatever provider a picture came from.
+  // heatsync's, so the heatsync emotes switch gates them where they are read. a room draws on its
+  // platforms' through `route_owner`
+  owners: HashMap<Leg, Set>,
+  // the channels each room (a tab's chat key) is
+  legs: HashMap<Box<str>, Vec<Leg>>,
 }
 
 impl Emotes {
@@ -128,6 +140,73 @@ impl Emotes {
       }
     }
     self.channels.retain(|_, s| !s.sets.is_empty());
+  }
+
+  // which channels each room is, rebuilt whole from the tabs like `route_kick`: a closed tab's sets go with
+  // it. answers (the channels new to the route, the ones that left it): what to ask for, what to stop
+  pub fn route_owner<'a>(&mut self, rooms: impl IntoIterator<Item = (&'a str, &'a [Leg])>) -> (Vec<Leg>, Vec<Leg>) {
+    let old: Vec<Leg> = std::mem::take(&mut self.legs).into_values().flatten().collect();
+    for (room, legs) in rooms {
+      let seat = self.legs.entry(room.into()).or_default();
+      for l in legs {
+        if !seat.contains(l) {
+          seat.push(l.clone());
+        }
+      }
+    }
+    let mut new: Vec<Leg> = Vec::new();
+    for l in self.legs.values().flatten() {
+      if !old.contains(l) && !new.contains(l) {
+        new.push(l.clone());
+      }
+    }
+    let mut gone: Vec<Leg> = Vec::new();
+    for l in old {
+      if !self.routed(&l) && !gone.contains(&l) {
+        gone.push(l);
+      }
+    }
+    let legs = &self.legs;
+    self.owners.retain(|l, _| legs.values().flatten().any(|x| x == l));
+    (new, gone)
+  }
+
+  fn routed(&self, leg: &Leg) -> bool {
+    self.legs.values().flatten().any(|l| l == leg)
+  }
+
+  // the channels in some tab that a heatsync account's key names (`kick:<name>`, `yt:<handle>`, `ytc:<id>`
+  // as the server spells them: lowercase, no `@`)
+  pub fn legs_named(&self, p: Platform, name: &str) -> Vec<Leg> {
+    let is = |l: &&Leg| l.0 == p && l.1.trim_start_matches('@').eq_ignore_ascii_case(name);
+    let mut out: Vec<Leg> = Vec::new();
+    for l in self.legs.values().flatten().filter(is) {
+      if !out.contains(l) {
+        out.push(l.clone());
+      }
+    }
+    out
+  }
+
+  // false = no tab is this channel any more: the answer is nobody's
+  pub fn set_owner(&mut self, leg: Leg, set: Set) -> bool {
+    let on = self.routed(&leg);
+    if on {
+      self.owners.insert(leg, set);
+    }
+    on
+  }
+
+  // the streamer's own emote of a name on one platform's lines: the room's first answer (the law's read
+  // and send order), and only that platform's streamer's
+  pub fn owner_on(&self, room: &str, p: Platform, word: &str) -> Option<&Emote> {
+    self.legs.get(room)?.iter().filter(|l| l.0 == p).find_map(|l| self.owners.get(l)?.get(word))
+  }
+
+  // every emote of a room's streamer on one platform
+  pub fn owner_all(&self, room: &str, p: Platform) -> Vec<(&str, &Emote)> {
+    let legs = self.legs.get(room).into_iter().flatten().filter(|l| l.0 == p);
+    legs.filter_map(|l| self.owners.get(l)).flat_map(|s| s.iter().map(|(k, v)| (&**k, v))).collect()
   }
 
   // `text` as kick's wire wants it: a word that is one of `slug`'s kick emotes becomes its
@@ -279,6 +358,37 @@ mod tests {
     em.drop_kick("k");
     em.route_kick([("c", "k")]);
     assert!(em.channel("c", "peepoDJ").is_none(), "a left kick channel routes nothing");
+  }
+
+  // the streamer's own heatsync emotes: asked for once per channel, read by its own platform's lines only,
+  // and gone with the last tab that is the channel
+  #[test]
+  fn a_streamers_set_is_its_platforms_and_follows_the_tabs() {
+    let leg = |p, k: &str| -> Leg { (p, k.into()) };
+    let (tw, kick) = (leg(Platform::Twitch, "ninja"), leg(Platform::Kick, "ninja"));
+    let mut em = Emotes::default();
+    assert!(!em.set_owner(tw.clone(), [("Hi".into(), e("early"))].into()), "no tab is the channel: nobody's");
+    let both = [tw.clone(), kick.clone()];
+    assert_eq!(em.route_owner([("ninja", &both[..])]), (both.to_vec(), vec![]));
+    assert_eq!(em.route_owner([("ninja", &both[..]), ("other", &both[..1])]), (vec![], vec![]), "asked once");
+    assert!(em.set_owner(tw.clone(), [("Hi".into(), e("tw"))].into()));
+    assert!(em.set_owner(kick.clone(), [("Hi".into(), e("kick")), ("Yo".into(), e("yo"))].into()));
+    assert_eq!(&*em.owner_on("ninja", Platform::Twitch, "Hi").unwrap().url, "tw");
+    assert_eq!(&*em.owner_on("ninja", Platform::Kick, "Hi").unwrap().url, "kick");
+    assert!(em.owner_on("ninja", Platform::Twitch, "Yo").is_none(), "the kick streamer's emote, a twitch line");
+    assert!(em.owner_on("ninja", Platform::Youtube, "Hi").is_none());
+    assert!(em.owner_on("ninja", Platform::Twitch, "hi").is_none(), "case is exact");
+    assert_eq!(&*em.owner_on("other", Platform::Twitch, "Hi").unwrap().url, "tw", "two tabs, one channel");
+    assert_eq!(em.owner_all("ninja", Platform::Kick).len(), 2);
+    assert_eq!(em.legs_named(Platform::Kick, "Ninja"), vec![kick.clone()], "once, whatever tabs hold it");
+    assert_eq!(em.legs_named(Platform::Twitch, "ninja"), vec![tw.clone()]);
+    assert!(em.legs_named(Platform::Youtube, "ninja").is_empty());
+    // the kick leg came off the tab: its set goes, the twitch one stays
+    assert_eq!(em.route_owner([("ninja", &both[..1])]), (vec![], vec![kick.clone()]));
+    assert!(em.owner_on("ninja", Platform::Kick, "Hi").is_none() && !em.owners.contains_key(&kick));
+    assert_eq!(&*em.owner_on("ninja", Platform::Twitch, "Hi").unwrap().url, "tw");
+    assert_eq!(em.route_owner([]), (vec![], vec![tw.clone()]));
+    assert!(em.owners.is_empty());
   }
 
   #[test]
