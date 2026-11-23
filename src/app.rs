@@ -787,6 +787,7 @@ impl App {
         t.views().for_each(ChatView::relayout);
       }
     }
+    self.box_moved();
     self.wake();
   }
 
@@ -795,7 +796,15 @@ impl App {
     for v in self.tabs.iter_mut().flat_map(Tab::views) {
       v.touch_sender(&uid);
     }
+    self.box_moved();
     self.wake();
+  }
+
+  // an emote set, a block list or someone's own emotes changed with no keystroke: the box draws its
+  // emotes by the same answers a send gives, so it is drawn again. it kept the old picture until the
+  // next key, while enter shipped the new one
+  fn box_moved(&mut self) {
+    self.input_dirty |= !self.line.chips.is_empty();
   }
 
   // a paint or badge landed: redo only the lines whose name it dresses

@@ -2,11 +2,12 @@
 // is only a name in the line's set, the text sent is unchanged; which picture a name is comes from the emote
 // law (emotes/draft.rs), with the draft's own picks
 use super::App;
-use crate::emotes::block::Blocked;
-use crate::emotes::draft::{Draft, Found};
+use crate::emotes::block::{Blocked, Scope};
+use crate::emotes::draft::{Draft, Found, From};
 use crate::model::catalog::{Rec, Registry};
 use crate::model::message::Platform;
 use crate::model::tabs::Kind;
+use crate::ui::chat_view::{EmoteHit, Layer};
 use crate::ui::input_bar::Chip;
 use crate::ui::res::EMOTE_PX;
 use crate::util::time::now_ms;
@@ -57,6 +58,37 @@ impl App {
     let base = crate::emotes::overlay_base(word);
     let hidden = |url: &str| blocked.contains(word, url) || base.is_some_and(|b| blocked.contains(b, url));
     d.word(Some(picks), word).map(|f| f.0).filter(|(url, _, _)| !hidden(url))
+  }
+
+  // a box word as the emote a click on it means: the picture drawn there (the one the word sends), filed
+  // for a block the way a chat line files the same picture (emotes/resolve.rs)
+  fn box_hit(&self, word: &str) -> Option<EmoteHit> {
+    let d = self.draft();
+    // the name the picture is filed under: `name0` read as an overlay is `name`'s emote
+    let (name, (url, _, zero_width), from) = d.named(Some(&self.line.picks), word)?;
+    // a picture you blocked is not drawn in the box (`drawn`), so it is not there to click
+    if self.res.blocked.contains(word, &url) || self.res.blocked.contains(name, &url) {
+      return None;
+    }
+    let owners = |p| self.res.emotes.owner_on(d.chan, p, name).is_some_and(|x| *x.url == *url);
+    let scope = match from {
+      From::Pick | From::Own => Scope::Hs,
+      From::Room if d.inventory && d.leg.is_some_and(owners) => Scope::Hs,
+      From::Room | From::Personal => Scope::Channel,
+      From::Native | From::Global => Scope::Global,
+    };
+    Some(EmoteHit { name: name.into(), url, zero_width, scope, over: Vec::new() })
+  }
+
+  // the emote in the message box under the pointer. a stack answers as on a chat line: its base, with the
+  // overlays on it
+  pub(super) fn box_emote_under_pointer(&self) -> Option<EmoteHit> {
+    let (x, y) = self.pointer;
+    let r = self.input_hit.as_ref().filter(|_| self.input_area().contains(x, y))?.chip_at(x, y)?;
+    let mut found = self.line.text.get(r)?.split(' ').filter_map(|w| self.box_hit(w));
+    let mut hit = found.next()?;
+    hit.over = found.map(|h| Layer { name: h.name, url: h.url, scope: h.scope }).collect();
+    Some(hit)
   }
 
   // an emote here under this name with this picture, as a pick: tab's, a picker tile's, one clicked in chat

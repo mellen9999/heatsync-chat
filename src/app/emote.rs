@@ -74,7 +74,8 @@ impl App {
     let (x, y) = self.pointer;
     let chat = self.chat_area();
     if !chat.contains(x, y) {
-      return None;
+      // an emote in the message box is an emote too: the same tip, and a right-click acts on that picture
+      return self.box_emote_under_pointer();
     }
     let res = &mut self.res;
     self.tabs.get_mut(self.active)?.view.emote_at(chat, x, y, res)
@@ -149,11 +150,18 @@ impl App {
         }));
       }
       Act::Remove => {
+        // the copy being removed is no longer this draft's pick: its word is read again (the room's
+        // emote, a global, or text) instead of shipping the picture you just took out of your set
+        if self.line.picks.get(name).is_some_and(|r| *r.url == *hit.url) {
+          self.line.picks.put(name, None);
+        }
         self.say(f("app.emote.removing", &[("name", name)]));
         self.net.send(Cmd::Emote(EmoteCmd::Remove { name: name.clone() }));
       }
     }
     self.bar_dirty = true;
+    // the box draws its emotes by the same answers: a block or a removal shows there at once
+    self.input_dirty = true;
   }
 
   pub fn menu_key(&mut self, key: Key<&str>) {

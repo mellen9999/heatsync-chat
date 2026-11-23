@@ -272,3 +272,115 @@ fn a_recalled_line_keeps_a_copy_you_chose_and_never_carries_one_channels_emote_i
   assert!(app.line.picks.is_empty(), "back to an empty draft");
   assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("FORSEN7")), "typed fresh, the name is the room's");
 }
+
+// an emote in the message box is an emote: a right-click acts on the picture drawn there, as on a chat
+// line. the room's emote under a name you also own is blocked, your copy is never removed for it; your own
+// copy, picked over the room's, is removed, and with it the pick, so the word is the room's again
+#[test]
+fn a_right_click_on_an_emote_in_the_box_acts_on_the_picture_it_shows() {
+  use crate::model::catalog::Rec;
+  use crate::model::settings::RightClick;
+  use crate::net::emote_ops::EmoteCmd;
+  let (mut app, mut rx) = boot(&["forsen"]);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(720, 360);
+  app.set.right_click = RightClick::Instant;
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, set(&[("KW", "ROOM7")]));
+  let mine = serde_json::json!([{"custom_name": "KW", "url": url7("MINE"), "width": 28, "height": 28,
+    "added_at": "2026-10-30T22:26:51.099Z"}]);
+  app.res.senders.lookup(1, "KW", 0);
+  app.res.senders.put(1, crate::heatsync::senders::parse_set(&mine));
+  let emote_cmds = |rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>| -> Vec<EmoteCmd> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| if let Cmd::Emote(e) = c { Some(e) } else { None })
+      .collect()
+  };
+  // the pointer on the box's one picture, found where the box says it drew it
+  let aim = |app: &mut App| {
+    app.input_dirty = true;
+    app.redraw();
+    let r = app.input_area();
+    let mid = r.y + r.h / 2;
+    let hit = app.input_hit.as_ref().expect("the box remembers where its text is");
+    let x = (r.x..r.right()).find(|&x| hit.chip_at(x, mid).is_some());
+    if let Some(x) = x {
+      app.pointer = (x + 2, mid);
+    }
+    x.is_some()
+  };
+  app.line.insert("hi KW ");
+  app.line.chips.insert("KW".into());
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("ROOM7")), "typed by hand, the name is the room's");
+  assert!(aim(&mut app), "the room's KW is a picture in the box");
+  let tip = app.emote_under_pointer().expect("the pointer is on an emote");
+  assert_eq!((&*tip.name, &*tip.url), ("KW", &*url7("ROOM7")));
+  assert!(!app.owned(&tip), "the room's picture under a name you own is not yours");
+  emote_cmds(&mut rx);
+  app.right_click();
+  assert!(app.res.blocked.contains("KW", &url7("ROOM7")), "the picture the box showed is blocked");
+  let sent = emote_cmds(&mut rx);
+  assert!(sent.iter().all(|c| matches!(c, EmoteCmd::Block { .. })), "and nothing of yours was removed");
+  assert_eq!(sent.len(), 1);
+  assert_eq!(app.box_url("KW"), None, "a blocked picture is not drawn in the box");
+  assert!(!aim(&mut app), "so there is no picture left to click");
+  let scope = crate::emotes::block::Scope::Channel;
+  app.res.blocked.unblock("KW", &url7("ROOM7"), scope);
+
+  // your own copy, picked over the room's
+  app.line.picks.put("KW", Some(Rec { url: url7("MINE").into(), zero_width: false, provider: "7tv" }));
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("MINE")));
+  assert!(aim(&mut app));
+  let own = app.emote_under_pointer().expect("the pointer is on your copy");
+  assert!(app.owned(&own));
+  app.right_click();
+  let sent = emote_cmds(&mut rx);
+  assert!(
+    matches!(&sent[..], [EmoteCmd::Remove { name }] if &**name == "KW"),
+    "your copy is removed, and only that ({} sent)",
+    sent.len()
+  );
+  assert!(app.line.picks.get("KW").is_none(), "the removed copy is no longer this draft's pick");
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("ROOM7")), "the word is read again: the room's");
+  assert!(!app.res.blocked.contains("KW", &url7("MINE")), "and nothing was blocked");
+
+  // off the pictures, a right-click in the box is not an emote's
+  let r = app.input_area();
+  app.pointer = (r.right() - 4, r.y + r.h / 2);
+  assert!(app.emote_under_pointer().is_none());
+}
+
+// the box is drawn again only when it is marked. a set that changes under a word in it with no keystroke
+// must mark it, or the box keeps the old picture while enter ships the new one
+#[test]
+fn a_set_that_changes_under_a_word_in_the_box_redraws_the_box() {
+  let (mut app, _rx) = boot(&["forsen"]);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(720, 360);
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, set(&[("KW", "ROOM7")]));
+  app.line.insert("hi KW ");
+  app.line.chips.insert("KW".into());
+  app.input_dirty = true;
+  app.redraw();
+  assert!(!app.input_dirty, "the box is drawn");
+
+  app.on_net(NetEvent::Emotes(Some("forsen".into()), Provider::SevenTv, set(&[("KW", "NEWER")])));
+  assert!(app.input_dirty, "the room's set changed: the box is drawn again");
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("NEWER")));
+  app.redraw();
+
+  let mine = serde_json::json!([{"custom_name": "Mine", "url": url7("MINE"), "width": 28, "height": 28,
+    "added_at": "2026-10-30T22:26:51.099Z"}]);
+  app.res.senders.lookup(1, "Mine", 0);
+  app.on_net(NetEvent::Senders(vec![(1, crate::heatsync::senders::parse_set(&mine))]));
+  assert!(app.input_dirty, "your own emotes landed: the box is drawn again");
+  app.redraw();
+
+  // a box with no emote in it has nothing to redraw
+  app.line.take();
+  app.input_dirty = true;
+  app.redraw();
+  app.on_net(NetEvent::Emotes(Some("forsen".into()), Provider::SevenTv, set(&[("KW", "ROOM7")])));
+  assert!(!app.input_dirty);
+}

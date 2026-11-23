@@ -228,16 +228,25 @@ pub struct Hit {
 }
 
 impl Hit {
+  // the picture at a layout point: which chip, its left edge and its width
+  fn over_chip(&self, lx: f32, ly: f32) -> Option<(usize, f32, f32)> {
+    (0..self.chips.len()).find_map(|k| {
+      let (bx, by, bw, bh) = chip_box(&self.l, k)?;
+      ((bx..bx + bw).contains(&lx) && (by..by + bh).contains(&ly)).then_some((k, bx, bw))
+    })
+  }
+
+  // the emote stack under the pointer: its bytes in the line
+  pub fn chip_at(&self, x: i32, y: i32) -> Option<Range<usize>> {
+    self.over_chip(x as f32 - self.ox, y as f32 - self.oy).map(|(k, ..)| self.chips[k].clone())
+  }
+
   // the line byte nearest a click: a picture's nearer side, else between the letters
   pub fn byte_at(&self, x: i32, y: i32) -> usize {
     let (lx, ly) = (x as f32 - self.ox, y as f32 - self.oy);
-    for (k, r) in self.chips.iter().enumerate() {
-      if let Some((bx, by, bw, bh)) = chip_box(&self.l, k)
-        && (bx..bx + bw).contains(&lx)
-        && (by..by + bh).contains(&ly)
-      {
-        return if lx < bx + bw / 2.0 { r.start } else { r.end };
-      }
+    if let Some((k, bx, bw)) = self.over_chip(lx, ly) {
+      let r = &self.chips[k];
+      return if lx < bx + bw / 2.0 { r.start } else { r.end };
     }
     let i = Cursor::from_point(&self.l, lx, ly).index();
     if i < self.at {

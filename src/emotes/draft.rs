@@ -61,10 +61,17 @@ impl<'a> Draft<'a> {
   // `name0`: the word as written goes through every step first; only when nothing answers it is it `name`
   // as an overlay (and twitch marks the exact word only, so `Kappa0` is never twitch's)
   pub fn word(&self, picks: Option<&Registry>, word: &str) -> Option<(Found, From)> {
-    self.exact(picks, word, false).or_else(|| {
-      let ((url, size, _), from) = self.exact(picks, super::overlay_base(word)?, true)?;
-      Some(((url, size, true), from))
-    })
+    self.named(picks, word).map(|(_, found, from)| (found, from))
+  }
+
+  // the same answer with the name that gave it: the word itself, or its base when it is read as `name0`
+  pub fn named<'w>(&self, picks: Option<&Registry>, word: &'w str) -> Option<(&'w str, Found, From)> {
+    if let Some((found, from)) = self.exact(picks, word, false) {
+      return Some((word, found, from));
+    }
+    let base = super::overlay_base(word)?;
+    let ((url, size, _), from) = self.exact(picks, base, true)?;
+    Some((base, (url, size, true), from))
   }
 
   fn exact(&self, picks: Option<&Registry>, word: &str, stripped: bool) -> Option<(Found, From)> {
