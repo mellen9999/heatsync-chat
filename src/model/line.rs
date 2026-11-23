@@ -1,7 +1,7 @@
 // the message being typed: text + cursor (byte index on a char boundary) + sent history.
 // words named in `chips` show as their emote and edit as one unit (backspace, delete, arrows); an emoji
 // (a grapheme: 👍🏽, 🇯🇵) is one step too
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 
 // twitch's cap; kick and youtube are lower or equal
@@ -21,9 +21,12 @@ pub struct Line {
   // the pictures picked on purpose in this draft, by name (tab, the picker, a clicked emote). the draft's
   // own: gone when the line is sent, swapped out or loaded over
   pub picks: super::catalog::Registry,
-  // the draft's picks, set aside with it while a sent line is looked at: a recalled line is its own text
+  // the draft's picks, set aside with it while a sent line is looked at
   draft_picks: super::catalog::Registry,
   history: VecDeque<String>,
+  // the copies picked on purpose in a sent line, by its text (`keep`): a recalled line comes back with
+  // them. this run only: the sent file holds the words alone
+  kept: HashMap<String, super::catalog::Registry>,
   // Some(i) while browsing history; `draft` holds what was typed before
   browsing: Option<usize>,
   draft: String,
@@ -283,7 +286,28 @@ impl Line {
       }
       self.history.push_back(msg.clone());
     }
+    // the newest send of a line is the one that comes back: sent again by hand, it has no pick (`keep`
+    // files this send's, when it has any). a line that fell off the list takes its picks along
+    self.kept.remove(&msg);
+    self.kept.retain(|l, _| self.history.contains(l));
     Some(msg)
+  }
+
+  // the line just sent (what `take` handed back) went out with these picks, each a copy chosen over what
+  // its word would have sent: recalled, the line shows and ships them again. the emote law: a pick is the
+  // line's, never the name's, so only a recall brings one back
+  pub fn keep(&mut self, line: &str, picks: super::catalog::Registry) {
+    if !picks.is_empty() && self.history.back().map(String::as_str) == Some(line) {
+      self.kept.insert(line.into(), picks);
+    }
+  }
+
+  // the sent line being looked at, as it went out: its words and the copies picked in it
+  fn show(&mut self, i: usize) {
+    self.browsing = Some(i);
+    self.text = self.history[i].clone();
+    self.picks = self.kept.get(&self.text).cloned().unwrap_or_default();
+    self.cursor = self.text.len();
   }
 
   // what was sent, oldest first (the file `sent_file` keeps between runs)
@@ -313,6 +337,7 @@ impl Line {
       self.cursor = self.text.len();
     }
     self.history.clear();
+    self.kept.clear();
   }
 
   // up: older sent message; down: newer, then back to the draft
@@ -327,21 +352,17 @@ impl Line {
       Some(0) => return,
       Some(i) => i - 1,
     };
-    self.browsing = Some(i);
-    self.text = self.history[i].clone();
-    self.cursor = self.text.len();
+    self.show(i);
   }
 
   pub fn newer(&mut self) {
     let Some(i) = self.browsing else { return };
     if i + 1 < self.history.len() {
-      self.browsing = Some(i + 1);
-      self.text = self.history[i + 1].clone();
-    } else {
-      self.browsing = None;
-      self.text = std::mem::take(&mut self.draft);
-      self.picks = std::mem::take(&mut self.draft_picks);
+      return self.show(i + 1);
     }
+    self.browsing = None;
+    self.text = std::mem::take(&mut self.draft);
+    self.picks = std::mem::take(&mut self.draft_picks);
     self.cursor = self.text.len();
   }
 }
@@ -570,8 +591,8 @@ mod tests {
     assert_eq!(l.sent().last(), Some("newer"));
   }
 
-  // a draft's picks are the draft's: a sent line looked at meanwhile has none of them, coming back to the
-  // draft brings them back, and a line that leaves or is loaded over takes them with it
+  // a draft's picks are the draft's: a sent line looked at meanwhile has none of them (it has its own, or
+  // none), coming back to the draft brings them back, and a line that leaves or is loaded over takes them
   #[test]
   fn picks_stay_with_their_draft() {
     use crate::model::catalog::Rec;
@@ -590,6 +611,66 @@ mod tests {
     l.picks.put("W", Some(rec()));
     l.load("other".into());
     assert!(l.picks.is_empty());
+  }
+
+  // a copy picked on purpose comes back with its line. it re-sent the room's emote of the name instead
+  #[test]
+  fn a_recalled_line_comes_back_with_the_copies_picked_in_it() {
+    use crate::model::catalog::{Rec, Registry};
+    let rec = |id: &str| Rec {
+      url: format!("https://cdn.7tv.app/emote/{id}/1x.webp").into(),
+      zero_width: false,
+      provider: "7tv",
+    };
+    let picks = |id: &str| {
+      let mut r = Registry::default();
+      r.put("W", Some(rec(id)));
+      r
+    };
+    let url = |l: &Line| l.picks.get("W").map(|r| r.url.to_string());
+    let mut l = Line::default();
+    for (line, id) in [("W one", Some("MINE")), ("plain", None), ("W two", Some("OTHER"))] {
+      l.insert(line);
+      let sent = l.take().unwrap();
+      l.keep(&sent, id.map(picks).unwrap_or_default());
+    }
+    // a draft with a pick of its own is set aside, and each sent line shows what it went out with
+    l.insert("W");
+    l.picks.put("W", Some(rec("DRAFT")));
+    l.older();
+    assert_eq!((l.text.as_str(), url(&l).as_deref()), ("W two", Some("https://cdn.7tv.app/emote/OTHER/1x.webp")));
+    l.older();
+    assert_eq!((l.text.as_str(), url(&l)), ("plain", None));
+    l.older();
+    assert_eq!((l.text.as_str(), url(&l).as_deref()), ("W one", Some("https://cdn.7tv.app/emote/MINE/1x.webp")));
+    l.newer();
+    l.newer();
+    assert_eq!((l.text.as_str(), url(&l).as_deref()), ("W two", Some("https://cdn.7tv.app/emote/OTHER/1x.webp")));
+    l.newer();
+    assert_eq!((l.text.as_str(), url(&l).as_deref()), ("W", Some("https://cdn.7tv.app/emote/DRAFT/1x.webp")));
+    l.take();
+    // the newest send of a line is the one that comes back: sent again by hand, it has no pick
+    l.insert("W one");
+    let sent = l.take().unwrap();
+    l.keep(&sent, Registry::default());
+    l.older();
+    assert_eq!((l.text.as_str(), url(&l)), ("W one", None));
+    l.newer();
+    // picks are filed for the line just sent and no other
+    l.keep("W two", picks("LATE"));
+    l.keep("never sent", picks("LATE"));
+    assert_eq!(l.kept.len(), 1, "W two's own, from its send");
+    // a line that falls off the list takes its picks with it, and clearing forgets them all
+    for i in 0..HISTORY {
+      l.insert(&format!("m{i}"));
+      l.take();
+    }
+    assert!(l.kept.is_empty());
+    l.insert("W three");
+    let sent = l.take().unwrap();
+    l.keep(&sent, picks("MINE"));
+    l.clear_sent();
+    assert!(l.kept.is_empty());
   }
 
   #[test]

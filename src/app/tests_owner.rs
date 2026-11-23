@@ -235,3 +235,40 @@ fn a_youtube_tab_opened_by_handle_asks_for_its_channels_emotes_when_its_feed_con
     crate::emotes::resolve::find_word(&mut app.res.sources(), &room, &m, 0, 3, "YtW").map(|f| f.0.to_string());
   assert_eq!(drawn, Some(url7("YT7")));
 }
+
+// a line brought back with the up arrow. a copy picked over the room's comes back with it (it re-sent the
+// room's emote instead); a word that was tab-completed is the room's own emote, no choice, so brought back
+// in another channel it is that channel's emote and never the first one's
+#[test]
+fn a_recalled_line_keeps_a_copy_you_chose_and_never_carries_one_channels_emote_into_another() {
+  use crate::model::catalog::Rec;
+  let (mut app, _rx) = boot(&["forsen", "lirik"]);
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, set(&[("KW", "FORSEN7")]));
+  app.res.emotes.set(Some("lirik"), Provider::SevenTv, set(&[("KW", "LIRIK7")]));
+  let tab = |app: &App, ch: &str| app.tabs.iter().position(|t| &*t.view.channel == ch).unwrap();
+  let pick = |id: &str| Rec { url: url7(id).into(), zero_width: false, provider: "7tv" };
+  // tab's first answer in forsen's channel is forsen's KW
+  app.active = tab(&app, "forsen");
+  app.line.insert("KW");
+  app.line.picks.put("KW", Some(pick("FORSEN7")));
+  app.send();
+  assert!(app.line.text.is_empty(), "sent");
+  app.active = tab(&app, "lirik");
+  app.line.older();
+  assert_eq!((app.line.text.as_str(), app.line.picks.is_empty()), ("KW", true));
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("LIRIK7")), "in lirik's channel the word is lirik's");
+  app.line.newer();
+  // a copy picked on purpose: not what the word sends here
+  app.line.insert("KW again");
+  app.line.picks.put("KW", Some(pick("CHOSEN")));
+  app.send();
+  app.line.older();
+  assert_eq!(app.line.text, "KW again");
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("CHOSEN")), "the line comes back as it was sent");
+  // it goes where you go, as a pick does, and an edit of the word ends it
+  app.active = tab(&app, "forsen");
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("CHOSEN")));
+  app.line.newer();
+  assert!(app.line.picks.is_empty(), "back to an empty draft");
+  assert_eq!(app.box_url("KW").as_deref(), Some(&*url7("FORSEN7")), "typed fresh, the name is the room's");
+}

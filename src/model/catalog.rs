@@ -382,6 +382,12 @@ impl Registry {
     was
   }
 
+  // only the picks `keep` says yes to stay
+  pub fn retain(&mut self, mut keep: impl FnMut(&str, &Rec) -> bool) {
+    self.map.retain(|n, r| keep(n, r));
+    self.order.retain(|n| self.map.contains_key(n));
+  }
+
   // a pick whose word is no longer in the box is over: typing the name again is a hand-typed word
   pub fn prune(&mut self, text: &str) {
     if self.map.is_empty() {

@@ -131,6 +131,18 @@ impl App {
     out
   }
 
+  // the picks in a line that were a choice: the ones that change what their word sends from here. a tab
+  // that took the first answer is what typing the name gives, so it is not one. these come back with the
+  // line when it is recalled (model/line.rs `keep`): recalled in another channel, a word you tab-completed
+  // is that channel's emote, never the first one's, and a copy you picked on purpose is still that copy
+  pub(super) fn chosen(&self, text: &str, picked: &Registry) -> Registry {
+    let mut out = picked.clone();
+    out.prune(text);
+    let d = self.draft();
+    out.retain(|name, rec| d.word(None, name).is_none_or(|(f, _)| *f.0 != *rec.url));
+    out
+  }
+
   // a space was just typed: the word before it turns into its emote when it's yours, or when it's an
   // overlay landing on an emote (other names stay words, so "what" never turns into a picture)
   pub(super) fn chip_spaced(&mut self) {

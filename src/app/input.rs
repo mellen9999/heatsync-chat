@@ -270,6 +270,9 @@ impl App {
     // the picks belong to this message: they leave the box with it
     let picked = std::mem::take(&mut self.line.picks);
     if let Some(text) = self.line.take() {
+      // a copy picked on purpose comes back with the line when it is recalled
+      let chosen = self.chosen(&text, &picked);
+      self.line.keep(&text, chosen);
       for (p, k) in &shut {
         if let Some(l) = self.locks.get(*p, k, now) {
           let why = l.text(now);
