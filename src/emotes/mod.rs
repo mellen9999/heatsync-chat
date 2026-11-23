@@ -181,9 +181,11 @@ impl Emotes {
   }
 
   // the channels in some tab that a heatsync account's key names (`kick:<name>`, `yt:<handle>`, `ytc:<id>`
-  // as the server spells them: lowercase, no `@`)
+  // as the server spells them: lowercase, no `@`). an older kick account `some_name` lives at the address
+  // `some-name`, and a tab holds the address: a match only re-reads, and the server says whose it is
   pub fn legs_named(&self, p: Platform, name: &str) -> Vec<Leg> {
-    let is = |l: &&Leg| l.0 == p && l.1.trim_start_matches('@').eq_ignore_ascii_case(name);
+    let at = |l: &str| p == Platform::Kick && l.contains('-') && l.replace('-', "_").eq_ignore_ascii_case(name);
+    let is = |l: &&Leg| l.0 == p && (l.1.trim_start_matches('@').eq_ignore_ascii_case(name) || at(&l.1));
     let mut out: Vec<Leg> = Vec::new();
     for l in self.legs.values().flatten().filter(is) {
       if !out.contains(l) {
@@ -372,6 +374,22 @@ mod tests {
   }
 
   // the streamer's own heatsync emotes: asked for once per channel, read by its own platform's lines only,
+  // kick: an older account some_name lives at the address some-name, and a tab holds the address
+  #[test]
+  fn a_kick_account_named_with_an_underscore_names_its_dashed_address() {
+    let leg = |p, k: &str| -> Leg { (p, k.into()) };
+    let (dash, plain, tw) =
+      (leg(Platform::Kick, "Some-Name"), leg(Platform::Kick, "somename"), leg(Platform::Twitch, "some-name"));
+    let mut em = Emotes::default();
+    let all = [dash.clone(), plain.clone(), tw.clone()];
+    em.route_owner([("t", &all[..])]);
+    assert_eq!(em.legs_named(Platform::Kick, "some_name"), vec![dash.clone()]);
+    assert_eq!(em.legs_named(Platform::Kick, "some-name"), vec![dash], "the address itself still names it");
+    assert_eq!(em.legs_named(Platform::Kick, "somename"), vec![plain]);
+    assert!(em.legs_named(Platform::Twitch, "some_name").is_empty(), "only kick writes an address this way");
+    assert!(em.legs_named(Platform::Youtube, "some_name").is_empty());
+  }
+
   // and gone with the last tab that is the channel
   #[test]
   fn a_streamers_set_is_its_platforms_and_follows_the_tabs() {
