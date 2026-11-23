@@ -770,6 +770,34 @@ mod tests {
     assert_eq!(chip_case(&app, "w"), None, "case is exact");
   }
 
+  // the law's headline: the chip in the box and the row that comes back are one answer. hand-typed, both
+  // are the channel's emote (never your own copy of the name); picked, both are the pick, which the row
+  // gets from the vouch
+  #[test]
+  fn the_chip_and_the_row_that_comes_back_are_the_same_picture() {
+    use crate::model::message::{Kind, Message, Platform, flag};
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    signed_in(&mut app);
+    w_everywhere(&mut app, true);
+    let row = |app: &mut App, pick: Option<&str>| {
+      let mut m = Message::system(now_ms(), Platform::Twitch, "W");
+      (m.kind, m.user_id, m.login) = (Kind::Chat, "1".into(), "mellen".into());
+      m.flags |= flag::OWN;
+      if let Some(u) = pick {
+        m.extra().picks = vec![("W".into(), u.into(), false)].into();
+      }
+      crate::emotes::resolve::find_word(&mut app.res.sources(), "forsen", &m, 0, 1, "W").map(|f| f.0.to_string())
+    };
+    let chip = app.box_url("W").map(|u| u.to_string());
+    assert_eq!(chip, Some(url7("CHANFFZ")));
+    assert_eq!(row(&mut app, None), chip, "hand-typed: the row is the chip");
+    app.line.picks.track(&hit("W", "PICK"));
+    let chip = app.box_url("W").map(|u| u.to_string());
+    assert_eq!(chip, Some(url7("PICK")));
+    assert_eq!(row(&mut app, chip.as_deref()), chip, "picked: the vouched row is the chip");
+  }
+
   // tab onto the second copy of a name and that picture is the draft's pick: the box shows it and the room
   // is told. a copy only passed on the way leaves the name as it was, and a pick whose word left the box
   // is over once anything is typed
