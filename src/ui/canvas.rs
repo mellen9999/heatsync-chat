@@ -179,6 +179,63 @@ impl Canvas {
     }
   }
 
+  // a sw×sh picture turned `turn` quarter turns clockwise, then mirrored and stretched to dw×dh at (x, y),
+  // each pixel through `ink` (an emote under its modifiers). a stretch is smoothed between the four
+  // nearest pixels, weighed by how solid each is, so a clear pixel's colour never bleeds into an edge
+  #[allow(clippy::too_many_arguments)]
+  pub fn rgba_turned(
+    &mut self,
+    (x, y): (i32, i32),
+    (sw, sh): (i32, i32),
+    (dw, dh): (i32, i32),
+    data: &[u8],
+    clip: Rect,
+    turn: u8,
+    (mx, my): (bool, bool),
+    ink: Option<impl Fn([u8; 4]) -> [u8; 4]>,
+  ) {
+    let c = Rect::new(x, y, dw, dh).intersect(clip).intersect(self.bounds());
+    if c.is_empty() || sw <= 0 || sh <= 0 || data.len() < (sw * sh * 4) as usize {
+      return;
+    }
+    // the turned picture's own size, and one of its pixels back in the picture as stored
+    let (rw, rh) = if turn % 2 == 1 { (sh, sw) } else { (sw, sh) };
+    let at = |u: i32, v: i32| -> [f32; 4] {
+      let (su, sv) = match turn % 4 {
+        0 => (u, v),
+        1 => (v, rw - 1 - u),
+        2 => (sw - 1 - u, sh - 1 - v),
+        _ => (rh - 1 - v, u),
+      };
+      let i = ((sv * sw + su) * 4) as usize;
+      let a = data[i + 3] as f32;
+      [data[i] as f32 * a, data[i + 1] as f32 * a, data[i + 2] as f32 * a, a]
+    };
+    // where a drawn pixel's middle falls in the turned picture: the pixel under it, the next, the share
+    let split = |d: i32, n: i32, of: i32, flip: bool| -> (i32, i32, f32) {
+      let d = if flip { n - 1 - d } else { d };
+      let f = ((d as f32 + 0.5) * of as f32 / n as f32 - 0.5).clamp(0.0, (of - 1) as f32);
+      let lo = f.floor() as i32;
+      (lo, (lo + 1).min(of - 1), f - lo as f32)
+    };
+    for py in c.y..c.bottom() {
+      let (v0, v1, ty) = split(py - y, dh, rh, my);
+      let row = (py * self.w) as usize;
+      for px in c.x..c.right() {
+        let (u0, u1, tx) = split(px - x, dw, rw, mx);
+        let (p, q, r, s) = (at(u0, v0), at(u1, v0), at(u0, v1), at(u1, v1));
+        let mix = |i: usize| (p[i] * (1.0 - tx) + q[i] * tx) * (1.0 - ty) + (r[i] * (1.0 - tx) + s[i] * tx) * ty;
+        let a = mix(3);
+        if a < 0.5 {
+          continue;
+        }
+        let ch = |i: usize| (mix(i) / a).round().min(255.0) as u8;
+        let out = [ch(0), ch(1), ch(2), a.round() as u8];
+        blend(&mut self.px[row + px as usize], &ink.as_ref().map_or(out, |f| f(out)));
+      }
+    }
+  }
+
   // premultiplied rgba8 (the animated name frames): src + dst * (1 - a)
   pub fn rgba_pm(&mut self, x: i32, y: i32, w: i32, h: i32, data: &[[u8; 4]], clip: Rect) {
     let c = Rect::new(x, y, w, h).intersect(clip).intersect(self.bounds());

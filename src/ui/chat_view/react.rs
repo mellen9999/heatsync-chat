@@ -59,6 +59,7 @@ pub(super) fn chips(
         blocked: false,
         stand_in: None,
         glyph: None,
+        fx: Vec::new(),
       });
       word(s, spans, &r.count.to_string(), dim);
     } else {

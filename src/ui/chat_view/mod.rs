@@ -12,6 +12,7 @@ use super::theme;
 use crate::cosmetics::id::PaintId;
 use crate::cosmetics::paint::Paint as NamePaint;
 use crate::emotes::block::Scope;
+use crate::emotes::mods::Fx;
 use crate::images::ImgId;
 use crate::model::filter;
 use crate::model::find::Find;
@@ -39,6 +40,8 @@ struct EmoteBox {
   stand_in: Option<(char, u32)>,
   // an emoji under the images (an overlay emote sent right after it, like the ext): drawn first
   glyph: Option<Box<str>>,
+  // the modifiers typed after a layer (`Kappa w!`): the layer (0 = the base) and what they add up to
+  fx: Vec<(u8, Fx)>,
 }
 
 // an emote under the pointer
@@ -175,6 +178,7 @@ struct Anim {
   bg: u32,
   imgs: Vec<ImgId>,
   glyph: Option<Box<str>>,
+  fx: Vec<(u8, Fx)>,
 }
 
 // an animated painted name on screen: redrawn alone on its tick, only while it is in view
@@ -300,10 +304,13 @@ mod hit;
 mod hold;
 mod layout;
 mod marks;
+mod modify;
 mod react;
 mod refs;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_mods;
 
 pub use draw::{blit_layer, emoji_glyph};
 use layout::layout_row;

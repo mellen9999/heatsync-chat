@@ -4,6 +4,7 @@ use super::fill;
 use super::layout::layout_row;
 use super::{Anim, ChatView, Frame, MARK_W, NameAnim, TICK_SCENE_MS, TICK_SMOOTH_MS};
 use crate::cosmetics::paint::Fill;
+use crate::emotes::mods::Fx;
 use crate::images::{Images, ImgId};
 use crate::model::message::flag;
 use crate::ui::canvas::{Canvas, Rect};
@@ -92,20 +93,32 @@ pub fn blit_layer(c: &mut Canvas, rgba: &[u8], src: (u32, u32), dst: (i32, i32),
   }
 }
 
+// `fx`: the layers a modifier changed (`Kappa w!`), each turned, stretched and tinted as it is drawn
+#[allow(clippy::too_many_arguments)]
 pub(super) fn blit_emote(
   c: &mut Canvas,
   images: &mut Images,
   play: bool,
   imgs: &[ImgId],
+  fx: &[(u8, Fx)],
   rect: Rect,
   clip: Rect,
   next: &mut Option<u32>,
 ) {
-  for &id in imgs {
+  for (k, &id) in imgs.iter().enumerate() {
     let Some((f, w, h, flip)) = images.frame_with(id, play) else {
       continue;
     };
-    blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, clip);
+    match fx.iter().find(|x| x.0 as usize == k) {
+      Some((_, fx)) => {
+        let (dw, dh) = fx.size((w, h));
+        let at = (rect.x + (rect.w - dw as i32) / 2, rect.y + (rect.h - dh as i32) / 2);
+        let ink = fx.ink();
+        let ink = ink.as_ref().map(|k| |p| k.of(p));
+        c.rgba_turned(at, (w as i32, h as i32), (dw as i32, dh as i32), &f.rgba, clip, fx.turn(), fx.mirror(), ink);
+      }
+      None => blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, clip),
+    }
     if let Some(ms) = flip {
       *next = Some(next.map_or(ms, |n| n.min(ms)));
     }
@@ -272,16 +285,16 @@ impl ChatView {
             imgs.extend_from_slice(&eb.zw);
             // the emoji under it needs the text drawer, busy here: drawn right after
             if let Some(g) = &eb.glyph {
-              on_emoji.push((rect, g.clone(), imgs));
+              on_emoji.push((rect, g.clone(), imgs, eb.fx.clone()));
               return;
             }
             if let Some(bg) = eb.bg {
               c.fill(rect.intersect(clip), bg);
             }
             let mut flip = None;
-            blit_emote(c, images, play, &imgs, rect, clip, &mut flip);
+            blit_emote(c, images, play, &imgs, &eb.fx, rect, clip, &mut flip);
             if flip.is_some() {
-              anims.push(Anim { rect: rect.intersect(area), bg, imgs, glyph: None });
+              anims.push(Anim { rect: rect.intersect(area), bg, imgs, glyph: None, fx: eb.fx.clone() });
             }
           });
           // a feed post's underlined runs: the line under the words (black on a picked row's white)
@@ -289,12 +302,12 @@ impl ChatView {
           for u in &laid.unders {
             underline_in(c, &laid.layout, u.clone(), x, top as f32, clip, rule);
           }
-          for (r, g, imgs) in on_emoji {
+          for (r, g, imgs, fx) in on_emoji {
             emoji_glyph(c, text, r, &g, clip);
             let mut flip = None;
-            blit_emote(c, images, play, &imgs, r, clip, &mut flip);
+            blit_emote(c, images, play, &imgs, &fx, r, clip, &mut flip);
             if flip.is_some() {
-              self.anims.push(Anim { rect: r.intersect(area), bg, imgs, glyph: Some(g) });
+              self.anims.push(Anim { rect: r.intersect(area), bg, imgs, glyph: Some(g), fx });
             }
           }
           text.reverse = false;
@@ -398,7 +411,7 @@ impl ChatView {
       if let Some(g) = &a.glyph {
         emoji_glyph(c, &mut res.text, a.rect, g, r);
       }
-      blit_emote(c, &mut res.images, res.look.animate_emotes, &a.imgs, a.rect, r, &mut next);
+      blit_emote(c, &mut res.images, res.look.animate_emotes, &a.imgs, &a.fx, a.rect, r, &mut next);
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let t = name_art::clock();

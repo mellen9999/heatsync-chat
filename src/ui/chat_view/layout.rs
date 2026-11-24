@@ -1,9 +1,10 @@
 // a line becomes a row: its text, spans, emote boxes and the links, mentions and paints inside it
 
 use super::fill;
+use super::modify::{bindings, look, settle};
 use super::{EmoteBox, Frame, Laid, MARK_W, Mention, Opts, PaintedName, Words, room};
 use crate::cosmetics::id::PaintId;
-use crate::emotes::resolve::find_word;
+use crate::emotes::mods::Fx;
 use crate::heatsync::content;
 use crate::i18n::{f, t};
 use crate::images::ImgId;
@@ -387,6 +388,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
           blocked: false,
           stand_in: None,
           glyph: None,
+          fx: Vec::new(),
         });
       }
     }
@@ -616,6 +618,7 @@ pub(super) fn post_media(
       blocked: false,
       stand_in: None,
       glyph: None,
+      fx: Vec::new(),
     });
   }
 }
@@ -765,6 +768,7 @@ pub(super) fn card(
         blocked: false,
         stand_in: None,
         glyph: None,
+        fx: Vec::new(),
       });
       s.push(' ');
     }
@@ -907,6 +911,7 @@ pub(super) fn push_badge(
     blocked: false,
     stand_in: None,
     glyph: None,
+    fx: Vec::new(),
   });
   // ext: 2px between badges (a monospace space is a whole cell)
   ib.push(gap(s.len(), res.images.px(2)));
@@ -934,6 +939,7 @@ pub(super) fn avatar(res: &mut Res, m: &Message, s: &str, ib: &mut Vec<InlineBox
     blocked: false,
     stand_in: Some(crate::avatars::tile(&m.login, &m.nick)),
     glyph: None,
+    fx: Vec::new(),
   });
   ib.push(gap(s.len(), res.images.px(3)));
 }
@@ -975,24 +981,32 @@ pub(super) fn body(
   let mut at = 0usize;
   // the last emote drawn as a base: its box and its native size
   let mut last: Option<(usize, (u16, u16))> = None;
-  for word in m.body.split(' ') {
+  // the top picture of the stack being built, at its drawn size, and the room the layers under it take
+  let (mut layer, mut under) = ((0u32, 0u32), (0f32, 0f32));
+  // the modifier words of the line and the emote each changes (`w! Kappa`, `Kappa ffzX`); the ones for
+  // an emote still to come wait here
+  let binds = bindings(res, chan, m, fold, px);
+  let mut ahead = Fx::default();
+  for (i, word) in m.body.split(' ').enumerate() {
     let (a, b) = (at, at + word.len());
     at = b + 1;
     if fold.is_some_and(|f| f.start == a && f.end == b) {
       continue;
     }
-    let found = find_word(&mut res.sources(), chan, m, a, b, word);
-    let base = crate::emotes::overlay_base(word);
-    let hidden = |url: &str| res.blocked.contains(word, url) || base.is_some_and(|b| res.blocked.contains(b, url));
-    let blocked = found.as_ref().is_some_and(|f| hidden(&f.0));
-    // a picture that failed to load reads as its name, plain text (ext b1f4970b): the slot takes the word's
-    // width. the cache tries it again later and a relayout follows, so a late success swaps the picture back
-    let found = found.filter(|f| {
-      blocked || {
-        let id = res.images.id(&f.0, px);
-        !res.images.failed(id)
+    // a modifier changes its emote and leaves the line: before any emote of its own name
+    if let Some(&Some(to)) = binds.get(i) {
+      if to > i {
+        ahead.add(word);
+        continue;
       }
-    });
+      if prev_emote && let Some(top) = boxes.last() {
+        let mut fx = top.fx.iter().find(|f| f.0 as usize == top.zw.len()).map(|f| f.1.clone()).unwrap_or_default();
+        fx.add(word);
+        settle(ib, boxes, layer, under, fx);
+        continue;
+      }
+    }
+    let (found, blocked) = look(res, chan, m, (a, b), word, px);
     match found {
       // a blocked overlay just vanishes; a blocked base keeps its slot
       Some((_, _, true, _)) if (prev_emote || emoji.is_some()) && blocked => continue,
@@ -1001,6 +1015,7 @@ pub(super) fn body(
         s.truncate(p);
         let img = res.images.id(&url, px);
         let w = res.images.width(img, dims).max(h);
+        (layer, under) = ((res.images.width(img, dims), h), (h as f32, h as f32));
         ib.push(inline(boxes.len(), s.len(), w, h));
         boxes.push(EmoteBox {
           img,
@@ -1011,7 +1026,9 @@ pub(super) fn body(
           blocked: false,
           stand_in: None,
           glyph: Some(m.body[ea..eb].into()),
+          fx: Vec::new(),
         });
+        settle(ib, boxes, layer, under, std::mem::take(&mut ahead));
         prev_emote = true;
       }
       Some((url, dims, true, _)) if prev_emote => {
@@ -1021,12 +1038,14 @@ pub(super) fn body(
         let w = res.images.width(img, dims) as f32;
         let id = boxes.len().wrapping_sub(1) as u64;
         if let Some(slot) = ib.iter_mut().rev().find(|i| i.id == id) {
+          (layer, under) = ((w as u32, h), (slot.width, slot.height));
           slot.width = slot.width.max(w);
         }
         if let Some(last) = boxes.last_mut() {
           last.zw.push(img);
           last.zw_words.push((a as u32, b as u32));
         }
+        settle(ib, boxes, layer, under, std::mem::take(&mut ahead));
         continue;
       }
       Some((url, dims, _, _)) => {
@@ -1036,6 +1055,7 @@ pub(super) fn body(
         let img = res.images.id(&url, px);
         let w = res.images.width(img, dims);
         emoji = None;
+        (layer, under) = ((w, h), (0.0, h as f32));
         ib.push(inline(boxes.len(), s.len(), w, h));
         last = Some((boxes.len(), dims));
         boxes.push(EmoteBox {
@@ -1047,10 +1067,14 @@ pub(super) fn body(
           blocked,
           stand_in: None,
           glyph: None,
+          fx: Vec::new(),
         });
+        settle(ib, boxes, layer, under, std::mem::take(&mut ahead));
         prev_emote = true;
       }
       None => {
+        // modifiers wait for an emote, never for a later one past text
+        ahead = Fx::default();
         // a run carries on over the space before this word only when that word is text too
         let joined = !first && !prev_emote;
         if !first {
@@ -1112,6 +1136,7 @@ fn gigantify(res: &mut Res, k: usize, dims: (u16, u16), ib: &mut [InlineBox], bo
   let big = res.look.emote_px().max(GIANT_PX);
   let img = res.images.id(&url, big);
   let (w, h) = (res.images.width(img, dims), res.images.px(big));
+  let (w, h) = b.fx.first().map_or((w, h), |f| f.1.size((w, h)));
   b.img = img;
   if let Some(slot) = ib.iter_mut().rev().find(|i| i.id == k as u64) {
     slot.width = w as f32;

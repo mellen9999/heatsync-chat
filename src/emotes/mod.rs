@@ -8,6 +8,7 @@ pub mod draft;
 pub mod entitle;
 pub mod favorites;
 pub mod live;
+pub mod mods;
 pub mod personal;
 pub mod providers;
 pub mod resolve;
