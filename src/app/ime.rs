@@ -83,7 +83,7 @@ impl App {
           } else {
             self.complete = None;
             self.line.checkpoint(false);
-            self.line.insert(&text);
+            self.line.enter(&text);
           }
         }
         self.input_dirty = true;

@@ -142,7 +142,7 @@ impl App {
       }
       None => {
         self.line.checkpoint(false);
-        self.line.insert(t);
+        self.line.enter(t);
         self.complete = None;
       }
     }

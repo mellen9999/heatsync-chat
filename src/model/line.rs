@@ -46,6 +46,14 @@ impl Line {
     self.browsing = None;
   }
 
+  // text entered at the cursor from outside the box: a key, a paste, an input method, a line the app puts
+  // in. a pick whose word left the box is over before it lands, so the name entered again is a hand-typed
+  // word however it came (undo, the one way back, comes before this)
+  pub fn enter(&mut self, s: &str) {
+    self.picks.prune(&self.text);
+    self.insert(s);
+  }
+
   // an emote name at the cursor, spaced the way the ext pastes it: a space before unless the
   // text so far is empty or ends in one, and a trailing space to keep typing
   pub fn insert_word(&mut self, w: &str) {

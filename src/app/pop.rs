@@ -423,7 +423,7 @@ impl App {
 
   // start (or add to) the message with some text and put the cursor in the box
   pub(super) fn type_into_line(&mut self, text: &str) {
-    self.line.insert(text);
+    self.line.enter(text);
     self.complete = None;
     self.enter_insert();
     self.input_dirty = true;

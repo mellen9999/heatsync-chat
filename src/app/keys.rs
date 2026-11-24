@@ -99,10 +99,7 @@ impl App {
       Key::Character(_) | Key::Named(NamedKey::Space) if !ctrl && !alt => {
         // mid-composition the input method owns the text; its commit arrives as an ime event
         if let Some(t) = text.filter(|_| self.ime.accepts_key_text()) {
-          // a pick whose word left the box is over before anything new is typed: the name typed again is a
-          // hand-typed word (undo, the one way back, comes before this)
-          l.picks.prune(&l.text);
-          l.insert(t);
+          l.enter(t);
         }
       }
       _ => return,

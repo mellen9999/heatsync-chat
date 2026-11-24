@@ -1,12 +1,13 @@
 // the whole app headless, a seeded random session in the box: names typed by hand, tab stepped onto a copy
-// of a name (forward, round again, back), a picture picked on purpose, the tab switched in the middle of a
-// draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
+// of a name (forward, round again, back), a picture picked on purpose, a word deleted and put back (keys,
+// a paste), the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
 // what went out (the words, the vouches, the swap or add of your own emote) and the row that comes back are
 // checked against a small model of the emote law written here from the law's words, never from the app's
 // code:
 //   a typed word is the open tab's room's emote, then yours, then a global
 //   a pick is its message's: the last pick of a name answers every copy of that name in the line
 //   a pick outlives a tab switch; a typed word is read again where it is sent
+//   a pick is over when its word leaves the box: the name entered again is a typed word
 //   a recalled line keeps only the picks that changed what their word sent from where it was sent
 // the same hunt runs in a real browser on the site (emote-pick-random-session.spec.ts) and the extension
 // (render-emote-collisions.ts, case y). HS_SESSION_SEEDS=5,6,7 hunts other seeds
@@ -18,6 +19,7 @@ use crate::net::Cmd;
 use crate::net::auth::Me;
 use crate::net::emote_ops::EmoteCmd;
 use std::collections::BTreeMap;
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 const ROOMS: [&str; 2] = ["forsen", "lirik"];
 const NAMES: [&str; 5] = ["Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2"];
@@ -145,8 +147,25 @@ fn row(app: &mut App, chan: &str, text: &str, vouched: &Urls) -> Vec<Option<Stri
   out
 }
 
-fn session(seed: u32) -> (usize, usize, usize) {
+// keys pressed in the box, one at a time
+fn keys(app: &mut App, s: &str) {
+  for c in s.chars() {
+    let c = c.to_string();
+    match c.as_str() {
+      " " => app.key_insert(Key::Named(NamedKey::Space), Some(" ")),
+      c => app.key_insert(Key::Character(c), Some(c)),
+    }
+  }
+}
+
+// text is about to enter the box from outside it: a pick whose word is no longer there is over
+fn entered(picks: &mut Urls, words: &[String]) {
+  picks.retain(|name, _| words.iter().any(|w| w == name));
+}
+
+fn session(seed: u32) -> (usize, usize, usize, usize) {
   let (mut app, mut rx) = boot();
+  app.mode = Mode::Insert;
   let mut model = Model::new();
   own(&mut app, &model.mine);
   let mut rng = Rng(seed);
@@ -155,7 +174,7 @@ fn session(seed: u32) -> (usize, usize, usize) {
   let mut room = 0usize;
   app.activate(tab(&app, room));
   while rx.try_recv().is_ok() {}
-  let (mut picked_lines, mut swaps, mut recalls) = (0, 0, 0);
+  let (mut picked_lines, mut swaps, mut recalls, mut ended) = (0, 0, 0, 0);
   for n in 0..MESSAGES {
     let at = |step: &str| format!("seed {seed} message {n}: {step}");
     // the draft, as the model holds it
@@ -166,7 +185,7 @@ fn session(seed: u32) -> (usize, usize, usize) {
     if !model.history.is_empty() && rng.below(4) == 0 {
       let back = 1 + rng.below(model.history.len().min(2));
       for _ in 0..back {
-        app.line.older();
+        app.key_insert(Key::Named(NamedKey::ArrowUp), None);
       }
       let line = model.history[model.history.len() - back].clone();
       assert_eq!(app.line.text, line, "{}", at("the up arrow brings the sent line back"));
@@ -174,20 +193,18 @@ fn session(seed: u32) -> (usize, usize, usize) {
       words = line.split(' ').map(Into::into).collect();
       log.push(format!("<up {back}>"));
       recalls += 1;
-      if rng.below(2) == 0 {
-        app.line.insert(" ");
-      }
     }
     let steps = if words.is_empty() { 1 + rng.below(4) } else { rng.below(3) };
     for _ in 0..steps {
       if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
-        app.line.insert(" ");
+        keys(&mut app, " ");
       }
-      match rng.below(10) {
-        // a word by hand
+      match rng.below(12) {
+        // a word by hand, a key at a time
         0..=3 => {
           let w = rng.of(&["Wlol", "Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2", "hello"]);
-          app.line.insert(&format!("{w} "));
+          entered(&mut picks, &words);
+          keys(&mut app, &format!("{w} "));
           words.push(w.into());
           log.push(w.into());
         }
@@ -195,7 +212,8 @@ fn session(seed: u32) -> (usize, usize, usize) {
         4..=6 => {
           let name = rng.of(&["Wlol", "Wlol", "Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2"]);
           let offers = model.offers(room, name);
-          app.line.insert(name);
+          entered(&mut picks, &words);
+          keys(&mut app, name);
           let seen: Vec<String> = app
             .candidates(name, false)
             .iter()
@@ -251,6 +269,38 @@ fn session(seed: u32) -> (usize, usize, usize) {
           words.push(name.into());
           log.push(format!("{name}=pick {}", &url[27..url.len() - 8]));
         }
+        // the last word deleted (backspace until it is gone, or ctrl-w), and half the time its name put
+        // straight back: by keys, or pasted. its pick left with it unless the line holds the name again
+        8..=9 if !words.is_empty() => {
+          let gone = words.pop().unwrap();
+          let ctrl_w = rng.below(2) == 0;
+          if ctrl_w {
+            app.mods = ModifiersState::CONTROL;
+            app.key_insert(Key::Character("w"), None);
+            app.mods = ModifiersState::empty();
+          } else {
+            while app.line.text.split_whitespace().count() > words.len() {
+              app.key_insert(Key::Named(NamedKey::Backspace), None);
+            }
+          }
+          log.push(format!("<del {gone}{}>", if ctrl_w { " ^w" } else { "" }));
+          if rng.below(2) == 0 {
+            let was = picks.get(&gone).cloned();
+            entered(&mut picks, &words);
+            if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
+              keys(&mut app, " ");
+            }
+            if rng.below(2) == 0 {
+              keys(&mut app, &format!("{gone} "));
+              log.push(format!("{gone} again"));
+            } else {
+              app.on_pasted(false, Ok(crate::util::clip::Paste::Text(format!("{gone} "))));
+              log.push(format!("{gone} pasted"));
+            }
+            words.push(gone.clone());
+            ended += usize::from(was.is_some() && !picks.contains_key(&gone) && was != model.typed(room, &gone));
+          }
+        }
         // the other tab, in the middle of the draft
         _ => {
           room = 1 - room;
@@ -265,6 +315,10 @@ fn session(seed: u32) -> (usize, usize, usize) {
       }
     }
     if words.is_empty() {
+      // nothing left to send: the box is emptied by hand
+      while !app.line.text.is_empty() {
+        app.key_insert(Key::Named(NamedKey::Backspace), None);
+      }
       continue;
     }
     let text = words.join(" ");
@@ -357,23 +411,69 @@ fn session(seed: u32) -> (usize, usize, usize) {
       );
     }
   }
-  (picked_lines, swaps, recalls)
+  (picked_lines, swaps, recalls, ended)
 }
 
 #[test]
 fn a_random_session_in_the_box_is_the_law_on_every_message() {
   let gate = std::env::var("HS_SESSION_SEEDS").is_err();
   let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "1,2,3,4".into());
-  let (mut picked, mut swaps, mut recalls) = (0, 0, 0);
+  let (mut picked, mut swaps, mut recalls, mut ended) = (0, 0, 0, 0);
   for seed in seeds.split(',').filter_map(|s| s.trim().parse::<u32>().ok()) {
-    let (p, s, r) = session(seed);
-    (picked, swaps, recalls) = (picked + p, swaps + s, recalls + r);
+    let (p, s, r, e) = session(seed);
+    (picked, swaps, recalls, ended) = (picked + p, swaps + s, recalls + r, ended + e);
   }
   // the gate's seeds must reach the cases the session is for
   if gate {
     assert!(
       picked >= 20 && swaps >= 4 && recalls >= 20,
       "{picked} lines with a told pick, {swaps} swaps, {recalls} recalls"
+    );
+  }
+}
+
+// a pick is over when its word leaves the box, however the name comes back: typed, pasted, through an
+// input method, or quoted from a chat line. the name entered again is a hand-typed word, the room's emote
+#[test]
+fn a_pick_ends_when_its_word_leaves_the_box_however_the_name_comes_back() {
+  type Put = fn(&mut App);
+  let enter: [(&str, Put); 4] = [
+    ("typed", |app| {
+      for c in ["W", "l", "o", "l"] {
+        app.key_insert(Key::Character(c), Some(c));
+      }
+    }),
+    ("pasted", |app| app.on_pasted(false, Ok(crate::util::clip::Paste::Text("Wlol".into())))),
+    ("through an input method", |app| app.on_ime(winit::event::Ime::Commit("Wlol".into()))),
+    ("put in by the app (a quoted line)", |app| app.type_into_line("Wlol")),
+  ];
+  for (how, put) in enter {
+    let (mut app, mut rx) = boot();
+    let model = Model::new();
+    own(&mut app, &model.mine);
+    app.mode = Mode::Insert;
+    let i = app.tabs.iter().position(|t| &*t.view.channel == "forsen").unwrap();
+    app.activate(i);
+    // your own Wlol, picked over the room's
+    app.line.insert("Wlol");
+    app.tab_complete(false);
+    app.tab_complete(false);
+    app.complete = None;
+    assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "{how}: the pick");
+    // the word leaves the box
+    while !app.line.text.is_empty() {
+      app.key_insert(Key::Named(NamedKey::Backspace), None);
+    }
+    put(&mut app);
+    assert_eq!(app.line.text.trim(), "Wlol", "{how}");
+    assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("AW")), "{how}: the name again is the room's emote");
+    while rx.try_recv().is_ok() {}
+    app.send();
+    let out: Vec<Cmd> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(out.iter().any(|c| matches!(c, Cmd::Send { text, .. } if text == "Wlol")), "{how}: the line went out");
+    assert!(
+      out.iter().all(|c| !matches!(c, Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)) | Cmd::Emote(_))),
+      "{how}: no pick is told to the room, nothing of yours changes"
     );
   }
 }
