@@ -154,6 +154,8 @@ mod tests_screens;
 #[cfg(test)]
 mod tests_sendto;
 #[cfg(test)]
+mod tests_session;
+#[cfg(test)]
 mod tests_sound;
 #[cfg(test)]
 mod tests_store;
