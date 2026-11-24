@@ -1717,6 +1717,8 @@
  "settings.sub_flair.tip": "lencana sub kecil sebelum nama pensembang, yang mereka pilih di heatsync. baris twitch sahaja. bertanya heatsync tentang nama di skrin",
  "settings.suggest_inventory.label": "cadangkan emote heatsync anda",
  "settings.suggest_inventory.tip": "tawarkan emote heatsync anda semasa menaip dan pada tab. off tinggalkan hanya emote saluran dan global",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab membuka senarai",
  "settings.tab_list.tip": "tab pada satu perkataan menunjukkan emote yang sepadan dalam senarai di atas ruang input. anak panah memilih, tab atau enter memasukkan, esc menutup. mati melengkapkan terus dalam teks",
  "settings.tab_counter.label": "kaunter tab",

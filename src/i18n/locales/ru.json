@@ -1739,6 +1739,8 @@
  "settings.sub_flair.tip": "маленький значок саба перед ником чаттера, выбранный им на heatsync. только строки twitch. спрашивает heatsync про ники на экране",
  "settings.suggest_inventory.label": "подсказывать ваши эмоуты heatsync",
  "settings.suggest_inventory.tip": "предлагать ваши эмоуты heatsync при вводе и по tab. выкл оставляет только эмоуты канала и глобальные",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab открывает список",
  "settings.tab_list.tip": "tab на слове показывает подходящие эмоуты в списке над полем ввода. стрелки выбирают, tab или enter вставляет, esc закрывает. выключено — дополняет прямо в тексте",
  "settings.tab_counter.label": "счётчик вкладок",

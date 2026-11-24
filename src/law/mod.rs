@@ -757,6 +757,8 @@ pub struct OfferCtx<'a, E> {
   pub suggest_own: bool,
   /// pictures the person pinned, in their order. whole records: a favorite goes where they go, loaded here or not
   pub favorites: &'a [E],
+  /// the `:` list's own setting, "emoji first": every emoji ahead of every emote. Tab and the picker never set it
+  pub emoji_first: bool,
 }
 impl<E> Clone for OfferCtx<'_, E> {
   fn clone(&self) -> Self {
@@ -771,6 +773,7 @@ impl<E> Clone for OfferCtx<'_, E> {
       blocked: self.blocked,
       suggest_own: self.suggest_own,
       favorites: self.favorites,
+      emoji_first: self.emoji_first,
     }
   }
 }
@@ -1020,21 +1023,38 @@ pub fn offer_seams<'a, E: Pic>(typed: &str, ctx: &OfferCtx<'a, E>, limit: Option
       moves.push((slot, copies[n], native && n > 0));
     }
   }
-  let list: Vec<Candidate<E>> = {
-    let mut by_slot: Vec<(usize, Candidate<E>)> = moves
+  // each candidate with the group of the copy that stands in its slot
+  let list: Vec<(u8, Candidate<E>)> = {
+    let mut by_slot: Vec<(usize, u8, Candidate<E>)> = moves
       .iter()
       .map(|&(slot, from, shadowed)| {
-        (slot, Candidate { emote: pool[from].emote, tier: pool[from].tier, matched: pool[from].matched, shadowed })
+        let c = &pool[from];
+        (slot, group(c), Candidate { emote: c.emote, tier: c.tier, matched: c.matched, shadowed })
       })
       .collect();
     let moved: HashSet<usize> = moves.iter().map(|m| m.0).collect();
     for (i, c) in pool.iter().enumerate() {
       if !moved.contains(&i) {
-        by_slot.push((i, Candidate { emote: c.emote, tier: c.tier, matched: c.matched, shadowed: false }));
+        by_slot.push((i, group(c), Candidate { emote: c.emote, tier: c.tier, matched: c.matched, shadowed: false }));
       }
     }
-    by_slot.sort_by_key(|(i, _)| *i);
-    by_slot.into_iter().map(|(_, c)| c).collect()
+    by_slot.sort_by_key(|(i, ..)| *i);
+    by_slot.into_iter().map(|(_, g, c)| (g, c)).collect()
+  };
+  // "emoji first" (the `:` list only): every emoji leads, then the emotes, each part in the order above.
+  // an emoji is never the exact name or the room's, so the seams move down by the emoji ahead of them
+  let (mut exact, mut room) = (exact, room);
+  let list: Vec<Candidate<E>> = if ctx.emoji_first {
+    let (emoji, rest): (Vec<_>, Vec<_>) = list.into_iter().partition(|(_, c)| c.tier == Tier::Emoji);
+    exact = emoji.len();
+    room = emoji.len();
+    for (g, _) in &rest {
+      exact += usize::from(*g == 0);
+      room += usize::from(*g <= 2);
+    }
+    emoji.into_iter().chain(rest).map(|(_, c)| c).collect()
+  } else {
+    list.into_iter().map(|(_, c)| c).collect()
   };
   let list: Vec<Candidate<E>> = match limit {
     Some(n) if n > 0 => list.into_iter().take(n).collect(),

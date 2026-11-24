@@ -1728,6 +1728,8 @@
  "settings.sub_flair.tip": "a small sub badge before a chatter's name, the one they picked on heatsync. twitch lines only. asks heatsync about the names on screen",
  "settings.suggest_inventory.label": "suggest your heatsync emotes",
  "settings.suggest_inventory.tip": "offer your heatsync emotes while you type and on tab. off leaves only channel and global emotes",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab opens a list",
  "settings.tab_list.tip": "tab on a word shows matching emotes in a list above the input. arrows pick, tab or enter inserts, esc closes. off completes in place",
  "settings.tab_counter.label": "tab counter",

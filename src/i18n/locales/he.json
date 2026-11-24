@@ -1739,6 +1739,8 @@
  "settings.sub_flair.tip": "תג sub קטן לפני שם צ'אטר, זה שבחר ב-heatsync. שורות twitch בלבד. שואל את heatsync על השמות שעל המסך",
  "settings.suggest_inventory.label": "הצע את האימוג'ים שלך מ-heatsync",
  "settings.suggest_inventory.tip": "הצע את אימוג'י heatsync שלך תוך כדי הקלדה ובמקש tab. כבוי משאיר רק אימוג'י ערוץ וגלובליים",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab פותח רשימה",
  "settings.tab_list.tip": "tab על מילה מציג אימוטים מתאימים ברשימה מעל שדה הכתיבה. החצים בוחרים, tab או enter מוסיפים, esc סוגר. כבוי משלים ישירות בטקסט",
  "settings.tab_counter.label": "מונה לשונית",

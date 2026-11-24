@@ -1728,6 +1728,8 @@
  "settings.sub_flair.tip": "sohbetçinin adından önce küçük bir sub rozeti, heatsync'te seçtiği. yalnızca twitch satırları. ekrandaki adları heatsync'e sorar",
  "settings.suggest_inventory.label": "heatsync emote'larını öner",
  "settings.suggest_inventory.tip": "yazarken ve tab ile heatsync emote'larını sun. off yalnızca kanal ve küresel emote'ları bırakır",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab bir liste açar",
  "settings.tab_list.tip": "bir kelimede tab, eşleşen emote'ları yazma alanının üstünde bir listede gösterir. oklar seçer, tab ya da enter ekler, esc kapatır. kapalıyken doğrudan metinde tamamlar",
  "settings.tab_counter.label": "sekme sayacı",

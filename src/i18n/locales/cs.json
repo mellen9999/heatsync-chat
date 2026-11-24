@@ -1739,6 +1739,8 @@
  "settings.sub_flair.tip": "malý sub odznak před jménem chattera, ten, který si vybral na heatsync. jen twitch řádky. ptá se heatsync na jména na obrazovce",
  "settings.suggest_inventory.label": "navrhovat tvé heatsync emotky",
  "settings.suggest_inventory.tip": "nabízet tvé heatsync emotky při psaní a na tab. vyp. nechá jen emotky kanálu a globální",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab otevře seznam",
  "settings.tab_list.tip": "tab na slově ukáže odpovídající emoty v seznamu nad polem pro psaní. šipky vybírají, tab nebo enter vloží, esc zavře. vypnuto doplňuje přímo v textu",
  "settings.tab_counter.label": "počítadlo tabu",

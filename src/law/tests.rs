@@ -258,9 +258,11 @@ struct Surroundings {
   blocked: HashSet<String>,
   suggest_own: bool,
   favorites: Vec<Em>,
+  emoji_first: bool,
 }
 
-const OFFER_PART: [&str; 8] = ["room", "catalog", "emoji", "usage", "pop", "blocked", "suggestOwn", "favorites"];
+const OFFER_PART: [&str; 9] =
+  ["room", "catalog", "emoji", "usage", "pop", "blocked", "suggestOwn", "favorites", "emojiFirst"];
 
 impl Surroundings {
   fn of(w: &World, part: &Map<String, Value>) -> Res<Surroundings> {
@@ -280,6 +282,7 @@ impl Surroundings {
       blocked,
       suggest_own: part.get("suggestOwn").and_then(Value::as_bool).unwrap_or(true),
       favorites: list("favorites")?,
+      emoji_first: part.get("emojiFirst").and_then(Value::as_bool).unwrap_or(false),
     })
   }
 }
@@ -305,6 +308,7 @@ fn offer_ctx<'a>(
     blocked: Some(blocked),
     suggest_own: s.suggest_own,
     favorites: &s.favorites,
+    emoji_first: s.emoji_first,
   })
 }
 
@@ -345,6 +349,7 @@ const KNOWN_KIND: [(&str, &[&str]); 5] = [
       "blocked",
       "suggestOwn",
       "favorites",
+      "emojiFirst",
       "limit",
       "expect",
     ],

@@ -90,12 +90,20 @@ impl App {
       blocked: (!w.hidden.is_empty()).then_some(&hidden),
       suggest_own: self.set.suggest_inventory,
       favorites: &w.favorites,
+      // the emoji are not in this offer (`candidates` sets them in), so the law's "emoji first" has nothing to move
+      emoji_first: false,
     };
     let o = law::offer_seams(q, &ctx, limit);
     (o.list.iter().map(offered).collect(), o.exact, o.room)
   }
 
+  // Tab's list, and everything but the `:` list: the law's one order
   pub(super) fn candidates(&self, word: &str, slash: bool) -> Vec<Pick> {
+    self.candidates_in(word, slash, false)
+  }
+
+  // the same, and for the `:` list alone `emoji_first` (setting colonListOrder) puts every emoji above the emotes
+  pub(super) fn candidates_in(&self, word: &str, slash: bool, emoji_first: bool) -> Vec<Pick> {
     let tab = self.tabs.get(self.active);
     let chat = |n: Box<str>| Pick { name: n, what: t("app.complete.chatter"), emote: false, code: None, pic: None };
     if slash {
@@ -128,7 +136,11 @@ impl App {
       out.splice(exact..exact, whole.into_iter().map(chat));
     }
     if let Some(e) = word.strip_prefix(':') {
-      out.extend(emoji(e));
+      if emoji_first {
+        out.splice(0..0, emoji(e));
+      } else {
+        out.extend(emoji(e));
+      }
     }
     out
   }
@@ -721,6 +733,40 @@ mod tests {
   // and (when `own`) W in your own inventory
   fn w_everywhere(app: &mut App, own: bool) {
     everywhere(app, "W", own);
+  }
+
+  // colonListOrder: "emoji first" puts every emoji above the emotes in the `:` list only. Tab ignores it,
+  // and inside each part the law's order stays (the room's emote still leads the emotes)
+  #[test]
+  fn emoji_first_reorders_the_colon_list_and_never_tab() {
+    use crate::emotes::{Emote, Provider};
+    use crate::model::settings::ColonList;
+    use crate::model::suggest::Kind;
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let e = Emote { url: url7("CATJAM").into(), w: 28, h: 28, zero_width: false };
+    app.res.emotes.set(Some("forsen"), Provider::Ffz, [("catJAM".into(), e)].into());
+    let names = |app: &App, emoji_first: bool| -> Vec<String> {
+      app.candidates_in(":cat", false, emoji_first).iter().map(|p| p.name.to_string()).collect()
+    };
+    let (emotes_first, emoji_first) = (names(&app, false), names(&app, true));
+    assert_eq!(emotes_first[0], "catJAM", "emotes first: the room's emote leads");
+    assert_eq!(emoji_first[0], "🐱", "emoji first: the cat leads");
+    let (j, c) =
+      (emoji_first.iter().position(|n| n == "catJAM").unwrap(), emoji_first.iter().position(|n| n == "🐱").unwrap());
+    assert!(c < j && emoji_first[..j].iter().all(|n| n != "catJAM"), "{emoji_first:?}");
+    let mut a = emotes_first.clone();
+    let mut b = emoji_first.clone();
+    a.sort();
+    b.sort();
+    assert_eq!(a, b, "the same candidates, reordered");
+    // the list reads the setting; Tab's candidates never do
+    app.set.colon_list = ColonList::Emoji;
+    app.line.insert(":cat");
+    app.sync_suggest();
+    let s = app.sug.list.as_ref().expect("the `:` list is open");
+    assert_eq!((s.kind, &*s.items[0].name), (Kind::Emote, "🐱"));
+    assert_eq!(&*app.candidates(":cat", false)[0].name, "catJAM", "tab keeps the law's order");
   }
 
   fn everywhere(app: &mut App, name: &str, own: bool) {

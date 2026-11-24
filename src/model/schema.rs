@@ -199,7 +199,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 76] = [
+pub static DEFS: [Def; 77] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -535,6 +535,18 @@ pub static DEFS: [Def; 76] = [
     ctl: pill!(suggest_inventory),
     fx: Fx::None,
     wire: Wire::Bool("suggestInventoryEmotes"),
+  },
+  Def {
+    id: "colon_list",
+    cmd: Some("/colonlist"),
+    cat: Cat::Chat,
+    section: "input",
+    label: "`:` list shows",
+    tip: "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
+    alias: "colonListOrder emoji first emotes first colon",
+    ctl: pick!(colon_list, ColonList),
+    fx: Fx::None,
+    wire: Wire::Name("colonListOrder"),
   },
   Def {
     id: "tab_list",

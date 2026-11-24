@@ -1728,6 +1728,8 @@
  "settings.sub_flair.tip": "малка sub значка пред името на чатър, тази, която е избрал в heatsync. само twitch редове. пита heatsync за имената на екрана",
  "settings.suggest_inventory.label": "предлагай твоите heatsync emotes",
  "settings.suggest_inventory.tip": "предлага твоите heatsync emotes докато пишеш и с tab. изкл. оставя само emotes на канал и глобални",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab отваря списък",
  "settings.tab_list.tip": "tab върху дума показва подходящите emotes в списък над полето за писане. стрелките избират, tab или enter вмъква, esc затваря. изключено допълва направо в текста",
  "settings.tab_counter.label": "брояч на таб",

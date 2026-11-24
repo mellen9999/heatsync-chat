@@ -143,6 +143,10 @@ choice! {
   RightClick { Menu = "menu", Instant = "instant", Off = "off" }
 }
 choice! {
+  // what the `:` list puts on top (colonListOrder): `emoji` = every emoji above the emotes. tab and search never read it
+  ColonList { Emotes = "emotes", Emoji = "emoji" }
+}
+choice! {
   // animated emotes: play, or hold their first frame (ext animateEmotes, minus its `hover`)
   Animate { Always = "always", Never = "never" }
 }
@@ -245,6 +249,7 @@ pub struct Settings {
   // (renderInventoryEmotes, suggestInventoryEmotes)
   pub render_inventory: bool,
   pub suggest_inventory: bool,
+  pub colon_list: ColonList,
   // tab opens the emote list instead of completing in place (ext tabOpensEmoteList). default off
   pub tab_list: bool,
   // a 7tv subscriber's personal emotes draw in their own lines (chatterino and the 7tv extension do). default
@@ -342,6 +347,7 @@ impl Default for Settings {
       links: true,
       render_inventory: true,
       suggest_inventory: true,
+      colon_list: ColonList::Emotes,
       tab_list: false,
       personal_emotes: true,
       tab_feed: true,
@@ -770,6 +776,7 @@ mod tests {
         links: true,
         render_inventory: true,
         suggest_inventory: true,
+        colon_list: ColonList::Emotes,
         tab_list: false,
         personal_emotes: true,
         tab_feed: true,

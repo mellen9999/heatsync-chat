@@ -1772,6 +1772,8 @@
  "settings.sub_flair.tip": "شارة sub صغيرة قبل اسم المتحدث، التي اختارها على heatsync. أسطر twitch فقط. يسأل heatsync عن الأسماء على الشاشة",
  "settings.suggest_inventory.label": "اقتراح إيموتات heatsync الخاصة بك",
  "settings.suggest_inventory.tip": "عرض إيموتات heatsync الخاصة بك أثناء الكتابة وعند tab. off يترك إيموتات القناة والعامة فقط",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "tab يفتح قائمة",
  "settings.tab_list.tip": "الضغط على tab فوق كلمة يعرض الإيموتات المطابقة في قائمة فوق حقل الكتابة. الأسهم للاختيار، tab أو enter للإدراج، esc للإغلاق. عند الإيقاف يكمل الكلمة مباشرة",
  "settings.tab_counter.label": "عدّاد التبويب",

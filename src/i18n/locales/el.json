@@ -1728,6 +1728,8 @@
  "settings.sub_flair.tip": "μικρό badge sub πριν από το όνομα chatter, αυτό που διάλεξαν στο heatsync. μόνο γραμμές twitch. ρωτά το heatsync για τα ονόματα στην οθόνη",
  "settings.suggest_inventory.label": "πρόταση emotes heatsync",
  "settings.suggest_inventory.tip": "προσφέρει τα emotes heatsync σου όσο γράφεις και με tab. το off αφήνει μόνο emotes καναλιού και καθολικά",
+ "settings.colon_list.label": "`:` list shows",
+ "settings.colon_list.tip": "what the list typing : opens puts on top: emotes (emotes first, the order tab gives) or emoji (emoji first, every emoji above the emotes). tab and the picker search keep one order",
  "settings.tab_list.label": "το tab ανοίγει λίστα",
  "settings.tab_list.tip": "το tab πάνω σε λέξη δείχνει τα αντίστοιχα emotes σε λίστα πάνω από το πεδίο. τα βέλη επιλέγουν, tab ή enter εισάγει, esc κλείνει. όταν είναι κλειστό συμπληρώνει μέσα στο κείμενο",
  "settings.tab_counter.label": "μετρητής καρτέλας",

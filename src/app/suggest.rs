@@ -5,6 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::App;
 use crate::model::complete::Complete;
 use crate::model::message::Platform;
+use crate::model::settings::ColonList;
 use crate::model::slash;
 use crate::model::suggest::{Kind, Suggest, trigger};
 use crate::model::vi::Mode;
@@ -39,7 +40,8 @@ impl App {
     self.sug.at = (text.as_str().into(), cur);
     let old = self.sug.list.take();
     let Some((kind, range)) = trigger(text, cur) else { return };
-    let mut items = self.candidates(&text[range.clone()], kind == Kind::Command);
+    let emoji_first = kind == Kind::Emote && self.set.colon_list == ColonList::Emoji;
+    let mut items = self.candidates_in(&text[range.clone()], kind == Kind::Command, emoji_first);
     items.truncate(kind.max());
     if items.is_empty() {
       return;

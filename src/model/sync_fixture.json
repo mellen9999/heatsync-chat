@@ -55,6 +55,15 @@
   "scope": "sync",
   "default": true
  },
+ "colonListOrder": {
+  "type": "enum",
+  "scope": "sync",
+  "default": "emotes",
+  "options": [
+   "emotes",
+   "emoji"
+  ]
+ },
  "emoteProviderPriority": {
   "type": "enum",
   "scope": "sync",
