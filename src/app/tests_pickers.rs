@@ -7,7 +7,7 @@ use crate::net::Cmd;
 use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
-fn dump_frame(app: &App) {
+pub(super) fn dump_frame(app: &App) {
   if let Some(path) = std::env::var_os("HSC_DUMP") {
     let c = &app.canvas;
     let mut out = format!("P6\n{} {}\n255\n", c.w, c.h).into_bytes();

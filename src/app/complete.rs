@@ -46,6 +46,7 @@ fn offered(c: &law::Candidate<Pic>) -> Pick {
     Src::Inventory => t("app.complete.your_inventory"),
     Src::Personal => t("app.complete.your_set"),
     Src::Sub => t("app.complete.your_sub"),
+    Src::Favorite => t("app.complete.favorite"),
   };
   let pic = Rec { url: e.url.into(), zero_width: e.zw, provider: e.p };
   Pick { name: e.name.into(), what, emote: true, code: None, pic: Some(pic) }
@@ -75,7 +76,7 @@ impl App {
   // is the one typing it would send. with the two places people may join
   pub(super) fn offer(&self, q: &str, limit: Option<usize>) -> (Vec<Pick>, usize, usize) {
     let d = self.draft();
-    let w = d.world(&self.res.blocked);
+    let w = d.world(&self.res.blocked, self.res.favorites.list());
     let usage = |n: &str| self.frecency.score(n, d.now);
     let hidden = |k: &str| w.hidden.contains(k);
     let ctx = law::OfferCtx {
@@ -88,7 +89,7 @@ impl App {
       pop: None,
       blocked: (!w.hidden.is_empty()).then_some(&hidden),
       suggest_own: self.set.suggest_inventory,
-      favorites: &[],
+      favorites: &w.favorites,
     };
     let o = law::offer_seams(q, &ctx, limit);
     (o.list.iter().map(offered).collect(), o.exact, o.room)

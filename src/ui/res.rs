@@ -110,6 +110,8 @@ pub struct Res {
   pub rooms: crate::model::rooms::Rooms,
   pub arts: NameArts,
   pub blocked: Blocked,
+  // the emotes you pinned: the account's list, here while you are logged in
+  pub favorites: crate::emotes::favorites::Favorites,
   // who the names in message text mean (their color, paint)
   pub chatters: Chatters,
   pub logo: Logo,
@@ -141,6 +143,7 @@ impl Res {
       rooms: Default::default(),
       arts: NameArts::default(),
       blocked: Blocked::load(),
+      favorites: Default::default(),
       chatters: Chatters::default(),
       previews: Default::default(),
       media: true,

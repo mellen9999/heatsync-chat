@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use super::block::Blocked;
+use super::favorites::Fav;
 use super::personal::Personal;
 use super::{Emote, Emotes, Provider};
 use crate::heatsync::senders::Senders;
@@ -101,7 +102,11 @@ impl<'a> Draft<'a> {
   }
 
   // the same stores as the law's own types, for `law::offer`: built when tab is pressed, never per frame
-  pub fn world(&self, blocked: &Blocked) -> World<'a> {
+  // `favs` are the emotes you pinned: each is the copy held here when this room, your own set or the globals
+  // hold its picture (at any size), so the law sees one emote and not a look-alike; one nothing here holds
+  // is offered from its record, like a search answer. a platform's own emote goes nowhere its platform does
+  // not hand it to you: away from a copy held here it could only be sent as text, so it is not offered
+  pub fn world(&self, blocked: &Blocked, favs: &'a [Fav]) -> World<'a> {
     let em = self.emotes;
     let mut hidden = HashSet::new();
     let mut pic = |name: &'a str, url: &'a str, zw: bool, p: &'static str, src: Src| {
@@ -141,7 +146,19 @@ impl<'a> Draft<'a> {
     let inventory: Vec<Pic> =
       mine.into_iter().map(|(n, x)| pic(n, &x.url, x.zero_width, host(&x.url), Src::Inventory)).collect();
     let own = law::build_own(&inventory, &personal, &[(law::Platform::Twitch, twitch)]);
-    World { room, own, globals: law::build_globals(&globals), hidden }
+    let globals = law::build_globals(&globals);
+    let native = room.as_ref().and_then(|r| own.native.get(&r.platform));
+    let held = [room.as_ref().map(|r| &r.names), Some(&own.inventory), native, Some(&globals)];
+    let mut favorites = Vec::new();
+    for f in favs.iter().filter(|f| f.shown) {
+      let here = held.iter().flatten().find_map(|idx| idx.get(&*f.name).filter(|e| f.same(e.url)));
+      match here {
+        Some(e) => favorites.push(e.clone()),
+        None if !f.native => favorites.push(pic(&f.name, &f.url, f.zero_width, host(&f.url), Src::Favorite)),
+        None => {}
+      }
+    }
+    World { room, own, globals, favorites, hidden }
   }
 }
 
@@ -167,6 +184,8 @@ pub enum Src {
   Inventory,
   Personal,
   Sub,
+  // one you pinned that nothing here holds
+  Favorite,
 }
 
 impl law::Pic for Pic<'_> {
@@ -188,6 +207,8 @@ pub struct World<'a> {
   pub room: Option<law::Room<Pic<'a>>>,
   pub own: law::Own<Pic<'a>>,
   pub globals: law::Index<Pic<'a>>,
+  // the emotes you pinned, in your order
+  pub favorites: Vec<Pic<'a>>,
   // the law keys of the pictures you blocked: never offered, and no look-alike takes their name
   pub hidden: HashSet<String>,
 }

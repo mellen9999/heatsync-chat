@@ -67,6 +67,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - heatsync emotes: a word shows as someone's heatsync emote only if *they* own it. 7tv, bttv, ffz and native emotes, overlay (zero-width) emotes, animated
 - 7tv personal emotes: a 7tv subscriber's own set shows in their lines in any channel, and only theirs (`/personalemotes` turns it off)
 - heatsync paints, badges and name colors, live. bttv badges, sub flair and heat bars
+- favorite emotes: `alt-f` or a right-click on a picker tile pins it (an emote's own menu has the row too). favorites lead the picker and `tab`, and they are your account's: the ones you pin on heatsync.org or in the extension are here, and these are there
 - emote picker (searches 7tv, ffz and heatsync too; an emoji tab, a gifs tab with search), picture and video upload (pictures lose their hidden location and camera data first)
 - replies and reply threads, pins (pin a line yourself in your own channel, or as a twitch mod; kick mods can't), predictions, subs, raids, cheers and redeems, mod actions on twitch and kick (`/nuke` too), clips from a user card, mention highlights, and a desktop notification and sound if you turn them on (`/notify`, off by default). the mentions tab keeps the last 24 hours across a restart, and a whisper pops a line while you're on another tab
 - went-live lines (and a desktop notification with `/notify` on), and who you follow that's live

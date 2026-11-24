@@ -156,6 +156,7 @@ pub static KEYS: [Group; 19] = [
       k("] [  ctrl-tab", "keys.picker.04"),
       k("alt-1 alt-2 alt-3 alt-4", "keys.picker.05"),
       k("alt-u", "keys.picker.06"),
+      k("alt-f  right-click", "keys.picker.11"),
       k("g G", "keys.picker.07"),
       k("ctrl-d ctrl-u  pagedown pageup", "keys.picker.08"),
       k("backspace  ctrl-w", "keys.picker.09"),

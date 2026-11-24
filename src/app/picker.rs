@@ -42,6 +42,7 @@ impl App {
     self.close_menu();
     let mut p = Picker::new(mine, channel, global, &self.recents);
     p.prefs = crate::model::picker_search::Prefs::load();
+    p.set_favs(self.res.favorites.list());
     self.picker = Some(p);
     self.picker_changed();
   }
@@ -110,6 +111,29 @@ impl App {
       p.reveal(g.m, g.grid.h);
     }
     self.wake();
+  }
+
+  // pin the picked tile to your favorites, or unpin it (alt-f, or a right-click on the tile): any emote
+  // tile, a catalog one too
+  pub(super) fn picker_fav(&mut self) {
+    let Some(p) = self.picker.as_ref().filter(|p| p.tab == Tab::Emotes) else { return };
+    let Some(it) = p.selected() else { return };
+    let (name, url) = (it.name.clone(), it.url.clone());
+    let zw = p.selected_hit().map_or_else(|| self.pick_of(&name, &url).zero_width, |h| h.zero_width);
+    self.fav_toggle(&name, &url, zw);
+  }
+
+  // a right-click in the picker: on a tile it pins or unpins that emote; anywhere else it does nothing
+  pub(super) fn picker_right_click(&mut self) {
+    let g = self.picker_geo();
+    let (x, y) = self.pointer;
+    let Some(p) = &mut self.picker else { return };
+    if g.grid.contains(x, y)
+      && let Some(i) = p.cell_at(x - g.grid.x, y - g.grid.y, g.m)
+    {
+      p.sel = i;
+      self.picker_fav();
+    }
   }
 
   // insert the selected emote; shift keeps the picker open for another
@@ -229,6 +253,7 @@ impl App {
       Key::Named(NamedKey::PageDown) => p.scroll_by(half * 2, g.m, g.grid.h),
       Key::Named(NamedKey::Tab) if ctrl => return self.picker_tab(None),
       Key::Character("u") if alt && !ctrl => return self.emote_up_start(),
+      Key::Character("f") if alt && !ctrl => return self.picker_fav(),
       Key::Character(c @ ("1" | "2" | "3" | "4")) if alt && !ctrl => {
         return self.picker_chip(c.parse::<usize>().map_or(0, |n| n - 1));
       }

@@ -22,6 +22,8 @@ pub enum EmoteCmd {
   Subs,
   // your blocked emotes changed on another device: read the server's list again
   Blocked,
+  // your favorite emotes, the whole list as the account will hold it (a pin or an unpin made here)
+  Favorites(Value),
   // another emote you own under this name makes way for this one (remove, then add: the server holds
   // one emote per name)
   Swap { name: Box<str>, url: Box<str>, zero_width: bool },
@@ -80,8 +82,42 @@ pub async fn load_blocked(http: reqwest::Client, token: String, out: Out) {
   out.send(NetEvent::BlockedHashes(hashes));
 }
 
+// the emotes you pinned: the account's `emoteFavorites` setting, the list the site and the extension keep.
+// an account that never pinned has no list, which is an empty one. quiet on failure: the next login asks again
+pub async fn load_favorites(http: reqwest::Client, token: String, out: Out) {
+  let r = http.get(format!("{ORIGIN}/api/settings")).bearer_auth(&token).send().await;
+  let Ok(r) = r else { return };
+  let Ok((code, v)) = read(r, MAX_LIST).await else { return };
+  let Some(settings) = v.get("settings").filter(|s| ok(code) && s.is_object()) else { return };
+  let list = settings.get("emoteFavorites").and_then(crate::emotes::favorites::parse).unwrap_or_default();
+  out.send(NetEvent::Favorites(list));
+}
+
+// the account takes the whole list. it took it only when it says when (`ts`): a server that does not know
+// the setting answers ok and stores nothing
+async fn save_favorites(http: &reqwest::Client, token: &str, list: &Value) -> Result<(), String> {
+  let r = http
+    .put(format!("{ORIGIN}/api/settings"))
+    .bearer_auth(token)
+    .header("content-type", "application/json")
+    .body(json!({ "patches": { "emoteFavorites": list } }).to_string())
+    .send()
+    .await;
+  let v = result(r).await?;
+  if v.get("ts").is_some_and(Value::is_number) { Ok(()) } else { Err(super::http::plain_status(501)) }
+}
+
 pub async fn run(http: &reqwest::Client, token: &str, cmd: EmoteCmd, out: &Out) {
   match cmd {
+    EmoteCmd::Favorites(list) => {
+      let saved = save_favorites(http, token, &list).await;
+      out.send(NetEvent::FavoritesSaved);
+      // refused: say why, and the account's own list is the list again
+      if let Err(e) = saved {
+        out.status(f("net2.emote.fav_sync", &[("why", &e)]));
+        load_favorites(http.clone(), token.to_owned(), out.clone()).await;
+      }
+    }
     EmoteCmd::Block { hash } => {
       if !valid_hash(&hash) {
         return;

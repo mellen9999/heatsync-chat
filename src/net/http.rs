@@ -117,6 +117,20 @@ pub async fn capped_json(res: Result<reqwest::Response, reqwest::Error>, max: us
   serde_json::from_slice(&capped(res, max).await?).map_err(|e| e.to_string())
 }
 
+const MAX_REDIRECTS: usize = 5;
+
+// a redirect is followed only over https and only so far: a hostile reply can't bounce us around or
+// down to plain http (`https_only` on the client refuses http outright)
+fn follow_redirect(hops: usize, to: &reqwest::Url) -> bool {
+  hops < MAX_REDIRECTS && to.scheme() == "https"
+}
+
+pub fn redirects() -> reqwest::redirect::Policy {
+  reqwest::redirect::Policy::custom(
+    |a| if follow_redirect(a.previous().len(), a.url()) { a.follow() } else { a.stop() },
+  )
+}
+
 // a socket that drops any message or frame past `max` instead of buffering it
 pub fn ws_config(max: usize) -> WebSocketConfig {
   WebSocketConfig::default().max_message_size(Some(max)).max_frame_size(Some(max))
@@ -254,6 +268,18 @@ mod tests {
     assert!(plain_status(503).contains("try again"));
     assert!(plain_status(401).contains("ctrl-l"));
     assert_eq!(offline("twitch", "connection refused (os error 111)"), "can't reach twitch");
+  }
+
+  #[test]
+  fn redirects_stop_at_five_hops_and_never_leave_https() {
+    let https = reqwest::Url::parse("https://heatsync.org/x").unwrap();
+    let http = reqwest::Url::parse("http://heatsync.org/x").unwrap();
+    for hops in 0..MAX_REDIRECTS {
+      assert!(follow_redirect(hops, &https), "hop {hops}");
+    }
+    assert!(!follow_redirect(MAX_REDIRECTS, &https), "the sixth hop is a loop or a trap");
+    assert!(!follow_redirect(0, &http), "never down to plain http");
+    assert!(!follow_redirect(0, &reqwest::Url::parse("ftp://x/y").unwrap()));
   }
 
   #[test]

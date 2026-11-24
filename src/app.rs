@@ -100,6 +100,8 @@ mod tests_copy;
 #[cfg(test)]
 mod tests_emote_up;
 #[cfg(test)]
+mod tests_favorites;
+#[cfg(test)]
 mod tests_findbar;
 #[cfg(test)]
 mod tests_font;

@@ -169,8 +169,11 @@ impl App {
   }
 
   pub(super) fn right_click(&mut self) {
-    if self.picker.is_some() || self.form.is_some() || self.tour.is_some() {
+    if self.form.is_some() || self.tour.is_some() {
       return;
+    }
+    if self.picker.is_some() {
+      return self.picker_right_click();
     }
     if self.screen.is_some() {
       return self.close_screen();

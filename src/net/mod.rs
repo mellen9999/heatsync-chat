@@ -172,6 +172,10 @@ pub enum NetEvent {
   LoginWait(bool),
   // the server's blocked-emote hashes for this login
   BlockedHashes(Vec<Box<str>>),
+  // your favorite emotes as the account holds them: at login, or pinned on another of your clients
+  Favorites(Vec<crate::emotes::favorites::Fav>),
+  // the account answered a pin or an unpin made here (a refusal is followed by its own list)
+  FavoritesSaved,
   // your twitch sub emotes (empty: none, or logged out)
   SubEmotes(crate::emotes::Set),
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
@@ -892,20 +896,6 @@ impl Net {
   }
 }
 
-const MAX_REDIRECTS: usize = 5;
-
-// a redirect is followed only over https and only so far: a hostile reply can't bounce us around or
-// down to plain http (`https_only` on the client refuses http outright)
-fn follow_redirect(hops: usize, to: &reqwest::Url) -> bool {
-  hops < MAX_REDIRECTS && to.scheme() == "https"
-}
-
-fn redirects() -> reqwest::redirect::Policy {
-  reqwest::redirect::Policy::custom(
-    |a| if follow_redirect(a.previous().len(), a.url()) { a.follow() } else { a.stop() },
-  )
-}
-
 // the one client for every api and json fetch
 fn main_client() -> Result<reqwest::Client, reqwest::Error> {
   reqwest::Client::builder()
@@ -913,7 +903,7 @@ fn main_client() -> Result<reqwest::Client, reqwest::Error> {
     .connect_timeout(Duration::from_secs(8))
     .timeout(Duration::from_secs(12))
     .https_only(true)
-    .redirect(redirects())
+    .redirect(http::redirects())
     .build()
 }
 
@@ -1214,18 +1204,6 @@ mod tests {
     }
   }
 
-  #[test]
-  fn redirects_stop_at_five_hops_and_never_leave_https() {
-    let https = reqwest::Url::parse("https://heatsync.org/x").unwrap();
-    let http = reqwest::Url::parse("http://heatsync.org/x").unwrap();
-    for hops in 0..MAX_REDIRECTS {
-      assert!(follow_redirect(hops, &https), "hop {hops}");
-    }
-    assert!(!follow_redirect(MAX_REDIRECTS, &https), "the sixth hop is a loop or a trap");
-    assert!(!follow_redirect(0, &http), "never down to plain http");
-    assert!(!follow_redirect(0, &reqwest::Url::parse("ftp://x/y").unwrap()));
-  }
-
   #[tokio::test]
   async fn the_main_client_refuses_plain_http_and_does_not_chase_a_redirect_to_it() {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -1238,7 +1216,7 @@ mod tests {
       "HTTP/1.1 302 Found\r\nlocation: http://{target}/\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
     ))
     .await;
-    let plain = reqwest::Client::builder().redirect(redirects()).build().unwrap();
+    let plain = reqwest::Client::builder().redirect(http::redirects()).build().unwrap();
     let r = plain.get(format!("http://{hop}/")).send().await.unwrap();
     assert_eq!(r.status().as_u16(), 302, "not followed");
     // the default policy would have walked right on

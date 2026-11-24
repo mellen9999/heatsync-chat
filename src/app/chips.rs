@@ -105,7 +105,9 @@ impl App {
       .or_else(|| res.emotes.sub(name).and_then(e))
       .or_else(|| {
         me.and_then(|id| res.senders.peek(id, name, now_ms())).filter(|x| &*x.url == url).map(|x| x.zero_width)
-      });
+      })
+      // a favorite nothing here holds is picked from its record
+      .or_else(|| res.favorites.zero_width(name, url));
     Rec { url: url.into(), zero_width: zw.unwrap_or(false), provider: crate::emotes::draft::host(url) }
   }
 

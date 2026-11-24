@@ -56,6 +56,21 @@ fn push_frames_become_events_and_bad_ones_become_nothing() {
   ] {
     assert!(matches!(got(json!({"type": ty})).as_slice(), [NetEvent::Refetch(a)] if *a == ask), "{ty}");
   }
+  // the site's settings frame carries one thing this app keeps: your favorite emotes, cleaned as they are read
+  let favs = json!({"type": "site-settings:patch", "ts": 1, "patches": {"showNamePaints": "off", "emoteFavorites": [
+    {"name": "Pog", "url": "https://cdn.7tv.app/emote/A/2x.webp"}, {"name": "", "url": "x"}, 7]}});
+  assert!(matches!(got(favs).as_slice(), [NetEvent::Favorites(l)] if l.len() == 1 && &*l[0].name == "Pog"));
+  assert!(
+    matches!(got(json!({"type": "site-settings:patch", "patches": {"emoteFavorites": []}})).as_slice(), [NetEvent::Favorites(l)] if l.is_empty()),
+    "the last one unpinned elsewhere is an empty list, not no news"
+  );
+  for other in [
+    json!({"type": "site-settings:patch", "patches": {"showNamePaints": "off"}}),
+    json!({"type": "site-settings:patch", "patches": {"emoteFavorites": "x"}}),
+    json!({"type": "site-settings:patch"}),
+  ] {
+    assert!(got(other).is_empty(), "any other site setting is not this app's");
+  }
   // a rule match: checked, bounded, and nothing at all when it lacks what a row needs
   let hit = json!({"type": "mention:rule-match", "data": {"ruleId": 3, "pattern": "gg", "channel": "Forsen",
     "platform": "twitch", "username": "bob", "snippet": "gg wp"}});

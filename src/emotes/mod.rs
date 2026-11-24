@@ -6,6 +6,7 @@
 pub mod block;
 pub mod draft;
 pub mod entitle;
+pub mod favorites;
 pub mod live;
 pub mod personal;
 pub mod providers;

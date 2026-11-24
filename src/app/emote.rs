@@ -21,6 +21,9 @@ pub enum Act {
   Unblock,
   Add,
   Remove,
+  // your favorites: the account's list, leading the picker and tab
+  Pin,
+  Unpin,
   Copy,
 }
 
@@ -36,6 +39,8 @@ fn label(a: Act) -> &'static str {
     Act::Unblock => t("app.emote.unblock"),
     Act::Add => t("app.emote.add"),
     Act::Remove => t("app.emote.remove"),
+    Act::Pin => t("app.emote.pin"),
+    Act::Unpin => t("app.emote.unpin"),
     Act::Copy => t("app.emote.copy"),
   }
 }
@@ -49,8 +54,9 @@ fn primary(owned: bool, blocked: bool) -> Act {
   }
 }
 
-// the menu rows for an emote, given what it is to you: what a right-click would do leads
-fn rows(owned: bool, blocked: bool, logged_in: bool) -> Vec<(Act, &'static str)> {
+// the menu rows for an emote, given what it is to you: what a right-click would do leads. `pinned` None =
+// no favorites row (logged out there is no list to pin to; a blocked emote is not offered anywhere)
+fn rows(owned: bool, blocked: bool, logged_in: bool, pinned: Option<bool>) -> Vec<(Act, &'static str)> {
   let lead = primary(owned, blocked);
   let mut v = vec![(lead, label(lead))];
   let rest = [if blocked { Act::Unblock } else { Act::Block }, if owned { Act::Remove } else { Act::Add }];
@@ -58,6 +64,10 @@ fn rows(owned: bool, blocked: bool, logged_in: bool) -> Vec<(Act, &'static str)>
     if a != lead && (logged_in || matches!(a, Act::Block | Act::Unblock)) {
       v.push((a, label(a)));
     }
+  }
+  if let Some(p) = pinned.filter(|_| logged_in) {
+    let a = if p { Act::Unpin } else { Act::Pin };
+    v.push((a, label(a)));
   }
   v.push((Act::Copy, label(Act::Copy)));
   v
@@ -105,7 +115,8 @@ impl App {
         return false;
       }
       if self.mods.shift_key() || mode == RightClick::Menu {
-        let rows = rows(owned, blocked, self.me.is_some());
+        let pinned = self.res.favorites.has(&hit.name, &hit.url);
+        let rows = rows(owned, blocked, self.me.is_some(), (pinned || !blocked).then_some(pinned));
         self.overlay = Some(Overlay::Emote(Open { menu: Menu::new(rows, self.pointer), hit, owned }));
       } else {
         self.run_act(primary(owned, blocked), &hit, owned);
@@ -122,6 +133,7 @@ impl App {
     let name = &hit.name;
     match act {
       Act::Copy => self.copy(name, f("app.emote.copied", &[("name", name)])),
+      Act::Pin | Act::Unpin => self.fav_toggle(name, &hit.url, hit.zero_width),
       Act::Block | Act::Unblock => {
         let block = act == Act::Block;
         let hashes = if block {
@@ -162,6 +174,42 @@ impl App {
     self.bar_dirty = true;
     // the box draws its emotes by the same answers: a block or a removal shows there at once
     self.input_dirty = true;
+  }
+
+  // pin a picture to your favorites, or unpin it. the list is the account's: it changes here at once, the
+  // account is told, and a refusal brings its own list back (net/emote_ops.rs)
+  pub(super) fn fav_toggle(&mut self, name: &str, url: &str, zero_width: bool) {
+    use crate::emotes::favorites::Toggle;
+    if self.me.is_none() {
+      self.say(t("app.login_first_ctrl_l"));
+    } else {
+      match self.res.favorites.toggle(name, url, zero_width) {
+        Toggle::Nope => return,
+        Toggle::Full => self.say(t("app.emote.pin_full")),
+        Toggle::Added(list) => {
+          self.say(f("app.emote.pinned", &[("name", name)]));
+          self.net.send(Cmd::Emote(EmoteCmd::Favorites(list)));
+          self.favorites_changed();
+        }
+        Toggle::Removed(list) => {
+          self.say(f("app.emote.unpinned", &[("name", name)]));
+          self.net.send(Cmd::Emote(EmoteCmd::Favorites(list)));
+          self.favorites_changed();
+        }
+      }
+    }
+    self.bar_dirty = true;
+    self.wake();
+  }
+
+  // the list changed (a pin here, the account's list at login, a pin on another client): the open picker
+  // leads with it, and tab's next cycle reads it
+  pub(super) fn favorites_changed(&mut self) {
+    if let Some(p) = &mut self.picker {
+      p.set_favs(self.res.favorites.list());
+      self.picker_changed();
+    }
+    self.wake();
   }
 
   pub fn menu_key(&mut self, key: Key<&str>) {
@@ -237,10 +285,21 @@ mod tests {
   #[test]
   fn menu_rows_lead_with_what_a_right_click_does() {
     let copy = (Act::Copy, "copy name");
-    assert_eq!(rows(false, false, false), vec![(Act::Block, "block"), copy]);
-    assert_eq!(rows(false, true, true), vec![(Act::Unblock, "unblock"), (Act::Add, "add to my emotes"), copy]);
-    assert_eq!(rows(true, false, true), vec![(Act::Remove, "remove from my emotes"), (Act::Block, "block"), copy]);
-    assert_eq!(rows(true, true, true)[0], (Act::Unblock, "unblock"));
+    assert_eq!(rows(false, false, false, None), vec![(Act::Block, "block"), copy]);
+    assert_eq!(rows(false, true, true, None), vec![(Act::Unblock, "unblock"), (Act::Add, "add to my emotes"), copy]);
+    assert_eq!(
+      rows(true, false, true, None),
+      vec![(Act::Remove, "remove from my emotes"), (Act::Block, "block"), copy]
+    );
+    assert_eq!(rows(true, true, true, None)[0], (Act::Unblock, "unblock"));
+    // favorites: one row, above copy, saying what it would do. none logged out: there is no list
+    let pin = (Act::Pin, "add to favorites");
+    assert_eq!(
+      rows(false, false, true, Some(false)),
+      vec![(Act::Block, "block"), (Act::Add, "add to my emotes"), pin, copy]
+    );
+    assert_eq!(rows(false, false, true, Some(true))[2], (Act::Unpin, "remove from favorites"));
+    assert_eq!(rows(false, false, false, Some(false)), vec![(Act::Block, "block"), copy]);
   }
 
   fn hit(url: &str) -> EmoteHit {

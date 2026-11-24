@@ -119,6 +119,20 @@ pub fn emote_hash(url: &str, scope: Scope) -> String {
   }
 }
 
+// the picture behind an address, whatever size or format it was met at: the provider's own id where its
+// cdn names one, else the address as the server files it. what a favorite is told apart by
+pub fn picture_of(url: &str) -> String {
+  match provider_id(url) {
+    Some((_, id)) => format!("{}:{id}", super::draft::host(url)),
+    None => normalized(url),
+  }
+}
+
+// a provider's own id for the picture at this address, when its cdn names one
+pub fn cdn_id(url: &str) -> Option<&str> {
+  provider_id(url).map(|(_, id)| id)
+}
+
 // every form a block of this emote might be filed under (any ext path), checked without allocating
 fn any_form(url: &str, mut f: impl FnMut(&str) -> bool) -> bool {
   if let Some((k, id)) = provider_id(url) {

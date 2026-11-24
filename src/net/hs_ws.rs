@@ -754,6 +754,12 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
       let refs = relay::hs_emotes(m.get("hsEmotes"));
       (!refs.is_empty()).then(|| send(NetEvent::HsRefs { chan: ch.into(), id: id.into(), refs })).flatten()
     }
+    // the site's own settings, under the site's names: not this app's, except the one list both keep, your
+    // favorite emotes (pinned on heatsync.org, in the extension, or in this app on another machine)
+    "site-settings:patch" => {
+      let list = crate::emotes::favorites::parse(v.get("patches")?.get("emoteFavorites")?)?;
+      send(NetEvent::Favorites(list))
+    }
     // your settings as the account holds them (the full state from a write, or the changed keys from the site)
     "ui-state:update" => {
       let (state, _) = crate::model::sync::pluck(v.get("state")?);

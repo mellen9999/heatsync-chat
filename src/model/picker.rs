@@ -1,4 +1,4 @@
-// emote picker state + grid geometry, no drawing. sections in order: recent, your heatsync
+// emote picker state + grid geometry, no drawing. sections in order: your favorites, recent, your heatsync
 // emotes, this channel, globals, then the catalogs' hits for the word typed (`Sec::Remote`, fed by
 // `picker_search`). the filter is a case-insensitive substring over names already loaded locally. remote
 // tiles live and die with this struct: nothing here can reach the render path
@@ -21,6 +21,8 @@ const MAX_QUERY: usize = 64;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sec {
+  // the emotes you pinned, in the order you pinned them: the account's list (emotes/favorites.rs)
+  Favorite,
   Recent,
   Mine,
   Channel,
@@ -36,8 +38,14 @@ pub enum Sec {
 }
 
 impl Sec {
+  // a second tile of a picture that has its own place further down: a favorite, a recent
+  fn again(self) -> bool {
+    matches!(self, Sec::Favorite | Sec::Recent)
+  }
+
   pub fn label(self) -> &'static str {
     match self {
+      Sec::Favorite => t("chat2.picker.sec_favorite"),
       Sec::Recent => t("chat2.picker.sec_recent"),
       Sec::Mine => t("chat2.picker.sec_mine"),
       Sec::Channel => t("chat2.picker.sec_channel"),
@@ -326,7 +334,10 @@ impl Picker {
     let local = &self.items[..self.n_local];
     let mut rank: Vec<(u32, &'static str)> = Vec::with_capacity(order.len());
     for (name, url, what) in order {
-      let at = local.iter().position(|i| i.sec != Sec::Recent && i.name == *name && i.url == *url);
+      // the tile in its own section; a favorite nothing here holds has only its favorites tile
+      let is = |i: &Item| i.name == *name && i.url == *url;
+      let at = local.iter().position(|i| !i.sec.again() && is(i));
+      let at = at.or_else(|| local.iter().position(|i| i.sec == Sec::Favorite && is(i)));
       if let Some(at) = at.map(|n| n as u32).filter(|n| !rank.iter().any(|r| r.0 == *n)) {
         rank.push((at, *what));
       }
@@ -349,10 +360,56 @@ impl Picker {
     (self.tab == Tab::Emotes).then(|| self.rank.iter().find(|r| r.0 == at).map(|r| r.1)).flatten()
   }
 
+  // your favorites lead the grid, in pin order (the list as it is now: at open, and again when a pin lands
+  // from here or from another of your clients). one this tab holds is that tile; one it does not is drawn
+  // from its record and picked like a search answer. a platform's own emote is shown only where it is
+  // held: anywhere else it could only go out as text. the pick stays on the tile it was on
+  pub fn set_favs(&mut self, favs: &[crate::emotes::favorites::Fav]) {
+    let old = self.items[..self.n_local].iter().take_while(|i| i.sec == Sec::Favorite).count();
+    let local = &self.items[old..self.n_local];
+    let tile = |f: &crate::emotes::favorites::Fav| {
+      let held = local.iter().find(|i| i.sec != Sec::Recent && i.name == f.name && f.same(&i.url));
+      let (url, w, h) = match held {
+        Some(i) => (i.url.clone(), i.w, i.h),
+        None if !f.native => (f.url.clone(), 0, 0),
+        None => return None,
+      };
+      Some(Item { sec: Sec::Favorite, name: f.name.clone(), url, w, h })
+    };
+    let tiles: Vec<Item> = favs.iter().filter(|f| f.shown).filter_map(tile).collect();
+    let same =
+      |a: &[Item], b: &[Item]| a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.name == b.name && a.url == b.url);
+    if same(&tiles, &self.items[..old]) {
+      return;
+    }
+    // an open grid keeps its place; one that is only now opening starts at its first tile, a favorite
+    let open = self.sel > 0 || self.scroll > 0 || old > 0;
+    let pick = self.selected().filter(|_| open && self.tab == Tab::Emotes);
+    let pick = pick.map(|i| (i.sec, i.name.clone(), i.url.clone()));
+    let scroll = self.scroll;
+    self.n_local = self.n_local - old + tiles.len();
+    self.items.splice(..old, tiles);
+    // the tiles moved: the old list no longer points at them. the app asks again for the word
+    self.rank.clear();
+    self.ranked_for = None;
+    if self.tab != Tab::Emotes {
+      self.rev += 1;
+      return;
+    }
+    self.refilter();
+    let at = |p: &(Sec, Box<str>, Box<str>)| {
+      (0..self.shown.len()).find(|&n| self.item(n).is_some_and(|i| i.sec == p.0 && i.name == p.1 && i.url == p.2))
+    };
+    if let Some(at) = pick.as_ref().and_then(at) {
+      self.sel = at;
+      self.scroll = scroll;
+    }
+  }
+
   // an emote you just uploaded: in your section, in name order (a name already there is replaced), picked
   pub fn add_mine(&mut self, it: Item) {
     let local = &self.items[..self.n_local];
-    let start = local.iter().position(|x| x.sec != Sec::Recent).unwrap_or(local.len());
+    let start = local.iter().position(|x| !x.sec.again()).unwrap_or(local.len());
     let end = start + local[start..].iter().take_while(|x| x.sec == Sec::Mine).count();
     // the tiles move: the old list no longer points at them. the app asks again for the new word
     self.rank.clear();
@@ -387,13 +444,14 @@ impl Picker {
         // remote tiles answer one word: typing on hides them at once, until the next answer
         let remote = picker_query(q).is_some_and(|w| *w == *self.search.q);
         // a word typed: the law's list leads, so the first tile is the emote typing the word sends. a
-        // recent is one of those tiles already; a local match the law left out keeps its place after them
+        // favorite or a recent is one of those tiles already; a local match the law left out keeps its
+        // place after them
         let ranked: Vec<u32> = self.rank.iter().map(|r| r.0).filter(|&n| hit(&self.items[n as usize].name)).collect();
         let keep = |(n, i): &(usize, &Item)| {
           if n >= &self.n_local {
             remote
           } else {
-            hit(&i.name) && (ranked.is_empty() || (i.sec != Sec::Recent && !ranked.contains(&(*n as u32))))
+            hit(&i.name) && (ranked.is_empty() || (!i.sec.again() && !ranked.contains(&(*n as u32))))
           }
         };
         let rest: Vec<u32> = self.items.iter().enumerate().filter(keep).map(|(n, _)| n as u32).collect();

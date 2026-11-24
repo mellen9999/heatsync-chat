@@ -680,6 +680,10 @@ impl App {
         if me.is_none() || (switched && self.me.is_some()) {
           self.mentions_forget();
         }
+        // the favorites are the account's: logged out, or another account, they are not the next one's
+        if (me.is_none() || switched) && self.res.favorites.clear() {
+          self.favorites_changed();
+        }
         if switched {
           self.mrules_forget();
           self.whispers_reset();
@@ -855,6 +859,12 @@ impl App {
         self.res.blocked.set_server(h);
         self.relayout_where(None);
       }
+      NetEvent::Favorites(list) => {
+        if self.me.is_some() && self.res.favorites.adopt(list) {
+          self.favorites_changed();
+        }
+      }
+      NetEvent::FavoritesSaved => self.res.favorites.answered(),
       NetEvent::SubEmotes(set) => {
         self.res.emotes.set_subs(set);
         self.relayout_where(None);
