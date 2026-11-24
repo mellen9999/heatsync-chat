@@ -31,6 +31,8 @@ pub enum Sec {
   Remote,
   // the emoji tab: one section, the ext's whole table
   Emoji,
+  // a word typed in the emotes tab: your local emotes that match, as one list in the emote law's order
+  Found,
 }
 
 impl Sec {
@@ -43,6 +45,7 @@ impl Sec {
       Sec::Gif => t("chat2.picker.sec_gifs"),
       Sec::Remote => t("chat2.picker.sec_catalog"),
       Sec::Emoji => t("chat2.picker.sec_emoji"),
+      Sec::Found => t("chat2.picker.tab_emotes"),
     }
   }
 }
@@ -230,6 +233,11 @@ pub struct Picker {
   // the first `n_local` items are local; the rest are `remote` tiles, one each, in the same order
   n_local: usize,
   remote: Vec<Hit>,
+  // the emote law's list for the word typed: (index into `items`, where it sits and who sees it), best
+  // first. empty with no word, and then the sections show
+  rank: Vec<(u32, &'static str)>,
+  // the word `rank` answers: the list is asked for once per word, not once per key
+  ranked_for: Option<Box<str>>,
   // the catalog leg: the word asked, the pages so far, and the chips
   pub search: Search,
   pub prefs: Prefs,
@@ -285,6 +293,8 @@ impl Picker {
       items,
       n_local,
       remote: Vec::new(),
+      rank: Vec::new(),
+      ranked_for: None,
       search: Search::default(),
       prefs: Prefs::default(),
       gifs: Vec::new(),
@@ -309,11 +319,44 @@ impl Picker {
     p
   }
 
+  // the emote law's list for the word in the box, as (name, picture, where it sits and who sees it); empty
+  // when there is no word. the grid is refiltered only when the list changed, so a step keeps its place
+  pub fn set_rank(&mut self, word: &str, order: &[(Box<str>, Box<str>, &'static str)]) {
+    self.ranked_for = Some(word.into());
+    let local = &self.items[..self.n_local];
+    let mut rank: Vec<(u32, &'static str)> = Vec::with_capacity(order.len());
+    for (name, url, what) in order {
+      let at = local.iter().position(|i| i.sec != Sec::Recent && i.name == *name && i.url == *url);
+      if let Some(at) = at.map(|n| n as u32).filter(|n| !rank.iter().any(|r| r.0 == *n)) {
+        rank.push((at, *what));
+      }
+    }
+    if rank != self.rank {
+      self.rank = rank;
+      self.refilter();
+    }
+  }
+
+  // the word in the emotes tab's box when the law has not been asked about it yet
+  pub fn unranked_word(&self) -> Option<&str> {
+    let q = self.query.trim();
+    (self.tab == Tab::Emotes && self.ranked_for.as_deref() != Some(q)).then_some(q)
+  }
+
+  // where the picked tile sits and who sees it, when the list is the law's
+  pub fn selected_what(&self) -> Option<&'static str> {
+    let at = *self.shown.get(self.sel)?;
+    (self.tab == Tab::Emotes).then(|| self.rank.iter().find(|r| r.0 == at).map(|r| r.1)).flatten()
+  }
+
   // an emote you just uploaded: in your section, in name order (a name already there is replaced), picked
   pub fn add_mine(&mut self, it: Item) {
     let local = &self.items[..self.n_local];
     let start = local.iter().position(|x| x.sec != Sec::Recent).unwrap_or(local.len());
     let end = start + local[start..].iter().take_while(|x| x.sec == Sec::Mine).count();
+    // the tiles move: the old list no longer points at them. the app asks again for the new word
+    self.rank.clear();
+    self.ranked_for = None;
     if let Some(i) = (start..end).find(|&i| self.items[i].name == it.name) {
       self.query = it.name.to_string();
       self.items[i] = it;
@@ -343,8 +386,19 @@ impl Picker {
         let hit = |n: &str| if exact { n.eq_ignore_ascii_case(q) } else { contains_ci(n, q) };
         // remote tiles answer one word: typing on hides them at once, until the next answer
         let remote = picker_query(q).is_some_and(|w| *w == *self.search.q);
-        let keep = |(n, i): &(usize, &Item)| if n >= &self.n_local { remote } else { hit(&i.name) };
-        self.shown.extend(self.items.iter().enumerate().filter(keep).map(|(n, _)| n as u32));
+        // a word typed: the law's list leads, so the first tile is the emote typing the word sends. a
+        // recent is one of those tiles already; a local match the law left out keeps its place after them
+        let ranked: Vec<u32> = self.rank.iter().map(|r| r.0).filter(|&n| hit(&self.items[n as usize].name)).collect();
+        let keep = |(n, i): &(usize, &Item)| {
+          if n >= &self.n_local {
+            remote
+          } else {
+            hit(&i.name) && (ranked.is_empty() || (i.sec != Sec::Recent && !ranked.contains(&(*n as u32))))
+          }
+        };
+        let rest: Vec<u32> = self.items.iter().enumerate().filter(keep).map(|(n, _)| n as u32).collect();
+        self.shown.extend(ranked);
+        self.shown.extend(rest);
       }
       // gifs are not filtered here: the text is the search, and what comes back replaces the list
       Tab::Gifs => self.shown.extend(0..self.gif_items.len() as u32),
@@ -543,11 +597,13 @@ impl Picker {
     }
   }
 
-  // sections with something to show, in order
+  // sections with something to show, in order. a ranked list is one section: its order is the law's, not
+  // the sections'
   fn ranges(&self) -> Vec<(Sec, Range<usize>)> {
     let mut v: Vec<(Sec, Range<usize>)> = Vec::with_capacity(4);
+    let flat = self.tab == Tab::Emotes && !self.rank.is_empty();
     for (n, &i) in self.shown.iter().enumerate() {
-      let sec = self.list()[i as usize].sec;
+      let sec = if flat && (i as usize) < self.n_local { Sec::Found } else { self.list()[i as usize].sec };
       match v.last_mut() {
         Some((s, r)) if *s == sec => r.end = n + 1,
         _ => v.push((sec, n..n + 1)),
@@ -691,6 +747,40 @@ mod tests {
 
   fn names(p: &Picker) -> Vec<&str> {
     (0..p.len()).map(|i| &*p.item(i).unwrap().name).collect()
+  }
+
+  // a word typed: the list the app hands over (the emote law's) is the order, as one section; a recent is
+  // not a second tile of an emote already listed; a match the list left out follows it; the same list
+  // again keeps the selection; no word, and the sections are back
+  #[test]
+  fn a_ranked_word_is_one_list_in_the_order_given() {
+    let mut p = sample();
+    let browse: Vec<String> = names(&p).into_iter().map(str::to_owned).collect();
+    let u = |n: &str| -> Box<str> { format!("https://cdn.7tv.app/emote/{n}/1x.webp").into() };
+    p.type_str("kappa");
+    assert_eq!(names(&p), ["Kappa", "Kappa", "kappaPride"], "unranked: the recent copy, then the section");
+    let both: [(Box<str>, Box<str>, &'static str); 2] = [
+      ("kappaPride".into(), u("kappaPride"), "global · 7tv users"),
+      ("Kappa".into(), u("Kappa"), "global · all twitch"),
+    ];
+    p.set_rank("kappa", &both);
+    assert_eq!(names(&p), ["kappaPride", "Kappa"]);
+    let secs: Vec<_> = p.layout(M).bands.iter().map(|b| (b.sec, b.range.len())).collect();
+    assert_eq!(secs, vec![(Sec::Found, 2)]);
+    assert_eq!(p.selected_what(), Some("global · 7tv users"));
+    assert_eq!(p.unranked_word(), None, "asked once per word");
+    p.step(1, 0, M);
+    p.set_rank("kappa", &both);
+    assert_eq!((p.sel, p.selected_what()), (1, Some("global · all twitch")), "the same list moves nothing");
+    p.set_rank("kappa", &both[1..]);
+    assert_eq!(names(&p), ["Kappa", "kappaPride"], "a match the list left out follows it");
+    p.step(1, 0, M);
+    assert_eq!(p.selected_what(), None);
+    p.clear_query();
+    assert_eq!(p.unranked_word(), Some(""));
+    p.set_rank("", &[]);
+    assert_eq!(names(&p), browse);
+    assert_eq!(p.layout(M).bands[0].sec, Sec::Recent);
   }
 
   #[test]

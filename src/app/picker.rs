@@ -60,7 +60,23 @@ impl App {
     self.wake();
   }
 
+  // with a word in the box the emotes tab is the emote law's list for it (docs/emote-law.md, offer): the
+  // same order tab steps through, so the first tile is the emote typing the word would send
+  fn picker_rank(&mut self) {
+    let Some(q) = self.picker.as_ref().and_then(|p| p.unranked_word()).map(str::to_owned) else { return };
+    let order: Vec<(Box<str>, Box<str>, &'static str)> = if q.is_empty() {
+      Vec::new()
+    } else {
+      let found = self.offer(&q, None).0;
+      found.into_iter().filter_map(|c| Some((c.name, c.pic?.url, c.what))).collect()
+    };
+    if let Some(p) = &mut self.picker {
+      p.set_rank(&q, &order);
+    }
+  }
+
   pub(super) fn picker_changed(&mut self) {
+    self.picker_rank();
     self.gifs_sync();
     self.picker_search_sync();
     self.input_dirty = true;

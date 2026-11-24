@@ -348,7 +348,12 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     Focus::Search => t("ui.picker.keys_search_gifs"),
     Focus::Grid => t("ui.picker.keys_grid"),
   };
-  let picked = p.selected().map(|i| if emoji { format!(":{}:", i.name) } else { i.name.to_string() });
+  // an emote found by a word also says where it sits and who sees it, in tab's own words
+  let picked = p.selected().map(|i| match p.selected_what() {
+    _ if emoji => format!(":{}:", i.name),
+    Some(what) => format!("{} · {what}", i.name),
+    None => i.name.to_string(),
+  });
   let name = if p.note.is_empty() || empty { picked.as_deref().unwrap_or("") } else { &*p.note };
   // one line: the name first, the keys in what room is left, cut with `…` (translations run long)
   let room = g.foot.w - ox as i32;

@@ -433,6 +433,45 @@ mod catalog_search {
     app.on_net(NetEvent::PickerSearch { epoch, pages });
   }
 
+  // a word typed in the picker lists your local emotes in the order tab steps through them (the emote
+  // law's offer), so the first tile is the emote typing the word sends. the sections' order (yours a-z,
+  // the channel a-z, the globals a-z) put a longer name that merely holds the word first
+  #[test]
+  fn a_typed_word_lists_local_emotes_in_tabs_order() {
+    let (net, _rx) = Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    sign_in(&mut app);
+    app.dpi = 1.0;
+    app.res.set_scale(app.scale());
+    app.canvas.resize(720, 360);
+    let e = |id: &str| Emote {
+      url: format!("https://cdn.7tv.app/emote/{id}/1x.webp").into(),
+      w: 28,
+      h: 28,
+      zero_width: false,
+    };
+    let room = [("azqKEKb".into(), e("LONG")), ("zqkek".into(), e("TWIN")), ("zqKEK".into(), e("ROOM"))];
+    app.res.emotes.set(Some("forsen"), Provider::SevenTv, room.into());
+    app.res.emotes.set(None, Provider::SevenTv, [("zqKEKW".into(), e("GLOB"))].into());
+    let tab: Vec<String> =
+      app.candidates("zqKEK", false).into_iter().filter(|c| c.emote).map(|c| c.name.into()).collect();
+    assert_eq!(tab.len(), 4, "setup: tab offers all four");
+    assert_eq!(tab[..2], ["zqKEK", "zqkek"], "setup: the name typed, then its case twin");
+    app.toggle_picker();
+    type_word(&mut app, "zqKEK");
+    let names: Vec<String> = shown(&app).into_iter().map(|(_, n)| n).collect();
+    assert_eq!(names, tab, "the picker's order is tab's");
+    let what = app.picker.as_ref().unwrap().selected_what();
+    assert_eq!(what, Some("channel · 7tv users"), "the footer says where it sits and who sees it");
+    // HSC_DUMP=$d/x.ppm cargo test -j2 --release a_typed_word_lists: one "emotes 4" list, the footer line
+    app.redraw();
+    dump_frame(&app);
+    // typed the other way round, the twin leads
+    app.picker_key(Key::Named(NamedKey::Escape), None);
+    type_word(&mut app, "zqkek");
+    assert_eq!(shown(&app)[0].1, "zqkek");
+  }
+
   // typing rests 200ms and asks once; local matches stay first; the answer is ranked under them; a stale
   // answer is dropped; picking a catalog tile puts the name in the box and sending it adds it, once
   #[test]

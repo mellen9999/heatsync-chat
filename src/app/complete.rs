@@ -73,7 +73,7 @@ impl App {
   // the emote law's offer for `q` in the room this line goes to (docs/emote-law.md, offer): the exact name,
   // the names you use, the room's, yours, the globals, and copies of one name in send order, so the first
   // is the one typing it would send. with the two places people may join
-  fn offer(&self, q: &str) -> (Vec<Pick>, usize, usize) {
+  pub(super) fn offer(&self, q: &str, limit: Option<usize>) -> (Vec<Pick>, usize, usize) {
     let d = self.draft();
     let w = d.world(&self.res.blocked);
     let usage = |n: &str| self.frecency.score(n, d.now);
@@ -90,7 +90,7 @@ impl App {
       suggest_own: self.set.suggest_inventory,
       favorites: &[],
     };
-    let o = law::offer_seams(q, &ctx, Some(MAX));
+    let o = law::offer_seams(q, &ctx, limit);
     (o.list.iter().map(offered).collect(), o.exact, o.room)
   }
 
@@ -111,7 +111,7 @@ impl App {
     }
     // `:kek` searches emotes too, then emoji shortcodes (any length, like the ext)
     let q = word.strip_prefix(':').filter(|q| q.len() >= MIN_WORD).unwrap_or(word);
-    let (mut out, exact, room) = self.offer(q);
+    let (mut out, exact, room) = self.offer(q, Some(MAX));
     // a bare word is a name too. the law ranks emotes; people join it where it says its groups end: the
     // person typed whole after the emote of that exact name, the other recent talkers after the names you
     // use and the room's emotes, before everything else. with no emote at all, anyone heard anywhere
