@@ -10,6 +10,9 @@ const HISTORY: usize = 50;
 // ctrl-z steps kept (ext undo-manager)
 const UNDO: usize = 100;
 
+// one undo step: the text, the cursor, and the draft's picks
+type Step = (String, usize, super::catalog::Registry);
+
 #[derive(Default)]
 pub struct Line {
   pub text: String,
@@ -30,9 +33,10 @@ pub struct Line {
   // Some(i) while browsing history; `draft` holds what was typed before
   browsing: Option<usize>,
   draft: String,
-  // ctrl-z / ctrl-y: (text, cursor) before each edit; a run of typed letters is one step
-  undo: Vec<(String, usize)>,
-  redo: Vec<(String, usize)>,
+  // ctrl-z / ctrl-y: the box before each edit (text, cursor, and what each picked word meant); a run of
+  // typed letters is one step. an undo is the one way back for a pick whose word left the box
+  undo: Vec<Step>,
+  redo: Vec<Step>,
   typing: bool,
 }
 
@@ -75,13 +79,18 @@ impl Line {
   pub fn checkpoint(&mut self, typing: bool) {
     let same = typing && self.typing;
     self.typing = typing;
-    if same || self.undo.last().is_some_and(|u| u.0 == self.text) {
+    if same {
+      return;
+    }
+    // the same text again (an edit that changed nothing): one step, with what its words mean now
+    if let Some(last) = self.undo.last_mut().filter(|u| u.0 == self.text) {
+      last.2 = self.picks.clone();
       return;
     }
     if self.undo.len() == UNDO {
       self.undo.remove(0);
     }
-    self.undo.push((self.text.clone(), self.cursor));
+    self.undo.push((self.text.clone(), self.cursor, self.picks.clone()));
     self.redo.clear();
   }
 
@@ -104,8 +113,11 @@ impl Line {
     while from.last().is_some_and(|u| u.0 == self.text) {
       from.pop();
     }
-    let Some((text, cursor)) = from.pop() else { return };
-    to.push((std::mem::replace(&mut self.text, text), self.cursor));
+    // the box as it was, picks and all: text entered after a delete ended the deleted word's pick, and
+    // the undone word used to come back as the room's emote
+    let Some((text, cursor, picks)) = from.pop() else { return };
+    let was = std::mem::replace(&mut self.picks, picks);
+    to.push((std::mem::replace(&mut self.text, text), self.cursor, was));
     self.cursor = cursor.min(self.text.len());
     self.typing = false;
     self.browsing = None;

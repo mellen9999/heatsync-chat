@@ -1,6 +1,6 @@
 // the whole app headless, a seeded random session in the box: names typed by hand, tab stepped onto a copy
 // of a name (forward, round again, back), a picture picked on purpose, a word deleted and put back (keys,
-// a paste), the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
+// a paste, an undo, also after other text was typed), the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
 // what went out (the words, the vouches, the swap or add of your own emote) and the row that comes back are
 // checked against a small model of the emote law written here from the law's words, never from the app's
 // code:
@@ -8,6 +8,7 @@
 //   a pick is its message's: the last pick of a name answers every copy of that name in the line
 //   a pick outlives a tab switch; a typed word is read again where it is sent
 //   a pick is over when its word leaves the box: the name entered again is a typed word
+//   an undo is the one way back: the box as it was, each word with the pick it had
 //   a recalled line keeps only the picks that changed what their word sent from where it was sent
 // the same hunt runs in a real browser on the site (emote-pick-random-session.spec.ts) and the extension
 // (render-emote-collisions.ts, case y). HS_SESSION_SEEDS=5,6,7 hunts other seeds
@@ -163,7 +164,7 @@ fn entered(picks: &mut Urls, words: &[String]) {
   picks.retain(|name, _| words.iter().any(|w| w == name));
 }
 
-fn session(seed: u32) -> (usize, usize, usize, usize) {
+fn session(seed: u32) -> (usize, usize, usize, usize, usize) {
   let (mut app, mut rx) = boot();
   app.mode = Mode::Insert;
   let mut model = Model::new();
@@ -174,7 +175,7 @@ fn session(seed: u32) -> (usize, usize, usize, usize) {
   let mut room = 0usize;
   app.activate(tab(&app, room));
   while rx.try_recv().is_ok() {}
-  let (mut picked_lines, mut swaps, mut recalls, mut ended) = (0, 0, 0, 0);
+  let (mut picked_lines, mut swaps, mut recalls, mut ended, mut undone) = (0, 0, 0, 0, 0);
   for n in 0..MESSAGES {
     let at = |step: &str| format!("seed {seed} message {n}: {step}");
     // the draft, as the model holds it
@@ -284,7 +285,39 @@ fn session(seed: u32) -> (usize, usize, usize, usize) {
             }
           }
           log.push(format!("<del {gone}{}>", if ctrl_w { " ^w" } else { "" }));
-          if rng.below(2) == 0 {
+          let after = rng.below(3);
+          // an undo is the one way back: the word returns with the pick it had, also when a word was
+          // typed after the delete (which is where the pick ended)
+          if after == 2 {
+            let between = rng.below(2) == 0;
+            if between {
+              if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
+                keys(&mut app, " ");
+              }
+              keys(&mut app, "ok ");
+            }
+            app.mods = ModifiersState::CONTROL;
+            for _ in 0..60 {
+              let mut now = app.line.text.split_whitespace();
+              if now.clone().count() == words.len() + 1 && now.next_back() == Some(&*gone) {
+                break;
+              }
+              app.key_insert(Key::Character("z"), Some("z"));
+            }
+            app.mods = ModifiersState::empty();
+            assert_eq!(
+              app.line.text.split_whitespace().next_back(),
+              Some(&*gone),
+              "seed {seed} line {n}: the undo brought the deleted word back ({log:?})"
+            );
+            if !app.line.text.ends_with(' ') {
+              keys(&mut app, " ");
+            }
+            undone += usize::from(picks.contains_key(&gone));
+            words.push(gone.clone());
+            log.push(format!("<undo{}>", if between { " after ok" } else { "" }));
+          }
+          if after == 1 {
             let was = picks.get(&gone).cloned();
             entered(&mut picks, &words);
             if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
@@ -411,23 +444,27 @@ fn session(seed: u32) -> (usize, usize, usize, usize) {
       );
     }
   }
-  (picked_lines, swaps, recalls, ended)
+  (picked_lines, swaps, recalls, ended, undone)
 }
 
 #[test]
 fn a_random_session_in_the_box_is_the_law_on_every_message() {
   let gate = std::env::var("HS_SESSION_SEEDS").is_err();
-  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "1,2,3,4".into());
-  let (mut picked, mut swaps, mut recalls, mut ended) = (0, 0, 0, 0);
+  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "1,2,3,4,9,39".into());
+  let (mut picked, mut swaps, mut recalls, mut ended, mut undone) = (0, 0, 0, 0, 0);
   for seed in seeds.split(',').filter_map(|s| s.trim().parse::<u32>().ok()) {
-    let (p, s, r, e) = session(seed);
-    (picked, swaps, recalls, ended) = (picked + p, swaps + s, recalls + r, ended + e);
+    let (p, s, r, e, u) = session(seed);
+    // a hunt picks its gate seeds from this: what each seed reaches
+    if std::env::var("HS_SESSION_SHOW").is_ok() {
+      eprintln!("seed {seed}: {p} told picks, {s} swaps, {r} recalls, {e} ended, {u} undone");
+    }
+    (picked, swaps, recalls, ended, undone) = (picked + p, swaps + s, recalls + r, ended + e, undone + u);
   }
   // the gate's seeds must reach the cases the session is for
   if gate {
     assert!(
-      picked >= 20 && swaps >= 4 && recalls >= 20,
-      "{picked} lines with a told pick, {swaps} swaps, {recalls} recalls"
+      picked >= 20 && swaps >= 4 && recalls >= 20 && ended >= 2 && undone >= 4,
+      "{picked} lines with a told pick, {swaps} swaps, {recalls} recalls, {ended} picks ended, {undone} undone"
     );
   }
 }
@@ -474,6 +511,51 @@ fn a_pick_ends_when_its_word_leaves_the_box_however_the_name_comes_back() {
     assert!(
       out.iter().all(|c| !matches!(c, Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)) | Cmd::Emote(_))),
       "{how}: no pick is told to the room, nothing of yours changes"
+    );
+  }
+}
+
+// an undo is the one way back: the word returns as it was, its pick with it, also when other text was
+// entered in between (which is where the pick ended)
+#[test]
+fn an_undo_brings_a_deleted_pick_back() {
+  for typed_between in [false, true] {
+    let how = if typed_between { "delete, type, undo" } else { "delete, undo" };
+    let (mut app, mut rx) = boot();
+    let model = Model::new();
+    own(&mut app, &model.mine);
+    app.mode = Mode::Insert;
+    let i = app.tabs.iter().position(|t| &*t.view.channel == "forsen").unwrap();
+    app.activate(i);
+    app.line.insert("Wlol");
+    app.tab_complete(false);
+    app.tab_complete(false);
+    app.complete = None;
+    assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "{how}: the pick");
+    while !app.line.text.is_empty() {
+      app.key_insert(Key::Named(NamedKey::Backspace), None);
+    }
+    if typed_between {
+      for c in ["o", "k"] {
+        app.key_insert(Key::Character(c), Some(c));
+      }
+    }
+    app.mods = winit::keyboard::ModifiersState::CONTROL;
+    for _ in 0..8 {
+      if app.line.text.split(' ').any(|w| w == "Wlol") {
+        break;
+      }
+      app.key_insert(Key::Character("z"), Some("z"));
+    }
+    app.mods = Default::default();
+    assert_eq!(app.line.text.trim(), "Wlol", "{how}: the undo brought the word back");
+    assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "{how}: and it is the picture that was picked");
+    while rx.try_recv().is_ok() {}
+    app.send();
+    let out: Vec<Cmd> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(
+      out.iter().any(|c| matches!(c, Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)))),
+      "{how}: the pick is told to the room with the line"
     );
   }
 }
