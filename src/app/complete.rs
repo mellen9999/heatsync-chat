@@ -308,7 +308,7 @@ impl App {
     } else {
       self.line.cursor = c.end + 1;
     }
-    if let Some(name) = c.emote()
+    if let Some((name, _)) = c.emote()
       && !self.line.chips.contains(name)
     {
       self.line.chips.insert(name.into());

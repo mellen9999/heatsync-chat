@@ -37,8 +37,8 @@ impl App {
     // any other key commits the current candidate; an emote pick joins the recents. esc only ends
     // the cycle (and a reply), keeping the pick
     let cycling = self.complete.is_some();
-    if let Some(name) = self.complete.take().and_then(|c| c.emote().map(str::to_owned)) {
-      self.used_emote(&name);
+    if let Some((name, url)) = self.complete.take().and_then(|c| c.emote().map(|(n, u)| (n.to_owned(), u.to_owned()))) {
+      self.used_emote(&name, &url);
     }
     if cycling && key == Key::Named(NamedKey::Escape) {
       self.reply = None;

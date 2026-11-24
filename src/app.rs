@@ -682,7 +682,7 @@ impl App {
       pick_due: None,
       gifs: Default::default(),
       recents: Recents::load(),
-      frecency: Frecency::load(Recents::load().names(), now_ms()),
+      frecency: Frecency::load(&Recents::load().names().map(Into::into).collect::<Vec<Box<str>>>(), now_ms()),
       catalog_epoch: 0,
       prompt: None,
       path_seq: 0,

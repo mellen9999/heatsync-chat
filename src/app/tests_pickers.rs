@@ -734,3 +734,61 @@ fn headless_picker_emoji_tab() {
   app.picker_key(Key::Named(NamedKey::Enter), None);
   assert!(app.picker.is_some());
 }
+
+// a recent is the emote you used, not whichever emote has its name here (the emote law: recents remember
+// the picture). the picker resolved a recent by name, yours first: pick the channel's zqW while you own a
+// zqW of your own, and the recent tile was YOUR zqW, so picking the recent put a different picture in the box
+#[test]
+fn a_recent_is_the_picture_you_used() {
+  use crate::emotes::{Emote, Provider};
+  use crate::model::picker::Sec;
+  let (net, _rx) = Net::tap();
+  let mut app = App::new(net, vec!["forsen".into()], false);
+  let url = |id: &str| format!("https://cdn.7tv.app/emote/{id}/1x.webp");
+  app.me = Some(crate::net::auth::Me {
+    username: "m".into(),
+    platform: "twitch".into(),
+    twitch: Some("m".into()),
+    twitch_id: Some(1),
+    names: vec!["m".into()],
+    kick: None,
+    youtube: None,
+    packs: vec![],
+  });
+  let mine = serde_json::json!({"custom_name": "zqW", "url": url("MINE"), "width": 28, "height": 28,
+    "added_at": "2026-10-30T22:26:51.099Z"});
+  app.res.senders.set_me(Some(1));
+  app.res.senders.lookup(1, "zqW", 0);
+  app.res.senders.put(1, crate::heatsync::senders::parse_set(&serde_json::json!([mine])));
+  let room = Emote { url: url("ROOM").into(), w: 28, h: 28, zero_width: false };
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, [("zqW".into(), room)].into());
+  let tiles = |app: &App| -> Vec<(Sec, String, String)> {
+    let p = app.picker.as_ref().unwrap();
+    (0..p.len()).filter_map(|i| p.item(i)).map(|i| (i.sec, i.name.to_string(), i.url.to_string())).collect()
+  };
+  app.toggle_picker();
+  let all = tiles(&app);
+  assert!(all.contains(&(Sec::Mine, "zqW".into(), url("MINE"))), "setup: you own a zqW");
+  let at = all.iter().position(|t| *t == (Sec::Channel, "zqW".into(), url("ROOM"))).expect("setup: the room's zqW");
+  app.picker.as_mut().unwrap().sel = at;
+  app.picker_key(Key::Named(NamedKey::Enter), None);
+  assert_eq!(&*app.line.picks.get("zqW").unwrap().url, &*url("ROOM"));
+  app.toggle_picker();
+  let recent: Vec<_> = tiles(&app).into_iter().filter(|t| t.0 == Sec::Recent).collect();
+  assert_eq!(recent, [(Sec::Recent, "zqW".into(), url("ROOM"))], "the recent is the room's zqW, the one picked");
+  // both used: two recents, the latest first
+  let at = tiles(&app).iter().position(|t| *t == (Sec::Mine, "zqW".into(), url("MINE"))).unwrap();
+  app.picker.as_mut().unwrap().sel = at;
+  app.picker_key(Key::Named(NamedKey::Enter), None);
+  app.toggle_picker();
+  let recent: Vec<String> = tiles(&app).into_iter().filter(|t| t.0 == Sec::Recent).map(|t| t.2).collect();
+  assert_eq!(recent, [url("MINE"), url("ROOM")]);
+  // in a room that does not hold it, the room's zqW is simply absent: never another zqW in its place
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, Default::default());
+  app.picker_key(Key::Named(NamedKey::Escape), None);
+  if app.picker.is_none() {
+    app.toggle_picker();
+  }
+  let recent: Vec<String> = tiles(&app).into_iter().filter(|t| t.0 == Sec::Recent).map(|t| t.2).collect();
+  assert_eq!(recent, [url("MINE")]);
+}

@@ -114,14 +114,15 @@ impl App {
   // an emote of this name went into the box on purpose (the picker, a click in chat): it is this draft's
   // pick, shown as its picture
   pub(super) fn insert_pick(&mut self, name: &str, rec: Rec) {
+    let url = rec.url.clone();
     self.line.picks.put(name, Some(rec));
     self.line.insert_chip(name);
-    self.used_emote(name);
+    self.used_emote(name, &url);
   }
 
-  // an emote went into the box: the picker's recents and tab's ranking both learn it
-  pub(super) fn used_emote(&mut self, name: &str) {
-    self.recents.record(name);
+  // an emote went into the box: the picker's recents (the picture) and tab's ranking (the name) learn it
+  pub(super) fn used_emote(&mut self, name: &str, url: &str) {
+    self.recents.record(name, url);
     self.frecency.record(name, now_ms());
   }
 

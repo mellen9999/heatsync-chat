@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use super::catalog::{Hit, picker_query};
 use super::gifs::Gif;
 use super::picker_search::{Prefs, Search};
+use crate::emotes::block::picture_of;
 use crate::store;
 
 pub const RECENT_CAP: usize = 40;
@@ -107,40 +108,55 @@ pub enum Focus {
   Grid,
 }
 
-// most-recent-first emote names, persisted
+// the emotes you put in the box lately, newest first, persisted. each is the name and its picture
+// (`name<tab>url` per line): a recent is the emote you used, not whichever emote has its name where you
+// are (the emote law: recents remember the picture). a line with no picture is from before pictures were
+// kept: it means the name, by the old order, until it is used again
 #[derive(Default)]
-pub struct Recents(Vec<Box<str>>);
+pub struct Recents(Vec<(Box<str>, Box<str>)>);
 
 impl Recents {
   pub fn load() -> Self {
-    let names = store::read(RECENT_FILE).unwrap_or_default();
-    Self(names.lines().filter(|n| crate::heatsync::valid_name(n)).take(RECENT_CAP).map(Into::into).collect())
+    let text = store::read(RECENT_FILE).unwrap_or_default();
+    let row = |l: &str| {
+      let (name, url) = l.split_once('\t').unwrap_or((l, ""));
+      let ok = crate::heatsync::valid_name(name) && (url.is_empty() || crate::images::url::allowed(url));
+      ok.then(|| (name.into(), url.into()))
+    };
+    Self(text.lines().filter_map(row).take(RECENT_CAP).collect())
   }
 
-  // move `name` to the front (deduped, capped). false = not a legal emote name
-  fn bump(&mut self, name: &str) -> bool {
+  // is the stored recent `(n, u)` the emote `name` at `url`: the same picture at any size, and a line
+  // that kept no picture is whatever has the name
+  fn is(n: &str, u: &str, name: &str, url: &str) -> bool {
+    n == name && (u.is_empty() || url.is_empty() || picture_of(u) == picture_of(url))
+  }
+
+  // move this emote to the front (deduped by picture, capped). false = not a legal emote name
+  fn bump(&mut self, name: &str, url: &str) -> bool {
     if !crate::heatsync::valid_name(name) {
       return false;
     }
-    self.0.retain(|n| **n != *name);
-    self.0.insert(0, name.into());
+    self.0.retain(|(n, u)| !Self::is(n, u, name, url));
+    self.0.insert(0, (name.into(), url.into()));
     self.0.truncate(RECENT_CAP);
     true
   }
 
-  pub fn record(&mut self, name: &str) {
-    if !self.bump(name) {
+  // `url` is the picture used ("" when nothing can say which: then it is the name's, as before)
+  pub fn record(&mut self, name: &str, url: &str) {
+    if !self.bump(name, url) {
       return;
     }
-    let mut s = self.0.join("\n");
-    s.push('\n');
+    let s: String =
+      self.0.iter().map(|(n, u)| if u.is_empty() { format!("{n}\n") } else { format!("{n}\t{u}\n") }).collect();
     if let Err(e) = store::write(RECENT_FILE, &s) {
       eprintln!("save recent: {e}");
     }
   }
 
-  pub fn names(&self) -> &[Box<str>] {
-    &self.0
+  pub fn names(&self) -> impl Iterator<Item = &str> {
+    self.0.iter().map(|(n, _)| &**n)
   }
 }
 
@@ -286,10 +302,12 @@ impl Picker {
       v.sort_by(|a, b| ci_cmp(&a.name, &b.name));
     }
     let mut items = Vec::with_capacity(RECENT_CAP + mine.len() + channel.len() + global.len());
-    for name in recents.names() {
-      // the same name from your inventory wins, then the channel, then globals
-      let src = [&mine, &channel, &global].into_iter().find_map(|v| v.iter().find(|i| i.name == *name));
-      if let Some(i) = src {
+    for (name, url) in &recents.0 {
+      // the picture used, wherever it is held here; one this room cannot reach is absent, never another
+      // emote of its name. a recent that kept no picture: your inventory's, then the channel's, then a global
+      let src =
+        [&mine, &channel, &global].into_iter().find_map(|v| v.iter().find(|i| Recents::is(name, url, &i.name, &i.url)));
+      if let Some(i) = src.filter(|i| !items.iter().any(|x: &Item| x.name == i.name && x.url == i.url)) {
         items.push(Item { sec: Sec::Recent, name: i.name.clone(), url: i.url.clone(), w: i.w, h: i.h });
       }
     }
@@ -799,7 +817,7 @@ mod tests {
     let mine = vec![it(Sec::Mine, "zed"), it(Sec::Mine, "Alpha")];
     let chan = (0..7).map(|n| it(Sec::Channel, &format!("c{n}"))).collect();
     let glob = vec![it(Sec::Global, "Kappa"), it(Sec::Global, "kappaPride")];
-    let r = Recents(vec!["Kappa".into(), "gone".into()]);
+    let r = Recents(vec![("Kappa".into(), "".into()), ("gone".into(), "".into())]);
     Picker::new(mine, chan, glob, &r)
   }
 
@@ -1063,12 +1081,31 @@ mod tests {
   fn recents_are_mru_deduped_and_capped() {
     let mut r = Recents::default();
     for n in 0..(RECENT_CAP + 10) {
-      assert!(r.bump(&format!("e{n}")));
+      assert!(r.bump(&format!("e{n}"), ""));
     }
-    assert!(!r.bump("two words") && !r.bump("/me"));
-    assert!(r.bump("e5"));
-    assert_eq!(&*r.names()[0], "e5");
-    assert_eq!(r.names().len(), RECENT_CAP);
-    assert_eq!(r.names().iter().filter(|n| ***n == *"e5").count(), 1);
+    assert!(!r.bump("two words", "") && !r.bump("/me", ""));
+    assert!(r.bump("e5", ""));
+    assert_eq!(r.names().next(), Some("e5"));
+    assert_eq!(r.names().count(), RECENT_CAP);
+    assert_eq!(r.names().filter(|n| *n == "e5").count(), 1);
+  }
+
+  // one emote at two sizes is one recent; two emotes of one name are two; a line from before pictures were
+  // kept is replaced by the first pictured use of its name
+  #[test]
+  fn recents_are_pictures() {
+    let u = |id: &str, size: &str| format!("https://cdn.7tv.app/emote/{id}/{size}.webp");
+    let mut r = Recents(vec![("W".into(), "".into())]);
+    assert!(r.bump("W", &u("A", "1x")));
+    assert_eq!(r.0.len(), 1, "the old name-only line is this use now");
+    assert!(r.bump("W", &u("B", "1x")) && r.bump("W", &u("A", "4x")));
+    let got: Vec<&str> = r.0.iter().map(|(_, u)| &**u).collect();
+    assert_eq!(got, [u("A", "4x"), u("B", "1x")]);
+    // resolved against what is held: the picture, at the held size; the other W is not reachable here
+    let item = |sec, url: String| Item { sec, name: "W".into(), url: url.into(), w: 28, h: 28 };
+    let p = Picker::new(vec![item(Sec::Mine, u("C", "1x"))], vec![item(Sec::Channel, u("A", "2x"))], Vec::new(), &r);
+    let recent: Vec<&str> =
+      (0..p.len()).filter_map(|i| p.item(i)).filter(|i| i.sec == Sec::Recent).map(|i| &*i.url).collect();
+    assert_eq!(recent, [u("A", "2x")]);
   }
 }

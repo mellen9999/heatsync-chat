@@ -47,9 +47,11 @@ pub struct Complete {
 }
 
 impl Complete {
-  // the emote this completion settled on, if it was one (not a name or a /command)
-  pub fn emote(&self) -> Option<&str> {
-    self.matches.get(self.at).filter(|m| m.emote).map(|m| &*m.name)
+  // the emote this completion settled on, if it was one (not a name or a /command): its name and its
+  // picture ("" when the candidate carries none)
+  pub fn emote(&self) -> Option<(&str, &str)> {
+    let m = self.matches.get(self.at).filter(|m| m.emote)?;
+    Some((&m.name, m.pic.as_ref().map_or("", |p| &p.url)))
   }
 
   // the tooltip over the box: "2/14 PogU · channel · 7tv users", plus "searching…" while a catalog page is out
@@ -158,7 +160,7 @@ mod tests {
       passed: None,
       remote: None,
     };
-    assert_eq!(c.emote(), Some("Kappa"));
+    assert_eq!(c.emote().map(|e| e.0), Some("Kappa"));
     assert_eq!(c.tip().as_deref(), Some("1/2 Kappa · channel · 7tv users"));
     let c = Complete { at: 1, ..c };
     assert_eq!(c.emote(), None);
