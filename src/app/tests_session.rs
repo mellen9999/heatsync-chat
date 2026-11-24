@@ -1,6 +1,6 @@
 // the whole app headless, a seeded random session in the box: names typed by hand, tab stepped onto a copy
 // of a name (forward, round again, back), a picture picked on purpose, a word deleted and put back (keys,
-// a paste, an undo, also after other text was typed), a letter typed against a word and taken off, the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
+// a paste, an undo, also after other text was typed), a letter typed against a word and taken off, a word put in at the front of the line, the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
 // what went out (the words, the vouches, the swap or add of your own emote) and the row that comes back are
 // checked against a small model of the emote law written here from the law's words, never from the app's
 // code:
@@ -202,7 +202,7 @@ fn session(seed: u32) -> [usize; 6] {
       if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
         keys(&mut app, " ");
       }
-      match rng.below(13) {
+      match rng.below(14) {
         // a word by hand, a key at a time
         0..=3 => {
           let w = rng.of(&["Wlol", "Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2", "hello"]);
@@ -350,6 +350,22 @@ fn session(seed: u32) -> [usize; 6] {
           (ended, touched) = (ended + over, touched + over);
           log.push(format!("<touch {at}>"));
         }
+        // a word put in at the front of the line: Home, the word by keys, End. its first letter lands
+        // against the line's first word, which is another word while it touches: that word's pick is
+        // over unless the line holds the name again
+        11 if !words.is_empty() => {
+          let w = rng.of(&["Wlol", "OnlyA", "Mine2", "hello"]);
+          let first = words[0].clone();
+          let was = picks.get(&first).cloned();
+          entered(&mut picks, &words[1..]);
+          app.key_insert(Key::Named(NamedKey::Home), None);
+          keys(&mut app, &format!("{w} "));
+          app.key_insert(Key::Named(NamedKey::End), None);
+          let over = usize::from(was.is_some() && !picks.contains_key(&first) && was != model.typed(room, &first));
+          (ended, touched) = (ended + over, touched + over);
+          words.insert(0, w.into());
+          log.push(format!("<in front {w}>"));
+        }
         // the other tab, in the middle of the draft
         _ => {
           room = 1 - room;
@@ -466,7 +482,7 @@ fn session(seed: u32) -> [usize; 6] {
 #[test]
 fn a_random_session_in_the_box_is_the_law_on_every_message() {
   let gate = std::env::var("HS_SESSION_SEEDS").is_err();
-  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "1,76,127,155,241".into());
+  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "11,247,423,1034".into());
   let mut sum = [0usize; 6];
   for seed in seeds.split(',').filter_map(|s| s.trim().parse::<u32>().ok()) {
     let [p, s, r, e, u, t] = session(seed);
