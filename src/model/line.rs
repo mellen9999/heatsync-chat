@@ -52,10 +52,12 @@ impl Line {
 
   // text entered at the cursor from outside the box: a key, a paste, an input method, a line the app puts
   // in. a pick whose word left the box is over before it lands, so the name entered again is a hand-typed
-  // word however it came (undo, the one way back, comes before this)
+  // word however it came (undo, the one way back, comes before this). and once it has landed: a letter
+  // typed against a picked word makes it another word, so the name is hand-typed when the letter is gone
   pub fn enter(&mut self, s: &str) {
     self.picks.prune(&self.text);
     self.insert(s);
+    self.picks.prune(&self.text);
   }
 
   // an emote name at the cursor, spaced the way the ext pastes it: a space before unless the

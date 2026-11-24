@@ -1,6 +1,6 @@
 // the whole app headless, a seeded random session in the box: names typed by hand, tab stepped onto a copy
 // of a name (forward, round again, back), a picture picked on purpose, a word deleted and put back (keys,
-// a paste, an undo, also after other text was typed), the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
+// a paste, an undo, also after other text was typed), a letter typed against a word and taken off, the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
 // what went out (the words, the vouches, the swap or add of your own emote) and the row that comes back are
 // checked against a small model of the emote law written here from the law's words, never from the app's
 // code:
@@ -164,7 +164,8 @@ fn entered(picks: &mut Urls, words: &[String]) {
   picks.retain(|name, _| words.iter().any(|w| w == name));
 }
 
-fn session(seed: u32) -> (usize, usize, usize, usize, usize) {
+// what a seed reached: lines with a told pick, swaps, recalls, picks ended, undone, picks ended by a touch
+fn session(seed: u32) -> [usize; 6] {
   let (mut app, mut rx) = boot();
   app.mode = Mode::Insert;
   let mut model = Model::new();
@@ -176,6 +177,7 @@ fn session(seed: u32) -> (usize, usize, usize, usize, usize) {
   app.activate(tab(&app, room));
   while rx.try_recv().is_ok() {}
   let (mut picked_lines, mut swaps, mut recalls, mut ended, mut undone) = (0, 0, 0, 0, 0);
+  let mut touched = 0;
   for n in 0..MESSAGES {
     let at = |step: &str| format!("seed {seed} message {n}: {step}");
     // the draft, as the model holds it
@@ -200,7 +202,7 @@ fn session(seed: u32) -> (usize, usize, usize, usize, usize) {
       if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
         keys(&mut app, " ");
       }
-      match rng.below(12) {
+      match rng.below(13) {
         // a word by hand, a key at a time
         0..=3 => {
           let w = rng.of(&["Wlol", "Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2", "hello"]);
@@ -334,6 +336,20 @@ fn session(seed: u32) -> (usize, usize, usize, usize, usize) {
             ended += usize::from(was.is_some() && !picks.contains_key(&gone) && was != model.typed(room, &gone));
           }
         }
+        // a letter typed against the last word and taken off again: while it touched, the word was
+        // another word, so its pick is over unless the line holds the name again
+        10 if !words.is_empty() => {
+          let at = words.last().unwrap().clone();
+          app.key_insert(Key::Named(NamedKey::Backspace), None);
+          keys(&mut app, "q");
+          app.key_insert(Key::Named(NamedKey::Backspace), None);
+          keys(&mut app, " ");
+          let was = picks.get(&at).cloned();
+          entered(&mut picks, &words[..words.len() - 1]);
+          let over = usize::from(was.is_some() && !picks.contains_key(&at) && was != model.typed(room, &at));
+          (ended, touched) = (ended + over, touched + over);
+          log.push(format!("<touch {at}>"));
+        }
         // the other tab, in the middle of the draft
         _ => {
           room = 1 - room;
@@ -444,27 +460,30 @@ fn session(seed: u32) -> (usize, usize, usize, usize, usize) {
       );
     }
   }
-  (picked_lines, swaps, recalls, ended, undone)
+  [picked_lines, swaps, recalls, ended, undone, touched]
 }
 
 #[test]
 fn a_random_session_in_the_box_is_the_law_on_every_message() {
   let gate = std::env::var("HS_SESSION_SEEDS").is_err();
-  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "1,2,3,4,9,39".into());
-  let (mut picked, mut swaps, mut recalls, mut ended, mut undone) = (0, 0, 0, 0, 0);
+  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "1,76,127,155,241".into());
+  let mut sum = [0usize; 6];
   for seed in seeds.split(',').filter_map(|s| s.trim().parse::<u32>().ok()) {
-    let (p, s, r, e, u) = session(seed);
+    let [p, s, r, e, u, t] = session(seed);
     // a hunt picks its gate seeds from this: what each seed reaches
     if std::env::var("HS_SESSION_SHOW").is_ok() {
-      eprintln!("seed {seed}: {p} told picks, {s} swaps, {r} recalls, {e} ended, {u} undone");
+      eprintln!("seed {seed}: {p} told picks, {s} swaps, {r} recalls, {e} ended, {u} undone, {t} touched");
     }
-    (picked, swaps, recalls, ended, undone) = (picked + p, swaps + s, recalls + r, ended + e, undone + u);
+    for (a, b) in sum.iter_mut().zip([p, s, r, e, u, t]) {
+      *a += b;
+    }
   }
   // the gate's seeds must reach the cases the session is for
   if gate {
+    let [picked, swaps, recalls, ended, undone, touched] = sum;
     assert!(
-      picked >= 20 && swaps >= 4 && recalls >= 20 && ended >= 2 && undone >= 4,
-      "{picked} lines with a told pick, {swaps} swaps, {recalls} recalls, {ended} picks ended, {undone} undone"
+      picked >= 20 && swaps >= 4 && recalls >= 20 && ended >= 2 && undone >= 4 && touched >= 2,
+      "{picked} lines with a told pick, {swaps} swaps, {recalls} recalls, {ended} ended, {undone} undone, {touched} touched"
     );
   }
 }
@@ -558,4 +577,36 @@ fn an_undo_brings_a_deleted_pick_back() {
       "{how}: the pick is told to the room with the line"
     );
   }
+}
+
+// edit inside a picked word and it is hand-typed again: a letter typed against the name and taken off
+// leaves the name, without its pick
+#[test]
+fn a_letter_typed_against_a_picked_word_ends_its_pick() {
+  let (mut app, mut rx) = boot();
+  let model = Model::new();
+  own(&mut app, &model.mine);
+  app.mode = Mode::Insert;
+  let i = app.tabs.iter().position(|t| &*t.view.channel == "forsen").unwrap();
+  app.activate(i);
+  app.line.insert("Wlol");
+  app.tab_complete(false);
+  app.tab_complete(false);
+  app.complete = None;
+  assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "the pick");
+  assert!(app.line.text.ends_with(' '), "a completed name is followed by a space: {:?}", app.line.text);
+  app.key_insert(Key::Named(NamedKey::Backspace), None);
+  app.key_insert(Key::Character("q"), Some("q"));
+  assert_eq!(app.line.text, "Wlolq");
+  app.key_insert(Key::Named(NamedKey::Backspace), None);
+  app.key_insert(Key::Named(NamedKey::Space), Some(" "));
+  assert_eq!(app.line.text.trim(), "Wlol");
+  assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("AW")), "the name is a typed word again: the room's emote");
+  while rx.try_recv().is_ok() {}
+  app.send();
+  let out: Vec<Cmd> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+  assert!(
+    out.iter().all(|c| !matches!(c, Cmd::Hs(crate::net::hs_ws::Cmd::Used(..)) | Cmd::Emote(_))),
+    "no pick is told to the room, nothing of yours changes"
+  );
 }
