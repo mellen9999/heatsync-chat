@@ -9,7 +9,7 @@
 #                 once nobody runs those)
 # windows ships as one bare exe, heatsync-chat-x86_64-windows.exe, plus its .sig2: no zip, no installer
 # (the landing page links the exe; the in-app updater takes the same file)
-# when it's out and looks right, the arch package follows:  sh packaging/aur.sh   (see that file)
+# when it's out and looks right, the arch and winget packages follow:  sh packaging/aur.sh, sh packaging/winget.sh   (see those files)
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 key="$HOME/.config/heatsync-chat-release/sign.pem"
@@ -108,4 +108,4 @@ install (windows): download heatsync-chat-x86_64-windows.exe and run it. windows
 already installed? the ↑ button on the tab bar updates in one click." \
   $upload
 echo "released $tag"
-echo "next: sh packaging/aur.sh   (refreshes the arch package for it; pushing it is a separate step)"
+echo "next: sh packaging/aur.sh and sh packaging/winget.sh   (refresh the arch and winget packages for it; publishing each is a separate step)"
