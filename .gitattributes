@@ -1,0 +1,3 @@
+# every text file is checked out with lf on windows too: the vendored vectors are compared by
+# sha256 against the site's copy, and a crlf checkout would read as an edit
+* text=auto eol=lf
