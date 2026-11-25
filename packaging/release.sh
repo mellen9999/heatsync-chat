@@ -31,7 +31,7 @@ printf '%s\n' "$trusted" | grep -qx "$pub" || { echo "the signing key isn't one 
 command -v cargo-zigbuild >/dev/null || { echo "needs cargo-zigbuild: paru -S cargo-zigbuild zig"; exit 1; }
 arches="x86_64 aarch64"
 for arch in $arches; do
-  [ -d "$(rustc --print target-libdir --target "$arch-unknown-linux-gnu")" ] || { echo "needs the $arch rust target: paru -S rust-$arch-gnu"; exit 1; }
+  [ -d "$(rustc --print target-libdir --target "$arch-unknown-linux-gnu")" ] || { echo "needs the $arch rust target: rustup target add $arch-unknown-linux-gnu"; exit 1; }
 done
 
 # the windows exe: x86_64-pc-windows-gnu, zig as the linker (packaging/windows.sh: cargo-zigbuild if present, else
