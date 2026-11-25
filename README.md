@@ -40,7 +40,7 @@ or build this repo's committed code:
 git clone https://github.com/mellen9999/heatsync-chat && cd heatsync-chat/packaging/arch && paru -Bi .
 ```
 
-**updates:** when a new version is out, a yellow `↑` shows on the tab bar. with the linux `install.sh` or the windows exe, one click downloads it, checks its signature and restarts. installed from arch (a package manager owns the file), the click just opens the release page: update with `paru -Syu`. `check for updates` in settings (`/updates`) turns the check off.
+**updates:** when a new version is out, a yellow `↑` shows on the tab bar. with the linux `install.sh` or the windows exe, one click downloads it, checks its signature and restarts. installed from arch or winget (a package manager owns the file), the click just opens the release page: update with `paru -Syu` or `winget upgrade`. `check for updates` in settings (`/updates`) turns the check off.
 
 ## use it
 

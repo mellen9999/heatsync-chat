@@ -7,10 +7,10 @@ use std::io::{Error, Result, Write};
 use std::path::Path;
 use std::time::Duration;
 
-// there is no package manager's copy to leave alone: if the folder isn't ours to write (Program Files),
-// the write probe in `self_updates` already says so
-pub fn managed(_: &Path) -> bool {
-  false
+// winget's copy is the package manager's to update. a folder that isn't ours to write (Program Files) is
+// caught by the write probe in `self_updates`
+pub fn managed(dir: &Path) -> bool {
+  super::winget_dir(&dir.to_string_lossy())
 }
 
 const NEW: &str = ".heatsync-chat.new";

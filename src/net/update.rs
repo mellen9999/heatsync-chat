@@ -73,6 +73,14 @@ mod os;
 use os::{managed, replace};
 pub use os::{restart, tidy};
 
+// winget's copy: it sits under a `WinGet` folder (`…\Microsoft\WinGet\Packages\<id>\`, or the
+// `WinGet\Links` alias that points there). winget keeps that file's version and hash, so `winget upgrade`
+// updates it; a swap here would leave winget calling it modified and refusing to touch it
+#[cfg_attr(not(windows), allow(dead_code))]
+fn winget_dir(dir: &str) -> bool {
+  dir.split(['\\', '/']).any(|c| c.eq_ignore_ascii_case("winget"))
+}
+
 // the release file for a machine: `heatsync-chat-<arch>-linux`, or `heatsync-chat-<arch>-windows.exe`. the name is
 // inside the signed message, so a build for one system can't be passed off as another's
 fn asset(os: &str, arch: &str) -> String {
@@ -205,6 +213,17 @@ mod tests {
   use super::*;
   use ring::signature::{Ed25519KeyPair, KeyPair};
   use serde_json::json;
+
+  #[test]
+  fn a_copy_winget_installed_is_left_to_winget() {
+    assert!(winget_dir(
+      r"C:\Users\a\AppData\Local\Microsoft\WinGet\Packages\HeatSync.Chat_Microsoft.Winget.Source_8wekyb3d8bbwe"
+    ));
+    assert!(winget_dir(r"C:\Users\a\AppData\Local\Microsoft\WinGet\Links"));
+    assert!(winget_dir(r"C:\Program Files\WinGet\Packages\HeatSync.Chat_Microsoft.Winget.Source_8wekyb3d8bbwe"));
+    assert!(!winget_dir(r"C:\Users\a\apps\heatsync"));
+    assert!(!winget_dir(r"C:\Users\a\wingetstuff"));
+  }
 
   const VERSION: &str = "0.2.1";
   const ASSET: &str = "heatsync-chat-x86_64-linux";
