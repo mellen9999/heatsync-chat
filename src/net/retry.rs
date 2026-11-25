@@ -105,14 +105,15 @@ where
   until_with(out, &LAST_SAID, what, max, alive, backoff, || async {}, f).await
 }
 
-// a failure that will come back the same: the server said no (4xx, but not "slow down" or "timed out") or what
-// it sent is past our size cap. fetch errors read "http <code>" / "too large" (net/http.rs)
+// a failure that will come back the same: the server said no (4xx, but not "slow down" or "timed out"), a
+// redirect the client's policy refused to follow (a 3xx it was left holding: asking again is bounced the same
+// way), or what it sent is past our size cap. fetch errors read "http <code>" / "too large" (net/http.rs)
 fn permanent(e: &str) -> bool {
   e == "too large"
     || e
       .strip_prefix("http ")
       .and_then(|c| c.parse::<u16>().ok())
-      .is_some_and(|c| (400..500).contains(&c) && !matches!(c, 408 | 425 | 429))
+      .is_some_and(|c| (300..500).contains(&c) && !matches!(c, 408 | 425 | 429))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -263,8 +264,9 @@ mod tests {
   #[tokio::test]
   async fn a_permanent_failure_is_not_retried_but_a_busy_server_is() {
     assert!(permanent("http 403") && permanent("http 410") && permanent("too large"));
+    assert!(permanent("http 301") && permanent("http 302") && permanent("http 308"), "a refused redirect");
     assert!(!permanent("http 429") && !permanent("http 408") && !permanent("http 503") && !permanent("down"));
-    for (err, calls) in [("http 403", 1), ("too large", 1), ("http 503", 3)] {
+    for (err, calls) in [("http 403", 1), ("http 302", 1), ("too large", 1), ("http 503", 3)] {
       let (tx, rx) = std::sync::mpsc::channel();
       let out = Out::Pipe(tx);
       let n = std::cell::Cell::new(0);
