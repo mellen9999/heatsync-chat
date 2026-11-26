@@ -89,6 +89,7 @@ impl App {
   }
 
   fn picker_changed_quiet(&mut self) {
+    self.picker_judge();
     self.input_dirty = true;
     self.wake();
   }

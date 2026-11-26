@@ -36,13 +36,16 @@ impl App {
 
   // what the box's words are read against: the room this line goes to, and what is yours
   pub(super) fn draft(&self) -> Draft<'_> {
+    let leg = self.leg();
     Draft {
       emotes: &self.res.emotes,
       senders: &self.res.senders,
       personal: &self.res.personal,
       me: self.own_id(),
       inventory: self.res.look.inventory_emotes,
-      leg: self.leg(),
+      leg,
+      // no room (a post, a whisper): no feeds either
+      legs: if leg.is_some() { self.legs().into_iter().map(|(p, _)| p).collect() } else { Vec::new() },
       chan: self.tabs.get(self.active).map_or("", |t| &*t.view.channel),
       now: now_ms(),
     }

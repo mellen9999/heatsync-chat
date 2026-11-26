@@ -160,6 +160,7 @@ fn step(
     me: Some(SENDER),
     inventory: true,
     leg,
+    legs: leg.into_iter().collect(),
     chan,
     now: TS,
   };

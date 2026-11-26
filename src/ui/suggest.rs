@@ -19,7 +19,8 @@ pub fn tip(c: &mut Canvas, text: &mut Text, input: Rect, s: &str) -> Rect {
 }
 
 // one row of a suggestion list: an emote's picture, or a person in their color, or a command with
-// its arguments and what it does (dim, the description pushed right)
+// its arguments and what it does (dim, the description pushed right). an emote's row ends in one letter: who
+// sees it if it is sent from here (law::mark)
 pub struct Row<'a> {
   pub img: Option<ImgId>,
   pub name: &'a str,
@@ -27,6 +28,7 @@ pub struct Row<'a> {
   pub bold: bool,
   pub args: &'a str,
   pub desc: &'a str,
+  pub mark: Option<char>,
 }
 
 // the ext's list caps at 280px tall
@@ -93,6 +95,13 @@ pub fn list(
       let d = text.layout(row.desc, &span, &[], f32::MAX);
       let dx = (cell.right() as f32 - theme::PAD_X - d.full_width()).max(x + l.full_width() + theme::PAD_X * 2.0);
       text.draw(&d, c, dx, ty, cell, |_, _| {});
+    }
+    // white on black at the right end, reversed with the row when it is the pick
+    if let Some(m) = row.mark {
+      let s = m.to_string();
+      let span = [Span { range: 0..s.len(), ink: Ink(fg(theme::WHITE)), bold: true }];
+      let l = text.layout(&s, &span, &[], f32::MAX);
+      text.draw(&l, c, cell.right() as f32 - theme::PAD_X - l.full_width(), ty, cell, |_, _| {});
     }
     hits.push((k, cell));
   }

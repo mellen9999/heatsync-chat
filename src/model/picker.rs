@@ -12,6 +12,9 @@ use std::collections::HashSet;
 
 use super::catalog::{Hit, picker_query};
 use super::gifs::Gif;
+mod verdict;
+pub use verdict::Verdict;
+
 use super::picker_search::{Prefs, Search};
 use crate::emotes::block::picture_of;
 use crate::store;
@@ -92,12 +95,16 @@ impl Tab {
   }
 }
 
+// the picked tile (by section, name and address) and the scroll
+type Place = (Option<(Sec, Box<str>, Box<str>)>, i32);
+
 pub struct Item {
   pub sec: Sec,
   pub name: Box<str>,
   pub url: Box<str>,
   pub w: u16,
   pub h: u16,
+  pub verdict: Verdict,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -308,7 +315,14 @@ impl Picker {
       let src =
         [&mine, &channel, &global].into_iter().find_map(|v| v.iter().find(|i| Recents::is(name, url, &i.name, &i.url)));
       if let Some(i) = src.filter(|i| !items.iter().any(|x: &Item| x.name == i.name && x.url == i.url)) {
-        items.push(Item { sec: Sec::Recent, name: i.name.clone(), url: i.url.clone(), w: i.w, h: i.h });
+        items.push(Item {
+          sec: Sec::Recent,
+          name: i.name.clone(),
+          url: i.url.clone(),
+          w: i.w,
+          h: i.h,
+          verdict: Verdict::Unjudged,
+        });
       }
     }
     items.extend(mine);
@@ -392,7 +406,7 @@ impl Picker {
         None if !f.native => (f.url.clone(), 0, 0),
         None => return None,
       };
-      Some(Item { sec: Sec::Favorite, name: f.name.clone(), url, w, h })
+      Some(Item { sec: Sec::Favorite, name: f.name.clone(), url, w, h, verdict: Verdict::Unjudged })
     };
     let tiles: Vec<Item> = favs.iter().filter(|f| f.shown).filter_map(tile).collect();
     let same =
@@ -464,9 +478,17 @@ impl Picker {
         // a word typed: the law's list leads, so the first tile is the emote typing the word sends. a
         // favorite or a recent is one of those tiles already; a local match the law left out keeps its
         // place after them
-        let ranked: Vec<u32> = self.rank.iter().map(|r| r.0).filter(|&n| hit(&self.items[n as usize].name)).collect();
+        let seen = |i: &Item| i.verdict != Verdict::Hidden;
+        let ranked: Vec<u32> = self
+          .rank
+          .iter()
+          .map(|r| r.0)
+          .filter(|&n| hit(&self.items[n as usize].name) && seen(&self.items[n as usize]))
+          .collect();
         let keep = |(n, i): &(usize, &Item)| {
-          if n >= &self.n_local {
+          if !seen(i) {
+            false
+          } else if n >= &self.n_local {
             remote
           } else {
             hit(&i.name) && (ranked.is_empty() || (!i.sec.again() && !ranked.contains(&(*n as u32))))
@@ -540,8 +562,7 @@ impl Picker {
 
   // swap the remote tiles; the pick and scroll stay on what they were on (a page loading must not jump)
   fn install(&mut self, hits: Vec<Hit>) {
-    let pick = self.selected().map(|i| (i.sec, i.name.clone(), i.url.clone()));
-    let scroll = self.scroll;
+    let place = self.place();
     self.items.truncate(self.n_local);
     self.items.extend(hits.iter().map(|h| Item {
       sec: Sec::Remote,
@@ -549,12 +570,23 @@ impl Picker {
       url: h.url.clone(),
       w: 0,
       h: 0,
+      verdict: Verdict::Unjudged,
     }));
     self.remote = hits;
     if self.tab != Tab::Emotes {
       self.rev += 1;
       return;
     }
+    self.refilter_to(place);
+  }
+
+  // what the pick and the scroll are on, taken before the tiles change
+  fn place(&self) -> Place {
+    (self.selected().map(|i| (i.sec, i.name.clone(), i.url.clone())), self.scroll)
+  }
+
+  // refilter, and keep the pick and the scroll on what they were on (a page loading must not jump)
+  fn refilter_to(&mut self, (pick, scroll): Place) {
     self.refilter();
     if let Some((sec, name, url)) = pick
       && let Some(at) =
@@ -609,7 +641,7 @@ impl Picker {
     self.tab = to;
     if to == Tab::Emoji && self.emoji_items.is_empty() {
       self.emoji_items = crate::model::emoji::rows()
-        .map(|(n, g)| Item { sec: Sec::Emoji, name: n.into(), url: g.into(), w: 0, h: 0 })
+        .map(|(n, g)| Item { sec: Sec::Emoji, name: n.into(), url: g.into(), w: 0, h: 0, verdict: Verdict::Unjudged })
         .collect();
     }
     self.note.clear();
@@ -623,7 +655,14 @@ impl Picker {
     let sec = if recent { Sec::Recent } else { Sec::Gif };
     self.gif_items = gifs
       .iter()
-      .map(|g| Item { sec, name: g.label.clone(), url: crate::ui::embed::proxied(&g.preview), w: 0, h: 0 })
+      .map(|g| Item {
+        sec,
+        name: g.label.clone(),
+        url: crate::ui::embed::proxied(&g.preview),
+        w: 0,
+        h: 0,
+        verdict: Verdict::Unjudged,
+      })
       .collect();
     self.gifs = gifs;
     if self.tab == Tab::Gifs {
@@ -806,7 +845,14 @@ mod tests {
   const M: Metrics = Metrics { w: 128, head: 20, ih: 28, min_w: 28, max_w: 96, gap: 4 };
 
   fn dim(sec: Sec, name: &str, w: u16, h: u16) -> Item {
-    Item { sec, name: name.into(), url: format!("https://cdn.7tv.app/emote/{name}/1x.webp").into(), w, h }
+    Item {
+      sec,
+      name: name.into(),
+      url: format!("https://cdn.7tv.app/emote/{name}/1x.webp").into(),
+      w,
+      h,
+      verdict: Verdict::Unjudged,
+    }
   }
 
   fn it(sec: Sec, name: &str) -> Item {
@@ -823,6 +869,33 @@ mod tests {
 
   fn names(p: &Picker) -> Vec<&str> {
     (0..p.len()).map(|i| &*p.item(i).unwrap().name).collect()
+  }
+
+  // the law's answers for a room: a tile it answers with another picture is gone from the grid, the rest wear
+  // their letter, the pick stays on its tile, and every tile is asked about where the law finds it
+  #[test]
+  fn the_laws_answers_hide_a_tile_and_mark_the_rest() {
+    let mut p = sample();
+    let asked: Vec<(&str, &str)> = p.unjudged().iter().map(|t| (t.1, t.3)).collect();
+    let mut want = vec![("Kappa", "global"), ("Alpha", "own"), ("zed", "own")];
+    want.extend((0..7).map(|n| (["c0", "c1", "c2", "c3", "c4", "c5", "c6"][n], "room")));
+    want.extend([("Kappa", "global"), ("kappaPride", "global")]);
+    assert_eq!(asked, want, "a recent sits where the tile it repeats does");
+    let at =
+      |p: &Picker, sec: Sec, name: &str| p.items.iter().position(|i| i.sec == sec && &*i.name == name).unwrap() as u32;
+    let pick = (0..p.len()).find(|&i| p.item(i).is_some_and(|i| &*i.name == "zed")).unwrap();
+    p.sel = pick;
+    let says = [
+      (at(&p, Sec::Mine, "Alpha"), Verdict::Hidden),
+      (at(&p, Sec::Channel, "c3"), Verdict::Hidden),
+      (at(&p, Sec::Global, "Kappa"), Verdict::Shown(Some('T'))),
+    ];
+    p.judged(&says);
+    let now = names(&p);
+    assert!(!now.contains(&"Alpha") && !now.contains(&"c3") && now.contains(&"zed") && now.contains(&"c2"), "{now:?}");
+    assert_eq!(p.selected().map(|i| &*i.name), Some("zed"), "the pick stays on its tile");
+    assert_eq!(p.items[says[2].0 as usize].verdict.mark(), Some('T'));
+    assert_eq!(p.unjudged().len(), want.len() - 3, "what was answered is not asked again");
   }
 
   // a word typed: the list the app hands over (the emote law's) is the order, as one section; a recent is
@@ -1102,7 +1175,8 @@ mod tests {
     let got: Vec<&str> = r.0.iter().map(|(_, u)| &**u).collect();
     assert_eq!(got, [u("A", "4x"), u("B", "1x")]);
     // resolved against what is held: the picture, at the held size; the other W is not reachable here
-    let item = |sec, url: String| Item { sec, name: "W".into(), url: url.into(), w: 28, h: 28 };
+    let item =
+      |sec, url: String| Item { sec, name: "W".into(), url: url.into(), w: 28, h: 28, verdict: Verdict::Unjudged };
     let p = Picker::new(vec![item(Sec::Mine, u("C", "1x"))], vec![item(Sec::Channel, u("A", "2x"))], Vec::new(), &r);
     let recent: Vec<&str> =
       (0..p.len()).filter_map(|i| p.item(i)).filter(|i| i.sec == Sec::Recent).map(|i| &*i.url).collect();

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use super::canvas::{Canvas, Rect};
 use super::input_bar::underline;
 use super::res::{EMOTE_PX, Res};
-use super::text::{Ink, Span};
+use super::text::{Ink, Span, Text};
 use super::theme;
 use crate::i18n::t;
 use crate::images::{Images, ImgId};
@@ -72,6 +72,7 @@ struct Anim {
   clip: Rect,
   id: ImgId,
   on: bool,
+  mark: Option<char>,
 }
 
 // what the last full paint looked like; same key + a due animation = repaint only the anims
@@ -150,12 +151,27 @@ fn draw_chips(c: &mut Canvas, text: &mut super::text::Text, p: &Picker, row: Rec
   out
 }
 
-fn blit(c: &mut Canvas, images: &mut Images, a: &Anim) -> Option<u32> {
+fn blit(c: &mut Canvas, images: &mut Images, text: &mut Text, a: &Anim) -> Option<u32> {
   c.fill(a.inner.intersect(a.clip), if a.on { theme::WHITE } else { theme::BLACK });
   let (f, w, h, ms) = images.frame(a.id)?;
   let (w, h) = (w as i32, h as i32);
   c.rgba(a.inner.x + (a.inner.w - w) / 2, a.inner.y + (a.inner.h - h) / 2, w, h, &f.rgba, a.inner.intersect(a.clip));
+  if let Some(m) = a.mark {
+    draw_mark(c, text, a.inner, a.clip, m, a.on);
+  }
   ms
+}
+
+// a tile's corner letter, bottom right: who sees the emote if it is sent from here (law::mark). white on black,
+// reversed on the picked tile, one letter at the app's own text size, square
+fn draw_mark(c: &mut Canvas, text: &mut Text, inner: Rect, clip: Rect, letter: char, on: bool) {
+  let s = letter.to_string();
+  let (bg, fg) = if on { (theme::WHITE, theme::BLACK) } else { (theme::BLACK, theme::WHITE) };
+  let l = text.layout(&s, &[Span { range: 0..s.len(), ink: Ink(fg), bold: true }], &[], 100_000.0);
+  let (w, h) = (l.full_width().ceil() as i32 + 2, l.height().ceil() as i32);
+  let r = Rect::new(inner.right() - w, inner.bottom() - h, w, h).intersect(clip);
+  c.fill(r, bg);
+  text.draw(&l, c, (inner.right() - w + 1) as f32, (inner.bottom() - h) as f32, r, |_, _| {});
 }
 
 // paints the picker; returns the damaged rect (None = nothing changed this wake)
@@ -184,7 +200,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
     }
     let (mut dirty, mut next): (Option<Rect>, Option<u32>) = (None, None);
     for a in &p.view.anims {
-      if let Some(ms) = blit(c, &mut res.images, a) {
+      if let Some(ms) = blit(c, &mut res.images, &mut res.text, a) {
         next = Some(next.map_or(ms, |n: u32| n.min(ms)));
       }
       let r = a.inner.intersect(a.clip);
@@ -313,7 +329,8 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
             c.dashed(inner, clip, if on { theme::BLACK } else { theme::WHITE });
             continue;
           }
-          let a = Anim { inner, clip, id, on };
+          let mark = if gifs { None } else { it.verdict.mark() };
+          let a = Anim { inner, clip, id, on, mark };
           if let Some((f, w, h, ms)) = images.frame_with(a.id, play) {
             let (w, h) = (w as i32, h as i32);
             c.rgba(inner.x + (inner.w - w) / 2, inner.y + (inner.h - h) / 2, w, h, &f.rgba, inner.intersect(clip));
@@ -321,6 +338,9 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
               next = Some(next.map_or(ms, |n: u32| n.min(ms)));
               anims.push(a);
             }
+          }
+          if let Some(m) = mark {
+            draw_mark(c, text, inner, clip, m, on);
           }
         }
       }
@@ -393,7 +413,7 @@ pub fn draw(c: &mut Canvas, res: &mut Res, area: Rect, p: &mut Picker, preedit: 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::model::picker::{Item, Recents, Sec};
+  use crate::model::picker::{Item, Recents, Sec, Verdict};
 
   fn item(n: usize, w: u16) -> Item {
     Item {
@@ -402,6 +422,7 @@ mod tests {
       url: format!("https://cdn.7tv.app/emote/e{n}/1x.webp").into(),
       w,
       h: 28,
+      verdict: Verdict::Unjudged,
     }
   }
 
@@ -446,6 +467,37 @@ mod tests {
     let at = |r: Rect| c.px[(r.y * c.w + r.x) as usize];
     assert_eq!((at(stv), at(ffz), at(hs), at(exact)), (theme::WHITE, theme::BLACK, theme::WHITE, theme::WHITE));
     assert_eq!(geo_of(area, &res, Tab::Gifs).chips.h, 0);
+  }
+
+  // one letter bottom right: white on black, reversed on the picked tile, none where everyone sees it as it is
+  #[test]
+  fn a_tile_wears_its_letter_in_the_corner() {
+    let mut res = Res::new(1.0);
+    let mark = |n, m| Item { verdict: Verdict::Shown(m), ..item(n, 28) };
+    let global = vec![mark(0, Some('7')), mark(1, Some('7')), mark(2, None)];
+    let mut p = Picker::new(Vec::new(), Vec::new(), global, &Recents::default());
+    let mut c = Canvas::new(400, 300);
+    let area = Rect::new(0, 0, 400, 300);
+    draw(&mut c, &mut res, area, &mut p, "");
+    let g = geo_of(area, &res, Tab::Emotes);
+    let (lay_cells, top) = {
+      let lay = p.layout(g.m);
+      (lay.cells.clone(), g.grid.y + lay.bands[0].top + g.m.head)
+    };
+    // the corner of cell n: where the letter sits
+    let corner = |n: usize| {
+      let (x, w) = lay_cells[n];
+      Rect::new(g.grid.x + x + w - 16, top + g.m.row_h() - 24, 14, 20)
+    };
+    let count = |r: Rect, ink: u32| {
+      (r.y..r.bottom())
+        .flat_map(|y| (r.x..r.right()).map(move |x| (x, y)))
+        .filter(|&(x, y)| c.px[(y * c.w + x) as usize] == ink)
+        .count()
+    };
+    assert!(count(corner(1), theme::WHITE) > 0, "white letter on a plain tile");
+    assert_eq!(count(corner(2), theme::WHITE), 0, "a tile everyone sees as it is has none");
+    assert!(count(corner(0), theme::BLACK) > 0, "reversed on the picked tile: a black letter on white");
   }
 
   #[test]

@@ -19,6 +19,8 @@ pub struct Pick {
   // the picture an emote candidate stands for: two of one name are two candidates, and the one stepped
   // onto is the draft's pick for that name
   pub pic: Option<Rec>,
+  // who sees it if sent from here (law::mark), as the one corner letter the `:` list draws; none = everyone
+  pub mark: Option<char>,
 }
 
 impl Pick {
@@ -90,6 +92,7 @@ pub fn emoji(query: &str) -> Vec<Pick> {
       emote: false,
       code: Some(code),
       pic: None,
+      mark: None,
     })
     .collect()
 }
@@ -126,7 +129,14 @@ pub fn commands(query: &str, groups: impl IntoIterator<Item = Vec<&'static str>>
   let mut out: Vec<Pick> = Vec::new();
   for c in groups.into_iter().flatten() {
     if c.starts_with(&low) && !out.iter().any(|o| *o.name == *c) {
-      out.push(Pick { name: c.into(), what: t("chat1.complete.what.command"), emote: false, code: None, pic: None });
+      out.push(Pick {
+        name: c.into(),
+        what: t("chat1.complete.what.command"),
+        emote: false,
+        code: None,
+        pic: None,
+        mark: None,
+      });
     }
   }
   out
@@ -150,7 +160,14 @@ mod tests {
 
   #[test]
   fn tip_and_emote_pick() {
-    let p = |name: &str, emote| Pick { name: name.into(), what: "channel · 7tv users", emote, code: None, pic: None };
+    let p = |name: &str, emote| Pick {
+      name: name.into(),
+      what: "channel · 7tv users",
+      emote,
+      code: None,
+      pic: None,
+      mark: None,
+    };
     let c = Complete {
       start: 0,
       end: 0,

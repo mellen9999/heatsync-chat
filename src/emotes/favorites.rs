@@ -52,6 +52,11 @@ impl Fav {
     })
   }
 
+  // the server's hash of the upload this pin is, if it is one
+  pub fn hash(&self) -> Option<&str> {
+    self.hash.as_deref()
+  }
+
   // is the picture at `url` this favorite's: the same image, or the same upload of ours
   pub fn same(&self, url: &str) -> bool {
     picture_of(&self.url) == picture_of(url)

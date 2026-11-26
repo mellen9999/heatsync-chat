@@ -116,6 +116,8 @@ mod tests_links;
 #[cfg(test)]
 mod tests_lists;
 #[cfg(test)]
+mod tests_marks;
+#[cfg(test)]
 mod tests_mentions;
 #[cfg(test)]
 mod tests_modbar;

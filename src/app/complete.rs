@@ -34,8 +34,8 @@ fn what(channel: bool, p: Provider) -> &'static str {
   }
 }
 
-// one of the law's candidates as tab shows it: its name, its own picture, where it is from
-fn offered(c: &law::Candidate<Pic>) -> Pick {
+// one of the law's candidates as tab shows it: its name, its own picture, where it is from, and who sees it
+fn offered(c: &law::Candidate<Pic>, mark: Option<char>) -> Pick {
   let e = c.emote;
   // a copy of a name twitch marks itself: offered, but twitch will draw its own there
   let what = match e.src {
@@ -49,7 +49,7 @@ fn offered(c: &law::Candidate<Pic>) -> Pick {
     Src::Favorite => t("app.complete.favorite"),
   };
   let pic = Rec { url: e.url.into(), zero_width: e.zw, provider: e.p };
-  Pick { name: e.name.into(), what, emote: true, code: None, pic: Some(pic) }
+  Pick { name: e.name.into(), what, emote: true, code: None, pic: Some(pic), mark }
 }
 
 impl App {
@@ -61,7 +61,14 @@ impl App {
       .iter()
       .map(|(n, _)| format!("/{n}"))
       .filter(|n| n.starts_with(&low) && !super::usercmd::builtin(&n[1..]))
-      .map(|n| Pick { name: n.into(), what: t("app.complete.your_command"), emote: false, code: None, pic: None })
+      .map(|n| Pick {
+        name: n.into(),
+        what: t("app.complete.your_command"),
+        emote: false,
+        code: None,
+        pic: None,
+        mark: None,
+      })
       .collect()
   }
 
@@ -72,8 +79,8 @@ impl App {
   }
 
   // the emote law's offer for `q` in the room this line goes to (docs/emote-law.md, offer): the exact name,
-  // the names you use, the room's, yours, the globals, and copies of one name in send order, so the first
-  // is the one typing it would send. with the two places people may join
+  // the names you use, the room's, yours, the globals. a name is the one picture typing it would send, so
+  // that picture is the one tile of it. with the two places people may join
   pub(super) fn offer(&self, q: &str, limit: Option<usize>) -> (Vec<Pick>, usize, usize) {
     let d = self.draft();
     let w = d.world(&self.res.blocked, self.res.favorites.list());
@@ -93,8 +100,23 @@ impl App {
       // the emoji are not in this offer (`candidates` sets them in), so the law's "emoji first" has nothing to move
       emoji_first: false,
     };
-    let o = law::offer_seams(q, &ctx, limit);
-    (o.list.iter().map(offered).collect(), o.exact, o.room)
+    // one name, one picture, one tile: a copy of a name the room answers with another picture is not offered
+    // (law::mark), so the groups end that much sooner. asked for the whole list, so the cap counts what is left
+    let o = law::offer_seams(q, &ctx, None);
+    let judge = w.judge();
+    let (mut list, mut exact, mut room) = (Vec::new(), 0, 0);
+    for (i, c) in o.list.iter().enumerate() {
+      if limit.is_some_and(|n| n > 0 && list.len() >= n) {
+        break;
+      }
+      let says = judge.says(c.emote, c.tier.as_str());
+      if says.offered {
+        exact += usize::from(i < o.exact);
+        room += usize::from(i < o.room);
+        list.push(offered(c, says.mark));
+      }
+    }
+    (list, exact, room)
   }
 
   // Tab's list, and everything but the `:` list: the law's one order
@@ -105,7 +127,8 @@ impl App {
   // the same, and for the `:` list alone `emoji_first` (setting colonListOrder) puts every emoji above the emotes
   pub(super) fn candidates_in(&self, word: &str, slash: bool, emoji_first: bool) -> Vec<Pick> {
     let tab = self.tabs.get(self.active);
-    let chat = |n: Box<str>| Pick { name: n, what: t("app.complete.chatter"), emote: false, code: None, pic: None };
+    let chat =
+      |n: Box<str>| Pick { name: n, what: t("app.complete.chatter"), emote: false, code: None, pic: None, mark: None };
     if slash {
       let mut out = self.own_commands(word);
       let builtin = commands(word, [slash::all().into_iter().map(|c| c.name).collect()]);
@@ -784,7 +807,7 @@ mod tests {
 
   // the emote law's send order in the box: the chip is exactly what sends. a pick, else the channel's, else
   // yours, else a global: a typed word is the room's emote even where you own a copy of the name, and tab
-  // lists the copies of a name in that same order, each its own candidate with its own picture
+  // offers that one picture of the name, not yours or the global's
   #[test]
   fn the_chip_shows_what_sends_pick_then_channel_then_yours_then_globals() {
     let (net, _rx) = Net::tap();
@@ -802,15 +825,7 @@ mod tests {
       .filter(|p| &*p.name == "W")
       .map(|p| (p.what, p.pic.as_ref().unwrap().url.to_string()))
       .collect();
-    assert_eq!(
-      copies,
-      [
-        ("channel · ffz users", url7("CHANFFZ")),
-        ("your inventory · heatsync only", url7("INV")),
-        ("global · 7tv users", url7("GLOBAL7"))
-      ],
-      "tab's first W is the one typing it sends"
-    );
+    assert_eq!(copies, [("channel · ffz users", url7("CHANFFZ"))], "tab's W is the one typing it sends, once");
     app.res.emotes.set(Some("forsen"), crate::emotes::Provider::Ffz, Default::default());
     assert_eq!(chip(&app), Some(url7("INV")), "the channel has none: yours");
     app.res.senders.stale(1, Some("W"));
@@ -846,11 +861,11 @@ mod tests {
     assert_eq!(row(&mut app, chip.as_deref()), chip, "picked: the vouched row is the chip");
   }
 
-  // tab onto the second copy of a name and that picture is the draft's pick: the box shows it and the room
-  // is told. a copy only passed on the way leaves the name as it was, and a pick whose word left the box
-  // is over once anything is typed
+  // tab offers one picture of a name, the one typing it sends, so there is no second copy to step onto. a
+  // picture of that name put in on purpose (an emote clicked in a chat line, a favorite) is the draft's pick:
+  // the box shows it and the room is told. a pick whose word left the box is over once anything is typed
   #[test]
-  fn stepping_onto_a_copy_picks_it_and_passing_one_does_not() {
+  fn tab_offers_the_one_wide_and_a_picture_put_in_on_purpose_is_vouched() {
     let (net, mut rx) = Net::tap();
     let mut app = App::new(net, vec!["forsen".into()], false);
     signed_in(&mut app);
@@ -859,15 +874,14 @@ mod tests {
     app.tab_complete(false);
     assert_eq!(app.box_url("Wide").as_deref(), Some(&*url7("CHANFFZ")));
     app.tab_complete(false);
-    assert_eq!(app.box_url("Wide").as_deref(), Some(&*url7("INV")), "the second Wide is yours");
-    app.tab_complete(false);
-    app.tab_complete(true);
-    assert_eq!(
-      app.line.picks.get("Wide").map(|r| &*r.url),
-      Some(&*url7("INV")),
-      "back on yours: the global was passed"
-    );
+    assert_eq!(app.box_url("Wide").as_deref(), Some(&*url7("CHANFFZ")), "yours and the global's are not offered");
+    let pick = app.line.picks.get("Wide").map(|r| r.url.to_string());
+    assert_eq!(pick, Some(url7("CHANFFZ")), "tab onto the one Wide: its pick, which is what the word sends anyway");
     app.complete = None;
+    app.line.take();
+    let rec = app.pick_of("Wide", &url7("INV"));
+    app.insert_pick("Wide", rec);
+    assert_eq!(app.box_url("Wide").as_deref(), Some(&*url7("INV")), "yours, put in on purpose");
     app.send();
     let sent = asked(&mut rx);
     let vouched: Vec<String> = sent

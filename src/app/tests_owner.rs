@@ -101,10 +101,10 @@ fn the_streamers_emote_is_the_rooms_in_the_row_the_box_tab_and_the_picker() {
   // the box: a typed word is the room's, and the room's first answer is the streamer's (never your own W)
   assert_eq!(app.box_url("W").as_deref(), Some(&*url7("OWNER")));
   assert_eq!(app.box_url("Only").as_deref(), Some(&*url7("ONLY")));
-  // tab: the streamer's W leads the copies of the name, and says whose it is
+  // tab: the streamer's W is the one W, and says whose it is: ffz's and yours lost the name here
   let c = app.candidates("W", false);
   let urls: Vec<&str> = c.iter().filter_map(|p| p.pic.as_ref().map(|r| &*r.url)).collect();
-  assert_eq!(urls[..2], [&*url7("OWNER"), &*url7("MINE")], "the room's, then yours: ffz's W lost the name here");
+  assert_eq!(urls, [&*url7("OWNER")], "the room's: the other pictures of W are not offered");
   assert_eq!(c[0].what, t("app.complete.channel_hs"));
   // the picker's channel section holds the streamer's emotes, one tile per name
   app.toggle_picker();

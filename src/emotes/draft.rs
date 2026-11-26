@@ -2,9 +2,10 @@
 // send, and the world tab offers from. the chip in the box, the vouch that leaves with the line and the row
 // that comes back are this one answer. `resolve.rs` is its reading twin, and `law::tests` runs the site's
 // send cases through `Draft::word`
+use std::cell::OnceCell;
 use std::collections::HashSet;
 
-use super::block::Blocked;
+use super::block::{Blocked, picture_of};
 use super::favorites::Fav;
 use super::personal::Personal;
 use super::{Emote, Emotes, Provider};
@@ -41,6 +42,9 @@ pub struct Draft<'a> {
   // the platform the line resolves against: of the feeds it goes to, twitch, else kick, else youtube.
   // None = no room (a post, a reply, a whisper): pick, yours, globals
   pub leg: Option<Platform>,
+  // every feed the line goes to, `leg`'s among them. a platform's own emote is drawn only on its platform:
+  // away from all of its feeds a tile of it goes out as a picture. empty with no room
+  pub legs: Vec<Platform>,
   // the room's key (the tab's)
   pub chan: &'a str,
   pub now: i64,
@@ -110,7 +114,7 @@ impl<'a> Draft<'a> {
     let em = self.emotes;
     let mut hidden = HashSet::new();
     let mut pic = |name: &'a str, url: &'a str, zw: bool, p: &'static str, src: Src| {
-      let pic = Pic { name, url, p, zw, src, key: format!("{name}\n{url}").into() };
+      let pic = Pic::new(name, url, p, zw, src);
       if blocked.contains(name, url) {
         hidden.insert(law::key_of(&pic));
       }
@@ -154,11 +158,21 @@ impl<'a> Draft<'a> {
       let here = held.iter().flatten().find_map(|idx| idx.get(&*f.name).filter(|e| f.same(e.url)));
       match here {
         Some(e) => favorites.push(e.clone()),
-        None if !f.native => favorites.push(pic(&f.name, &f.url, f.zero_width, host(&f.url), Src::Favorite)),
+        None if !f.native => {
+          let mut p = pic(&f.name, &f.url, f.zero_width, host(&f.url), Src::Favorite);
+          p.hash = f.hash();
+          favorites.push(p);
+        }
         None => {}
       }
     }
-    World { room, own, globals, favorites, hidden }
+    // only the platform of a leg is read: the room's own names are the first leg's, above
+    let legs = self
+      .legs
+      .iter()
+      .map(|&p| law::build_room(platform(p), self.chan, law::RoomLists { owner: &[], third: &[], native: &[] }, true))
+      .collect();
+    World { room, legs, own, globals, favorites, hidden }
   }
 }
 
@@ -172,6 +186,17 @@ pub struct Pic<'a> {
   pub src: Src,
   // the name and the address
   key: Box<str>,
+  // the picture behind the address, whatever size or format it was met at (`block::picture_of`): asked for
+  // when two are compared, never for the thousands that are not
+  pic: OnceCell<Box<str>>,
+  // the server's hash of an upload of ours, where a pin holds one: the same upload met under another host
+  pub hash: Option<&'a str>,
+}
+
+impl<'a> Pic<'a> {
+  fn new(name: &'a str, url: &'a str, p: &'static str, zw: bool, src: Src) -> Self {
+    Pic { name, url, p, zw, src, key: format!("{name}\n{url}").into(), pic: OnceCell::new(), hash: None }
+  }
 }
 
 // where a picture was found: what tab's tooltip says about it
@@ -201,16 +226,80 @@ impl law::Pic for Pic<'_> {
   fn zero_width(&self) -> bool {
     self.zw
   }
+  // `p` is its address's host, so your saved copy of a twitch or 7tv emote has the host's `p`: the
+  // picture is how a copy and the emote it was saved from are told to be one
+  fn pic(&self) -> Option<&str> {
+    Some(self.pic.get_or_init(|| picture_of(self.url).into()))
+  }
+  fn hash(&self) -> Option<&str> {
+    self.hash
+  }
 }
 
 pub struct World<'a> {
   pub room: Option<law::Room<Pic<'a>>>,
+  // a room for each feed the line goes to, for the platforms it reaches: nothing in it is read
+  pub legs: Vec<law::Room<Pic<'a>>>,
   pub own: law::Own<Pic<'a>>,
   pub globals: law::Index<Pic<'a>>,
   // the emotes you pinned, in your order
   pub favorites: Vec<Pic<'a>>,
   // the law keys of the pictures you blocked: never offered, and no look-alike takes their name
   pub hidden: HashSet<String>,
+}
+
+// what a tile says (law::mark): the room offers it, and the one corner letter for who sees it if it is sent
+// from here (none = everyone, as it is)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Says {
+  pub offered: bool,
+  pub mark: Option<char>,
+}
+
+// the law's send context for the box, asked about tiles one after another
+pub struct Judge<'w, 'a> {
+  world: &'w World<'a>,
+  legs: Vec<&'w law::Room<Pic<'a>>>,
+}
+
+impl<'a> World<'a> {
+  pub fn judge(&self) -> Judge<'_, 'a> {
+    Judge { world: self, legs: self.legs.iter().collect() }
+  }
+
+  // the copy of this picture the sets hold, with the provider and place they know it by
+  fn held(&self, name: &str, url: &str) -> Option<&Pic<'a>> {
+    let native = self.own.native.values();
+    let sets = self.room.iter().map(|r| &r.names).chain([&self.own.inventory, &self.own.personal]).chain(native);
+    sets.chain([&self.globals]).find_map(|idx| idx.get(name).filter(|e| e.url == url))
+  }
+}
+
+impl<'w, 'a> Judge<'w, 'a> {
+  // an emote the law offered or a set holds. `tier` is where the offer found it
+  pub fn says<T: law::Pic>(&self, e: &T, tier: &str) -> Says {
+    let w = self.world;
+    // nothing is picked: a tile is judged by what its word sends
+    let ctx = law::SendCtx {
+      room: w.room.as_ref(),
+      legs: &self.legs,
+      own: &w.own,
+      globals: &w.globals,
+      picks: None,
+      fold: false,
+    };
+    let s = law::mark::tile_says(&ctx, e, tier);
+    Says { offered: s.offered, mark: s.mark }
+  }
+
+  // a picker tile, met by its name and address: the copy the sets hold, or else a picture nothing here holds
+  // (a search answer, a pin from another room), whose provider is its address's
+  pub fn tile(&self, name: &str, url: &str, tier: &str) -> Says {
+    match self.world.held(name, url) {
+      Some(e) => self.says(e, tier),
+      None => self.says(&Pic::new(name, url, host(url), false, Src::Favorite), tier),
+    }
+  }
 }
 
 fn platform(p: Platform) -> law::Platform {

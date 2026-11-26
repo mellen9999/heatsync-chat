@@ -317,6 +317,7 @@ impl Cycle {
         emote: true,
         code: None,
         pic: Some(Rec::of(&h)),
+        mark: None,
       });
       self.hits.insert(matches.len() - 1, h);
     }
@@ -561,7 +562,7 @@ mod tests {
   }
 
   fn pick(n: &str) -> Pick {
-    Pick { name: n.into(), what: "x", emote: true, code: None, pic: None }
+    Pick { name: n.into(), what: "x", emote: true, code: None, pic: None, mark: None }
   }
 
   #[test]

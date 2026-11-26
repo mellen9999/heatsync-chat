@@ -159,6 +159,7 @@ impl App {
     let names: Vec<Box<str>> = s.items.iter().map(|p| p.shown().into()).collect();
     // each row draws its own candidate's picture: two of one name are two rows
     let pics: Vec<Option<Box<str>>> = s.items.iter().map(|p| p.pic.as_ref().map(|r| r.url.clone())).collect();
+    let marks: Vec<Option<char>> = s.items.iter().map(|p| p.mark).collect();
     let platform = self.target().map_or(Platform::Twitch, |t| t.0);
     let cmds = if kind == Kind::Command { slash::all() } else { Vec::new() };
     let own: Vec<(String, String)> = if kind == Kind::Command {
@@ -167,11 +168,12 @@ impl App {
       Vec::new()
     };
     let mut rows = Vec::with_capacity(names.len());
-    for (name, pic) in names.iter().zip(pics) {
-      let mut row = Row { img: None, name, ink: theme::WHITE, bold: false, args: "", desc: "" };
+    for ((name, pic), mark) in names.iter().zip(pics).zip(marks) {
+      let mut row = Row { img: None, name, ink: theme::WHITE, bold: false, args: "", desc: "", mark: None };
       match kind {
         Kind::Emote => {
           row.img = pic.or_else(|| self.box_url(name)).map(|u| self.res.images.id(&u, EMOTE_PX));
+          row.mark = mark;
         }
         Kind::People => {
           let who = self.res.chatters.person(platform, name.trim_start_matches('@'), true);

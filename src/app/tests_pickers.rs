@@ -737,7 +737,8 @@ fn headless_picker_emoji_tab() {
 
 // a recent is the emote you used, not whichever emote has its name here (the emote law: recents remember
 // the picture). the picker resolved a recent by name, yours first: pick the channel's zqW while you own a
-// zqW of your own, and the recent tile was YOUR zqW, so picking the recent put a different picture in the box
+// zqW of your own, and the recent tile was YOUR zqW, so picking the recent put a different picture in the box.
+// the room answers the name zqW with its own picture, so yours is no tile there; where the room has none it is
 #[test]
 fn a_recent_is_the_picture_you_used() {
   use crate::emotes::{Emote, Provider};
@@ -768,7 +769,7 @@ fn a_recent_is_the_picture_you_used() {
   };
   app.toggle_picker();
   let all = tiles(&app);
-  assert!(all.contains(&(Sec::Mine, "zqW".into(), url("MINE"))), "setup: you own a zqW");
+  assert!(!all.contains(&(Sec::Mine, "zqW".into(), url("MINE"))), "the room's zqW answers the name: yours is no tile");
   let at = all.iter().position(|t| *t == (Sec::Channel, "zqW".into(), url("ROOM"))).expect("setup: the room's zqW");
   app.picker.as_mut().unwrap().sel = at;
   app.picker_key(Key::Named(NamedKey::Enter), None);
@@ -776,19 +777,17 @@ fn a_recent_is_the_picture_you_used() {
   app.toggle_picker();
   let recent: Vec<_> = tiles(&app).into_iter().filter(|t| t.0 == Sec::Recent).collect();
   assert_eq!(recent, [(Sec::Recent, "zqW".into(), url("ROOM"))], "the recent is the room's zqW, the one picked");
-  // both used: two recents, the latest first
-  let at = tiles(&app).iter().position(|t| *t == (Sec::Mine, "zqW".into(), url("MINE"))).unwrap();
+  // in a room that does not hold it, the room's zqW is simply absent: never another zqW in its place. yours
+  // is a tile there, and used, it is a recent of its own
+  app.close_picker();
+  app.res.emotes.set(Some("forsen"), Provider::SevenTv, Default::default());
+  app.toggle_picker();
+  let all = tiles(&app);
+  assert!(all.iter().all(|t| t.0 != Sec::Recent), "the room's zqW is not here, and yours was not what was used");
+  let at = all.iter().position(|t| *t == (Sec::Mine, "zqW".into(), url("MINE"))).expect("yours is a tile now");
   app.picker.as_mut().unwrap().sel = at;
   app.picker_key(Key::Named(NamedKey::Enter), None);
   app.toggle_picker();
-  let recent: Vec<String> = tiles(&app).into_iter().filter(|t| t.0 == Sec::Recent).map(|t| t.2).collect();
-  assert_eq!(recent, [url("MINE"), url("ROOM")]);
-  // in a room that does not hold it, the room's zqW is simply absent: never another zqW in its place
-  app.res.emotes.set(Some("forsen"), Provider::SevenTv, Default::default());
-  app.picker_key(Key::Named(NamedKey::Escape), None);
-  if app.picker.is_none() {
-    app.toggle_picker();
-  }
   let recent: Vec<String> = tiles(&app).into_iter().filter(|t| t.0 == Sec::Recent).map(|t| t.2).collect();
   assert_eq!(recent, [url("MINE")]);
 }

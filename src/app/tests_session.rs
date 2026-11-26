@@ -1,5 +1,5 @@
-// the whole app headless, a seeded random session in the box: names typed by hand, tab stepped onto a copy
-// of a name (forward, round again, back), a picture picked on purpose, a word deleted and put back (keys,
+// the whole app headless, a seeded random session in the box: names typed by hand, tab stepped onto a name
+// (forward, round again, back), a picture picked on purpose, a word deleted and put back (keys,
 // a paste, an undo, also after other text was typed), a letter typed against a word and taken off, a word put in at the front of the line, the tab switched in the middle of a draft, a sent line brought back with the up arrow and sent again. on every message the box, tab's list,
 // what went out (the words, the vouches, the swap or add of your own emote) and the row that comes back are
 // checked against a small model of the emote law written here from the law's words, never from the app's
@@ -82,15 +82,10 @@ impl Model {
     self.rooms[room].get(word).or_else(|| self.mine.get(word)).or_else(|| self.globals.get(word)).cloned()
   }
 
-  // tab's copies of a name: the room's, yours, the global, each picture once
+  // tab's offer of a name: the one picture typing it sends (the room's, else yours, else a global); the
+  // other pictures of that name are not tiles
   fn offers(&self, room: usize, name: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for u in [self.rooms[room].get(name), self.mine.get(name), self.globals.get(name)].into_iter().flatten() {
-      if !out.contains(u) {
-        out.push(u.clone());
-      }
-    }
-    out
+    self.typed(room, name).into_iter().collect()
   }
 
   // a word of a draft: the draft's pick of the name, else as typed
@@ -202,7 +197,7 @@ fn session(seed: u32) -> [usize; 6] {
       if !app.line.text.is_empty() && !app.line.text.ends_with(' ') {
         keys(&mut app, " ");
       }
-      match rng.below(14) {
+      match rng.below(15) {
         // a word by hand, a key at a time
         0..=3 => {
           let w = rng.of(&["Wlol", "Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2", "hello"]);
@@ -211,7 +206,7 @@ fn session(seed: u32) -> [usize; 6] {
           words.push(w.into());
           log.push(w.into());
         }
-        // a name, and tab onto one of its copies
+        // a name, and tab onto it
         4..=6 => {
           let name = rng.of(&["Wlol", "Wlol", "Wlol", "OnlyA", "OnlyB", "Mine2", "Glob2"]);
           let offers = model.offers(room, name);
@@ -223,7 +218,7 @@ fn session(seed: u32) -> [usize; 6] {
             .filter(|p| &*p.name == name)
             .map(|p| p.pic.as_ref().map_or_else(String::new, |r| r.url.to_string()))
             .collect();
-          assert_eq!(seen, offers, "{}", at(&format!("tab's copies of {name}: room, yours, global ({log:?})")));
+          assert_eq!(seen, offers, "{}", at(&format!("tab's one {name}: what typing it sends ({log:?})")));
           let presses = 1 + rng.below(4);
           let back = rng.below(5) == 0;
           let mut i = usize::MAX;
@@ -260,7 +255,7 @@ fn session(seed: u32) -> [usize; 6] {
         }
         // a picture picked on purpose (a picker tile, an emote clicked in a chat line): any copy of the
         // name held anywhere, the other tab's room included
-        7 => {
+        7..=8 => {
           let name = rng.of(&NAMES);
           let held =
             [model.rooms[0].get(name), model.rooms[1].get(name), model.mine.get(name), model.globals.get(name)];
@@ -274,7 +269,7 @@ fn session(seed: u32) -> [usize; 6] {
         }
         // the last word deleted (backspace until it is gone, or ctrl-w), and half the time its name put
         // straight back: by keys, or pasted. its pick left with it unless the line holds the name again
-        8..=9 if !words.is_empty() => {
+        9..=10 if !words.is_empty() => {
           let gone = words.pop().unwrap();
           let ctrl_w = rng.below(2) == 0;
           if ctrl_w {
@@ -338,7 +333,7 @@ fn session(seed: u32) -> [usize; 6] {
         }
         // a letter typed against the last word and taken off again: while it touched, the word was
         // another word, so its pick is over unless the line holds the name again
-        10 if !words.is_empty() => {
+        11 if !words.is_empty() => {
           let at = words.last().unwrap().clone();
           app.key_insert(Key::Named(NamedKey::Backspace), None);
           keys(&mut app, "q");
@@ -353,7 +348,7 @@ fn session(seed: u32) -> [usize; 6] {
         // a word put in at the front of the line: Home, the word by keys, End. its first letter lands
         // against the line's first word, which is another word while it touches: that word's pick is
         // over unless the line holds the name again
-        11 if !words.is_empty() => {
+        12 if !words.is_empty() => {
           let w = rng.of(&["Wlol", "OnlyA", "Mine2", "hello"]);
           let first = words[0].clone();
           let was = picks.get(&first).cloned();
@@ -482,7 +477,7 @@ fn session(seed: u32) -> [usize; 6] {
 #[test]
 fn a_random_session_in_the_box_is_the_law_on_every_message() {
   let gate = std::env::var("HS_SESSION_SEEDS").is_err();
-  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "11,247,423,1034".into());
+  let seeds = std::env::var("HS_SESSION_SEEDS").unwrap_or_else(|_| "32,38,53,75".into());
   let mut sum = [0usize; 6];
   for seed in seeds.split(',').filter_map(|s| s.trim().parse::<u32>().ok()) {
     let [p, s, r, e, u, t] = session(seed);
@@ -494,7 +489,9 @@ fn a_random_session_in_the_box_is_the_law_on_every_message() {
       *a += b;
     }
   }
-  // the gate's seeds must reach the cases the session is for
+  // the gate's seeds must reach the cases the session is for. tab offers one picture of a name, so a pick of
+  // another picture of it is made on purpose only: that case has twice the weight, and these seeds are the ones
+  // that reach the rest (HS_SESSION_SHOW=1 HS_SESSION_SEEDS=1,2,3,... lists what each reaches)
   if gate {
     let [picked, swaps, recalls, ended, undone, touched] = sum;
     assert!(
@@ -526,11 +523,9 @@ fn a_pick_ends_when_its_word_leaves_the_box_however_the_name_comes_back() {
     app.mode = Mode::Insert;
     let i = app.tabs.iter().position(|t| &*t.view.channel == "forsen").unwrap();
     app.activate(i);
-    // your own Wlol, picked over the room's
-    app.line.insert("Wlol");
-    app.tab_complete(false);
-    app.tab_complete(false);
-    app.complete = None;
+    // your own Wlol, picked over the room's: tab offers one Wlol, so it is put in on purpose (a clicked emote, a favorite)
+    let rec = app.pick_of("Wlol", &url7("MINE"));
+    app.insert_pick("Wlol", rec);
     assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "{how}: the pick");
     // the word leaves the box
     while !app.line.text.is_empty() {
@@ -562,10 +557,8 @@ fn an_undo_brings_a_deleted_pick_back() {
     app.mode = Mode::Insert;
     let i = app.tabs.iter().position(|t| &*t.view.channel == "forsen").unwrap();
     app.activate(i);
-    app.line.insert("Wlol");
-    app.tab_complete(false);
-    app.tab_complete(false);
-    app.complete = None;
+    let rec = app.pick_of("Wlol", &url7("MINE"));
+    app.insert_pick("Wlol", rec);
     assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "{how}: the pick");
     while !app.line.text.is_empty() {
       app.key_insert(Key::Named(NamedKey::Backspace), None);
@@ -605,10 +598,8 @@ fn a_letter_typed_against_a_picked_word_ends_its_pick() {
   app.mode = Mode::Insert;
   let i = app.tabs.iter().position(|t| &*t.view.channel == "forsen").unwrap();
   app.activate(i);
-  app.line.insert("Wlol");
-  app.tab_complete(false);
-  app.tab_complete(false);
-  app.complete = None;
+  let rec = app.pick_of("Wlol", &url7("MINE"));
+  app.insert_pick("Wlol", rec);
   assert_eq!(app.box_url("Wlol").as_deref(), Some(&*url7("MINE")), "the pick");
   assert!(app.line.text.ends_with(' '), "a completed name is followed by a space: {:?}", app.line.text);
   app.key_insert(Key::Named(NamedKey::Backspace), None);

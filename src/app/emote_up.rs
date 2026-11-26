@@ -5,7 +5,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use crate::model::emote_up::{EmoteUp, Stage};
-use crate::model::picker::{Focus, Item, Sec, Tab};
+use crate::model::picker::{Focus, Item, Sec, Tab, Verdict};
 use crate::net::Cmd;
 use crate::net::emote_ops::EmoteCmd;
 use crate::net::upload::emote::{self, Done, Failed};
@@ -180,6 +180,7 @@ impl App {
       url: d.kept.url.as_str().into(),
       w: d.kept.w,
       h: d.kept.h,
+      verdict: Verdict::Unjudged,
     });
     p.focus = Focus::Grid;
     self.picker_reveal();

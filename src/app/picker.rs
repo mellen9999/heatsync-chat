@@ -3,7 +3,7 @@ use crate::i18n::f;
 use winit::keyboard::{Key, NamedKey};
 
 use super::App;
-use crate::model::picker::{Focus, Item, Picker, Sec, Tab};
+use crate::model::picker::{Focus, Item, Picker, Sec, Tab, Verdict};
 use crate::ui::picker::{Geo, draw, geo_of};
 use crate::util::time::now_ms;
 
@@ -13,7 +13,14 @@ impl App {
       return self.close_picker();
     }
     let chan: Box<str> = self.tabs.get(self.active).map_or("".into(), |t| t.view.channel.clone());
-    let item = |sec, name: &str, url: &str, w, h| Item { sec, name: name.into(), url: url.into(), w, h };
+    let item = |sec, name: &str, url: &str, w, h| Item {
+      sec,
+      name: name.into(),
+      url: url.into(),
+      w,
+      h,
+      verdict: Verdict::Unjudged,
+    };
     // yours: your heatsync emotes, your 7tv personal set, then your twitch sub emotes
     let mut mine: Vec<Item> = match self.me.as_ref().and_then(|m| m.twitch_id) {
       Some(id) => {
@@ -76,7 +83,32 @@ impl App {
     }
   }
 
+  // every tile says who sees it (law::mark). the picture of its name this room sends is the one tile of that name,
+  // so a tile the room answers with another picture is not drawn; the rest get their corner letter. a tile is
+  // asked once, when it first turns up: at open, a search page, a pin, an upload
+  pub(super) fn picker_judge(&mut self) {
+    let Some(p) = &self.picker else { return };
+    let todo = p.unjudged();
+    if todo.is_empty() {
+      return;
+    }
+    let d = self.draft();
+    let w = d.world(&self.res.blocked, self.res.favorites.list());
+    let judge = w.judge();
+    let says: Vec<(u32, Verdict)> = todo
+      .iter()
+      .map(|&(n, name, url, tier)| {
+        let s = judge.tile(name, url, tier);
+        (n, if s.offered { Verdict::Shown(s.mark) } else { Verdict::Hidden })
+      })
+      .collect();
+    if let Some(p) = &mut self.picker {
+      p.judged(&says);
+    }
+  }
+
   pub(super) fn picker_changed(&mut self) {
+    self.picker_judge();
     self.picker_rank();
     self.gifs_sync();
     self.picker_search_sync();

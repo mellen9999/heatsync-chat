@@ -12,6 +12,7 @@
 //! different picture under the room's name is no tile at all. pure: it reads the law's own send context.
 
 use super::{Pic, Platform, SendCtx, SendFrom, key_of, send_word};
+use std::borrow::Cow;
 
 pub const MARK_VERSION: u32 = 1;
 
@@ -110,9 +111,12 @@ pub fn audience<'a>(provider: &'a str, tier: Option<&str>) -> Audience<'a> {
   Audience { kind: Kind::Ext, mark: addon(p), as_: if p.is_empty() { "ext" } else { p } }
 }
 
-/// one picture: the same `pic` (default: the law's key), or the same upload by its hash
-pub fn same_picture<E: Pic>(a: &E, b: &E) -> bool {
-  let pic = |e: &E| e.pic().map_or_else(|| key_of(e), String::from);
+/// one picture: the same `pic` (default: the law's key), or the same upload by its hash. the two may be
+/// different emote types: a client's tile is not always the type its sets are made of
+pub fn same_picture<A: Pic, B: Pic>(a: &A, b: &B) -> bool {
+  fn pic<E: Pic>(e: &E) -> Cow<'_, str> {
+    e.pic().map_or_else(|| Cow::Owned(key_of(e)), Cow::Borrowed)
+  }
   pic(a) == pic(b) || a.hash().is_some_and(|h| !h.is_empty() && Some(h) == b.hash())
 }
 
@@ -130,13 +134,14 @@ fn sits(from: SendFrom, tier: &str) -> &str {
 
 /// what a tile says. `ctx` is the law's send context for the box the line is written in (its room, every leg,
 /// your sets, the globals; picks are never read: a tile is judged by what its word sends). `tier` is where the
-/// law's offer found the tile.
+/// law's offer found the tile. `e` may be another type than the sets (a picker tile met by name and
+/// address): only its provider, name and picture are read.
 ///   offered   no room, or the room's answer for the word is this very picture (or the word has no answer)
 ///   mark      that answer's class, never the copy the tile happens to be: your copy of the room's own picture
 ///             is the room's; an answer from your own set ships as yours (H)
 ///   a platform's own emote is drawn only on that platform: where the send reaches none of its legs it travels
 ///   as a picture and only heatsync users see it
-pub fn tile_says<'a, E: Pic>(ctx: &SendCtx<'a, E>, e: &'a E, tier: &'a str) -> TileSays<'a> {
+pub fn tile_says<'a, E: Pic, T: Pic>(ctx: &SendCtx<'a, E>, e: &'a T, tier: &'a str) -> TileSays<'a> {
   let says = |offered, tier, a: Audience<'a>| TileSays { offered, tier, kind: a.kind, mark: a.mark, as_: a.as_ };
   if silent(canon(e.provider())) {
     return says(true, tier, audience(e.provider(), None));
