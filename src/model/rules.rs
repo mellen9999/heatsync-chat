@@ -91,8 +91,7 @@ impl Ty {
       Ty::First => m.has(flag::FIRST),
       Ty::Action => m.kind == Kind::Action,
       Ty::Reply => m.reply_to.is_some(),
-      // the window keeps no bits count
-      Ty::Cheer => false,
+      Ty::Cheer => bits(m) > 0,
     }
   }
 }
@@ -124,6 +123,11 @@ fn bare(u: &str) -> &str {
   u.strip_prefix('@').unwrap_or(u)
 }
 
+// the bits a cheer carried (0 = not a cheer)
+fn bits(m: &Message) -> u32 {
+  m.x.as_ref().map_or(0, |x| x.bits)
+}
+
 fn has_badge(m: &Message, v: &str) -> bool {
   m.badges.iter().any(|(set, _)| {
     set.eq_ignore_ascii_case(v)
@@ -147,14 +151,16 @@ impl Node {
       Node::Type(t) => t.is_some_and(|t| t.holds(l.m)),
       Node::Contains(v) => l.low().contains(v.as_str()),
       Node::Re(re) => re.is_match(l.head),
-      // the window keeps no bits count: it is always 0
-      Node::Bits(c, n) => match c {
-        Cmp::Gt => 0.0 > *n,
-        Cmp::Ge => 0.0 >= *n,
-        Cmp::Lt => 0.0 < *n,
-        Cmp::Le => 0.0 <= *n,
-        Cmp::Eq => 0.0 == *n,
-      },
+      Node::Bits(c, n) => {
+        let b = f64::from(bits(l.m));
+        match c {
+          Cmp::Gt => b > *n,
+          Cmp::Ge => b >= *n,
+          Cmp::Lt => b < *n,
+          Cmp::Le => b <= *n,
+          Cmp::Eq => b == *n,
+        }
+      }
     }
   }
 }
@@ -614,6 +620,8 @@ pub struct Rules {
 
 mod edit;
 pub use edit::Pick;
+#[cfg(test)]
+mod vectors;
 
 impl Rules {
   pub fn is_empty(&self) -> bool {
@@ -646,10 +654,11 @@ impl Rules {
     Value::Array(self.list.iter().map(|r| r.raw.clone()).collect()).to_string()
   }
 
-  // the verdict on one line: the first hide wins, else the first highlight (whose colour and sound it keeps).
-  // rules for every channel go before a channel's own, as in the ext
+  // the verdict on one line: the first hide wins, else the first highlight (whose colour and sound it keeps; any
+  // matching highlight can ask to notify). rules for every channel go before a channel's own, as in the ext
   pub fn judge(&self, l: &Line) -> Judged {
     let mut first: Option<(usize, &Compiled)> = None;
+    let mut notify = false;
     let live = || self.list.iter().enumerate().filter_map(|(i, r)| Some((i, r.c.as_ref()?)));
     let all = live().filter(|(_, c)| c.scope == Scope::All);
     let own = live().filter(|(_, c)| c.scope != Scope::All);
@@ -657,18 +666,13 @@ impl Rules {
       if c.hide {
         return Judged { verdict: Verdict::Hide, ..Judged::default() };
       }
+      notify |= c.notify;
       first.get_or_insert((i, c));
     }
     match first {
-      Some((at, c)) => Judged {
-        verdict: Verdict::Mark,
-        ink: c.ink,
-        sound: c.sound,
-        custom: c.custom,
-        volume: c.volume,
-        notify: c.notify,
-        at,
-      },
+      Some((at, c)) => {
+        Judged { verdict: Verdict::Mark, ink: c.ink, sound: c.sound, custom: c.custom, volume: c.volume, notify, at }
+      }
       None => Judged::default(),
     }
   }
@@ -1010,7 +1014,7 @@ mod tests {
       assert_eq!(judge(&r, m), Verdict::Mark, "{ty}");
       assert_eq!(judge(&r, &line("a", "plain")), Verdict::Pass, "{ty}");
     }
-    // cheer needs bits, which the window doesn't keep; an unknown type matches nothing
+    // cheer needs bits, a line with none is no cheer; an unknown type matches nothing
     for ty in ["cheer", "bogus"] {
       assert_eq!(judge(&rules(&[rule("hide", "msgtype", ty)]), &line("a", "x")), Verdict::Pass);
     }

@@ -486,7 +486,7 @@ pub static DEFS: [Def; 78] = [
     alias: "lineHeight line spacing",
     ctl: pick!(line_height, LineHeight),
     fx: Fx::Look,
-    wire: Wire::Name("lineHeight"),
+    wire: Wire::None, // the ext retired lineHeight for a two-step messageDensity: stays on this device
   },
   Def {
     id: "tab_side",

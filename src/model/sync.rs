@@ -471,7 +471,11 @@ fn flag(d: &Def) -> &'static str {
 }
 
 #[cfg(test)]
+mod catalog;
+
+#[cfg(test)]
 mod tests {
+  use super::catalog::{device_local, fixture};
   use super::*;
   use crate::model::schema::def;
 
@@ -500,14 +504,6 @@ mod tests {
     out.push((REASONS, json!("spam\nhate speech")));
     out.push((REASONS, json!("")));
     out
-  }
-
-  // keys the server keeps per device and refuses in a ui-state:sync patch: it rejects the WHOLE patch if one
-  // is in it. mirrors UI_STATE_DEVICE_LOCAL_KEYS in heatsync server/services/ws-handlers.ts; keep in step
-  const DEVICE_LOCAL: [&str; 1] = ["platformFilters"];
-
-  fn fixture() -> Value {
-    serde_json::from_str(include_str!("sync_fixture.json")).unwrap()
   }
 
   fn one(k: &'static str, v: Value) -> Inbound {
@@ -798,8 +794,8 @@ mod tests {
   // other change in it
   #[test]
   fn a_push_never_holds_a_device_local_key() {
-    assert!(emitted().iter().all(|(k, _)| !DEVICE_LOCAL.contains(k)));
-    assert!(DEVICE_LOCAL.iter().all(|k| !keys().contains(k)));
+    assert!(emitted().iter().all(|(k, _)| !device_local().iter().any(|d| d == k)));
+    assert!(device_local().iter().all(|k| !keys().contains(&k.as_str())));
     let mut s = Settings::default();
     let mut a = Acct::new(&s);
     for d in mapped() {
@@ -818,8 +814,8 @@ mod tests {
     a.outbound(&s, NOW, true);
     let p = a.outbound(&s, NOW + DEBOUNCE_MS, true).unwrap();
     assert!(p.as_object().unwrap().len() > 20, "a full push");
-    for k in DEVICE_LOCAL {
-      assert!(p.get(k).is_none(), "{k}");
+    for k in device_local() {
+      assert!(p.get(&k).is_none(), "{k}");
     }
   }
 
