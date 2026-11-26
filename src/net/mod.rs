@@ -231,6 +231,8 @@ pub enum NetEvent {
   StreamHistory(Vec<(i64, crate::model::stream_events::Line)>),
   // something you sent through heatsync.org, by its words (`chat:origin_broadcast`)
   Origin(Box<str>),
+  // the picture of a twitch gif-keyboard line, by message id (`chat:gif`, model::chatgif)
+  Gif(Box<crate::model::chatgif::Frame>),
   // lines heatsync says went through heatsync, by message id with their send ids (the room's seed, or one push)
   // a heatsync socket came back after a drop: what it missed is re-read
   HsUp,

@@ -8,7 +8,6 @@ use crate::emotes::only::BIG_SCALE;
 use crate::heatsync::content;
 use crate::i18n::{f, t};
 use crate::images::ImgId;
-use crate::model::filter;
 use crate::model::find::Find;
 use crate::model::links::Link;
 use crate::model::mark::Mark;
@@ -16,6 +15,7 @@ use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Notice, Platform, Seg, flag};
 use crate::model::preview::{Kind as PreviewKind, Preview};
 use crate::model::video;
+use crate::model::{chatgif, filter};
 use crate::ui::res::{AVATAR_PX, BADGE_PX, CARD_PX, EMBED_PX, EMOJI_MUL, MEDIA_MULTI_PX, MEDIA_PX, Res};
 use crate::ui::text::{Ink, Span, TextLayout};
 use crate::ui::{badge_text, embed, theme};
@@ -698,6 +698,17 @@ pub(super) fn picture(
     return (None, None, None);
   }
   let avail = ((width - MARK_W) as f32 - 2.0 * theme::PAD_X).max(1.0) as u32;
+  // a twitch gif-keyboard line draws the picture heatsync named for its caption (model::chatgif), the same way as
+  // a pasted link: through the proxy, capped, and in place of the caption once it has a size. a dead picture
+  // keeps the caption. it is the line's picture, so no link card
+  if let Some(g) = m.x.as_deref().and_then(|x| x.gif.as_deref()) {
+    let id = res.images.id_fit(&embed::proxied(&g.url), EMBED_PX, avail);
+    if res.images.failed(id) {
+      return (None, None, None);
+    }
+    let loaded = res.images.dims(id).is_some();
+    return (Some(id), chatgif::fold(&m.body, &g.text, m.reply_to.is_some()).filter(|_| loaded), None);
+  }
   let e = match embed::find(&m.body, res.links) {
     None => return (None, None, None),
     Some(embed::Found::Pic(e)) => e,

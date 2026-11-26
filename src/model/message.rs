@@ -154,6 +154,8 @@ pub struct Extra {
   pub run: Option<Box<crate::model::runs::Run>>,
   // a feed post's bold and underlined runs, in bytes of the body (model::markup)
   pub marks: Box<[crate::model::markup::Mark]>,
+  // a twitch gif-keyboard line: the picture heatsync named for its caption (`chat:gif`, model::chatgif)
+  pub gif: Option<Box<crate::model::chatgif::Picture>>,
 }
 
 // one picture (a video's still) and the video it plays

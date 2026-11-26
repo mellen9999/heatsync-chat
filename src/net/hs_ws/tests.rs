@@ -683,3 +683,34 @@ fn a_youtube_feed_joins_its_origin_room_and_leaves_it() {
   assert!(f.iter().any(|v| v["type"] == "channel:leave" && v["channel"] == "mrbeast"));
   assert!(st.rooms.is_empty());
 }
+
+// the picture of a twitch gif-keyboard line comes to the room we joined, like `chat:origin`: one event for a
+// room we are in, nothing for another room, a host that is not giphy or tenor, or a frame that names no line
+#[test]
+fn a_gif_frame_for_a_room_we_are_in_becomes_one_event() {
+  let (tx, rx) = std::sync::mpsc::channel();
+  let out = Out::Pipe(tx);
+  let mut st = State::default();
+  let gif = |ch: &str, id: &str, url: &str| {
+    json!({"type": "chat:gif", "platform": "twitch", "channel": ch, "messageId": id,
+      "gifs": [{"text": "[Mood Lol GIF by Giphy]", "url": url}]})
+  };
+  const GOOD: &str = "https://media.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif";
+  assert!(dispatch(&gif("forsen", "m1", GOOD), &mut st, &out).is_none());
+  assert!(rx.try_recv().is_err(), "a room we are not in");
+  apply(&mut st, Cmd::Join(Platform::Twitch, "forsen".into()));
+  assert!(dispatch(&gif("forsen", "m1", GOOD), &mut st, &out).is_none());
+  let Ok(NetEvent::Gif(f)) = rx.try_recv() else { panic!("no event") };
+  assert_eq!((&*f.key, &*f.id, &*f.pic.url), ("forsen", "m1", GOOD));
+  assert!(rx.try_recv().is_err(), "one");
+  for bad in [
+    gif("forsen", "m2", "https://evil.example/a.gif"),
+    gif("forsen", "m2", "http://media.giphy.com/a.gif"),
+    gif("forsen", "m2", "https://media.giphy.com/media/a/"),
+    gif("forsen", "", GOOD),
+    json!({"type": "chat:gif", "platform": "twitch", "channel": "forsen", "messageId": "m2"}),
+  ] {
+    assert!(dispatch(&bad, &mut st, &out).is_none());
+  }
+  assert!(rx.try_recv().is_err(), "none of those");
+}

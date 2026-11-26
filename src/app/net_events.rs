@@ -94,7 +94,7 @@ impl App {
     self.relay_show(p, key, msgs, history);
   }
 
-  // your own line, sent through heatsync.org: tagged [H]
+  // your own line, sent through heatsync.org: tagged [H]; anyone's line heatsync names by its id: [H], or its picture
   pub(super) fn hs_origin(&self, p: Platform, key: &str, m: &mut Message) {
     if !m.kind.said() {
       return;
@@ -108,6 +108,26 @@ impl App {
       let x = m.extra();
       x.origin = true;
       x.send = sid.into();
+    }
+    // a gif-keyboard line whose picture was named before the line came is born with it
+    if p == Platform::Twitch
+      && !m.id.is_empty()
+      && let Some(pic) = self.gif_lines.get(&m.id)
+    {
+      m.extra().gif = Some(pic.clone().into());
+    }
+  }
+
+  // heatsync names the picture of a gif-keyboard line: kept for the line that has not come, and put on the row
+  // already here, which draws it where its caption was
+  fn on_gif(&mut self, f: crate::model::chatgif::Frame) {
+    self.gif_lines.note(&f.id, f.pic.clone());
+    let mut any = false;
+    for v in self.tabs.iter_mut().flat_map(Tab::views) {
+      any |= v.set_gif(&f.id, &f.pic);
+    }
+    if any {
+      self.wake();
     }
   }
 
@@ -565,6 +585,7 @@ impl App {
         }
       }
       NetEvent::HsOrigin { platform, key, ids } => self.on_hs_origin(platform, &key, ids),
+      NetEvent::Gif(f) => self.on_gif(*f),
       NetEvent::FollowColors(c) => self.on_follow_colors(c),
       NetEvent::Moment { platform, key, text } => self.on_moment(platform, &key, &text),
       NetEvent::Emotes(ch, p, set) => {

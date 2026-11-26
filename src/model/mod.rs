@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod chain;
 pub mod chan;
 pub mod chantools;
+pub mod chatgif;
 pub mod chatters;
 pub mod color;
 pub mod complete;

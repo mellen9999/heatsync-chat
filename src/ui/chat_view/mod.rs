@@ -299,6 +299,7 @@ macro_rules! opts {
 mod clear;
 mod draw;
 mod fill;
+mod gif;
 mod heat;
 mod hit;
 mod hold;
@@ -311,6 +312,8 @@ mod refs;
 mod tests;
 #[cfg(test)]
 mod tests_big;
+#[cfg(test)]
+mod tests_gif;
 #[cfg(test)]
 mod tests_mods;
 mod words;

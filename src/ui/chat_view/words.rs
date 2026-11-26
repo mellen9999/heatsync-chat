@@ -49,6 +49,11 @@ pub(super) fn body(
   (lay_words(res, chan, m, fold, giant, 1, s, ib, boxes).0, false)
 }
 
+// is the word at a..b one the picture replaced: the link it came from, or a gif's caption (words of the range)
+pub(super) fn folded(fold: Option<&std::ops::Range<usize>>, a: usize, b: usize) -> bool {
+  fold.is_some_and(|f| f.start <= a && b <= f.end)
+}
+
 // the picture for an emote word at the height the line draws it. a big line asks for the provider's file
 // that is tall enough (the 2x where chat has the 1x), and while that file fails it draws chat's own at the
 // big height. the clock is the picture's own frames, whichever file it is: see Images::frame_at
@@ -104,7 +109,7 @@ fn lay_words(
     let (a, b) = (at, at + word.len());
     at = b + 1;
     // a link folded into its picture is still a link: not a picture of the line
-    if fold.is_some_and(|f| f.start == a && f.end == b) {
+    if folded(fold, a, b) {
       read.push(only::Kind::Text);
       continue;
     }

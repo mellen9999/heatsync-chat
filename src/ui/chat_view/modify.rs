@@ -2,6 +2,7 @@
 //! emote then takes. the rule itself is emotes/mods.rs; this is the line's side of it
 
 use super::EmoteBox;
+use super::words::folded;
 use crate::emotes::mods::{self, Fx, Word};
 use crate::emotes::resolve::{Found, find_word};
 use crate::model::message::Message;
@@ -49,7 +50,7 @@ pub(super) fn bindings(
   for word in m.body.split(' ') {
     let (a, b) = (at, at + word.len());
     at = b + 1;
-    let kind = if word.is_empty() || fold.is_some_and(|f| f.start == a && f.end == b) {
+    let kind = if word.is_empty() || folded(fold, a, b) {
       Word::Gap
     } else {
       // a platform's own emote sits where the platform put it, whatever its name

@@ -106,6 +106,8 @@ mod tests_findbar;
 #[cfg(test)]
 mod tests_font;
 #[cfg(test)]
+mod tests_gif;
+#[cfg(test)]
 mod tests_hsorigin;
 #[cfg(test)]
 mod tests_input;
@@ -486,6 +488,8 @@ pub struct App {
   origins: crate::model::origin::Origins,
   // the lines heatsync says it sent, by message id (seed + `chat:origin`)
   heat: crate::model::hsorigin::Heat,
+  // the picture of a gif-keyboard line named before the line came (`chat:gif`)
+  gif_lines: crate::model::chatgif::Ledger,
   // sends to several feeds, so their echoes fold into one line
   sentfold: crate::model::sentfold::Sent,
   // the last line sent to one feed alone, to give back if that feed refuses it
@@ -705,6 +709,7 @@ impl App {
       chatlog: crate::chatlog::ChatLog::new(set.chat_logs),
       origins: Default::default(),
       heat: Default::default(),
+      gif_lines: Default::default(),
       sentfold: Default::default(),
       solo: None,
       pending: Default::default(),
