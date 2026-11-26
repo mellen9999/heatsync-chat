@@ -179,6 +179,8 @@ mod tests_whisper_toast;
 mod tests_ytgone;
 #[cfg(test)]
 mod tests_ytmod;
+#[cfg(test)]
+mod tests_ytstill;
 mod tip;
 mod tour;
 mod unseen;
