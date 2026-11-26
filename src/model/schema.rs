@@ -351,10 +351,10 @@ pub static DEFS: [Def; 78] = [
     section: "chat messages",
     label: "big emote-only lines",
     tip: "a line of only emotes (up to 5) is drawn twice as big. off: every emote keeps one size",
-    alias: "bigEmoteLines large emotes only emote line",
+    alias: "bigEmoteLinesOptIn large emotes only emote line",
     ctl: pill!(big_emote_lines),
     fx: Fx::Look,
-    wire: Wire::Bool("bigEmoteLines"),
+    wire: Wire::Bool("bigEmoteLinesOptIn"),
   },
   Def {
     id: "paints",
