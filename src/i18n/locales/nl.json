@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "toon ieders afbeelding naast hun naam",
  "settings.ban_reasons.label": "ban-redenen",
  "settings.ban_reasons.tip": "snelle redenen die worden aangeboden bij een ban (een ban vraagt dan altijd eerst). enter opent de lijst: a voegt toe, x verwijdert",
+ "settings.big_emote_lines.label": "grote regels met alleen emotes",
+ "settings.big_emote_lines.tip": "een regel met alleen emotes (tot 5) wordt twee keer zo groot getekend. off: elke emote houdt één formaat",
  "settings.cat.chat": "chat",
  "settings.cat.display": "weergave",
  "settings.cat.filters": "filters",

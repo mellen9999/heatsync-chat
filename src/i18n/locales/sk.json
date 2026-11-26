@@ -1436,6 +1436,8 @@
  "settings.avatars.tip": "zobraziť obrázok každej osoby vedľa jej mena",
  "settings.ban_reasons.label": "dôvody banu",
  "settings.ban_reasons.tip": "rýchle dôvody ponúkané pri bane (ban sa potom vždy najskôr opýta). enter otvorí zoznam: a pridá, x odstráni",
+ "settings.big_emote_lines.label": "veľké riadky len z emotiek",
+ "settings.big_emote_lines.tip": "riadok len z emotiek (najviac 5) sa kreslí dvakrát väčší. off: každá emotka ostane jednej veľkosti",
  "settings.cat.chat": "chat",
  "settings.cat.display": "zobrazenie",
  "settings.cat.filters": "filtre",

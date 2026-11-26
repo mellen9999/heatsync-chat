@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "mindenki képe a neve mellett",
  "settings.ban_reasons.label": "ban indokok",
  "settings.ban_reasons.tip": "gyors indokok banoláskor (a ban ilyenkor mindig előbb kérdez). enter megnyitja a listát: a hozzáad, x eltávolít",
+ "settings.big_emote_lines.label": "csak emote-os sorok nagyban",
+ "settings.big_emote_lines.tip": "a csak emote-okból álló sor (legfeljebb 5) kétszer akkorára rajzolódik. off: minden emote egy méretű marad",
  "settings.cat.chat": "chat",
  "settings.cat.display": "megjelenés",
  "settings.cat.filters": "szűrők",

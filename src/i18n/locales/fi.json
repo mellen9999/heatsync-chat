@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "näytä jokaisen kuva nimen vieressä",
  "settings.ban_reasons.label": "bannin syyt",
  "settings.ban_reasons.tip": "nopeat syyt joita tarjotaan bannatessa (banni kysyy silti aina ensin). enter avaa listan: a lisää, x poistaa",
+ "settings.big_emote_lines.label": "isot pelkkien emotejen rivit",
+ "settings.big_emote_lines.tip": "pelkistä emoteista (enintään 5) koostuva rivi piirretään kaksi kertaa isompana. off: jokainen emote pysyy yhden kokoisena",
  "settings.cat.chat": "chat",
  "settings.cat.display": "näyttö",
  "settings.cat.filters": "suodattimet",

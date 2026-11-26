@@ -199,7 +199,7 @@ macro_rules! pick {
   };
 }
 
-pub static DEFS: [Def; 77] = [
+pub static DEFS: [Def; 78] = [
   Def {
     id: "font_family",
     cmd: Some("/font"),
@@ -343,6 +343,18 @@ pub static DEFS: [Def; 77] = [
     ctl: pill!(avatars),
     fx: Fx::Look,
     wire: Wire::Bool("avatars"),
+  },
+  Def {
+    id: "big_emote_lines",
+    cmd: Some("/bigemotes"),
+    cat: Cat::Display,
+    section: "chat messages",
+    label: "big emote-only lines",
+    tip: "a line of only emotes (up to 5) is drawn twice as big. off: every emote keeps one size",
+    alias: "bigEmoteLines large emotes only emote line",
+    ctl: pill!(big_emote_lines),
+    fx: Fx::Look,
+    wire: Wire::Bool("bigEmoteLines"),
   },
   Def {
     id: "paints",

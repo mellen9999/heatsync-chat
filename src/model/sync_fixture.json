@@ -39,6 +39,11 @@
   "scope": "sync",
   "default": false
  },
+ "bigEmoteLines": {
+  "type": "bool",
+  "scope": "sync",
+  "default": true
+ },
  "bttvBadges": {
   "type": "bool",
   "scope": "sync",

@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "在每个人的名字旁显示其头像",
  "settings.ban_reasons.label": "封禁原因",
  "settings.ban_reasons.tip": "封禁时提供的快捷原因（封禁始终会先确认）。enter 打开列表：a 添加，x 移除",
+ "settings.big_emote_lines.label": "纯 emote 行放大",
+ "settings.big_emote_lines.tip": "只有 emote 的一行（最多 5 个）按两倍大小绘制。off：所有 emote 保持同一大小",
  "settings.cat.chat": "聊天",
  "settings.cat.display": "显示",
  "settings.cat.filters": "筛选",

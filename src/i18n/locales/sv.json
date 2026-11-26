@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "visa varje persons bild bredvid namnet",
  "settings.ban_reasons.label": "ban-skäl",
  "settings.ban_reasons.tip": "snabba skäl som erbjuds när du bannar (en ban frågar då alltid först). enter öppnar listan: a lägger till, x tar bort",
+ "settings.big_emote_lines.label": "stora rader med bara emotes",
+ "settings.big_emote_lines.tip": "en rad med bara emotes (upp till 5) ritas dubbelt så stor. off: varje emote behåller en storlek",
  "settings.cat.chat": "chatt",
  "settings.cat.display": "visning",
  "settings.cat.filters": "filter",

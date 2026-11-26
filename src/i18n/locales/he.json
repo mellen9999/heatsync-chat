@@ -1436,6 +1436,8 @@
  "settings.avatars.tip": "הצג את תמונת כל אדם ליד שמו",
  "settings.ban_reasons.label": "סיבות באן",
  "settings.ban_reasons.tip": "סיבות מהירות שמוצעות כשאתה חוסם (באן תמיד שואל קודם). enter פותח את הרשימה: a מוסיף, x מסיר",
+ "settings.big_emote_lines.label": "שורות גדולות של אימוטים בלבד",
+ "settings.big_emote_lines.tip": "שורה של אימוטים בלבד (עד 5) מצוירת בגודל כפול. off: כל אימוט נשאר בגודל אחד",
  "settings.cat.chat": "צ'אט",
  "settings.cat.display": "תצוגה",
  "settings.cat.filters": "מסננים",

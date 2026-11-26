@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "her kişinin resmini adının yanında göster",
  "settings.ban_reasons.label": "ban nedenleri",
  "settings.ban_reasons.tip": "banlarken sunulan hızlı sebepler (ban her zaman önce sorar). enter listeyi açar: a ekler, x kaldırır",
+ "settings.big_emote_lines.label": "yalnızca emote'lardan oluşan büyük satırlar",
+ "settings.big_emote_lines.tip": "yalnızca emote'lardan oluşan satır (en çok 5) iki kat büyük çizilir. off: her emote tek boyutta kalır",
  "settings.cat.chat": "sohbet",
  "settings.cat.display": "görünüm",
  "settings.cat.filters": "filtreler",

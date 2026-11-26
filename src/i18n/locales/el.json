@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "δείχνει την εικόνα του καθενός δίπλα στο όνομά του",
  "settings.ban_reasons.label": "λόγοι ban",
  "settings.ban_reasons.tip": "γρήγοροι λόγοι που προσφέρονται στο ban (το ban τότε ρωτά πάντα πρώτα). το enter ανοίγει τη λίστα: a προσθέτει, x αφαιρεί",
+ "settings.big_emote_lines.label": "μεγάλες γραμμές μόνο με emotes",
+ "settings.big_emote_lines.tip": "μια γραμμή μόνο με emotes (έως 5) σχεδιάζεται διπλάσια. off: κάθε emote κρατά ένα μέγεθος",
  "settings.cat.chat": "συνομιλία",
  "settings.cat.display": "εμφάνιση",
  "settings.cat.filters": "φίλτρα",

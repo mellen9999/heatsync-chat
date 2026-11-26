@@ -2,6 +2,6 @@
 1518 src/ui/name_art/scene_cat.rs  # baseline
 1290 src/net/mod.rs  # channel emote loader moved to net/chan_emotes.rs, the redirect policy to net/http.rs
 1350 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity); i18n keys; a keyword reads the whole line, a regex its first 512
-1424 src/model/schema.rs  # the `:` list order row (colonListOrder); three settings rows: mention sound when, remember sent (ext parity); language; i18n text accessors + parity test; tab opens a list
+1436 src/model/schema.rs  # the `:` list order row (colonListOrder); three settings rows: mention sound when, remember sent (ext parity); language; i18n text accessors + parity test; tab opens a list; big emote-only lines (bigEmoteLines)
 1231 src/model/vi.rs  # baseline
-1190 src/ui/chat_view/mod.rs  # baseline; a row folds when another feed already showed its send (heat.rs holds the rest)
+1194 src/model/settings.rs  # bigEmoteLines (big emote-only lines); chat_view/mod.rs is back under it

@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "показва снимката на всеки до името му",
  "settings.ban_reasons.label": "причини за бан",
  "settings.ban_reasons.tip": "бързи причини при бан (банът тогава винаги пита първо). enter отваря списъка: a добавя, x маха",
+ "settings.big_emote_lines.label": "големи редове само с emotes",
+ "settings.big_emote_lines.tip": "ред само с emotes (до 5) се рисува два пъти по-голям. off: всяко emote остава с един размер",
  "settings.cat.chat": "чат",
  "settings.cat.display": "изглед",
  "settings.cat.filters": "филтри",

@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "ipakita ang larawan ng bawat tao sa tabi ng pangalan nila",
  "settings.ban_reasons.label": "mga dahilan ng ban",
  "settings.ban_reasons.tip": "mabilis na dahilang iaalok kapag nag-ban ka (laging magtatanong muna ang ban). enter para buksan ang listahan: a magdagdag, x mag-alis",
+ "settings.big_emote_lines.label": "malalaking linya ng emote lang",
+ "settings.big_emote_lines.tip": "ang linyang emote lang (hanggang 5) ay iginuguhit nang doble ang laki. off: pareho ang laki ng bawat emote",
  "settings.cat.chat": "chat",
  "settings.cat.display": "display",
  "settings.cat.filters": "mga filter",

@@ -1436,6 +1436,8 @@
  "settings.avatars.tip": "pokaż zdjęcie każdej osoby obok jej nicka",
  "settings.ban_reasons.label": "powody banów",
  "settings.ban_reasons.tip": "szybkie powody proponowane przy banie (ban zawsze wtedy pyta). enter otwiera listę: a dodaje, x usuwa",
+ "settings.big_emote_lines.label": "duże linie z samych emotek",
+ "settings.big_emote_lines.tip": "linia z samych emotek (do 5) jest rysowana dwa razy większa. off: każda emotka ma jeden rozmiar",
  "settings.cat.chat": "czat",
  "settings.cat.display": "wyświetlanie",
  "settings.cat.filters": "filtry",

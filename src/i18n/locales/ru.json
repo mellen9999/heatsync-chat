@@ -1436,6 +1436,8 @@
  "settings.avatars.tip": "показывать картинку человека рядом с ником",
  "settings.ban_reasons.label": "причины бана",
  "settings.ban_reasons.tip": "быстрые причины при бане (бан всегда сначала спрашивает). enter открывает список: a добавляет, x убирает",
+ "settings.big_emote_lines.label": "крупные строки только из эмоутов",
+ "settings.big_emote_lines.tip": "строка только из эмоутов (до 5) рисуется вдвое крупнее. off: каждый эмоут остаётся одного размера",
  "settings.cat.chat": "чат",
  "settings.cat.display": "вид",
  "settings.cat.filters": "фильтры",

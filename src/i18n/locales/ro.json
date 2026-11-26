@@ -1436,6 +1436,8 @@
  "settings.avatars.tip": "arată poza fiecărei persoane lângă nume",
  "settings.ban_reasons.label": "motive de ban",
  "settings.ban_reasons.tip": "motive rapide oferite la ban (un ban cere mereu întâi confirmare). enter deschide lista: a adaugă, x elimină",
+ "settings.big_emote_lines.label": "rânduri mari doar cu emote-uri",
+ "settings.big_emote_lines.tip": "un rând doar cu emote-uri (până la 5) se desenează de două ori mai mare. off: fiecare emote rămâne la o singură mărime",
  "settings.cat.chat": "chat",
  "settings.cat.display": "afișare",
  "settings.cat.filters": "filtre",

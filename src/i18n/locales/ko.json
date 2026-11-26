@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "이름 옆에 각자의 사진 표시",
  "settings.ban_reasons.label": "ban 사유",
  "settings.ban_reasons.tip": "밴할 때 제안하는 간단한 사유 (그러면 밴은 항상 먼저 물음). enter로 목록 열기: a 추가, x 제거",
+ "settings.big_emote_lines.label": "emote만 있는 줄 크게",
+ "settings.big_emote_lines.tip": "emote만 있는 줄(최대 5개)은 두 배 크기로 표시. off: 모든 emote가 같은 크기",
  "settings.cat.chat": "채팅",
  "settings.cat.display": "화면",
  "settings.cat.filters": "필터",

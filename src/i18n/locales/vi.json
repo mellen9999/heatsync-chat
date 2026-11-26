@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "hiện ảnh của mỗi người cạnh tên",
  "settings.ban_reasons.label": "lý do cấm",
  "settings.ban_reasons.tip": "lý do nhanh được đề xuất khi cấm (cấm luôn hỏi trước). enter mở danh sách: a thêm, x gỡ",
+ "settings.big_emote_lines.label": "dòng chỉ có emote hiện lớn",
+ "settings.big_emote_lines.tip": "dòng chỉ gồm emote (tối đa 5) được vẽ lớn gấp đôi. off: mọi emote giữ một cỡ",
  "settings.cat.chat": "chat",
  "settings.cat.display": "hiển thị",
  "settings.cat.filters": "bộ lọc",

@@ -1466,6 +1466,8 @@
  "settings.avatars.tip": "عرض صورة كل شخص بجانب اسمه",
  "settings.ban_reasons.label": "أسباب الحظر",
  "settings.ban_reasons.tip": "أسباب سريعة تُعرض عند الحظر (والحظر يسأل دائمًا أولًا). enter يفتح القائمة: a يضيف، x يزيل",
+ "settings.big_emote_lines.label": "تكبير أسطر الإيموتس فقط",
+ "settings.big_emote_lines.tip": "السطر الذي فيه إيموتس فقط (حتى 5) يُرسم بضعف الحجم. off: تبقى كل إيموت بحجم واحد",
  "settings.cat.chat": "الدردشة",
  "settings.cat.display": "العرض",
  "settings.cat.filters": "المرشحات",

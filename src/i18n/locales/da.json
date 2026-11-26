@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "vis hver persons billede ved siden af deres navn",
  "settings.ban_reasons.label": "banårsager",
  "settings.ban_reasons.tip": "hurtige årsager tilbudt når du banner (en ban spørger så altid først). enter åbner listen: a tilføjer, x fjerner",
+ "settings.big_emote_lines.label": "store linjer kun med emotes",
+ "settings.big_emote_lines.tip": "en linje med kun emotes (op til 5) tegnes dobbelt så stor. off: hver emote beholder én størrelse",
  "settings.cat.chat": "chat",
  "settings.cat.display": "visning",
  "settings.cat.filters": "filtre",

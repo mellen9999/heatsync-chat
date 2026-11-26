@@ -29,6 +29,9 @@ fn said(body: &str) -> Message {
 // a room with `pic` (28×28), an overlay `lift0` (84×28) and an emote named like a modifier, all loaded
 fn room(frames: usize) -> Res {
   let mut res = Res::new(1.0);
+  // these lines are one emote each: big emote-only lines are off here, so they are drawn at the usual size
+  // (the setting off is today's rendering; tests_big.rs has them on)
+  res.look.big_lines = false;
   let e = |url: &str, w: u16, zero_width: bool| Emote { url: url.into(), w, h: 28, zero_width };
   res.emotes.set(
     Some("c"),

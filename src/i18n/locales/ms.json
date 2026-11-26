@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "papar gambar setiap orang di sebelah nama mereka",
  "settings.ban_reasons.label": "sebab ban",
  "settings.ban_reasons.tip": "sebab pantas yang ditawarkan bila anda ban (ban kemudian sentiasa tanya dahulu). enter buka senarai: a tambah, x buang",
+ "settings.big_emote_lines.label": "baris emote sahaja besar",
+ "settings.big_emote_lines.tip": "baris yang hanya ada emote (sehingga 5) dilukis dua kali ganda besar. off: setiap emote kekal satu saiz",
  "settings.cat.chat": "sembang",
  "settings.cat.display": "paparan",
  "settings.cat.filters": "penapis",

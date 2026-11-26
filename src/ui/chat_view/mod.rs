@@ -310,7 +310,10 @@ mod refs;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_big;
+#[cfg(test)]
 mod tests_mods;
+mod words;
 
 pub use draw::{blit_layer, emoji_glyph};
 use layout::layout_row;

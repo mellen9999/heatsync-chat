@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "tampilkan gambar tiap orang di samping namanya",
  "settings.ban_reasons.label": "alasan ban",
  "settings.ban_reasons.tip": "alasan cepat yang ditawarkan saat ban (ban selalu bertanya dulu). enter membuka daftar: a menambah, x menghapus",
+ "settings.big_emote_lines.label": "baris emote saja yang besar",
+ "settings.big_emote_lines.tip": "baris yang hanya berisi emote (maks. 5) digambar dua kali lebih besar. off: setiap emote tetap satu ukuran",
  "settings.cat.chat": "chat",
  "settings.cat.display": "tampilan",
  "settings.cat.filters": "filter",

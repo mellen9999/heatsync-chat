@@ -52,6 +52,8 @@ pub struct Look {
   pub heat_bars: bool,
   // a picture beside each name
   pub avatars: bool,
+  // a line of only emotes draws them twice as big
+  pub big_lines: bool,
   // emotes from a heatsync inventory draw (renderInventoryEmotes)
   pub inventory_emotes: bool,
 }
@@ -73,6 +75,7 @@ impl Look {
       flame: s.flame,
       heat_bars: s.heat_bars,
       avatars: s.avatars,
+      big_lines: s.big_emote_lines,
       inventory_emotes: s.render_inventory,
     }
   }

@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "名前の横に各人の画像を表示",
  "settings.ban_reasons.label": "ban 理由",
  "settings.ban_reasons.tip": "ban 時に提示する簡易理由 (ban は常に先に確認)。enter でリストを開く: a 追加、x 削除",
+ "settings.big_emote_lines.label": "emote だけの行を大きく",
+ "settings.big_emote_lines.tip": "emote だけの行（最大 5 個）を 2 倍の大きさで表示。off: どの emote も同じ大きさ",
  "settings.cat.chat": "チャット",
  "settings.cat.display": "表示",
  "settings.cat.filters": "フィルター",

@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "हर व्यक्ति के नाम के पास उसकी तस्वीर दिखाओ",
  "settings.ban_reasons.label": "बैन के कारण",
  "settings.ban_reasons.tip": "बैन करते समय दिखने वाले झटपट कारण (बैन तब भी पहले पूछता है)। enter से सूची खुलती है: a जोड़ता है, x हटाता है",
+ "settings.big_emote_lines.label": "सिर्फ emotes वाली बड़ी लाइनें",
+ "settings.big_emote_lines.tip": "सिर्फ emotes वाली लाइन (5 तक) दोगुनी बड़ी बनती है। off: हर emote एक ही आकार में रहता है",
  "settings.cat.chat": "चैट",
  "settings.cat.display": "डिस्प्ले",
  "settings.cat.filters": "फ़िल्टर",

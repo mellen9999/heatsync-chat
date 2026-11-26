@@ -1,10 +1,10 @@
 // a line becomes a row: its text, spans, emote boxes and the links, mentions and paints inside it
 
 use super::fill;
-use super::modify::{bindings, look, settle};
-use super::{EmoteBox, Frame, Laid, MARK_W, Mention, Opts, PaintedName, Words, room};
+use super::words::body;
+use super::{EmoteBox, Frame, Laid, MARK_W, Mention, Opts, PaintedName, room};
 use crate::cosmetics::id::PaintId;
-use crate::emotes::mods::Fx;
+use crate::emotes::only::BIG_SCALE;
 use crate::heatsync::content;
 use crate::i18n::{f, t};
 use crate::images::ImgId;
@@ -16,9 +16,9 @@ use crate::model::markup::Style;
 use crate::model::message::{Kind, Message, Notice, Platform, Seg, flag};
 use crate::model::preview::{Kind as PreviewKind, Preview};
 use crate::model::video;
-use crate::ui::res::{AVATAR_PX, BADGE_PX, CARD_PX, EMBED_PX, MEDIA_MULTI_PX, MEDIA_PX, Res};
+use crate::ui::res::{AVATAR_PX, BADGE_PX, CARD_PX, EMBED_PX, EMOJI_MUL, MEDIA_MULTI_PX, MEDIA_PX, Res};
 use crate::ui::text::{Ink, Span, TextLayout};
-use crate::ui::{badge_text, embed, text, theme};
+use crate::ui::{badge_text, embed, theme};
 use crate::util::time::clock;
 use parley::{Cluster, InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 use std::sync::Arc;
@@ -215,6 +215,10 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   let mut plays = Vec::new();
   // where the words sit in the text, for search hits
   let mut words_at = 0..0;
+  // the line is only pictures, so they are drawn big
+  let mut big = false;
+  // the width of the words: the row's, less its edge and padding
+  let avail = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
   if m.kind == Kind::System {
     // an event says itself in its color; stream lines carry theirs (red live, yellow game switch); notices
     // stay dim
@@ -283,8 +287,11 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
     let b0 = s.len();
     if !muted {
       let giant = x.is_some_and(|x| x.giant);
+      // only a plain chat row (a line somebody said, on no fill) may draw its pictures big
+      let may = (res.look.big_lines && fill.is_none() && m.kind.said()).then_some(avail);
       let styled;
-      (links, link_runs, mentions, styled) = body(res, chan, m, fold.as_ref(), giant, &mut s, &mut ib, &mut boxes);
+      ((links, link_runs, mentions, styled), big) =
+        body(res, chan, m, fold.as_ref(), (giant, may), &mut s, &mut ib, &mut boxes);
       // a feed post's bold and underlined runs. bold goes in first so a link's blue, a mention, the dim of a
       // cleared line draw over its ink; underline is a line drawn under the run
       for (r, st) in styled {
@@ -406,8 +413,9 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
     hits(f, &s, &name, words, &mut spans);
   }
   let line = (res.text.line_px * res.look.spacing).round();
-  let emoji = (words_at.clone(), crate::ui::res::EMOJI_MUL);
-  let room = (width - MARK_W) as f32 - 2.0 * theme::PAD_X;
+  // a unicode emoji is drawn as tall as an emote's slot, and a big line's as tall as its big emotes
+  let emoji = (words_at.clone(), if big { EMOJI_MUL * BIG_SCALE } else { EMOJI_MUL });
+  let room = avail;
   // a post's reaction chips: after its last word when they fit, else one more line at most
   if let Some(x) = x.filter(|x| !x.react.is_empty() && !muted && m.kind != Kind::System) {
     let base = (s.len(), spans.len(), ib.len(), boxes.len());
@@ -947,199 +955,4 @@ pub(super) fn avatar(res: &mut Res, m: &Message, s: &str, ib: &mut Vec<InlineBox
 // an empty run of exact width: its id names no box, so drawing and hit-tests pass over it
 pub(super) fn gap(index: usize, w: u32) -> InlineBox {
   InlineBox { id: u64::MAX, ..inline(0, index, w, 1) }
-}
-
-// a gigantified emote's height before the display scale (ext .hs-mc-gigantified: 56px, twice the usual box)
-const GIANT_PX: u16 = 56;
-
-// words become text or emote boxes. twitch's own emotes come by position, the rest by name. `giant`: the
-// last emote is drawn big, decoded at that height through the same picture path (the cache's cap holds)
-#[allow(clippy::too_many_arguments)]
-pub(super) fn body(
-  res: &mut Res,
-  chan: &str,
-  m: &Message,
-  fold: Option<&std::ops::Range<usize>>,
-  giant: bool,
-  s: &mut String,
-  ib: &mut Vec<InlineBox>,
-  boxes: &mut Vec<EmoteBox>,
-) -> Words {
-  let links = if res.links { crate::model::links::find(&m.body) } else { Vec::new() };
-  // a feed post's bold / underlined runs, in bytes of the body
-  let marks = m.x.as_deref().map_or(&[][..], |x| &x.marks[..]);
-  let mut runs = Vec::new();
-  let mut styled = Vec::new();
-  let mut people = Vec::new();
-  let px = res.look.emote_px();
-  let h = res.images.px(px);
-  let mut prev_emote = false;
-  // a lone emoji just written as text (where it starts in `s`, its body bytes): an overlay emote right
-  // after it stacks on it, like on an emote
-  let mut emoji: Option<(usize, usize, usize)> = None;
-  let mut first = true;
-  let mut at = 0usize;
-  // the last emote drawn as a base: its box and its native size
-  let mut last: Option<(usize, (u16, u16))> = None;
-  // the top picture of the stack being built, at its drawn size, and the room the layers under it take
-  let (mut layer, mut under) = ((0u32, 0u32), (0f32, 0f32));
-  // the modifier words of the line and the emote each changes (`w! Kappa`, `Kappa ffzX`); the ones for
-  // an emote still to come wait here
-  let binds = bindings(res, chan, m, fold, px);
-  let mut ahead = Fx::default();
-  for (i, word) in m.body.split(' ').enumerate() {
-    let (a, b) = (at, at + word.len());
-    at = b + 1;
-    if fold.is_some_and(|f| f.start == a && f.end == b) {
-      continue;
-    }
-    // a modifier changes its emote and leaves the line: before any emote of its own name
-    if let Some(&Some(to)) = binds.get(i) {
-      if to > i {
-        ahead.add(word);
-        continue;
-      }
-      if prev_emote && let Some(top) = boxes.last() {
-        let mut fx = top.fx.iter().find(|f| f.0 as usize == top.zw.len()).map(|f| f.1.clone()).unwrap_or_default();
-        fx.add(word);
-        settle(ib, boxes, layer, under, fx);
-        continue;
-      }
-    }
-    let (found, blocked) = look(res, chan, m, (a, b), word, px);
-    match found {
-      // a blocked overlay just vanishes; a blocked base keeps its slot
-      Some((_, _, true, _)) if (prev_emote || emoji.is_some()) && blocked => continue,
-      // an overlay on an emoji: the emoji's text becomes a slot with the emoji drawn under the overlay
-      Some((url, dims, true, _)) if !prev_emote && let Some((p, ea, eb)) = emoji.take() => {
-        s.truncate(p);
-        let img = res.images.id(&url, px);
-        let w = res.images.width(img, dims).max(h);
-        (layer, under) = ((res.images.width(img, dims), h), (h as f32, h as f32));
-        ib.push(inline(boxes.len(), s.len(), w, h));
-        boxes.push(EmoteBox {
-          img,
-          zw: Vec::new(),
-          zw_words: Vec::new(),
-          bg: None,
-          word: (a as u32, b as u32),
-          blocked: false,
-          stand_in: None,
-          glyph: Some(m.body[ea..eb].into()),
-          fx: Vec::new(),
-        });
-        settle(ib, boxes, layer, under, std::mem::take(&mut ahead));
-        prev_emote = true;
-      }
-      Some((url, dims, true, _)) if prev_emote => {
-        let img = res.images.id(&url, px);
-        // an overlay wider than its base widens the slot: the whole stack is the slot, so each animation
-        // frame repaints all of it (a slot only as wide as the base left the overlay's sides frozen)
-        let w = res.images.width(img, dims) as f32;
-        let id = boxes.len().wrapping_sub(1) as u64;
-        if let Some(slot) = ib.iter_mut().rev().find(|i| i.id == id) {
-          (layer, under) = ((w as u32, h), (slot.width, slot.height));
-          slot.width = slot.width.max(w);
-        }
-        if let Some(last) = boxes.last_mut() {
-          last.zw.push(img);
-          last.zw_words.push((a as u32, b as u32));
-        }
-        settle(ib, boxes, layer, under, std::mem::take(&mut ahead));
-        continue;
-      }
-      Some((url, dims, _, _)) => {
-        if !first {
-          s.push(' ');
-        }
-        let img = res.images.id(&url, px);
-        let w = res.images.width(img, dims);
-        emoji = None;
-        (layer, under) = ((w, h), (0.0, h as f32));
-        ib.push(inline(boxes.len(), s.len(), w, h));
-        last = Some((boxes.len(), dims));
-        boxes.push(EmoteBox {
-          img,
-          zw: Vec::new(),
-          zw_words: Vec::new(),
-          bg: None,
-          word: (a as u32, b as u32),
-          blocked,
-          stand_in: None,
-          glyph: None,
-          fx: Vec::new(),
-        });
-        settle(ib, boxes, layer, under, std::mem::take(&mut ahead));
-        prev_emote = true;
-      }
-      None => {
-        // modifiers wait for an emote, never for a later one past text
-        ahead = Fx::default();
-        // a run carries on over the space before this word only when that word is text too
-        let joined = !first && !prev_emote;
-        if !first {
-          s.push(' ');
-        }
-        let p0 = s.len();
-        s.push_str(word);
-        if !word.is_empty() {
-          emoji = text::lone_emoji(word).then_some((p0, a, b));
-          for mk in marks {
-            let (lo, hi) = (mk.range.start as usize, mk.range.end as usize);
-            if lo < b && a < hi {
-              let from = if lo > a {
-                p0 + lo - a
-              } else if joined && lo < a {
-                p0 - 1
-              } else {
-                p0
-              };
-              styled.push((from..p0 + hi.min(b) - a, mk.style));
-            }
-          }
-        }
-        // the words of a link answer clicks
-        let mut linked = false;
-        for (k, _) in links.iter().enumerate().filter(|(_, l)| l.range.start < b && a < l.range.end) {
-          runs.push((p0..s.len(), k));
-          linked = true;
-        }
-        // names in the words (a link's words are not names)
-        if !linked && word.len() >= 3 {
-          for f in crate::model::chatters::names(word) {
-            let Some(p) = res.chatters.person(m.platform, &word[f.name.clone()], f.at) else { continue };
-            people.push(Mention {
-              range: p0 + f.full.start..p0 + f.full.end,
-              login: word[f.name].to_ascii_lowercase().into(),
-              color: p.color,
-              paint: p.paint,
-              art: None,
-            });
-          }
-        }
-        prev_emote = word.is_empty() && prev_emote;
-      }
-    }
-    first = false;
-  }
-  if let (true, Some((k, dims))) = (giant, last) {
-    gigantify(res, k, dims, ib, boxes);
-  }
-  (links, runs, people, styled)
-}
-
-// the emote in box `k` drawn at the big height: its picture asked for at that size, its slot widened to
-// match. one with overlays stacked on it, or a blocked one, stays as it was
-fn gigantify(res: &mut Res, k: usize, dims: (u16, u16), ib: &mut [InlineBox], boxes: &mut [EmoteBox]) {
-  let Some(b) = boxes.get_mut(k).filter(|b| b.zw.is_empty() && !b.blocked) else { return };
-  let Some(url) = res.images.url(b.img).map(Box::<str>::from) else { return };
-  let big = res.look.emote_px().max(GIANT_PX);
-  let img = res.images.id(&url, big);
-  let (w, h) = (res.images.width(img, dims), res.images.px(big));
-  let (w, h) = b.fx.first().map_or((w, h), |f| f.1.size((w, h)));
-  b.img = img;
-  if let Some(slot) = ib.iter_mut().rev().find(|i| i.id == k as u64) {
-    slot.width = w as f32;
-    slot.height = h as f32;
-  }
 }

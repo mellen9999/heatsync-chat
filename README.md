@@ -66,6 +66,7 @@ heatsync-chat "forsen kick:forsen"   # quoted together: one tab with both chats 
 - feed posts: `**bold**` or `__bold__` draws bold, `*under*` or `_under_` draws underlined (the ext italicises those; there is no italic here). a marker with no partner stays as typed. post heat moves live. `x` on one of your own dms in whispers (vim keys on) or right-click → delete dm deletes it for both of you (it asks first)
 - heatsync emotes: a word shows as someone's heatsync emote only if *they* own it. 7tv, bttv, ffz and native emotes, overlay (zero-width) emotes, animated
 - emote modifiers: `w! Kappa` is a wide Kappa, `Kappa ffzX` a mirrored one; turns (`l!` `r!`), tall, the cursed look, a tint (`c!#f00`) and chains (`w!h!`) draw as on the site and in the extension. the moving ones (`p!`, `ffzSpin`, …) stand still
+- big emote-only lines: a line of only emotes or emoji (up to 5) is drawn twice as big, a longer one stays small; an account setting shared with the site and the extension (`/bigemotes` turns it off)
 - 7tv personal emotes: a 7tv subscriber's own set shows in their lines in any channel, and only theirs (`/personalemotes` turns it off)
 - heatsync paints, badges and name colors, live. bttv badges, sub flair and heat bars
 - favorite emotes: `alt-f` or a right-click on a picker tile pins it (an emote's own menu has the row too). favorites lead the picker and `tab`, and they are your account's: the ones you pin on heatsync.org or in the extension are here, and these are there

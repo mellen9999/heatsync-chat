@@ -1416,6 +1416,8 @@
  "settings.avatars.tip": "แสดงรูปของแต่ละคนข้างชื่อ",
  "settings.ban_reasons.label": "เหตุผลการแบน",
  "settings.ban_reasons.tip": "เหตุผลสั้นๆ ที่เสนอตอนแบน (การแบนจะถามก่อนเสมอ) enter เปิดรายการ: a เพิ่ม x ลบ",
+ "settings.big_emote_lines.label": "บรรทัดอีโมตล้วนขยายใหญ่",
+ "settings.big_emote_lines.tip": "บรรทัดที่มีแต่อีโมต (สูงสุด 5) วาดใหญ่เป็นสองเท่า off: ทุกอีโมตคงขนาดเดียว",
  "settings.cat.chat": "แชท",
  "settings.cat.display": "การแสดงผล",
  "settings.cat.filters": "ตัวกรอง",

@@ -1426,6 +1426,8 @@
  "settings.avatars.tip": "mostra la foto di ognuno accanto al nome",
  "settings.ban_reasons.label": "motivi del ban",
  "settings.ban_reasons.tip": "motivi rapidi offerti quando banni (un ban chiede sempre prima). enter apre la lista: a aggiunge, x rimuove",
+ "settings.big_emote_lines.label": "righe grandi di sole emote",
+ "settings.big_emote_lines.tip": "una riga di sole emote (fino a 5) viene disegnata il doppio più grande. off: ogni emote resta di una sola misura",
  "settings.cat.chat": "chat",
  "settings.cat.display": "aspetto",
  "settings.cat.filters": "filtri",
