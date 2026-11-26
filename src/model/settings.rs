@@ -195,7 +195,7 @@ pub struct Settings {
   pub platform_tags: bool,
   // a picture beside each name (ext avatars). default off, like the ext
   pub avatars: bool,
-  // a line of only emotes (up to 5) is drawn twice as big (bigEmoteLines). default on
+  // a line of only emotes (up to 5) is drawn twice as big (bigEmoteLines). default off: it costs rows
   pub big_emote_lines: bool,
   pub line_height: LineHeight,
   // the family chat is set in, an installed font by name (src/util/font.rs finds it). empty = the system
@@ -320,7 +320,7 @@ impl Default for Settings {
       readable: true,
       platform_tags: true,
       avatars: false,
-      big_emote_lines: true,
+      big_emote_lines: false,
       line_height: LineHeight::L20,
       font_family: Inline::new(),
       animate_emotes: Animate::Always,
@@ -750,7 +750,7 @@ mod tests {
         readable: true,
         platform_tags: true,
         avatars: false,
-        big_emote_lines: true,
+        big_emote_lines: false,
         line_height: LineHeight::L20,
         font_family: Inline::new(),
         animate_emotes: Animate::Always,

@@ -36,6 +36,8 @@ fn said(body: &str) -> Message {
 // (a heatsync picture: one file, no bigger rung)
 fn room(scale: f32) -> Res {
   let mut res = Res::new(scale);
+  // off by default (11-26); every test here draws with it on unless it says otherwise
+  res.look.big_lines = true;
   let e = |url: &str, w: u16, zero_width: bool| Emote { url: url.into(), w, h: 28, zero_width };
   res.emotes.set(
     Some("c"),
@@ -234,7 +236,9 @@ fn the_setting_is_what_turns_it_off() {
   load(&mut res, PIC, 28, (28, 28), &[0]);
   load(&mut res, PIC_2X, 56, (56, 56), &[0]);
   let mut s = crate::model::settings::Settings::default();
-  assert!(s.big_emote_lines, "on by default");
+  assert!(!s.big_emote_lines, "off by default");
+  s.big_emote_lines = true;
+  res.look = crate::ui::res::Look::of(&s);
   assert_eq!(size(&drawn(&mut res, "pic").0), (56, 56));
   s.big_emote_lines = false;
   res.look = crate::ui::res::Look::of(&s);
