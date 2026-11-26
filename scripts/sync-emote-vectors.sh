@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# refresh the vendored emote vectors (the law, the modifiers, big emote-only lines) from the site checkout, byte for
-# byte. the files only ever change on the site side; never edit the copies here.
+# refresh the vendored emote vectors (the law, the tile marks, the modifiers, big emote-only lines) from the site
+# checkout, byte for byte. the files only ever change on the site side; never edit the copies here.
 #   scripts/sync-emote-vectors.sh [path-to-site-checkout]
 set -euo pipefail
 site="${1:-$HOME/projects/heatsync}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-for pair in emote-law:src/law emote-mods:src/emotes emote-only:src/emotes; do
+for pair in emote-law:src/law emote-mark:src/law emote-mods:src/emotes emote-only:src/emotes; do
   src="$site/shared/${pair%%:*}.vectors.json"
   dst="$root/${pair##*:}/${pair%%:*}.vectors.json"
   [ -f "$src" ] || { echo "not found: $src" >&2; exit 1; }

@@ -9,6 +9,7 @@
 //!   read   what a word draws on a line           read_word / read_line
 //!   send   what a hand-typed word ships           send_word / send_line / edit_line
 //!   offer  what tab and completion list           offer / extend_offer / browse
+//!   mark   who sees a tile, and is it offered     mark::tile_says (its own contract, emote-mark.vectors.json)
 //!
 //! an emote is its picture (`provider:id`); a name is only a label. every
 //! builder sorts before it indexes and every tie ends in code point order, so
@@ -19,6 +20,8 @@
 //! offsets are chars (code points), the unit the vectors use. a line's
 //! length for the kick cap and a name's length for ranking are utf-16 units,
 //! because that is the unit the law counts in.
+
+pub mod mark;
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -37,6 +40,15 @@ pub trait Pic {
   /// channels carrying it (catalog hits only)
   fn pop(&self) -> u64 {
     0
+  }
+  /// the picture this copy shows when it is another's (a saved copy of a 7tv or twitch emote has its own id
+  /// and the picture's here); none = its own key
+  fn pic(&self) -> Option<&str> {
+    None
+  }
+  /// a content hash that makes two uploads one picture
+  fn hash(&self) -> Option<&str> {
+    None
   }
 }
 

@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
 mod drawing;
+mod mark;
 mod sending;
 
 const FILE: &str = include_str!("emote-law.vectors.json");
@@ -51,6 +52,8 @@ struct Em {
   name: String,
   zw: bool,
   pop: u64,
+  pic: Option<String>,
+  hash: Option<String>,
 }
 impl Pic for Em {
   fn provider(&self) -> &str {
@@ -67,6 +70,12 @@ impl Pic for Em {
   }
   fn pop(&self) -> u64 {
     self.pop
+  }
+  fn pic(&self) -> Option<&str> {
+    self.pic.as_deref()
+  }
+  fn hash(&self) -> Option<&str> {
+    self.hash.as_deref()
   }
 }
 
@@ -134,13 +143,15 @@ fn build_world(file: &Map<String, Value>, raw: &Map<String, Value>, rng: &mut Rn
   let mut alias_of: HashMap<String, String> = HashMap::new();
   for (alias, r) in obj(&file["emotes"], "emotes")? {
     let r = obj(r, alias)?;
-    known(r, &["p", "id", "name", "zw", "pop"], alias)?;
+    known(r, &["p", "id", "name", "zw", "pop", "pic", "hash"], alias)?;
     let e = Em {
       p: r["p"].as_str().ok_or("emote without p")?.to_string(),
       id: r["id"].as_str().ok_or("emote without id")?.to_string(),
       name: r["name"].as_str().ok_or("emote without name")?.to_string(),
       zw: r.get("zw").and_then(Value::as_bool).unwrap_or(false),
       pop: r.get("pop").and_then(Value::as_u64).unwrap_or(0),
+      pic: r.get("pic").and_then(Value::as_str).map(String::from),
+      hash: r.get("hash").and_then(Value::as_str).map(String::from),
     };
     if let Some(other) = alias_of.insert(law::key_of(&e), alias.clone()) {
       return Err(format!("two aliases for one picture: {other} and {alias}"));
