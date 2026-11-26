@@ -387,14 +387,24 @@ fn emoji_forced(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
   })
 }
 
+// the word is one emoji and nothing else (what an overlay emote can sit on)
+pub fn lone_emoji(word: &str) -> bool {
+  emoji_only(word) == 1
+}
+
+// how many emoji the word is when it is nothing else (a word of three glued together is three); 0 for any
+// other word
+pub fn emoji_only(word: &str) -> usize {
+  let runs = emoji_runs(word);
+  let whole = runs.first().is_some_and(|r| r.start == 0)
+    && runs.last().is_some_and(|r| r.end == word.len())
+    && runs.windows(2).all(|w| w[0].end == w[1].start);
+  if whole { runs.len() } else { 0 }
+}
+
 // every emoji cluster in `text`, for scaling (a superset of `emoji_forced`): pictographs, flags (a
 // regional indicator pair), keycaps, and what joins on (selectors, skin tones, zwj + next, tags). a
 // bmp symbol (❤ ✔ ☺) counts only with U+FE0F or when it is emoji by default; digits # * only as keycaps
-// the word is one emoji and nothing else (what an overlay emote can sit on)
-pub fn lone_emoji(word: &str) -> bool {
-  matches!(emoji_runs(word).as_slice(), [r] if !word.is_empty() && *r == (0..word.len()))
-}
-
 fn emoji_runs(text: &str) -> Vec<Range<usize>> {
   let ri = |c: char| matches!(c, '\u{1f1e6}'..='\u{1f1ff}');
   let pict = |c: char| matches!(c, '\u{1f300}'..='\u{1faff}' | '\u{1f004}' | '\u{1f0cf}' | '\u{1f18e}' | '\u{1f191}'..='\u{1f19a}' | '\u{1f201}' | '\u{1f21a}' | '\u{1f22f}' | '\u{1f232}'..='\u{1f23a}' | '\u{1f250}' | '\u{1f251}');
@@ -508,7 +518,7 @@ mod tests {
     }
   }
 
-  use super::{Text, emoji_forced, emoji_runs};
+  use super::{Text, emoji_forced, emoji_only, emoji_runs, lone_emoji};
 
   #[test]
   fn a_word_wider_than_the_line_breaks_inside_it() {
@@ -562,6 +572,18 @@ mod tests {
     for t in ["1", "#", "*", "12 #1", "❤", "✔ ☺", "漢字かな", "مرحبا", "plain text"] {
       assert!(scaled(t).is_empty(), "{t}");
     }
+  }
+
+  // a word that is nothing but emoji says how many pictures it is (the line's big-or-not reads it)
+  #[test]
+  fn a_word_of_only_emoji_counts_them() {
+    assert_eq!(emoji_only("😂"), 1);
+    assert_eq!(emoji_only("😂😂😂"), 3);
+    assert_eq!(emoji_only("👍🏽🇯🇵👨\u{200d}👩\u{200d}👧"), 3);
+    for w in ["", "hi", "hi😂", "😂!", "!😂😂", "❤", "1", "漢"] {
+      assert_eq!(emoji_only(w), 0, "{w:?}");
+    }
+    assert!(lone_emoji("😂") && lone_emoji("❤\u{fe0f}") && !lone_emoji("😂😂") && !lone_emoji(""));
   }
 
   fn runs(s: &str) -> Vec<&str> {

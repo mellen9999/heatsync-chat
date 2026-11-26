@@ -256,6 +256,12 @@ impl Images {
   // `play` false holds an animated image on its first frame (and asks for no ticks)
   pub fn frame_with(&mut self, id: ImgId, play: bool) -> Option<(&decode::Frame, u32, u32, Option<u32>)> {
     let now = self.now_ms();
+    self.frame_at(id, play, now)
+  }
+
+  // the frame at `now` ms: the one clock every moving picture is read off, whatever its size or file, so
+  // the same emote drawn big and drawn small shows the same frame at the same instant
+  pub fn frame_at(&mut self, id: ImgId, play: bool, now: u64) -> Option<(&decode::Frame, u32, u32, Option<u32>)> {
     let Some(i) = self.ix(id) else {
       self.note_stale(id);
       return None;
@@ -480,6 +486,42 @@ mod tests {
     assert_eq!(im.url(again), Some("https://cdn.7tv.app/emote/old/1x.webp"));
     assert_eq!(im.url(new), Some("https://cdn.7tv.app/emote/new/1x.webp"));
     assert!(im.dims(new).is_some());
+  }
+
+  // the clock is the picture's own delays against the time: two sizes of one animation (or two files of it) show
+  // the same frame at the same instant, and a still one is its only frame
+  #[test]
+  fn every_size_of_an_animation_is_on_the_same_clock() {
+    let mut im = Images::new(1.0);
+    let (small, big) =
+      (im.id("https://cdn.7tv.app/emote/c/1x.webp", 28), im.id("https://cdn.7tv.app/emote/c/2x.webp", 56));
+    let anim = |side: u32| {
+      let frames = [30, 50, 70].iter().enumerate().map(|(n, &delay_ms)| {
+        let mut rgba = vec![0u8; (side * side * 4) as usize];
+        rgba[0] = n as u8;
+        decode::Frame { rgba: rgba.into(), delay_ms }
+      });
+      Decoded { w: side, h: side, frames: frames.collect() }
+    };
+    for (id, side) in [(small, 28), (big, 56)] {
+      let h = im.target(&im.slots[id as usize]);
+      im.slots[id as usize].state = State::Loading;
+      im.loaded(id, h, Ok(anim(side)));
+    }
+    // 150ms a round: which frame, and how long until the next, at every instant of two rounds
+    for now in 0..300u64 {
+      let at = |im: &mut Images, id| im.frame_at(id, true, now).map(|f| (f.0.rgba[0], f.3));
+      let (a, b) = (at(&mut im, small), at(&mut im, big));
+      let want = match now % 150 {
+        0..30 => (0, 30 - now % 150),
+        30..80 => (1, 80 - now % 150),
+        t => (2, 150 - t),
+      };
+      assert_eq!(a, Some((want.0, Some(want.1 as u32))), "at {now}ms");
+      assert_eq!(a, b, "the two sizes at {now}ms");
+    }
+    // not playing: the first frame, no tick asked for
+    assert_eq!(im.frame_at(big, false, 100).map(|f| (f.0.rgba[0], f.3)), Some((0, None)));
   }
 
   #[test]

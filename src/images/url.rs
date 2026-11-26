@@ -22,25 +22,31 @@ pub fn host(url: &str) -> Option<&str> {
   ok.then_some(host)
 }
 
-// the big rung of a provider's emote url, like the ext's getHighResUrl: 7tv 4x, bttv 3x, ffz 4,
-// twitch 3.0. None when the url has no other rung (heatsync and kick emotes are one file)
-pub fn hires(url: &str) -> Option<String> {
+// each provider's emote files, smallest first: the file's name and how tall the picture is
+const RUNGS: [(&str, &[(&str, u32)]); 4] = [
+  ("7tv.app", &[("1x", 32), ("2x", 64), ("3x", 96), ("4x", 128)]),
+  ("betterttv.net", &[("1x", 28), ("2x", 56), ("3x", 112)]),
+  ("frankerfacez.com", &[("1", 32), ("2", 64), ("4", 128)]),
+  ("jtvnw.net", &[("1.0", 28), ("2.0", 56), ("3.0", 112)]),
+];
+
+// the file of the same emote that is at least `px` tall, or the biggest it has: the next rung up from the
+// one the url names. None when the url has no bigger rung (heatsync and kick emotes are one file)
+pub fn rung(url: &str, px: u32) -> Option<String> {
   let h = host(url)?.to_ascii_lowercase();
   let (dir, file) = url.rsplit_once('/')?;
-  let (stem, ext) = file.split_once('.').map_or((file, ""), |(s, e)| (s, e));
-  let dotted = |ext: &str| if ext.is_empty() { String::new() } else { format!(".{ext}") };
-  let big = if h.ends_with("7tv.app") && matches!(stem, "1x" | "2x" | "3x") {
-    format!("4x{}", dotted(ext))
-  } else if h.ends_with("betterttv.net") && matches!(stem, "1x" | "2x") {
-    format!("3x{}", dotted(ext))
-  } else if h.ends_with("frankerfacez.com") && matches!(stem, "1" | "2") && ext.is_empty() {
-    "4".into()
-  } else if h.ends_with("jtvnw.net") && matches!(file, "1.0" | "2.0") {
-    "3.0".into()
-  } else {
-    return None;
-  };
-  Some(format!("{dir}/{big}"))
+  let (_, rungs) = RUNGS.iter().find(|(d, _)| h == *d || h.strip_suffix(d).is_some_and(|p| p.ends_with('.')))?;
+  // the file is a rung's name, then its extension if it has one
+  let (now, ext) = rungs.iter().enumerate().find_map(|(i, (name, _))| {
+    file.strip_prefix(name).filter(|e| e.is_empty() || e.starts_with('.')).map(|e| (i, e))
+  })?;
+  let to = rungs.iter().position(|r| r.1 >= px).unwrap_or(rungs.len() - 1);
+  (to > now).then(|| format!("{dir}/{}{ext}", rungs[to].0))
+}
+
+// the biggest rung, like the ext's getHighResUrl: 7tv 4x, bttv 3x, ffz 4, twitch 3.0
+pub fn hires(url: &str) -> Option<String> {
+  rung(url, u32::MAX)
 }
 
 pub fn allowed(url: &str) -> bool {
@@ -101,5 +107,56 @@ mod tests {
     }
     // the rung swap never leaves the allowlist
     assert!(allowed(&h("https://cdn.7tv.app/emote/01ABC/1x.webp").unwrap()));
+  }
+
+  // chat's 1x file, asked for at a height: the smallest rung that is that tall, never the same file
+  #[test]
+  fn the_rung_for_a_height_is_the_next_one_that_is_tall_enough() {
+    let r = rung;
+    // a big line at 1x display: 56 high
+    assert_eq!(
+      r("https://cdn.7tv.app/emote/01ABC/1x.webp", 56).as_deref(),
+      Some("https://cdn.7tv.app/emote/01ABC/2x.webp")
+    );
+    assert_eq!(
+      r("https://cdn.betterttv.net/emote/5/1x.webp", 56).as_deref(),
+      Some("https://cdn.betterttv.net/emote/5/2x.webp")
+    );
+    assert_eq!(
+      r("https://cdn.frankerfacez.com/emote/9/animated/1", 56).as_deref(),
+      Some("https://cdn.frankerfacez.com/emote/9/animated/2")
+    );
+    assert_eq!(
+      r("https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/1.0", 56).as_deref(),
+      Some("https://static-cdn.jtvnw.net/emoticons/v2/25/default/dark/2.0")
+    );
+    // 112 high (a 2x display): the one that holds it, and the biggest when none does
+    assert_eq!(
+      r("https://cdn.7tv.app/emote/01ABC/1x.webp", 112).as_deref(),
+      Some("https://cdn.7tv.app/emote/01ABC/4x.webp")
+    );
+    assert_eq!(
+      r("https://cdn.betterttv.net/emote/5/1x.webp", 112).as_deref(),
+      Some("https://cdn.betterttv.net/emote/5/3x.webp")
+    );
+    assert_eq!(
+      r("https://cdn.7tv.app/emote/01ABC/1x.webp", 900).as_deref(),
+      Some("https://cdn.7tv.app/emote/01ABC/4x.webp")
+    );
+    // already tall enough, one file only, another host, junk: nothing to swap
+    for (u, px) in [
+      ("https://cdn.7tv.app/emote/01ABC/2x.webp", 56),
+      ("https://cdn.7tv.app/emote/01ABC/4x.webp", 900),
+      ("https://cdn.7tv.app/emote/01ABC/1x.webp", 16),
+      ("https://cdn.heatsync.org/e/1x.png", 56),
+      ("https://kick.com/emotes/37225/fullsize", 56),
+      ("https://evil7tv.app/emote/01ABC/1x.webp", 56),
+      ("https://cdn.7tv.app/emote/01ABC/10x.webp", 56),
+      ("x", 56),
+    ] {
+      assert_eq!(r(u, px), None, "{u} at {px}");
+    }
+    // the swap never leaves the allowlist
+    assert!(allowed(&r("https://cdn.7tv.app/emote/01ABC/1x.webp", 56).unwrap()));
   }
 }
