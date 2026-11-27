@@ -230,7 +230,9 @@ impl Text {
         b.push(StyleProperty::FontWeight(FontWeight::BOLD), s.range.clone());
       }
     }
-    for r in emoji_forced(text) {
+    // every emoji cluster goes to the emoji font: left to fallback, the monospace's own text-style ❤ ☺ 1 won, and a
+    // face the monospace lacks came from the first font holding its outline (DejaVu Sans, Segoe UI Symbol), white
+    for r in emoji_runs(text) {
       b.push(StyleProperty::FontFamily(FontFamily::from(GenericFamily::Emoji)), r);
     }
     if emoji.1 > 1 {
@@ -359,34 +361,6 @@ impl Text {
   }
 }
 
-// a sequence asked to draw as emoji (❤️, ☺️, 1️⃣, 🏳️‍🌈: holds U+FE0F or a keycap) goes to the emoji
-// font. parley tries the monospace font first even for emoji clusters, and it has text-style ❤ ☺ 1,
-// so these came out mono. a sequence = a base char plus what joins onto it: selectors, keycaps, zwj
-// and the char after it, skin tones, flag tags
-fn emoji_forced(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
-  let joins =
-    |c: char| matches!(c, '\u{fe0f}' | '\u{20e3}' | '\u{200d}' | '\u{1f3fb}'..='\u{1f3ff}' | '\u{e0020}'..='\u{e007f}');
-  let mut it = text.char_indices().peekable();
-  std::iter::from_fn(move || {
-    while let Some((start, c)) = it.next() {
-      let (mut end, mut asked, mut zwj) = (start + c.len_utf8(), false, false);
-      while let Some(&(i, n)) = it.peek() {
-        if !joins(n) && !zwj {
-          break;
-        }
-        asked |= matches!(n, '\u{fe0f}' | '\u{20e3}');
-        zwj = n == '\u{200d}';
-        end = i + n.len_utf8();
-        it.next();
-      }
-      if asked {
-        return Some(start..end);
-      }
-    }
-    None
-  })
-}
-
 // the word is one emoji and nothing else (what an overlay emote can sit on)
 pub fn lone_emoji(word: &str) -> bool {
   emoji_only(word) == 1
@@ -402,7 +376,7 @@ pub fn emoji_only(word: &str) -> usize {
   if whole { runs.len() } else { 0 }
 }
 
-// every emoji cluster in `text`, for scaling (a superset of `emoji_forced`): pictographs, flags (a
+// every emoji cluster in `text`, for the emoji font and for scaling: pictographs, flags (a
 // regional indicator pair), keycaps, and what joins on (selectors, skin tones, zwj + next, tags). a
 // bmp symbol (❤ ✔ ☺) counts only with U+FE0F or when it is emoji by default; digits # * only as keycaps
 fn emoji_runs(text: &str) -> Vec<Range<usize>> {
@@ -518,7 +492,7 @@ mod tests {
     }
   }
 
-  use super::{Text, emoji_forced, emoji_only, emoji_runs, lone_emoji};
+  use super::{Text, emoji_only, emoji_runs, lone_emoji};
 
   #[test]
   fn a_word_wider_than_the_line_breaks_inside_it() {
@@ -586,18 +560,6 @@ mod tests {
     assert!(lone_emoji("😂") && lone_emoji("❤\u{fe0f}") && !lone_emoji("😂😂") && !lone_emoji(""));
   }
 
-  fn runs(s: &str) -> Vec<&str> {
-    emoji_forced(s).map(|r| &s[r]).collect()
-  }
-
-  #[test]
-  fn selector_and_keycap_force_emoji() {
-    assert_eq!(runs("i ❤\u{fe0f} u"), ["❤\u{fe0f}"]);
-    assert_eq!(runs("1\u{fe0f}\u{20e3}#\u{20e3}"), ["1\u{fe0f}\u{20e3}", "#\u{20e3}"]);
-    assert_eq!(runs("🏳\u{fe0f}\u{200d}🌈!"), ["🏳\u{fe0f}\u{200d}🌈"]);
-    assert_eq!(runs("plain ❤ 🌇 text"), Vec::<&str>::new());
-  }
-
   // every script the 34 languages use draws real glyphs (not the missing-glyph box) with the font setup the app has:
   // the system monospace, then fontconfig / directwrite fallback per script. a script the machine has no font for
   // (asked of fontconfig) is skipped, not failed
@@ -652,5 +614,53 @@ mod tests {
       checked += 1;
     }
     assert!(checked > 0 || !cfg!(unix), "no script could be checked");
+  }
+
+  // an emoji by default (😂 🔥 👍🏽 🇯🇵) and one asked for with U+FE0F (❤️) draw from the colour emoji font. left
+  // to fallback, a face came from the first font that held its outline (DejaVu Sans on linux, Segoe UI Symbol on
+  // windows) and drew as a white line drawing. a machine with no colour emoji font is skipped, not failed
+  #[test]
+  fn emoji_draw_from_the_colour_font() {
+    use parley::PositionedLayoutItem;
+    use swash::{FontRef, tag_from_bytes};
+    let colour = |f: &FontRef| [b"CBDT", b"COLR", b"sbix"].iter().any(|t| f.table(tag_from_bytes(t)).is_some());
+    if cfg!(unix) {
+      let out = std::process::Command::new("fc-list").args([":charset=1f602:color=true", "family"]).output();
+      if !out.is_ok_and(|o| o.status.success() && !o.stdout.is_empty()) {
+        eprintln!("skipped: no colour emoji font here");
+        return;
+      }
+    }
+    let mut t = Text::new(1.0);
+    for e in ["😂", "🔥", "👍🏽", "🇯🇵", "❤\u{fe0f}", "1\u{fe0f}\u{20e3}", "🏳\u{fe0f}\u{200d}🌈"] {
+      let s = format!("ab {e} cd");
+      let l = t.layout(&s, &[], &[], 600.0);
+      let at = s.find(e).unwrap();
+      let mut seen = false;
+      for line in l.lines() {
+        for item in line.items() {
+          let PositionedLayoutItem::GlyphRun(gr) = item else { continue };
+          let run = gr.run();
+          if !run.text_range().contains(&at) {
+            continue;
+          }
+          let font = run.font();
+          let f = FontRef::from_index(font.data.data(), font.index as usize).unwrap();
+          assert!(colour(&f), "{e:?} drew from a font with no colour glyphs");
+          seen = true;
+        }
+      }
+      assert!(seen, "{e:?} not laid out");
+    }
+    // a plain-text symbol keeps the text font: ❤ with no selector is a text heart
+    let l = t.layout("ab ❤ cd", &[], &[], 600.0);
+    for line in l.lines() {
+      for item in line.items() {
+        let PositionedLayoutItem::GlyphRun(gr) = item else { continue };
+        let font = gr.run().font();
+        let f = FontRef::from_index(font.data.data(), font.index as usize).unwrap();
+        assert!(!colour(&f), "a text heart drew in colour");
+      }
+    }
   }
 }
