@@ -365,6 +365,19 @@ fn avatars_off_ask_for_nothing_and_hold_no_room() {
   assert_eq!(n, 0);
 }
 
+// a superchat's row is support: the navy fill every paid event wears, as in the ext
+#[test]
+fn a_youtube_superchat_row_wears_the_support_fill() {
+  let line = |kind: &str| {
+    crate::net::relay::youtube(
+      &serde_json::json!({"type": kind, "user": "@redacted3", "text": "hi", "amount": "$4.99"}),
+    )
+    .unwrap()
+  };
+  assert_eq!(fill::of(&line("superchat"), 0).map(|f| f.bg), Some(theme::FILL_NAVY));
+  assert!(fill::of(&line("text"), 0).is_none(), "a plain line gets none");
+}
+
 // a youtube chatter's picture rides in with the line: no ask is made, the stand-in holds the box until it lands,
 // and an older line of the same name picks it up too
 #[test]

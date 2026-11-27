@@ -228,10 +228,7 @@ fn apart(body: &str, emotes: &mut [(std::ops::Range<u32>, Box<str>)]) -> String 
 // live `youtube:chat.messages[]` / `/api/recent/youtube` rows
 pub fn youtube(v: &Value) -> Option<Message> {
   let nick = str_of(v, "user").or_else(|| str_of(v, "display_name")).or_else(|| str_of(v, "sender"))?;
-  let mut body = clamp(str_of(v, "text").or_else(|| str_of(v, "message")).unwrap_or(""), MAX_TEXT).to_owned();
-  if let Some(a) = str_of(v, "amount") {
-    body = format!("[{}] {body}", clamp(a, 32));
-  }
+  let body = clamp(str_of(v, "text").or_else(|| str_of(v, "message")).unwrap_or(""), MAX_TEXT).to_owned();
   let mut m = base(Platform::Youtube, str_of(v, "id").unwrap_or(""), nick, nick, str_of(v, "color"), body, ts(v));
   // youtube has no name colour of its own: a chatter with none wears heatsync's palette, as in the ext and the site
   if str_of(v, "color").and_then(color::parse_hex).is_none() {
@@ -266,7 +263,17 @@ pub fn youtube(v: &Value) -> Option<Message> {
   m.body = apart(&m.body, &mut emotes).into();
   emotes.retain(|(r, _)| !r.is_empty());
   m.emotes = emotes.into();
-  if m.body.is_empty() {
+  // a paid line or a member's news is an event row, the way twitch's sub is: its words over the sender's own
+  // line, or alone when they typed nothing. youtube's other system lines stay plain
+  if let Some((said, notice)) = yt_event(v, &m.nick) {
+    m.extra().notice = notice;
+    if m.body.is_empty() {
+      m.kind = Kind::System;
+      m.body = said.into();
+    } else {
+      m.system = Some(said.into());
+    }
+  } else if m.body.is_empty() {
     let sys = str_of(v, "systemMsg")?;
     m.kind = Kind::System;
     m.body = clamp(sys, MAX_TEXT).into();
@@ -274,6 +281,37 @@ pub fn youtube(v: &Value) -> Option<Message> {
     m.system = Some(clamp(sys, MAX_TEXT).into());
   }
   Some(m)
+}
+
+// what a superchat, super sticker, new member, member milestone or membership gift announces, and what kind of row it is
+// (the ext's dispatchYtStreamEvent). a milestone and a gift keep youtube's own words, which already name the sender
+fn yt_event(v: &Value, nick: &str) -> Option<(String, Notice)> {
+  let who: String = nick.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+  let amount = str_of(v, "amount").map_or("", |a| clamp(a, 32).trim());
+  let said = |key: &str| f(key, &[("who", &who), ("amount", amount)]).trim().to_owned();
+  let sys = str_of(v, "systemMsg").map(|t| clamp(t, MAX_TEXT).trim()).filter(|t| !t.is_empty());
+  match str_of(v, "type")? {
+    "superchat" => Some((said("net1.relay.yt_superchat"), Notice::Bits)),
+    "supersticker" => Some((said("net1.relay.yt_sticker"), Notice::Bits)),
+    "membership" => match sys.filter(|t| yt_milestone(t)) {
+      Some(t) => Some((t.to_owned(), Notice::Milestone)),
+      None => Some((said("net1.relay.yt_member"), Notice::Sub)),
+    },
+    "giftpurchase" => sys.map(|t| (t.to_owned(), Notice::Sub)),
+    _ => None,
+  }
+}
+
+// "bob: Member for 11 months" is a renewal, "bob became a member" a join (the ext's classifyYtMembership)
+fn yt_milestone(sys: &str) -> bool {
+  let l = sys.to_lowercase();
+  let w: Vec<&str> = l.split_whitespace().collect();
+  l.contains("member for")
+    || w.windows(2).any(|p| {
+      !p[0].is_empty()
+        && p[0].bytes().all(|b| b.is_ascii_digit())
+        && (p[1].starts_with("month") || p[1].starts_with("year"))
+    })
 }
 
 // the picture each youtube chatter in a frame wears, once per name (a frame carries it on every line). keyed the
@@ -366,10 +404,10 @@ mod tests {
 
   #[test]
   fn youtube_emoji_superchat_system() {
-    let v = json!({"id": "y", "user": "Al", "text": "yo :smile: :smile:", "amount": "$5.00", "timestamp": 9,
-      "emotes": [{"alt": ":smile:", "url": "https://yt3.ggpht.com/abc=w24-h24-c-k-nd"}]});
+    let v = json!({"id": "y", "type": "superchat", "user": "Al", "text": "yo :smile: :smile:", "amount": "$5.00",
+      "timestamp": 9, "emotes": [{"alt": ":smile:", "url": "https://yt3.ggpht.com/abc=w24-h24-c-k-nd"}]});
     let m = youtube(&v).unwrap();
-    assert!(m.body.starts_with("[$5.00] "));
+    assert!(m.body.starts_with("yo "), "the amount is the event's words, not part of the line");
     assert_eq!(m.emotes.len(), 2);
     assert!(m.emotes[0].1.contains("=w48-h48-c-k-nd"));
     let s = youtube(&json!({"user": "Bo", "text": "", "systemMsg": "Bo became a member"})).unwrap();
@@ -427,6 +465,59 @@ mod tests {
     assert_eq!(got, [("@alpha_one", face), ("@delta", "https://yt3.ggpht.com/dddd=s64-c-k")]);
     assert_eq!(got[0].0, &*youtube(&list[0]).unwrap().login, "the line finds its picture by its own login");
     assert!(youtube_faces(None).is_empty());
+  }
+
+  // a real superchat (names redacted): the amount and the sender's line were one chat line with "[$4.99] " in
+  // front. now the words are an event row's, the sender's own line stays theirs, and with nothing typed the words
+  // stand alone. a superchat is paid support, the same kind of row as kick's KICKs
+  #[test]
+  fn a_youtube_superchat_is_an_event_row_over_the_senders_own_line() {
+    let v = json!({"type": "superchat", "user": "@redacted3", "text": "Go Niners!!", "emotes": [],
+      "timestamp": 1795818835255_i64, "videoId": "vvvvvvvvvvv", "amount": "$4.99", "color": "#00bfa5",
+      "authorChannelId": "UC0000000000000000000003", "avatar": "https://yt4.ggpht.com/redacted3=s64-c-k-c0x00ffffff-no-rj",
+      "id": "ChwKGkRFREFDVEVE3"});
+    let m = youtube(&v).unwrap();
+    assert_eq!((m.kind, m.notice(), &*m.body), (Kind::Chat, Notice::Bits, "Go Niners!!"));
+    assert_eq!(m.system.as_deref(), Some("@redacted3 superchat $4.99"));
+    assert_eq!((&*m.id, m.color), ("ChwKGkRFREFDVEVE3", 0x00bfa5), "still a line to reply to, in the tier's colour");
+    let mut quiet = v.clone();
+    quiet["text"] = json!("");
+    let q = youtube(&quiet).unwrap();
+    assert_eq!((q.kind, q.notice(), &*q.body), (Kind::System, Notice::Bits, "@redacted3 superchat $4.99"));
+    assert!(q.system.is_none());
+  }
+
+  // the other paid and member lines, in the shapes the server's parsers make (no real frame of these in the capture):
+  // a sticker, a new member, a renewal, a membership gift. a gift's recipient line and a jewel gift stay plain
+  #[test]
+  fn a_youtube_sticker_member_and_gift_are_event_rows_too() {
+    let sticker =
+      youtube(&json!({"type": "supersticker", "user": "@Zed", "text": "", "amount": "$2.00", "id": "s"})).unwrap();
+    assert_eq!(
+      (sticker.kind, sticker.notice(), &*sticker.body),
+      (Kind::System, Notice::Bits, "@Zed super sticker $2.00")
+    );
+    let join =
+      json!({"type": "membership", "user": "@Zed", "text": "", "systemMsg": "@Zed became a member", "id": "m"});
+    let m = youtube(&join).unwrap();
+    assert_eq!((m.kind, m.notice(), &*m.body), (Kind::System, Notice::Sub, "@Zed became a member"));
+    let renewal =
+      json!({"type": "membership", "user": "@Zed", "text": "6 months!", "systemMsg": "@Zed: Member for 6 months"});
+    let r = youtube(&renewal).unwrap();
+    assert_eq!((r.kind, r.notice(), &*r.body), (Kind::Chat, Notice::Milestone, "6 months!"));
+    assert_eq!(r.system.as_deref(), Some("@Zed: Member for 6 months"));
+    let gift = json!({"type": "giftpurchase", "user": "@Zed", "text": "", "systemMsg": "@Zed gifted 5 memberships"});
+    let g = youtube(&gift).unwrap();
+    assert_eq!((g.kind, g.notice(), &*g.body), (Kind::System, Notice::Sub, "@Zed gifted 5 memberships"));
+    assert!(youtube(&json!({"type": "giftpurchase", "user": "@Zed", "text": ""})).is_none(), "nothing to say");
+    for plain in ["giftredemption", "gift"] {
+      let p = youtube(&json!({"type": plain, "user": "@Zed", "text": "", "systemMsg": "@Zed was gifted a membership"}))
+        .unwrap();
+      assert_eq!((p.kind, p.notice()), (Kind::System, Notice::Plain), "{plain}");
+    }
+    // a name with a line break in it stays one line
+    let odd = youtube(&json!({"type": "superchat", "user": "a\nb", "text": "", "amount": "$1.00"})).unwrap();
+    assert_eq!(&*odd.body, "a b superchat $1.00");
   }
 
   // a real text line (names redacted): youtube sends no colour for a chatter, and the ext and the site paint such a
