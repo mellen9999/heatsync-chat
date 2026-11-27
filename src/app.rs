@@ -106,6 +106,8 @@ mod tests_findbar;
 #[cfg(test)]
 mod tests_font;
 #[cfg(test)]
+mod tests_ghost;
+#[cfg(test)]
 mod tests_gif;
 #[cfg(test)]
 mod tests_hsorigin;
@@ -337,6 +339,8 @@ pub struct App {
   vouches: crate::heatsync::vouches::Vouches,
   // the tab tooltip or a suggestion list sat over the chat last frame (repaint under it)
   over_input: bool,
+  // where the floating overlays (menus, cards, peeks, tips) were drawn last frame: that rect repaints under them
+  over_last: Option<Rect>,
   sug: suggest::SuggestUi,
   // where the box's text was last drawn (a click places the cursor)
   input_hit: Option<input_bar::Hit>,
@@ -627,6 +631,7 @@ impl App {
       login_link: None,
       hover: Default::default(),
       over_input: false,
+      over_last: None,
       sug: Default::default(),
       peek: None,
       media_peek: None,

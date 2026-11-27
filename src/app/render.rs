@@ -44,8 +44,35 @@ impl App {
     (segs, cmd)
   }
 
+  // an overlay drew over `r` last frame and may be gone or moved now: whatever strip it touched paints again
+  // (the chat view repaints under any open overlay already; the bars above and below it only on a change)
+  fn repaint_under(&mut self, r: Rect) {
+    let hit = |a: Rect| a.h > 0 && !a.intersect(r).is_empty();
+    if hit(self.pin_area()) {
+      self.pin_bar.sig = Default::default();
+    }
+    if hit(self.pred_area()) {
+      self.pred_bar.sig = Default::default();
+    }
+    if hit(self.find_area()) {
+      self.find.sig = None;
+    }
+    if hit(self.input_area()) {
+      self.input_dirty = true;
+    }
+    if hit(self.bar()) {
+      self.bar_dirty = true;
+    }
+    if let Some(t) = self.tabs.get_mut(self.active) {
+      t.view.invalidate();
+    }
+  }
+
   pub(super) fn redraw(&mut self) {
     self.card_room_sync();
+    if let Some(r) = self.over_last.take() {
+      self.repaint_under(r);
+    }
     let mut dirty: Option<Rect> = None;
     let (label, showcmd) = self.mode_line();
     let hidden_now = self.hidden();
@@ -327,33 +354,38 @@ impl App {
         dirty = add(dirty, r);
       }
     }
+    let mut over: Option<Rect> = None;
     if let Some(r) = self.draw_over_input() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_card() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_menu() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_tab_menu() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_pop() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_peek() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_tag_peek() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_media_peek() {
-      dirty = Some(dirty.map_or(r, |d| union(d, r)));
+      over = Some(over.map_or(r, |o| union(o, r)));
     }
     if let Some(r) = self.draw_tip() {
+      over = Some(over.map_or(r, |o| union(o, r)));
+    }
+    if let Some(r) = over {
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
+    self.over_last = over;
     for t in [self.tip_next, self.input_next].into_iter().flatten() {
       self.next_anim = Some(self.next_anim.map_or(t, |n| n.min(t)));
     }
