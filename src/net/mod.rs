@@ -107,6 +107,12 @@ pub enum NetEvent {
     msgs: Vec<Message>,
     history: bool,
   },
+  // a youtube room's backlog as the relay sent it on subscribe: richer than the archive's copies of the same
+  // lines (superchat amounts, member art, emoji), which it takes the place of where they already show
+  Replay {
+    key: Box<str>,
+    msgs: Vec<Message>,
+  },
   // a person removed from a relayed room: timed out for `secs`, or banned (None)
   RelayClear {
     platform: Platform,

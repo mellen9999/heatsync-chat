@@ -298,6 +298,7 @@ macro_rules! opts {
 
 mod clear;
 mod draw;
+mod enrich;
 mod fill;
 mod gif;
 mod heat;

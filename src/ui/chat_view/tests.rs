@@ -1255,6 +1255,33 @@ fn a_gap_is_filled_in_time_order_without_doubling_a_line() {
   assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
 }
 
+// youtube's own backlog meets the archive's lean copy of the same lines: where a line is already up as history
+// the richer one takes its place (greyed stays grey), a line not up yet goes in by its time, a line that was said
+// live is left as it is, and a second backlog changes nothing more
+#[test]
+fn a_richer_history_line_takes_the_place_of_its_lean_copy() {
+  let hist = |id: &str, ts: i64, body: &str| {
+    let mut m = at(id, ts);
+    m.body = body.into();
+    m.flags |= flag::HISTORY;
+    m
+  };
+  let mut v = ChatView::new(50, "c".into());
+  v.prepend(vec![hist("a", 10, "lean a"), hist("b", 20, "lean b"), hist("c", 30, "lean c")]);
+  v.push(at("live", 100));
+  v.clear_msg("b");
+  let rich = vec![hist("b", 20, "rich b"), hist("c", 30, "rich c"), hist("d", 40, "rich d"), hist("live", 100, "late")];
+  v.enrich(rich.clone());
+  assert_eq!(ids(&v), ["a", "b", "c", "d", "live"]);
+  assert_eq!(v.bodies(), ["lean a", "rich b", "rich c", "rich d", "live"]);
+  assert!(v.rows[1].msg.has(flag::CLEARED), "a line a mod took back stays grey");
+  assert!(v.rows.iter().all(|r| r.laid.is_none()), "the swapped lines are laid out again");
+  v.enrich(rich);
+  assert_eq!(v.len(), 5, "a second backlog adds nothing");
+  let seqs: Vec<i64> = v.rows.iter().map(|r| r.seq).collect();
+  assert!(seqs.windows(2).all(|w| w[1] == w[0] + 1), "{seqs:?}");
+}
+
 #[test]
 fn a_gap_fill_keeps_the_picked_line_and_the_cap() {
   let mut res = Res::new(1.0);

@@ -25,6 +25,25 @@ impl App {
     self.trim_soon();
   }
 
+  // youtube's own backlog of a room, which the relay sends on subscribe: the room's history, richer than the
+  // archive's copies of the same lines, which it takes the place of where they already show
+  pub(super) fn on_replay(&mut self, key: &str, mut msgs: Vec<Message>) {
+    for m in &mut msgs {
+      m.flags |= flag::HISTORY;
+      self.res.chatters.heard(m);
+      self.scan_mention(Platform::Youtube, key, m);
+      self.hs_origin(Platform::Youtube, key, m);
+      self.leg_echo(Platform::Youtube, key, m);
+    }
+    for i in self.tabs_with(Platform::Youtube, key) {
+      self.tabs[i].chat().enrich(msgs.clone());
+      if i == self.active {
+        self.wake();
+      }
+    }
+    self.trim_soon();
+  }
+
   // esc while a sign-in waits on the browser gives it up. true = the key was that
   pub(super) fn login_esc(&mut self, k: &Key<&str>) -> bool {
     if !self.login_wait || *k != Key::Named(NamedKey::Escape) {
@@ -79,6 +98,51 @@ mod tests {
     // a feed with no tab is nobody's business
     app.on_net(NetEvent::CatchUp { platform: Platform::Twitch, key: "nobody".into(), msgs: vec![line("z", 99, "z")] });
     assert_eq!(shown(&mut app).len(), 5);
+  }
+
+  // a youtube tab opens on the archive's lean fifty and the relay's own backlog lands (before or after): the
+  // lines they share end as the rich copy, with its emoji pictures, in either order. real rows, names redacted
+  #[test]
+  fn the_relays_backlog_and_the_archives_lines_end_as_one_rich_history() {
+    use crate::net::relay;
+    use serde_json::json;
+    let archive = |id: &str, ts: &str, text: &str| json!({"id": id, "ts": ts, "channel": "uc0", "sender": "@redacted1", "display_name": "@Redacted1", "text": text});
+    let live = |id: &str, ts: i64, text: &str| {
+      json!({"type": "text", "id": id, "user": "@Redacted1", "text": text, "timestamp": ts, "videoId": "vvvvvvvvvvv",
+        "emotes": [{"type": "emoji", "alt": ":_EMOTE:", "url": "https://yt3.ggpht.com/redacted=w24-h24-c-k-nd"}]})
+    };
+    for backlog_first in [false, true] {
+      let net_app = Net::tap();
+      let mut app = App::new(net_app.0, vec!["yt:@abc".into()], false);
+      app.dpi = 1.0;
+      app.res.set_scale(app.scale());
+      app.resized(720, 400);
+      let rows = || {
+        json!([
+          archive("a", "2026-11-27T22:35:38.122Z", ":_EMOTE: hi"),
+          archive("z", "2026-11-27T22:35:30.000Z", "old")
+        ])
+      };
+      let archived = relay::batch(Some(&rows()), relay::youtube);
+      let backlog = relay::batch(
+        Some(&json!([live("a", 1795818938122, ":_EMOTE: hi"), live("b", 1795818939000, ":_EMOTE:")])),
+        relay::youtube,
+      );
+      let (hist, replay) = (
+        NetEvent::Relay { platform: Platform::Youtube, key: "@abc".into(), msgs: archived, history: true },
+        NetEvent::Replay { key: "@abc".into(), msgs: backlog },
+      );
+      if backlog_first {
+        app.on_net(replay);
+        app.on_net(hist);
+      } else {
+        app.on_net(hist);
+        app.on_net(replay);
+      }
+      let i = app.tabs.iter().position(|t| t.sources.iter().any(|s| s.0 == Platform::Youtube)).unwrap();
+      let got: Vec<_> = app.tabs[i].chat().msgs().map(|m| (m.id.to_string(), m.emotes.len())).collect();
+      assert_eq!(got, [("z".into(), 0), ("a".into(), 1), ("b".into(), 1)], "backlog first: {backlog_first}");
+    }
   }
 
   #[test]

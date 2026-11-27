@@ -320,16 +320,21 @@ fn a_live_grid_broadcast_for_a_channel_without_a_tab_is_dropped() {
 }
 
 #[test]
-fn a_youtube_replay_fills_the_gap_after_a_drop_but_is_dropped_on_a_first_socket() {
+fn a_youtube_replay_is_history_on_a_first_socket_and_fills_the_gap_after_a_drop() {
   let (tx, rx) = std::sync::mpsc::channel();
   let out = Out::Pipe(tx);
   let mut st = State::default();
   apply(&mut st, Cmd::YtSub("@Chan".into()));
+  // a real subscribe backlog (names redacted): the relay's own lines carry what the archive's copies lack, a
+  // superchat's amount, the member badge's art, the emoji pictures
   let replay = json!({"type": "youtube:chat", "channelId": "@chan", "replay": true,
-    "messages": [{"id": "m1", "user": "al", "text": "hi", "timestamp": 5}, {"user": "bo", "text": "no id"}]});
-  // first socket: the backlog is history's job (/api/recent), not ours
+    "messages": [{"id": "m1", "type": "superchat", "user": "@redacted1", "text": "hi", "amount": "$4.99",
+      "color": "#00bfa5", "timestamp": 5}, {"user": "bo", "text": "no id"}]});
+  // first socket: the backlog is the room's history, id-less lines left out (nothing to match them by)
   assert!(resubscribed(&st).is_empty());
   dispatch(&replay, &mut st, &out);
+  let Ok(NetEvent::Replay { key, msgs }) = rx.try_recv() else { panic!("no replay") };
+  assert_eq!((&*key, msgs.len(), &*msgs[0].id), ("@chan", 1, "m1"));
   assert!(rx.try_recv().is_err());
   // after a drop the same replay is what was said meanwhile: kept by id, the id-less line is not
   st.resumed = true;
@@ -339,15 +344,20 @@ fn a_youtube_replay_fills_the_gap_after_a_drop_but_is_dropped_on_a_first_socket(
   let Ok(NetEvent::CatchUp { platform, key, msgs }) = rx.try_recv() else { panic!("no catch-up") };
   assert_eq!((platform, &*key, msgs.len()), (Platform::Youtube, "@chan", 1));
   assert_eq!(&*msgs[0].id, "m1");
-  // a feed that wasn't re-subscribed (added since) is still dropped, and live batches go as before
+  // a feed that wasn't re-subscribed (added since) is on its first subscribe: history, and live batches go as before
   let other = json!({"type": "youtube:chat", "channelId": "@new", "replay": true,
     "messages": [{"id": "x", "user": "al", "text": "hi"}]});
   dispatch(&other, &mut st, &out);
-  assert!(rx.try_recv().is_err());
+  assert!(matches!(rx.try_recv(), Ok(NetEvent::Replay { .. })));
   let live =
     json!({"type": "youtube:chat", "channelId": "@chan", "messages": [{"id": "m2", "user": "al", "text": "yo"}]});
   dispatch(&live, &mut st, &out);
   assert!(matches!(rx.try_recv(), Ok(NetEvent::Relay { history: false, .. })));
+  // a backlog of nothing readable says nothing
+  let empty =
+    json!({"type": "youtube:chat", "channelId": "@new", "replay": true, "messages": [{"user": "bo", "text": "x"}]});
+  dispatch(&empty, &mut st, &out);
+  assert!(rx.try_recv().is_err());
 }
 
 #[test]

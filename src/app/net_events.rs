@@ -941,6 +941,7 @@ impl App {
       }
       NetEvent::Relay { platform, key, msgs, history } => self.on_relay(platform, &key, msgs, history),
       NetEvent::CatchUp { platform, key, msgs } => self.on_catch_up(platform, &key, msgs),
+      NetEvent::Replay { key, msgs } => self.on_replay(&key, msgs),
       NetEvent::LoginWait(on) => self.login_wait = on,
       NetEvent::Lock(p, key, cause) => self.lock_told(p, &key, cause),
       NetEvent::Unsent(id) => self.give_back(&id),

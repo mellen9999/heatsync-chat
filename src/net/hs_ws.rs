@@ -106,7 +106,7 @@ struct State {
   authed: bool,
   socket_authed: bool,
   // youtube feeds this socket re-subscribed after a drop: their replayed backlog fills the gap
-  // (lowercase). on a first socket the replay is dropped, history comes from /api/recent
+  // (lowercase). a first subscribe's replay is the room's history instead
   catching: BTreeSet<Box<str>>,
   // frame types nothing reads, with how many came (more.rs): a missing arm is visible
   unknown: HashMap<Box<str>, u32>,
@@ -507,17 +507,20 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "youtube:chat" => {
       let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
-      // a fresh subscribe replays the whole backlog; history comes from /api/recent instead. after a
-      // drop that backlog is the way to see what was said meanwhile: it fills the gap, by id
+      // a subscribe replays the room's backlog. on a first subscribe it is the room's history, richer than the
+      // archive's copies of the same lines (superchat amounts, member art, emoji, faces). after a drop it is
+      // the way to see what was said meanwhile: it fills the gap, by id
       if v.get("replay").and_then(Value::as_bool) == Some(true) {
-        if !st.catching.contains(&*key.to_ascii_lowercase()) {
-          return None;
-        }
         let msgs: Vec<_> =
           relay::batch(v.get("messages"), relay::youtube).into_iter().filter(|m| !m.id.is_empty()).collect();
-        return (!msgs.is_empty())
-          .then(|| send(NetEvent::CatchUp { platform: Platform::Youtube, key, msgs }))
-          .flatten();
+        if msgs.is_empty() {
+          return None;
+        }
+        return if st.catching.contains(&*key.to_ascii_lowercase()) {
+          send(NetEvent::CatchUp { platform: Platform::Youtube, key, msgs })
+        } else {
+          send(NetEvent::Replay { key, msgs })
+        };
       }
       let msgs = relay::batch(v.get("messages"), relay::youtube);
       send(NetEvent::Relay { platform: Platform::Youtube, key, msgs, history: false })
