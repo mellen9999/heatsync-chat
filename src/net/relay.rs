@@ -242,8 +242,10 @@ pub fn youtube(v: &Value) -> Option<Message> {
   m.badges = crate::badges::relay::youtube(v.get("badges"));
   let mut emotes: Vec<(std::ops::Range<u32>, Box<str>)> = Vec::new();
   let mut seen: Vec<&str> = Vec::new();
-  // the frame names a code once per use: place each distinct code once, at every spot it stands
-  for e in v.get("emotes").and_then(Value::as_array).into_iter().flatten().take(50) {
+  // the frame names a code once per use: place each distinct code once, at every spot it stands. an archive row
+  // (`/api/recent`) keeps the same list under `emote_refs.emotes`
+  let named = v.get("emotes").or_else(|| v.get("emote_refs").and_then(|r| r.get("emotes")));
+  for e in named.and_then(Value::as_array).into_iter().flatten().take(50) {
     let (Some(alt), Some(url)) = (str_of(e, "alt"), str_of(e, "url").and_then(yt_url)) else { continue };
     if alt.is_empty() || seen.contains(&alt) {
       continue;
@@ -401,6 +403,28 @@ mod tests {
     assert_eq!(youtube(&sc).unwrap().color, 0x00bfa5);
     // kick keeps its own: the frame colour, else twitch's default for the login
     assert_eq!(kick(&json!({"username": "Alpha_One", "content": "x"})).unwrap().color, color::default_for("alpha_one"));
+  }
+
+  // a real `/api/recent/youtube` row (names redacted): the archive keeps the line's emoji pictures under
+  // `emote_refs.emotes` where the live frame has `emotes`. history drew every one of them as its `:code:` text
+  #[test]
+  fn an_archived_youtube_line_keeps_its_emoji_pictures() {
+    let row = json!({"id": "ChwKGkRFREFDVEVE9", "ts": "2026-11-27T22:36:09.032Z", "channel": "uc000000000000000000000000",
+      "sender": "@redacted9", "display_name": "@Redacted9", "text": ":_EMOTE::_EMOTE: hi",
+      "badges": [{"name": "member", "version": "1"}],
+      "emote_refs": {"emotes": [
+        {"alt": ":_EMOTE:", "url": "https://yt3.ggpht.com/redacted=w24-h24-c-k-nd", "type": "emoji"},
+        {"alt": ":_EMOTE:", "url": "https://yt3.ggpht.com/redacted=w24-h24-c-k-nd", "type": "emoji"}]}});
+    let m = youtube(&row).unwrap();
+    assert_eq!(&*m.body, ":_EMOTE: :_EMOTE: hi");
+    let words: Vec<_> = m.emotes.iter().map(|(r, _)| &m.body[r.start as usize..r.end as usize]).collect();
+    assert_eq!(words, [":_EMOTE:", ":_EMOTE:"]);
+    assert!(m.emotes[0].1.ends_with("=w48-h48-c-k-nd"));
+    // a row whose refs are anything else (a heatsync pick map, junk) adds no pictures and breaks nothing
+    for refs in [json!({"catJAM": {"p": "7tv", "id": "x"}}), json!({"emotes": "x"}), json!([1, 2]), json!(null)] {
+      let m = youtube(&json!({"user": "Al", "text": ":a: yo", "emote_refs": refs})).unwrap();
+      assert!(m.emotes.is_empty());
+    }
   }
 
   #[test]
