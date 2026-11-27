@@ -233,6 +233,10 @@ pub fn youtube(v: &Value) -> Option<Message> {
     body = format!("[{}] {body}", clamp(a, 32));
   }
   let mut m = base(Platform::Youtube, str_of(v, "id").unwrap_or(""), nick, nick, str_of(v, "color"), body, ts(v));
+  // youtube has no name colour of its own: a chatter with none wears heatsync's palette, as in the ext and the site
+  if str_of(v, "color").and_then(color::parse_hex).is_none() {
+    m.color = color::heatsync_for(&m.login);
+  }
   m.user_id = str_of(v, "authorChannelId").map(|c| clamp(c, 64).into()).unwrap_or_default();
   m.hs = hs_emotes(v.get("hsEmotes"));
   m.badges = crate::badges::relay::youtube(v.get("badges"));
@@ -382,6 +386,21 @@ mod tests {
     .unwrap();
     assert_eq!(m.emotes.len(), MAX_EMOTES);
     assert!(m.emotes.windows(2).all(|w| w[0].0.start < w[1].0.start), "the first fifty, in order");
+  }
+
+  // a real text line (names redacted): youtube sends no colour for a chatter, and the ext and the site paint such a
+  // name from heatsync's palette, not twitch's. the app drew every one of them in twitch's default colours
+  #[test]
+  fn a_youtube_name_with_no_colour_wears_the_heatsync_palette() {
+    let v = json!({"type": "text", "user": "@Alpha_One", "text": "lol", "emotes": [], "timestamp": 1795818269962_i64,
+      "videoId": "vvvvvvvvvvv", "authorChannelId": "UC0000000000000000000000",
+      "avatar": "https://yt4.ggpht.com/aaaa=s64-c-k-c0x00ffffff-no-rj", "id": "ChwKGkNMLXB2N0NZcVpnREZjVW5zd0FkUGRRTkxn"});
+    assert_eq!(youtube(&v).unwrap().color, 0x33d9b2);
+    // a colour the frame names (a superchat's tier) is the line's own
+    let sc = json!({"type": "superchat", "user": "@Alpha_One", "text": "hi", "amount": "$5.00", "color": "#00bfa5"});
+    assert_eq!(youtube(&sc).unwrap().color, 0x00bfa5);
+    // kick keeps its own: the frame colour, else twitch's default for the login
+    assert_eq!(kick(&json!({"username": "Alpha_One", "content": "x"})).unwrap().color, color::default_for("alpha_one"));
   }
 
   #[test]

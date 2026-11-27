@@ -13,6 +13,21 @@ pub fn default_for(login: &str) -> u32 {
   DEFAULTS[(h % DEFAULTS.len() as u32) as usize]
 }
 
+// heatsync's own name colors, for people with none of their own (youtube has no native color). picked by
+// djb2 over the lowercased name, the ext's `hsUsernameColor` and the site's `usernameColor` byte for byte, so
+// a chatter is the same color in all three
+const HEATSYNC: [u32; 15] = [
+  0xff7a7a, 0xff9d4d, 0xffd24d, 0xb3e833, 0x5fd75f, 0x33d9b2, 0x5fbfd7, 0x69a8ff, 0xa675ff, 0xd76bcb, 0xff6e9c,
+  0xff8fc0, 0xe57373, 0xf0a23a, 0x7bc46c,
+];
+
+// `login` as the line holds it (lowercased; a youtube name keeps its `@`)
+pub fn heatsync_for(login: &str) -> u32 {
+  // js: h = ((h << 5) + h + charCodeAt(i)) | 0 over utf-16 units, then Math.abs(h) % 15
+  let h = login.encode_utf16().fold(5381i32, |h, c| h.wrapping_shl(5).wrapping_add(h).wrapping_add(c as i32));
+  HEATSYNC[(h.unsigned_abs() as usize) % HEATSYNC.len()]
+}
+
 pub fn parse_hex(s: &str) -> Option<u32> {
   let h = s.strip_prefix('#').filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()))?;
   match h.len() {
@@ -106,6 +121,25 @@ mod tests {
     assert_eq!(parse_hex("#f80"), Some(0xff8800));
     assert_eq!(parse_hex("ff8700"), None);
     assert_eq!(parse_hex("#ggg"), None);
+  }
+
+  // vectors from the ext's `hsUsernameColor` (src/multichat/paints.js): a negative hash, a non-ascii name, utf-16
+  // pairs (an emoji is two units), and a name long enough to wrap 32 bits
+  #[test]
+  fn heatsync_colors_match_the_ext_byte_for_byte() {
+    for (login, want) in [
+      ("@alpha_one", 0x33d9b2),
+      ("@beta-9", 0xff7a7a),
+      ("@gamma.three", 0x33d9b2),
+      ("@delta", 0x5fd75f),
+      ("@😀smile", 0xf0a23a),
+      ("@محمد", 0xff6e9c),
+      ("@zeta1234567890abcdefghijklmnop", 0x5fd75f),
+      ("@éclair", 0xa675ff),
+      ("", 0xff8fc0),
+    ] {
+      assert_eq!(heatsync_for(login), want, "{login}");
+    }
   }
 
   #[test]
