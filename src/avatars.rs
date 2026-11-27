@@ -24,8 +24,8 @@ struct Entry {
 
 #[derive(Default)]
 pub struct Avatars {
-  // twitch, kick: one map each so a read borrows the login instead of building a key
-  maps: [HashMap<Box<str>, Entry>; 2],
+  // twitch, kick, youtube: one map each so a read borrows the login instead of building a key
+  maps: [HashMap<Box<str>, Entry>; 3],
   wanted: Vec<(Platform, Box<str>)>,
 }
 
@@ -33,8 +33,8 @@ fn slot(p: Platform) -> Option<usize> {
   match p {
     Platform::Twitch => Some(0),
     Platform::Kick => Some(1),
-    // youtube lines carry no picture here and no lookup reaches a youtube identity
-    Platform::Youtube => None,
+    // youtube hands over the picture with the line: nothing is ever asked for a youtube name
+    Platform::Youtube => Some(2),
   }
 }
 
@@ -47,6 +47,9 @@ impl Avatars {
   // the picture url for a chatter. an unknown login (or one past its retry time) queues one ask
   pub fn get(&mut self, p: Platform, login: &str) -> Option<&str> {
     let i = slot(p)?;
+    if p == Platform::Youtube {
+      return self.maps[i].get(login).and_then(|e| e.url.as_deref());
+    }
     if !valid(login) {
       return None;
     }
@@ -75,6 +78,16 @@ impl Avatars {
 
   // an answer. true when the picture a line shows may have changed
   pub fn put(&mut self, p: Platform, login: &str, url: Option<Box<str>>) -> bool {
+    if p == Platform::Youtube && !login.is_empty() {
+      // a youtube line brings its own picture: keep it for the name's next lines (the ext's 500-entry cache)
+      let known = self.maps[2].contains_key(login);
+      if !known && url.as_deref().is_some_and(allowed) {
+        if self.maps.iter().map(HashMap::len).sum::<usize>() >= MAX {
+          self.evict();
+        }
+        self.maps[2].insert(login.into(), Entry { url: None, at: Instant::now(), pending: false });
+      }
+    }
     let Some(e) = slot(p).and_then(|i| self.maps[i].get_mut(login)) else { return false };
     // hostile like everything off the wire: only an allowlisted https image is kept
     let url = url.filter(|u| allowed(u));
@@ -165,6 +178,35 @@ mod tests {
     let mut a = Avatars::default();
     assert!(a.get(Platform::Youtube, "bob").is_none());
     assert!(a.take_wanted().is_empty());
+  }
+
+  // a youtube line brings its chatter's picture (names redacted): it is kept for the name's other lines, never asked
+  // for, and only an allowlisted image is kept
+  #[test]
+  fn a_youtube_picture_comes_with_the_line_and_is_kept_for_the_name() {
+    let yt = "https://yt4.ggpht.com/aaaa=s64-c-k-c0x00ffffff-no-rj";
+    let mut a = Avatars::default();
+    assert!(a.get(Platform::Youtube, "@alpha_one").is_none(), "no picture yet: the stand-in");
+    assert!(a.put(Platform::Youtube, "@alpha_one", Some(yt.into())), "older lines of the name redraw");
+    assert_eq!(a.get(Platform::Youtube, "@alpha_one"), Some(yt));
+    assert!(!a.put(Platform::Youtube, "@alpha_one", Some(yt.into())), "the same picture again changes nothing");
+    assert!(a.take_wanted().is_empty(), "youtube is never asked");
+    for bad in [Some("https://evil.example/a.png"), Some("http://yt4.ggpht.com/a"), None] {
+      assert!(!a.put(Platform::Youtube, "@beta", bad.map(Into::into)));
+    }
+    assert!(!a.put(Platform::Youtube, "", Some(yt.into())));
+    assert_eq!(a.len(), 1, "only the good picture made an entry");
+  }
+
+  #[test]
+  fn youtube_names_share_the_five_hundred() {
+    let yt = "https://yt4.ggpht.com/aaaa=s64-c-k";
+    let mut a = Avatars::default();
+    for i in 0..MAX + 20 {
+      a.put(Platform::Youtube, &format!("@n{i}"), Some(yt.into()));
+    }
+    assert_eq!(a.len(), MAX);
+    assert_eq!(a.get(Platform::Youtube, &format!("@n{}", MAX + 19)), Some(yt), "the newest stay");
   }
 
   #[test]

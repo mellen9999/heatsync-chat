@@ -360,6 +360,38 @@ fn a_youtube_replay_is_history_on_a_first_socket_and_fills_the_gap_after_a_drop(
   assert!(rx.try_recv().is_err());
 }
 
+// a youtube frame's lines carry their chatter's picture: it goes ahead of the lines, once per name, so a line
+// lays out with its face. the backlog does the same
+#[test]
+fn a_youtube_frame_hands_over_each_face_ahead_of_its_lines() {
+  let (tx, rx) = std::sync::mpsc::channel();
+  let out = Out::Pipe(tx);
+  let mut st = State::default();
+  let face = "https://yt4.ggpht.com/aaaa=s64-c-k-c0x00ffffff-no-rj";
+  let line = |id: &str, user: &str| json!({"id": id, "user": user, "text": "lol", "avatar": face});
+  let live = json!({"type": "youtube:chat", "channelId": "@chan", "messages": [line("a", "@Alpha"), line("b", "@Alpha"), line("c", "@Beta")]});
+  dispatch(&live, &mut st, &out);
+  let faces: Vec<_> = (0..2)
+    .map(|_| match rx.try_recv() {
+      Ok(NetEvent::Avatar(Platform::Youtube, login, Some(url))) => (login, url),
+      _ => panic!("no face"),
+    })
+    .collect();
+  assert_eq!(faces, [("@alpha".into(), face.into()), ("@beta".into(), face.into())]);
+  let Ok(NetEvent::Relay { msgs, .. }) = rx.try_recv() else { panic!("no lines") };
+  assert_eq!(msgs.len(), 3);
+  assert!(rx.try_recv().is_err());
+  // a backlog's lines bring theirs too, and a frame with no picture sends none
+  let replay = json!({"type": "youtube:chat", "channelId": "@chan", "replay": true, "messages": [line("d", "@Gamma")]});
+  dispatch(&replay, &mut st, &out);
+  assert!(matches!(rx.try_recv(), Ok(NetEvent::Avatar(Platform::Youtube, ..))));
+  assert!(matches!(rx.try_recv(), Ok(NetEvent::Replay { .. })));
+  let bare =
+    json!({"type": "youtube:chat", "channelId": "@chan", "messages": [{"id": "e", "user": "@Zed", "text": "x"}]});
+  dispatch(&bare, &mut st, &out);
+  assert!(matches!(rx.try_recv(), Ok(NetEvent::Relay { .. })));
+}
+
 #[test]
 fn apply_validates_and_dedupes() {
   let mut st = State::default();

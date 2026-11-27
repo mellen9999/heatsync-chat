@@ -365,6 +365,23 @@ fn avatars_off_ask_for_nothing_and_hold_no_room() {
   assert_eq!(n, 0);
 }
 
+// a youtube chatter's picture rides in with the line: no ask is made, the stand-in holds the box until it lands,
+// and an older line of the same name picks it up too
+#[test]
+fn a_youtube_line_wears_the_face_its_frame_brought() {
+  let mut res = Res::new(1.0);
+  res.look.avatars = true;
+  let mut m = said("@alpha_one", "hi");
+  m.platform = Platform::Youtube;
+  let laid = |res: &mut Res| layout_row(res, "c", &m, 0, 400, Opts { ts: false, tags: false, find: None });
+  assert_eq!(laid(&mut res).boxes[0].img, ImgId::MAX, "the stand-in until the picture lands");
+  assert!(res.avatars.take_wanted().is_empty(), "youtube is never asked");
+  assert!(res.avatars.put(Platform::Youtube, "@alpha_one", Some("https://yt4.ggpht.com/aaaa=s64-c-k".into())));
+  let after = laid(&mut res);
+  assert_eq!(after.boxes.len(), 1);
+  assert_ne!(after.boxes[0].img, ImgId::MAX);
+}
+
 #[test]
 fn a_missing_picture_draws_its_letter_in_a_box() {
   let mut res = Res::new(1.0);

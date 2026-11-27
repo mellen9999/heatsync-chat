@@ -507,6 +507,12 @@ fn dispatch(v: &Value, st: &mut State, out: &Out) -> Option<End> {
     }
     "youtube:chat" => {
       let key: Box<str> = v.get("channelId").and_then(Value::as_str).filter(|c| ident::relay_key(c))?.into();
+      // each line carries its chatter's picture: hand them over before the lines, so a line lays out with its face
+      for (login, url) in relay::youtube_faces(v.get("messages")) {
+        if let end @ Some(_) = send(NetEvent::Avatar(Platform::Youtube, login, Some(url))) {
+          return end;
+        }
+      }
       // a subscribe replays the room's backlog. on a first subscribe it is the room's history, richer than the
       // archive's copies of the same lines (superchat amounts, member art, emoji, faces). after a drop it is
       // the way to see what was said meanwhile: it fills the gap, by id

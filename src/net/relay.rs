@@ -276,6 +276,24 @@ pub fn youtube(v: &Value) -> Option<Message> {
   Some(m)
 }
 
+// the picture each youtube chatter in a frame wears, once per name (a frame carries it on every line). keyed the
+// way the line's own login is, so the line finds it. only an allowlisted image reaches the cache
+pub fn youtube_faces(list: Option<&Value>) -> Vec<(Box<str>, Box<str>)> {
+  let Some(a) = list.and_then(Value::as_array) else { return Vec::new() };
+  let mut out: Vec<(Box<str>, Box<str>)> = Vec::new();
+  for v in &a[a.len().saturating_sub(MAX_BATCH)..] {
+    let Some(nick) = str_of(v, "user").or_else(|| str_of(v, "display_name")).or_else(|| str_of(v, "sender")) else {
+      continue;
+    };
+    let Some(url) = str_of(v, "avatar").filter(|u| allowed(u)) else { continue };
+    let login = clamp(nick, MAX_NAME).to_lowercase();
+    if !out.iter().any(|(l, _)| **l == *login) {
+      out.push((login.into(), url.into()));
+    }
+  }
+  out
+}
+
 // bounded list → messages, keeping the newest when oversized
 pub fn batch(list: Option<&Value>, parse: fn(&Value) -> Option<Message>) -> Vec<Message> {
   let Some(a) = list.and_then(Value::as_array) else { return Vec::new() };
@@ -388,6 +406,27 @@ mod tests {
     .unwrap();
     assert_eq!(m.emotes.len(), MAX_EMOTES);
     assert!(m.emotes.windows(2).all(|w| w[0].0.start < w[1].0.start), "the first fifty, in order");
+  }
+
+  // a frame carries the chatter's picture on every line (real shape, names redacted): one per name, in the key the
+  // line's own login uses, and nothing outside the image allowlist
+  #[test]
+  fn a_youtube_frame_names_each_chatters_picture_once() {
+    let face = "https://yt4.ggpht.com/aaaa=s64-c-k-c0x00ffffff-no-rj";
+    let line = |user: &str, avatar: Value| json!({"type": "text", "user": user, "text": "lol", "avatar": avatar});
+    let list = json!([
+      line("@Alpha_One", face.into()),
+      line("@Alpha_One", face.into()),
+      line("@Beta", "https://evil.example/a.png".into()),
+      line("@Gamma", Value::Null),
+      json!({"text": "no name", "avatar": face}),
+      line("@Delta", "https://yt3.ggpht.com/dddd=s64-c-k".into()),
+    ]);
+    let got = youtube_faces(Some(&list));
+    let got: Vec<(&str, &str)> = got.iter().map(|(l, u)| (&**l, &**u)).collect();
+    assert_eq!(got, [("@alpha_one", face), ("@delta", "https://yt3.ggpht.com/dddd=s64-c-k")]);
+    assert_eq!(got[0].0, &*youtube(&list[0]).unwrap().login, "the line finds its picture by its own login");
+    assert!(youtube_faces(None).is_empty());
   }
 
   // a real text line (names redacted): youtube sends no colour for a chatter, and the ext and the site paint such a
