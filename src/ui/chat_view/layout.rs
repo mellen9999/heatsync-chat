@@ -69,8 +69,14 @@ fn chip(
   s.push(' ');
 }
 
+// rows laid out on this thread (tests count them)
+#[cfg(test)]
+thread_local!(pub(crate) static LAYOUTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) });
+
 // `look`: the filters' verdict on the line (model::filter), which picks muting and a rule's fill
 pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width: i32, o: Opts) -> Laid {
+  #[cfg(test)]
+  LAYOUTS.with(|n| n.set(n.get() + 1));
   let Opts { ts, tags, find } = o;
   let muted = look & filter::MUTED != 0;
   // a filled row writes its words white and its chips in the fill's label colour

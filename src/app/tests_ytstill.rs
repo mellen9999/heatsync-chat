@@ -91,3 +91,49 @@ fn every_odd_link_shape_lays_out_and_draws() {
     app.click();
   }
 }
+
+// a burst of moves, then the batch's hover pass: what the event loop does between two batches
+fn batch(app: &mut App, moves: impl Iterator<Item = (i32, i32)>) {
+  for (x, y) in moves {
+    app.pointer_to(x, y);
+  }
+  app.hover_flush();
+}
+
+#[test]
+fn a_burst_of_moves_over_a_still_lays_the_row_out_a_few_times_not_per_move() {
+  let (mut app, _asked) = boot("watch https://youtu.be/dQw4w9WgXcQ?t=5");
+  let at = still(&app).expect("the still is on screen");
+  let before = crate::ui::chat_view::layouts();
+  batch(&mut app, (0..200).map(|i| (at.0 + i % 40, at.1 + i % 30)));
+  let n = crate::ui::chat_view::layouts() - before;
+  eprintln!("layouts for 200 moves: {n}");
+  assert!(n <= 8, "200 moves in one batch laid rows out {n} times");
+}
+
+#[test]
+fn the_pointer_is_a_hand_over_a_still_and_an_arrow_off_it() {
+  let (mut app, _asked) = boot("watch https://youtu.be/dQw4w9WgXcQ?t=5");
+  let at = still(&app).expect("the still is on screen");
+  batch(&mut app, (0..50).map(|i| (at.0 + i % 8, at.1 + i % 8)));
+  assert_eq!(app.cursor, winit::window::CursorIcon::Pointer);
+  let a = app.chat_area();
+  batch(&mut app, (0..50).map(|i| (a.x + 4, a.bottom() - 2 - i % 3)));
+  assert_eq!(app.cursor, winit::window::CursorIcon::Default);
+}
+
+#[test]
+fn a_press_after_moves_in_one_batch_opens_the_link_under_the_last_move() {
+  let (mut app, mut asked) = boot("watch https://youtu.be/dQw4w9WgXcQ?t=5");
+  let at = still(&app).expect("the still is on screen");
+  let a = app.chat_area();
+  while asked.try_recv().is_ok() {}
+  app.pointer_to(a.x + 4, a.bottom() - 2);
+  app.hover_flush();
+  // moves onto the still, then the press in the same batch: the loop flushes before any non-move event
+  app.pointer_to(at.0, at.1);
+  app.hover_flush();
+  app.click();
+  let sent: Vec<_> = std::iter::from_fn(|| asked.try_recv().ok()).collect();
+  assert!(!sent.is_empty(), "the press on the still asked for nothing");
+}

@@ -304,6 +304,11 @@ mod heat;
 mod hit;
 mod hold;
 mod layout;
+// rows laid out on this thread so far (tests count them)
+#[cfg(test)]
+pub(crate) fn layouts() -> u32 {
+  layout::LAYOUTS.with(|n| n.get())
+}
 mod marks;
 mod modify;
 mod react;

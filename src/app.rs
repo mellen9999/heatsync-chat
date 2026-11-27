@@ -383,6 +383,8 @@ pub struct App {
   reply: Option<Reply>,
   // last pointer position (window px), for clicks
   pointer: (i32, i32),
+  // the pointer moved since the hover work last ran (run once per event batch, or before the next event)
+  hover_dirty: bool,
   input_h: i32,
   input_dirty: bool,
   // the hover reply button was mentioned once already this run
@@ -650,6 +652,7 @@ impl App {
       complete: None,
       reply: None,
       pointer: (0, 0),
+      hover_dirty: false,
       input_h: 0,
       input_dirty: true,
       reply_nudged: false,
@@ -881,6 +884,40 @@ impl App {
   }
 }
 
+impl App {
+  // the hover work for the pointer's latest spot: a move only records it, so a burst of moves (a fast
+  // mouse, a touchpad) costs one pass here, not one per event
+  fn pointer_to(&mut self, x: i32, y: i32) {
+    self.pointer = (x, y);
+    self.hover_dirty = true;
+  }
+
+  fn hover_flush(&mut self) {
+    if !std::mem::take(&mut self.hover_dirty) {
+      return;
+    }
+    self.menu_hover();
+    self.tab_menu_hover();
+    self.pop_hover();
+    self.card_hover();
+    self.screen_hover();
+    self.form_hover_move();
+    if self.tour.is_some() {
+      self.wake();
+    }
+    self.bar_hover();
+    self.picker_hover();
+    self.cursor_sync();
+    self.tip_hover();
+    self.input_hover();
+    self.jump_hover();
+    self.modbar_hover();
+    self.chat_hover();
+    self.hold_pointer();
+    self.suggest_hover();
+  }
+}
+
 impl ApplicationHandler<NetEvent> for App {
   fn resumed(&mut self, el: &ActiveEventLoop) {
     if self.gfx.is_some() {
@@ -900,6 +937,10 @@ impl ApplicationHandler<NetEvent> for App {
   }
 
   fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, ev: WindowEvent) {
+    // anything but a move sees the hover state the pointer's last move implies
+    if !matches!(ev, WindowEvent::CursorMoved { .. }) {
+      self.hover_flush();
+    }
     match ev {
       WindowEvent::CloseRequested => {
         self.flush_to_disk();
@@ -931,26 +972,7 @@ impl ApplicationHandler<NetEvent> for App {
         }
       }
       WindowEvent::CursorMoved { position, .. } => {
-        self.pointer = (position.x as i32, position.y as i32);
-        self.menu_hover();
-        self.tab_menu_hover();
-        self.pop_hover();
-        self.card_hover();
-        self.screen_hover();
-        self.form_hover_move();
-        if self.tour.is_some() {
-          self.wake();
-        }
-        self.bar_hover();
-        self.picker_hover();
-        self.cursor_sync();
-        self.tip_hover();
-        self.input_hover();
-        self.jump_hover();
-        self.modbar_hover();
-        self.chat_hover();
-        self.hold_pointer();
-        self.suggest_hover();
+        self.pointer_to(position.x as i32, position.y as i32);
       }
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.click(),
       WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.right_click(),
@@ -1001,6 +1023,7 @@ impl ApplicationHandler<NetEvent> for App {
   }
 
   fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+    self.hover_flush();
     self.sync_ime();
     self.say_store_notes();
     let now = Instant::now();
