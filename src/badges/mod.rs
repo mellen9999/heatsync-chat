@@ -104,24 +104,35 @@ impl Badges {
   // display order: twitch's own (tag order), then bttv, chatterino, ffz; the three third-party sets behind one
   // switch (`on`)
   pub fn for_message<'a>(&'a self, channel: &str, m: &Message, on: bool) -> Vec<&'a Badge> {
+    self.for_badges(channel, &m.badges, m.user_id.parse().ok(), on)
+  }
+
+  // the same for a set of twitch badges and a twitch id that are not the line's own (your kick line, wearing
+  // the badges your twitch self has in the room)
+  pub fn for_badges<'a>(
+    &'a self,
+    channel: &str,
+    badges: &[(Box<str>, Box<str>)],
+    uid: Option<u64>,
+    on: bool,
+  ) -> Vec<&'a Badge> {
     let ch = self.channels.get(channel);
     let room = self.ffz_room.get(channel);
-    let mut out: Vec<&Badge> = m
-      .badges
+    let mut out: Vec<&Badge> = badges
       .iter()
       .filter_map(|(s, v)| {
         let k = key(s, v);
         room.and_then(|r| r.get(&k)).or_else(|| ch.and_then(|c| c.get(&k))).or_else(|| self.global.get(&k))
       })
       .collect();
-    out.extend(self.third_party(m, on));
+    out.extend(self.third_party(uid, on));
     out
   }
 
   // the bttv, chatterino then ffz badges one chatter holds (none when `on` is off)
-  pub fn third_party<'a>(&'a self, m: &Message, on: bool) -> Vec<&'a Badge> {
+  pub fn third_party(&self, uid: Option<u64>, on: bool) -> Vec<&Badge> {
     let mut out = Vec::new();
-    if let (true, Ok(uid)) = (on, m.user_id.parse::<u64>()) {
+    if let (true, Some(uid)) = (on, uid) {
       for ub in [&self.bttv, &self.chatterino, &self.ffz] {
         if let Some(ix) = ub.users.get(&uid) {
           out.extend(ix.iter().filter_map(|&i| ub.list.get(i as usize)));
@@ -171,7 +182,9 @@ mod tests {
     let mut m = Message::system(0, Platform::Twitch, "x");
     m.kind = Kind::Chat;
     m.user_id = "42".into();
-    let urls = |m: &Message, on| bs.third_party(m, on).iter().map(|b| b.url.to_string()).collect::<Vec<_>>();
+    let urls = |m: &Message, on| {
+      bs.third_party(m.user_id.parse().ok(), on).iter().map(|b| b.url.to_string()).collect::<Vec<_>>()
+    };
     assert_eq!(urls(&m, true), ["bttv", "chat", "ffz"]);
     assert!(urls(&m, false).is_empty(), "off: none of the three");
     m.user_id = "43".into();

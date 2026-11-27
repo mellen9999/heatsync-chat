@@ -119,6 +119,8 @@ pub struct Res {
   pub chatters: Chatters,
   pub logo: Logo,
   pub look: Look,
+  // your own twitch look per room, lent to your kick and youtube lines
+  pub own: crate::model::own_look::Own,
   // link previews under chat lines, per link
   pub previews: crate::model::preview::Previews,
   // inline pictures under chat lines (ext mediaEmbedsEnabled)
@@ -133,6 +135,7 @@ impl Res {
     Self {
       logo: Logo::new(text.line_px as u32),
       look: Look::default(),
+      own: Default::default(),
       text,
       images: Images::new(scale),
       emotes: Emotes::default(),

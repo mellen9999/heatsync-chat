@@ -31,4 +31,12 @@ impl ChatView {
     self.stale |= any;
     any
   }
+
+  // your twitch look in a room changed: your kick and youtube lines are laid out again (model::own_look)
+  pub fn touch_own(&mut self) {
+    for r in self.rows.iter_mut().filter(|r| r.msg.platform != Platform::Twitch && r.msg.kind.said()) {
+      Self::touch(r);
+      self.stale = true;
+    }
+  }
 }

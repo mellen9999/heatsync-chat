@@ -94,6 +94,9 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   // a line copied into another tab (mentions) still resolves against its own room
   let x = m.x.as_deref();
   let chan = room(m, chan);
+  // your own line on kick or youtube wears the look your twitch self has in this room (model::own_look)
+  let own = res.senders.own_twitch(m).and_then(|(_, id)| res.own.get(chan).map(|o| (id, o.clone())));
+  let color = own.as_ref().map_or(m.color, |(_, o)| o.color);
   let dim = |s: &mut String, spans: &mut Vec<Span>, t: &str| {
     let a = s.len();
     s.push_str(t);
@@ -255,7 +258,17 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
       frames.push((a..s.len(), Frame::Bits));
       s.push(' ');
     }
-    badges(res, chan, m, &mut s, &mut spans, &mut ib, &mut boxes, &mut frames);
+    badges(
+      res,
+      chan,
+      m,
+      own.as_ref().filter(|(_, o)| !o.badges.is_empty()),
+      &mut s,
+      &mut spans,
+      &mut ib,
+      &mut boxes,
+      &mut frames,
+    );
     // a filled row sets the name on a black plate (drawn behind it); its pad is room in the text
     if fill.is_some() {
       cut = res.images.px(theme::CUT_PAD_X) as i32;
@@ -273,7 +286,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
       Some((uid, paint))
     });
     let tag = if painted.is_some() { Ink::PAINTED } else { 0 };
-    let name_ink = res.look.ink(m.color);
+    let name_ink = res.look.ink(color);
     spans.push(Span { range: n0..s.len(), ink: Ink(name_ink | tag), bold: true });
     if let Some(uid) = PaintId::of_message(m) {
       super::marks::after_name(res, &uid, &mut s, &mut spans, &mut ib);
@@ -459,7 +472,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   if let Some((uid, paint)) = painted
     && let Some((x, w, baseline)) = painted_run(&layout, &nick)
   {
-    names.push(PaintedName { uid, nick: m.nick.clone(), color: res.look.ink(m.color), paint, x, w, baseline });
+    names.push(PaintedName { uid, nick: m.nick.clone(), color: res.look.ink(color), paint, x, w, baseline });
   }
   for n in &mentions {
     if let (Some(uid), Some(paint)) = (&n.paint, &n.art)
@@ -843,6 +856,7 @@ pub(super) fn badges(
   res: &mut Res,
   chan: &str,
   m: &Message,
+  own: Option<&(u64, crate::model::own_look::Look)>,
   s: &mut String,
   spans: &mut Vec<Span>,
   ib: &mut Vec<InlineBox>,
@@ -862,7 +876,10 @@ pub(super) fn badges(
     frames.push((a..s.len(), Frame::Chip(ink)));
     ib.push(gap(s.len(), two));
   };
-  let all = if matches!(m.platform, Platform::Kick | Platform::Youtube) {
+  let all = if let Some((id, o)) = own {
+    // your twitch self's badges, as a twitch line of yours would draw them
+    res.badges.for_badges(chan, &o.badges, Some(*id), look.third_badges)
+  } else if matches!(m.platform, Platform::Kick | Platform::Youtube) {
     // kick + youtube: roles in order, each a picture (kick sub art) or its word. no per-chatter
     // twitch-id sets here: a kick id is not a twitch id
     for (role, ver) in m.badges.iter() {

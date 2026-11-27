@@ -118,6 +118,15 @@ impl App {
     }
   }
 
+  // one of your twitch lines in a room: the look (badges, colour) your kick and youtube lines there wear. lines
+  // already drawn are laid out again when it changed
+  fn note_own(&mut self, room: &str, m: &Message) {
+    if m.kind.said() && self.mentions.mine(m) && self.res.own.note(room, m) {
+      self.tabs.iter_mut().flat_map(Tab::views).for_each(|v| v.touch_own());
+      self.wake();
+    }
+  }
+
   // heatsync names the picture of a gif-keyboard line: kept for the line that has not come, and put on the row
   // already here, which draws it where its caption was
   fn on_gif(&mut self, f: crate::model::chatgif::Frame) {
@@ -320,6 +329,8 @@ impl App {
       }
       Chat::Msg(mut m) if ch != FLOOD_TAB => {
         self.leg_echo(Platform::Twitch, ch, &m);
+        // before a fold can drop it: the copy that folds is the one that knows your badges
+        self.note_own(ch, &m);
         if self.echo_folded(Platform::Twitch, &m) {
           return;
         }
@@ -437,6 +448,7 @@ impl App {
         // the one a newer line from the same person carries
         for m in &history {
           self.res.chatters.heard(m);
+          self.note_own(&ch, m);
         }
         for m in &mut history {
           m.flags |= flag::HISTORY;

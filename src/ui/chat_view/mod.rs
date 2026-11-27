@@ -321,6 +321,8 @@ mod tests_big;
 mod tests_gif;
 #[cfg(test)]
 mod tests_mods;
+#[cfg(test)]
+mod tests_own;
 mod words;
 
 pub use draw::{blit_layer, emoji_glyph};
