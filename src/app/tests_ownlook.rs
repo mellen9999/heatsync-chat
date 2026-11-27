@@ -11,8 +11,12 @@ const ORANGE: u32 = 0xff8700;
 const KICK_GREEN: u32 = 0x75fd46;
 
 fn app() -> App {
+  app_with(vec!["nl_kripp kick:nl_kripp".into()])
+}
+
+fn app_with(tabs: Vec<Box<str>>) -> App {
   let (net, _rx) = Net::tap();
-  let mut a = App::new(net, vec!["nl_kripp kick:nl_kripp".into()], false);
+  let mut a = App::new(net, tabs, false);
   a.dpi = 1.0;
   a.res.set_scale(a.scale());
   a.resized(900, 400);
@@ -74,4 +78,66 @@ fn a_live_twitch_line_of_yours_does_the_same_even_when_it_folds_away() {
   assert!(a.tabs[0].view.msgs().all(|m| m.platform == Platform::Kick), "the twitch copy folded away");
   assert!(a.res.own.get("nl_kripp").is_some_and(|l| l.color == ORANGE && l.badges.len() == 2));
   assert!(pixels(&mut a, KICK_GREEN) == 0 && pixels(&mut a, ORANGE) > 0);
+}
+
+// your own line, as an echo of `p` says it
+fn echo(p: Platform, id: &str, body: &str) -> Message {
+  let mut m = Message::system(now_ms(), p, "x");
+  (m.kind, m.id, m.login, m.nick, m.body) =
+    (crate::model::message::Kind::Chat, id.into(), "mellen".into(), "mellen".into(), body.into());
+  m
+}
+
+// which said rows of the tab that has this feed read their words in the twitch room (the fold lent it): (platform, lent)
+fn legs(a: &mut App, key: &str) -> Vec<(Platform, bool)> {
+  let at = a.tabs.iter().position(|t| t.sources.iter().any(|s| &*s.1 == key)).unwrap();
+  // a row takes the room when its tab is next drawn
+  a.active = at;
+  a.redraw();
+  let said = a.tabs[at].view.msgs().filter(|m| m.kind.said());
+  said.map(|m| (m.platform, m.x.as_ref().is_some_and(|x| x.twitch_leg))).collect()
+}
+
+// the send to twitch and kick: kick's echo stands, and when twitch's echo folds away the row stands for both
+// legs and reads its words in the twitch room. a tab with no twitch feed never had the twitch copy, so a row
+// of yours there is kick's alone and reads kick's room
+#[test]
+fn your_twitch_echo_folding_into_kicks_row_lends_it_the_twitch_room_in_the_tabs_with_that_feed() {
+  let mut a = app_with(vec!["nl_kripp kick:nl_kripp".into(), "kick:xqc".into()]);
+  a.sentfold.track(now_ms(), "MANOFSTEEL", false);
+  a.on_relay(Platform::Kick, "nl_kripp", vec![echo(Platform::Kick, "k1", "MANOFSTEEL")], false);
+  a.on_relay(Platform::Kick, "xqc", vec![echo(Platform::Kick, "k2", "MANOFSTEEL")], false);
+  assert_eq!(
+    (legs(&mut a, "nl_kripp"), legs(&mut a, "xqc")),
+    (vec![(Platform::Kick, false)], vec![(Platform::Kick, false)])
+  );
+  a.on_chat("nl_kripp", Chat::Msg(echo(Platform::Twitch, "t1", "MANOFSTEEL")));
+  assert_eq!(
+    legs(&mut a, "nl_kripp"),
+    [(Platform::Kick, true)],
+    "twitch's copy folded; the row that stands reads its room"
+  );
+  assert_eq!(
+    legs(&mut a, "xqc"),
+    [(Platform::Kick, false)],
+    "a tab with no twitch feed draws kick's copy as kick sent it"
+  );
+}
+
+#[test]
+fn twitchs_echo_standing_lends_nothing_and_a_send_to_kick_alone_has_no_twitch_leg() {
+  let mut a = app();
+  a.sentfold.track(now_ms(), "gg", false);
+  a.on_chat("nl_kripp", Chat::Msg(echo(Platform::Twitch, "t1", "gg")));
+  a.on_relay(Platform::Kick, "nl_kripp", vec![echo(Platform::Kick, "k1", "gg")], false);
+  assert_eq!(
+    legs(&mut a, "nl_kripp"),
+    [(Platform::Twitch, false)],
+    "twitch stands in its own room; kick's copy folded"
+  );
+  // never tracked as a send to several feeds: nothing folds, so nothing is lent
+  a.on_relay(Platform::Kick, "nl_kripp", vec![echo(Platform::Kick, "k2", "kick only")], false);
+  a.on_chat("nl_kripp", Chat::Msg(echo(Platform::Twitch, "t2", "kick only")));
+  let rows = legs(&mut a, "nl_kripp");
+  assert_eq!(rows, [(Platform::Twitch, false), (Platform::Kick, false), (Platform::Twitch, false)]);
 }

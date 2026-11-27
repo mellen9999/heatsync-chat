@@ -1143,6 +1143,7 @@ impl ChatView {
   // what the next frame needs, given what changed since the last draw
   pub fn take_paint(&mut self, res: &mut Res, view_h: i32) -> Paint {
     self.view_h = view_h;
+    self.lend_owed();
     let n = std::mem::take(&mut self.pending);
     let mut shift = 0;
     let (w, o) = (self.width, opts!(self));

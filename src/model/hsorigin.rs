@@ -59,7 +59,12 @@ impl Heat {
 pub struct Sends {
   seen: HashMap<Box<str>, Platform>,
   order: VecDeque<Box<str>>,
+  // sends whose twitch copy was the one that folded: the row standing for each stands for twitch's leg too
+  // (ChatView::lend_owed). newest kept, bounded: a tab nobody opens never settles them
+  owed: VecDeque<Box<str>>,
 }
+
+const OWED: usize = 64;
 
 impl Sends {
   // true = show this row (first of its send, or the same platform again); false = another platform's copy
@@ -68,6 +73,12 @@ impl Sends {
       return true;
     }
     if let Some(q) = self.seen.get(sid) {
+      if *q != p && p == Platform::Twitch {
+        if self.owed.len() == OWED {
+          self.owed.pop_front();
+        }
+        self.owed.push_back(sid.into());
+      }
       return *q == p;
     }
     self.seen.insert(sid.into(), p);
@@ -79,11 +90,33 @@ impl Sends {
     }
     true
   }
+
+  // the sends whose twitch copy folded since the last call, oldest first
+  pub fn take_owed(&mut self) -> Vec<Box<str>> {
+    self.owed.drain(..).collect()
+  }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // the row standing for a send reads in the twitch room once twitch's copy folded into it: only that fold is owed
+  #[test]
+  fn a_twitch_copy_that_folds_is_owed_and_no_other_fold_is() {
+    let mut s = Sends::default();
+    assert!(s.claim("S", Platform::Kick));
+    assert!(!s.claim("S", Platform::Twitch) && !s.claim("S", Platform::Youtube));
+    assert_eq!(s.take_owed(), [Box::<str>::from("S")]);
+    assert!(s.take_owed().is_empty(), "taken once");
+    assert!(s.claim("T", Platform::Twitch) && !s.claim("T", Platform::Kick) && s.claim("T", Platform::Twitch));
+    assert!(s.take_owed().is_empty(), "twitch stands in its own room; kick's fold owes nothing");
+    for i in 0..OWED + 10 {
+      s.claim(&format!("k{i}"), Platform::Kick);
+      s.claim(&format!("k{i}"), Platform::Twitch);
+    }
+    assert_eq!(s.take_owed().len(), OWED, "a tab nobody opens keeps the newest only");
+  }
 
   #[test]
   fn ids_are_found_by_room_and_bounded() {

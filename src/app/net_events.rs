@@ -127,6 +127,29 @@ impl App {
     }
   }
 
+  // your twitch echo folded into the copy of the send another feed's echo already put on screen: that row stands
+  // for both legs, so it reads its words in the twitch room (emotes::resolve room_platform). only the tabs that
+  // have this twitch feed: a tab with no twitch leg never had the copy, and draws its row as its own platform's
+  fn lend_twitch_room(&mut self, ch: &str, twitch: &Message) {
+    use crate::model::origin::unreply;
+    let me = &self.mentions;
+    let words = twitch.body.trim();
+    // the same words: a youtube copy of a reply opens with its own `@name`, twitch's echo with the parent's
+    let same = |b: &str| {
+      let b = b.trim();
+      b == words || unreply(words).is_some_and(|w| b == w || unreply(b) == Some(w)) || unreply(b) == Some(words)
+    };
+    let mut any = false;
+    for i in self.tabs_with(Platform::Twitch, ch) {
+      for v in self.tabs[i].views() {
+        any |= v.lend_twitch(|m| m.kind.said() && me.mine(m) && (m.ts - twitch.ts).abs() < RACE_MS && same(&m.body));
+      }
+    }
+    if any {
+      self.wake();
+    }
+  }
+
   // heatsync names the picture of a gif-keyboard line: kept for the line that has not come, and put on the row
   // already here, which draws it where its caption was
   fn on_gif(&mut self, f: crate::model::chatgif::Frame) {
@@ -332,6 +355,7 @@ impl App {
         // before a fold can drop it: the copy that folds is the one that knows your badges
         self.note_own(ch, &m);
         if self.echo_folded(Platform::Twitch, &m) {
+          self.lend_twitch_room(ch, &m);
           return;
         }
         if self.res.chatters.heard(&m) {

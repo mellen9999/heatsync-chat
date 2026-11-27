@@ -133,6 +133,10 @@ pub struct Extra {
   pub origin: bool,
   // the send id heatsync gave the line (`chat:origin`): rows of one send on several feeds share it
   pub send: Box<str>,
+  // the twitch copy of this line's send folded into this row (another platform's copy stood): the row stands for
+  // both legs, so its words read in the twitch room, the one whose badges and colour it already borrows. set on
+  // the view's own row, never on the message another view holds (ext lendBadges, the emote law's header)
+  pub twitch_leg: bool,
   // the head already wears the row's one mark (a whisper's [T]/[H], a notification's [H]): no platform tag over it
   pub branded: bool,
   // the line it answers and the first line of its chain (model::chain); empty = none

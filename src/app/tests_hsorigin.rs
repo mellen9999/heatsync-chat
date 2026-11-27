@@ -86,6 +86,45 @@ fn one_send_on_two_feeds_is_one_row() {
   assert_eq!(shown(&a), 3, "different send ids never fold");
 }
 
+// which rows read their words in the twitch room (the fold lent it): (platform, lent)
+fn legs(a: &mut App) -> Vec<(Platform, bool)> {
+  let i = a.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  // a row takes the room when its tab is next drawn
+  a.active = i;
+  a.redraw();
+  let said = a.tabs[i].view.msgs().filter(|m| m.kind.said());
+  said.map(|m| (m.platform, m.x.as_ref().is_some_and(|x| x.twitch_leg))).collect()
+}
+
+// anyone's send: when twitch's copy is the one that folds away, the row that stands (kick's) stands for both legs
+// and reads its words in the twitch room, whether the copies were already on screen or are born folded. when
+// twitch's copy stands, nothing is lent
+#[test]
+fn the_row_standing_for_a_send_reads_the_twitch_room_when_twitchs_copy_folds() {
+  let mut a = app();
+  tw(&mut a, "t1", "gg");
+  kick(&mut a, "k1", "gg");
+  push(&mut a, Platform::Kick, "xqc", "k1", "S");
+  assert_eq!(legs(&mut a), [(Platform::Twitch, false), (Platform::Kick, false)], "kick claimed it, nothing folded yet");
+  push(&mut a, Platform::Twitch, "forsen", "t1", "S");
+  assert_eq!(shown(&a), 1);
+  assert_eq!(legs(&mut a), [(Platform::Twitch, false), (Platform::Kick, true)], "twitch's copy folded into kick's row");
+  // born folded: the push came before both lines
+  let mut a = app();
+  push(&mut a, Platform::Kick, "xqc", "k1", "S");
+  push(&mut a, Platform::Twitch, "forsen", "t1", "S");
+  kick(&mut a, "k1", "gg");
+  tw(&mut a, "t1", "gg");
+  assert_eq!(legs(&mut a), [(Platform::Kick, true), (Platform::Twitch, false)]);
+  // twitch claims first: kick's copy folds, and twitch's row is in its own room already
+  let mut a = app();
+  tw(&mut a, "t1", "gg");
+  kick(&mut a, "k1", "gg");
+  push(&mut a, Platform::Twitch, "forsen", "t1", "S");
+  push(&mut a, Platform::Kick, "xqc", "k1", "S");
+  assert_eq!(legs(&mut a), [(Platform::Twitch, false), (Platform::Kick, false)]);
+}
+
 #[test]
 fn the_seed_marks_what_it_names_and_a_born_copy_folds() {
   let mut a = app();

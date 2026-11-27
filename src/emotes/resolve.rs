@@ -42,9 +42,9 @@ pub fn find_word(src: &mut Sources, chan: &str, m: &Message, a: usize, b: usize,
 //      whatever else we hold (a platform token by position is `find_word`'s, above)
 //   2. the line's pick: what the sender's app said the word is
 //   3. the sender's 7tv personal set (as chatterino7 and the 7tv extension read it)
-//   4. the room, the line's own platform's: the streamer's own heatsync emotes, then the channel's ffz,
-//      7tv, bttv, and on a kick line the tab's kick channel's own emotes (a twitch or youtube line never
-//      reads those)
+//   4. the room, the line's own platform's (a folded send's row: the twitch leg's, `room_platform`): the
+//      streamer's own heatsync emotes, then the channel's ffz, 7tv, bttv, and on a kick line the tab's kick
+//      channel's own emotes (a twitch or youtube line never reads those)
 //   5. the sender's own heatsync emote of the name, on the sender's lines only: the server's name-match
 //      on the line, then their set
 //   6. the globals
@@ -64,6 +64,16 @@ fn resolve(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word
   }
   let base = super::overlay_base(word)?;
   exact(src, chan, m, sender, base, true).map(|(url, size, _, scope)| (url, size, true, scope))
+}
+
+// the platform whose room a row reads its words in: its own, unless the twitch copy of its send folded into it
+// (`Extra::twitch_leg`). a send to twitch and kick comes back from both and the first echo stands, often kick's,
+// so the row stands for both legs and reads in the twitch one's room: the word was typed against it, and its
+// badges and colour are what the row already borrows. the one room that is not the row's own leg's, for anyone's
+// folded send (the ext's lendBadges; the emote law's header names it). a view with no twitch leg folded in
+// never has the flag, so it draws the line as its own platform sent it
+fn room_platform(m: &Message) -> Platform {
+  if m.x.as_deref().is_some_and(|x| x.twitch_leg) { Platform::Twitch } else { m.platform }
 }
 
 // one reading of the word through the read order. `stripped` = the overlay reading of a `name0`
@@ -88,17 +98,10 @@ fn exact(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word: 
   if let Some(x) = sender.and_then(|id| src.personal.lookup(id, word)) {
     return Some(e(x, Scope::Channel));
   }
-  if inventory && let Some(x) = src.emotes.owner_on(chan, m.platform, word) {
+  if inventory && let Some(x) = src.emotes.owner_on(chan, room_platform(m), word) {
     return Some(e(x, Scope::Hs));
   }
-  if let Some(x) = src.emotes.channel_on(chan, m.platform, word) {
-    return Some(e(x, Scope::Channel));
-  }
-  // your own line on kick or youtube is the twitch send's other copy: the word was typed against the twitch
-  // room, and the copy that stands is whichever echo landed first. anyone else's line reads its own room only
-  if src.senders.own_twitch(m).is_some()
-    && let Some(x) = src.emotes.channel_on(chan, Platform::Twitch, word)
-  {
+  if let Some(x) = src.emotes.channel_on(chan, room_platform(m), word) {
     return Some(e(x, Scope::Channel));
   }
   if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
@@ -161,25 +164,66 @@ mod tests {
     m
   }
 
-  // your own send to twitch and kick comes back from both and the first echo stands, often kick's: kick's
-  // room may hold no 7tv set at all, so the word you typed against the twitch room read as plain text. your
-  // own line on kick or youtube reads the twitch room too; anyone else's never does (the law's room)
+  // one send to twitch and kick comes back from both and the first echo stands, often kick's: kick's room may hold
+  // no 7tv set at all, so a word typed against the twitch room read as plain text. the row stands for both legs and
+  // reads its words in the twitch leg's room (`Extra::twitch_leg`, set by the fold): anyone's send, not only yours
   #[test]
-  fn your_own_kick_line_reads_the_twitch_room_you_typed_it_in() {
+  fn a_folded_sends_row_reads_the_twitch_room_whoever_sent_it() {
     let mut w = World::new();
     w.emotes.set(Some("c"), crate::emotes::Provider::SevenTv, [("MANOFSTEEL".into(), cdn("MAN"))].into());
     w.senders.set_me(Some(7));
     w.senders.set_names(Some("mellen"), Some("mellen"), Some("@mellen"));
-    let line = |p, who: &str| {
+    let line = |p, who: &str, folded: bool| {
       let mut m = plain("k1", "MANOFSTEEL");
       (m.platform, m.login, m.nick) = (p, who.into(), who.into());
+      m.extra().twitch_leg = folded;
       m
     };
     let got = |w: &mut World, m: &Message| drawn(w, m, "MANOFSTEEL");
-    assert_eq!(got(&mut w, &line(Platform::Twitch, "bob")).as_deref(), Some("MAN"));
-    assert_eq!(got(&mut w, &line(Platform::Kick, "mellen")).as_deref(), Some("MAN"), "your kick line");
-    assert_eq!(got(&mut w, &line(Platform::Youtube, "@mellen")).as_deref(), Some("MAN"), "your youtube line");
-    assert_eq!(got(&mut w, &line(Platform::Kick, "bob")), None, "a kick stranger reads kick's room only");
+    assert_eq!(got(&mut w, &line(Platform::Twitch, "bob", false)).as_deref(), Some("MAN"));
+    for (p, who, whose) in [
+      (Platform::Kick, "mellen", "your kick line"),
+      (Platform::Youtube, "@mellen", "your youtube line"),
+      (Platform::Kick, "bob", "a stranger's kick line"),
+      (Platform::Youtube, "@bob", "a stranger's youtube line"),
+    ] {
+      assert_eq!(got(&mut w, &line(p, who, true)).as_deref(), Some("MAN"), "{whose}, twitch's copy folded in");
+    }
+  }
+
+  // a view with no twitch leg folded in draws the copy as its own platform sent it: kick's room, whoever sent it,
+  // your own line too (a send to kick alone never touched the twitch room)
+  #[test]
+  fn a_row_with_no_twitch_leg_folded_in_reads_its_own_room_only() {
+    let mut w = World::new();
+    w.emotes.set(Some("c"), crate::emotes::Provider::SevenTv, [("MANOFSTEEL".into(), cdn("MAN"))].into());
+    w.senders.set_me(Some(7));
+    w.senders.set_names(Some("mellen"), Some("mellen"), Some("@mellen"));
+    for (p, who) in [(Platform::Kick, "mellen"), (Platform::Youtube, "@mellen"), (Platform::Kick, "bob")] {
+      let mut m = plain("k1", "MANOFSTEEL");
+      (m.platform, m.login, m.nick) = (p, who.into(), who.into());
+      assert_eq!(drawn(&mut w, &m, "MANOFSTEEL"), None, "{p:?} {who}");
+    }
+  }
+
+  // the lent room is the twitch leg's instead of the row's own, not added to it: a name only kick's room has is
+  // text on a folded row (the twitch copy of the same send read it as text too), and kick's own row still draws it
+  #[test]
+  fn the_twitch_room_replaces_the_rows_own_it_is_not_added_to_it() {
+    let mut w = World::new();
+    w.emotes.set(Some("c"), crate::emotes::Provider::SevenTv, [("TwOnly".into(), cdn("TW"))].into());
+    w.emotes.set_kick("k", [("KickOnly".into(), cdn("KI"))].into());
+    w.emotes.route_kick([("c", "k")]);
+    let kick = |folded: bool| {
+      let mut m = plain("k1", "x");
+      (m.platform, m.login, m.nick) = (Platform::Kick, "bob".into(), "bob".into());
+      m.extra().twitch_leg = folded;
+      m
+    };
+    assert_eq!(drawn(&mut w, &kick(false), "KickOnly").as_deref(), Some("KI"));
+    assert_eq!(drawn(&mut w, &kick(false), "TwOnly"), None);
+    assert_eq!(drawn(&mut w, &kick(true), "KickOnly"), None, "the twitch room has no such emote");
+    assert_eq!(drawn(&mut w, &kick(true), "TwOnly").as_deref(), Some("TW"));
   }
 
   // `IDK0`: nothing is named that, so it is IDK drawn as an overlay. an emote really named `IDK0` wins, in

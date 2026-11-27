@@ -4,6 +4,7 @@
 use super::layout::layout_row;
 use super::*;
 use crate::badges::{Badge, key};
+use crate::emotes::{Emote, Provider};
 use crate::ui::res::Res;
 use parley::PositionedLayoutItem;
 
@@ -86,4 +87,22 @@ fn a_twitch_line_keeps_its_own_tags() {
   res.own.note("c", &twitch_self());
   let l = layout_row(&mut res, "c", &other, 0, 600, NO_OPTS);
   assert_eq!((l.boxes.len(), name_ink(&l)), (0, 0x00ff00));
+}
+
+// the room has a 7tv emote and kick's room has none: a kick row draws it as text, and a kick row that stands for a
+// folded send (the twitch copy folded into it) draws the picture, whoever sent it
+#[test]
+fn a_folded_sends_kick_row_draws_the_twitch_rooms_emote() {
+  let mut res = res();
+  let pic = Emote { url: "https://cdn.7tv.app/emote/MAN/1x.webp".into(), w: 28, h: 28, zero_width: false };
+  res.emotes.set(Some("c"), Provider::SevenTv, [("MANOFSTEEL".into(), pic)].into());
+  for who in ["mellen", "bob"] {
+    let mut kick = line(Platform::Kick, who, KICK_GREEN, &[]);
+    kick.body = "MANOFSTEEL".into();
+    let alone = layout_row(&mut res, "c", &kick, 0, 600, NO_OPTS);
+    assert_eq!(alone.boxes.len(), 0, "{who}: kick's room has no such emote, so it is a word");
+    kick.extra().twitch_leg = true;
+    let folded = layout_row(&mut res, "c", &kick, 0, 600, NO_OPTS);
+    assert_eq!(folded.boxes.len(), 1, "{who}: the twitch room's emote is drawn");
+  }
 }
