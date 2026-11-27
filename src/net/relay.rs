@@ -198,6 +198,33 @@ fn yt_url(url: &str) -> Option<Box<str>> {
   Some(format!("{}=w48-h48{after}", &url[..i]).into())
 }
 
+// the body with a space wherever a placed emote touches a character that is not one; the ranges follow
+fn apart(body: &str, emotes: &mut [(std::ops::Range<u32>, Box<str>)]) -> String {
+  let mut out = String::with_capacity(body.len() + emotes.len());
+  let mut at = 0;
+  for (r, _) in emotes.iter_mut() {
+    let (a, b) = (r.start as usize, r.end as usize);
+    if a < at {
+      // two codes cut across each other: the later one stays text
+      *r = 0..0;
+      continue;
+    }
+    out.push_str(&body[at..a]);
+    if !out.is_empty() && !out.ends_with(' ') {
+      out.push(' ');
+    }
+    let start = out.len() as u32;
+    out.push_str(&body[a..b]);
+    *r = start..out.len() as u32;
+    if body.as_bytes().get(b).is_some_and(|c| *c != b' ') {
+      out.push(' ');
+    }
+    at = b;
+  }
+  out.push_str(&body[at..]);
+  out
+}
+
 // live `youtube:chat.messages[]` / `/api/recent/youtube` rows
 pub fn youtube(v: &Value) -> Option<Message> {
   let nick = str_of(v, "user").or_else(|| str_of(v, "display_name")).or_else(|| str_of(v, "sender"))?;
@@ -209,9 +236,15 @@ pub fn youtube(v: &Value) -> Option<Message> {
   m.user_id = str_of(v, "authorChannelId").map(|c| clamp(c, 64).into()).unwrap_or_default();
   m.hs = hs_emotes(v.get("hsEmotes"));
   m.badges = crate::badges::relay::youtube(v.get("badges"));
-  let mut emotes = Vec::new();
+  let mut emotes: Vec<(std::ops::Range<u32>, Box<str>)> = Vec::new();
+  let mut seen: Vec<&str> = Vec::new();
+  // the frame names a code once per use: place each distinct code once, at every spot it stands
   for e in v.get("emotes").and_then(Value::as_array).into_iter().flatten().take(50) {
     let (Some(alt), Some(url)) = (str_of(e, "alt"), str_of(e, "url").and_then(yt_url)) else { continue };
+    if alt.is_empty() || seen.contains(&alt) {
+      continue;
+    }
+    seen.push(alt);
     let mut from = 0;
     while emotes.len() < MAX_EMOTES
       && let Some(i) = m.body[from..].find(alt)
@@ -222,6 +255,10 @@ pub fn youtube(v: &Value) -> Option<Message> {
     }
   }
   emotes.sort_by_key(|(r, _)| r.start);
+  // every reader of the body cuts words on spaces, so a code touching its neighbour (`:_a::_a:`) is one
+  // word that no picture lines up with: give each placed code its own word
+  m.body = apart(&m.body, &mut emotes).into();
+  emotes.retain(|(r, _)| !r.is_empty());
   m.emotes = emotes.into();
   if m.body.is_empty() {
     let sys = str_of(v, "systemMsg")?;
@@ -314,6 +351,22 @@ mod tests {
     let s = youtube(&json!({"user": "Bo", "text": "", "systemMsg": "Bo became a member"})).unwrap();
     assert_eq!(s.kind, Kind::System);
     assert!(youtube(&json!({"user": "Bo", "text": ""})).is_none());
+  }
+
+  // codes the sender typed touching each other (`:_a::_a:`) are one whitespace word to every reader of the
+  // body, so none of them lined up with its picture: each draws as its own word, as the ext's does. the
+  // frame names a repeated code once per use, which must not place it twice
+  #[test]
+  fn youtube_codes_that_touch_are_each_their_own_word() {
+    let u = "https://yt3.ggpht.com/abc=w24-h24-c-k-nd";
+    let e = |a: &str| json!({"type": "emoji", "alt": a, "url": u});
+    let v = json!({"user": "Al", "text": ":_a::_a::_b:x", "emotes": [e(":_a:"), e(":_a:"), e(":_b:")]});
+    let m = youtube(&v).unwrap();
+    assert_eq!(&*m.body, ":_a: :_a: :_b: x");
+    let words: Vec<_> = m.emotes.iter().map(|(r, _)| &m.body[r.start as usize..r.end as usize]).collect();
+    assert_eq!(words, [":_a:", ":_a:", ":_b:"], "one picture per use, each exactly a word");
+    let spaced = youtube(&json!({"user": "Al", "text": "hi :_a: yo", "emotes": [e(":_a:")]})).unwrap();
+    assert_eq!(&*spaced.body, "hi :_a: yo", "a line that already has its spaces is left alone");
   }
 
   #[test]
