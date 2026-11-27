@@ -94,6 +94,13 @@ fn exact(src: &mut Sources, chan: &str, m: &Message, sender: Option<u64>, word: 
   if let Some(x) = src.emotes.channel_on(chan, m.platform, word) {
     return Some(e(x, Scope::Channel));
   }
+  // your own line on kick or youtube is the twitch send's other copy: the word was typed against the twitch
+  // room, and the copy that stands is whichever echo landed first. anyone else's line reads its own room only
+  if src.senders.own_twitch(m).is_some()
+    && let Some(x) = src.emotes.channel_on(chan, Platform::Twitch, word)
+  {
+    return Some(e(x, Scope::Channel));
+  }
   if inventory && let Some((_, u, zw)) = m.hs.iter().find(|(w, _, _)| **w == *word) {
     return Some((u.clone(), (0, 0), *zw, Scope::Hs));
   }
@@ -152,6 +159,27 @@ mod tests {
     m.nick = "bob".into();
     m.body = body.into();
     m
+  }
+
+  // your own send to twitch and kick comes back from both and the first echo stands, often kick's: kick's
+  // room may hold no 7tv set at all, so the word you typed against the twitch room read as plain text. your
+  // own line on kick or youtube reads the twitch room too; anyone else's never does (the law's room)
+  #[test]
+  fn your_own_kick_line_reads_the_twitch_room_you_typed_it_in() {
+    let mut w = World::new();
+    w.emotes.set(Some("c"), crate::emotes::Provider::SevenTv, [("MANOFSTEEL".into(), cdn("MAN"))].into());
+    w.senders.set_me(Some(7));
+    w.senders.set_names(Some("mellen"), Some("mellen"), Some("@mellen"));
+    let line = |p, who: &str| {
+      let mut m = plain("k1", "MANOFSTEEL");
+      (m.platform, m.login, m.nick) = (p, who.into(), who.into());
+      m
+    };
+    let got = |w: &mut World, m: &Message| drawn(w, m, "MANOFSTEEL");
+    assert_eq!(got(&mut w, &line(Platform::Twitch, "bob")).as_deref(), Some("MAN"));
+    assert_eq!(got(&mut w, &line(Platform::Kick, "mellen")).as_deref(), Some("MAN"), "your kick line");
+    assert_eq!(got(&mut w, &line(Platform::Youtube, "@mellen")).as_deref(), Some("MAN"), "your youtube line");
+    assert_eq!(got(&mut w, &line(Platform::Kick, "bob")), None, "a kick stranger reads kick's room only");
   }
 
   // `IDK0`: nothing is named that, so it is IDK drawn as an overlay. an emote really named `IDK0` wins, in
