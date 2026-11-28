@@ -137,13 +137,17 @@ pub fn kick(v: &Value) -> Option<Message> {
   m.reply_to = v.get("replyTo").and_then(|r| str_of(r, "username")).map(|u| clamp(u, MAX_NAME).into());
   m.reply_text = v.get("replyTo").and_then(|r| str_of(r, "content")).map(|t| clamp(&unkick(t), REPLY_TEXT).into());
   if let Some(r) = v.get("replyTo") {
-    // ids come as strings (the ext's relay) or bare numbers
-    let id = |k: &str| match r.get(k)? {
-      Value::String(s) => chain::clean_id(s),
-      Value::Number(n) => chain::clean_id(&n.to_string()),
-      _ => None,
+    // ids come as strings (the ext's relay) or bare numbers. the relay names the line a reply answers `messageId`;
+    // `id` is what older frames carried
+    let id = |ks: &[&str]| {
+      ks.iter().find_map(|k| match r.get(*k)? {
+        Value::String(s) => chain::clean_id(s),
+        Value::Number(n) => chain::clean_id(&n.to_string()),
+        _ => None,
+      })
     };
-    let (parent, root) = (id("id").unwrap_or_default(), id("threadId").unwrap_or_default());
+    let parent = id(&["messageId", "id", "message_id"]).unwrap_or_default();
+    let root = id(&["threadId", "thread_id"]).unwrap_or_default();
     if !parent.is_empty() || !root.is_empty() {
       let x = m.extra();
       (x.parent, x.root) = (parent, root);
@@ -400,6 +404,25 @@ mod tests {
     for bad in [json!(0), json!(-3), json!("7"), json!(1.5)] {
       assert!(kick(&json!({"username": "sov", "senderId": bad, "content": "x"})).unwrap().user_id.is_empty());
     }
+  }
+
+  // a real kick reply (names redacted, ids shaped like the real ones): the relay names the line a reply answers
+  // `messageId`, never `id`, so the app drew the reply's context line but did not know which line it answered, and
+  // a click on it could not open the chain
+  #[test]
+  fn a_kick_reply_knows_the_line_it_answers() {
+    let live = json!({"platform": "kick", "channel": "redacted1", "username": "Redacted2", "displayName": "Redacted2",
+      "senderId": 29000002, "content": "thanks", "color": "#DEB2FF", "badges": [], "timestamp": 1795877704870_i64,
+      "id": "00000000-0000-4000-8000-000000000002", "emotes": [], "isVerified": false,
+      "replyTo": {"messageId": "00000000-0000-4000-8000-000000000001", "content": "np", "username": "Redacted3"}});
+    let m = kick(&live).unwrap();
+    assert_eq!((m.reply_to.as_deref(), m.reply_text.as_deref()), (Some("Redacted3"), Some("np")));
+    let x = m.x.as_deref().expect("a reply carries the id of the line it answers");
+    assert_eq!((&*x.parent, &*x.root), ("00000000-0000-4000-8000-000000000001", ""), "the chain walks up from it");
+    // the older spellings still read, and `messageId` is the one that wins
+    let both =
+      kick(&json!({"username": "a", "content": "x", "replyTo": {"messageId": "m1", "id": "m2", "username": "b"}}));
+    assert_eq!(&*both.unwrap().x.unwrap().parent, "m1");
   }
 
   #[test]
