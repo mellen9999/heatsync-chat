@@ -1,5 +1,5 @@
-// the chat filter bar, one row at the top of the chat (ext #hs-mc-search-bar): a square 1px box (white while
-// it has the keys, dim otherwise), the query or a dim placeholder in it, and the count at the right
+// the chat filter bar, one row at the top of the chat (ext #hs-mc-search-bar): a square 1px white box (the site's
+// .chat-tile-search-input: white with or without the keys), the query or its placeholder in it, and the count at the right
 use super::canvas::{Canvas, Rect};
 use super::input_bar::underline;
 use super::text::{Ink, Span, Text};
@@ -24,9 +24,10 @@ pub fn height(line_px: i32) -> i32 {
 // returns the caret rect (window px) for the input method
 pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &FindBar) -> Rect {
   c.fill(area, theme::BLACK);
-  c.outline(area, area, if b.focused { theme::WHITE } else { theme::DIM });
+  c.outline(area, area, theme::WHITE);
   let inner = Rect::new(area.x + 1, area.y + 1, (area.w - 2).max(0), (area.h - 2).max(0));
   let dim = |s: &str| [Span { range: 0..s.len(), ink: Ink(theme::DIM), bold: false }];
+  let hint = |s: &str| [Span { range: 0..s.len(), ink: Ink(theme::WHITE), bold: false }];
   let nw = if b.note.is_empty() {
     0
   } else {
@@ -41,7 +42,7 @@ pub fn draw(c: &mut Canvas, text: &mut Text, area: Rect, b: &FindBar) -> Rect {
   let at = b.cursor.min(b.text.len());
   let shown = format!("{}{}{}", &b.text[..at], b.preedit, &b.text[at..]);
   if shown.is_empty() {
-    let l = text.layout(b.hint, &dim(b.hint), &[], f32::MAX);
+    let l = text.layout(b.hint, &hint(b.hint), &[], f32::MAX);
     text.draw(&l, c, ox, inner.y as f32, clip, |_, _| {});
   } else {
     let l = text.layout(&shown, &[Span { range: 0..shown.len(), ink: Ink(theme::WHITE), bold: false }], &[], f32::MAX);
@@ -80,13 +81,19 @@ mod tests {
       note,
     };
     draw(&mut c, &mut text, area, &bar("", false, ""));
-    // the box: dim corners and edges, nothing outside it
-    assert_eq!(c.px[(10 * 300) as usize], theme::DIM);
-    assert_eq!(c.px[(10 * 300 + 299) as usize], theme::DIM);
+    // the box: white corners and edges even without the keys (the site's), nothing outside it
+    assert_eq!(c.px[(10 * 300) as usize], theme::WHITE);
+    assert_eq!(c.px[(10 * 300 + 299) as usize], theme::WHITE);
     assert!((0..300).all(|x| c.px[(9 * 300 + x) as usize] == theme::BLACK));
     assert!((0..300).all(|x| c.px[(area.bottom() * 300 + x) as usize] == theme::BLACK));
-    // the placeholder is dim and the caret is not there while the keys are elsewhere
-    assert!(c.px.contains(&theme::DIM) && !c.px.contains(&theme::WHITE));
+    // the placeholder is white like the site's, and the caret is not there while the keys are elsewhere
+    // (antialiasing may keep every pixel off pure white: its brightest reaches well past dim's 0x80)
+    let peak = (11..10 + area.h - 1)
+      .flat_map(|y| (2..250).map(move |x| (x, y)))
+      .map(|(x, y)| c.px[(y * 300 + x) as usize] & 255)
+      .max();
+    assert!(peak.unwrap_or(0) >= 0xc0, "the placeholder tops out at {peak:?}: dim");
+    assert!((250..299).all(|x| (11..10 + area.h - 1).all(|y| c.px[(y * 300 + x) as usize] == theme::BLACK)));
     // focused: a white box and a caret
     let caret = draw(&mut c, &mut text, area, &bar("/fo+/", true, "2 found"));
     assert_eq!(c.px[(10 * 300) as usize], theme::WHITE);

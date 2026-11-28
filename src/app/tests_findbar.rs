@@ -60,8 +60,8 @@ fn the_bar_is_drawn_on_chat_tabs_and_not_on_the_feed() {
   let mut app = chatty();
   let a = app.find_area();
   assert!(app.find.h > 0 && a.h == app.find.h, "a row of its own on a channel tab");
-  assert_eq!(px(&app, a.x, a.y), theme::DIM, "a square dim box while the keys are elsewhere");
-  assert_eq!(px(&app, a.right() - 1, a.bottom() - 1), theme::DIM);
+  assert_eq!(px(&app, a.x, a.y), theme::WHITE, "a square white box even while the keys are elsewhere");
+  assert_eq!(px(&app, a.right() - 1, a.bottom() - 1), theme::WHITE);
   assert_eq!(app.chat_area().y, a.bottom(), "the chat starts under it");
   // the feed is not a chat: no bar, and the chat takes the row back
   let top = app.chat_area().y;
@@ -70,7 +70,7 @@ fn the_bar_is_drawn_on_chat_tabs_and_not_on_the_feed() {
   app.redraw();
   assert_eq!(app.find.h, 0);
   assert_eq!(app.chat_area().y, top - a.h);
-  assert!(!(0..a.w).any(|x| px(&app, x, a.y) == theme::DIM && px(&app, x, a.bottom() - 1) == theme::DIM));
+  assert!(!(0..a.w).any(|x| px(&app, x, a.y) == theme::WHITE && px(&app, x, a.bottom() - 1) == theme::WHITE));
   // mentions is a chat view: it has it
   let men = app.tab_of(crate::model::tabs::Kind::Mentions).unwrap();
   app.select(men);
@@ -96,7 +96,7 @@ fn slash_gives_the_bar_the_keys_and_clicking_it_does_too() {
   app.find_key(Key::Named(NamedKey::Enter), None);
   assert!(!app.bar_find());
   app.redraw();
-  assert_eq!(px(&app, a.x, a.y), theme::DIM);
+  assert_eq!(px(&app, a.x, a.y), theme::WHITE); // white with or without the keys, like the site's
   // a click on the bar takes them
   app.pointer = (a.x + 20, a.y + 2);
   assert!(app.find_click() && app.bar_find());

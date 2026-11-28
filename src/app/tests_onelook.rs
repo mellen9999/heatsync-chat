@@ -92,3 +92,15 @@ fn onelook_shots() {
   app.redraw();
   shot(&app, "find");
 }
+
+// the site's composer prompt ("log in to chat - your emotes in every chat, free") is white, not dim: past
+// the link's own words ("ctrl-l log in"), the rest of the prompt reaches full white somewhere
+#[test]
+fn the_composer_prompt_is_white_like_the_sites() {
+  let app = scene();
+  let r = app.input_area();
+  let c = &app.canvas;
+  let tail = (r.y..r.bottom()).flat_map(|y| (r.x + 140..r.x + 250).map(move |x| c.px[(y * c.w + x) as usize]));
+  let peak = tail.filter(|p| p >> 16 & 255 == (p & 255)).map(|p| p & 255).max().unwrap_or(0);
+  assert!(peak >= 0xf0, "the prompt tops out at {peak:#x}: dim");
+}

@@ -132,7 +132,7 @@ impl App {
         mode: if prompt.is_some() { Mode::Insert } else { self.mode },
         target: &tag,
         hint: &hint,
-        hint_ink: locked.map_or(crate::ui::theme::DIM, Self::lock_ink),
+        hint_ink: locked.map_or(crate::ui::theme::WHITE, Self::lock_ink),
         over,
         count: count.as_ref().map(|(t, f)| (t.as_str(), count_ink(*f))),
         link: if prompt.is_none() && self.me.is_none() && hint.starts_with(login_hint()) {
