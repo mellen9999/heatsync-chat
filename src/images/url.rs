@@ -49,6 +49,22 @@ pub fn hires(url: &str) -> Option<String> {
   rung(url, u32::MAX)
 }
 
+// a 7tv avif is its webp (the site's canonicalEmoteUrl): the app decodes webp only, and the server stores
+// some refs under the avif. rewrites only what it recognises
+pub fn canonical(url: &str) -> String {
+  let Some(rest) = url.strip_prefix("https://cdn.7tv.app/emote/") else { return url.into() };
+  let Some((id, file)) = rest.split_once('/') else { return url.into() };
+  let (name, tail) = file.find(['?', '#']).map_or((file, ""), |i| file.split_at(i));
+  match name.strip_suffix(".avif") {
+    Some(stem)
+      if !id.is_empty() && matches!(stem.strip_suffix("_static").unwrap_or(stem), "1x" | "2x" | "3x" | "4x") =>
+    {
+      format!("https://cdn.7tv.app/emote/{id}/{stem}.webp{tail}")
+    }
+    _ => url.into(),
+  }
+}
+
 pub fn allowed(url: &str) -> bool {
   if url.len() > MAX_URL || url.bytes().any(|b| b.is_ascii_control() || b == b' ') {
     return false;
@@ -61,6 +77,16 @@ pub fn allowed(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn avif_is_its_webp_and_nothing_else_moves() {
+    let b = "https://cdn.7tv.app/emote/01ABC";
+    assert_eq!(canonical(&format!("{b}/1x.avif")), format!("{b}/1x.webp"));
+    assert_eq!(canonical(&format!("{b}/2x_static.avif?v=1")), format!("{b}/2x_static.webp?v=1"));
+    for same in [format!("{b}/1x.webp"), format!("{b}/9x.avif"), "https://x.example/1x.avif".into(), b.to_string()] {
+      assert_eq!(canonical(&same), same);
+    }
+  }
 
   #[test]
   fn allowlist() {

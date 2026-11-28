@@ -11,7 +11,7 @@ use super::reaction::{self, Reaction};
 use crate::cosmetics::id::PaintId;
 use crate::heatsync::content::{self, emote_hidden};
 use crate::heatsync::valid_name;
-use crate::images::url::allowed;
+use crate::images::url::{allowed, canonical};
 use crate::ui::theme;
 use crate::util::time::{now_ms, parse_iso};
 
@@ -138,7 +138,7 @@ pub fn refs_of(v: Option<&Value>) -> Box<[HsEmote]> {
       let gated =
         e.is_object() && (emote_hidden(e) || e.get("cw").is_some_and(|c| c.as_str().is_some_and(|s| !s.is_empty())));
       let zero = e.get("zeroWidth").and_then(Value::as_bool) == Some(true);
-      (valid_name(word) && !gated && allowed(url)).then(|| (word.as_str().into(), url.into(), zero))
+      (valid_name(word) && !gated && allowed(url)).then(|| (word.as_str().into(), canonical(url).into(), zero))
     })
     .take(MAX_REFS)
     .collect()
@@ -562,6 +562,16 @@ mod tests {
     let m = message(&parse(&v).unwrap(), None, false);
     assert_eq!(&*m.body, "2 * 3 and a lone ** here");
     assert!(m.x.as_ref().unwrap().marks.is_empty());
+  }
+
+  #[test]
+  fn a_posts_7tv_avif_ref_draws_as_its_webp() {
+    // a real feed post's shape: the server stores the emote under its avif url, and the app only decodes webp
+    let v = json!({"base36_id": "00abc2", "username": "u", "content": "forsenLaughingAtYou\nhttps://heatsync.org/x",
+      "emote_refs": {"forsenLaughingAtYou": {"url": "https://cdn.7tv.app/emote/01FAPXA3FR0004HKF2ZK1PS3QN/1x.avif",
+        "name": "forsenLaughingAtYou", "provider": "7tv", "zeroWidth": false}}});
+    let p = parse(&v).unwrap();
+    assert_eq!(&*p.refs[0].1, "https://cdn.7tv.app/emote/01FAPXA3FR0004HKF2ZK1PS3QN/1x.webp");
   }
 
   #[test]

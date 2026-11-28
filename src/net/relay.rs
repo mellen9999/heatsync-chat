@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::heatsync::content::emote_hidden;
 use crate::heatsync::valid_name;
-use crate::images::url::allowed;
+use crate::images::url::{allowed, canonical};
 use crate::model::chain;
 use crate::model::color;
 use crate::model::message::{HsEmote, Kind, Message, Notice, Placed, Platform, REPLY_TEXT};
@@ -38,8 +38,9 @@ pub(crate) fn hs_emotes(v: Option<&Value>) -> Box<[HsEmote]> {
     .iter()
     .filter_map(|(word, e)| {
       let url = str_of(e, "url")?;
-      (valid_name(word) && !emote_hidden(e) && allowed(url))
-        .then(|| (word.as_str().into(), url.into(), e.get("zeroWidth").and_then(Value::as_bool) == Some(true)))
+      (valid_name(word) && !emote_hidden(e) && allowed(url)).then(|| {
+        (word.as_str().into(), canonical(url).into(), e.get("zeroWidth").and_then(Value::as_bool) == Some(true))
+      })
     })
     .take(MAX_HS)
     .collect()
