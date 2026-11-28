@@ -75,7 +75,11 @@ fn the_question_mark_button_sits_by_the_gear_and_opens_the_key_map() {
   let n = app.bar_map.len();
   assert_eq!(app.bar_hits.len(), n + 3, "the tabs, then +, the gear and the ?");
   let (gear, keys) = (app.bar_hits[n + 1], app.bar_hits[n + 2]);
-  assert_eq!((keys.x, keys.y, keys.w, keys.h), (gear.right(), gear.y, gear.w, gear.h), "the gear's twin");
+  assert_eq!(
+    (keys.x, keys.y, keys.w, keys.h),
+    (gear.right() + 1, gear.y, gear.w, gear.h),
+    "the gear's twin, past its 1px box line"
+  );
   assert_eq!(px(&app, keys.x, keys.y), theme::BLACK, "quiet at rest");
   // the pointer on it lights it like the gear: white, with black ink
   app.pointer = mid(keys);

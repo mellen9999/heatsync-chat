@@ -39,6 +39,11 @@ pub struct Hot<'a> {
   pub mark: Option<&'a str>,
 }
 
+// the height of a bar that is one row: a line of tabs and the 1px edge toward the chat
+pub fn row_h(line: i32) -> i32 {
+  line + 1
+}
+
 // returns each tab's rect, then the `+`, the gear and the `?` (for clicks). hot: pointer on a button, or its screen open.
 // an area taller than one line is a column (tabs on the left or right, ext tabPosition): a tab a row,
 // full width, a 1px white edge toward the chat
@@ -53,14 +58,18 @@ pub fn draw(
 ) -> Vec<Rect> {
   c.fill(area, theme::BLACK);
   let line = text.line_px as i32;
-  let column = area.h > line;
-  let inner = if column {
+  let column = area.h > row_h(line);
+  let inner = if !column {
+    // the site's tabbar border: a 1px white line on the edge toward the chat (the top edge of the window
+    // has the bar above the chat, the bottom edge below it)
+    let top = area.y == 0;
+    c.fill(Rect::new(area.x, if top { area.bottom() - 1 } else { area.y }, area.w, 1), theme::WHITE);
+    Rect::new(area.x, if top { area.y } else { area.y + 1 }, area.w, line)
+  } else {
     // on the left the edge is its right side, on the right its left side
     let left = area.x == 0;
     c.fill(Rect::new(if left { area.right() - 1 } else { area.x }, area.y, 1, area.h), theme::WHITE);
     Rect::new(if left { area.x } else { area.x + 1 }, area.y, area.w - 1, area.h)
-  } else {
-    area
   };
   let (mut x, mut y) = (inner.x, inner.y);
   let mut hits = Vec::with_capacity(tabs.len() + 3);
@@ -135,6 +144,11 @@ pub fn draw(
     icon(c, text, r.intersect(inner), glyph, on);
     hits.push(r);
     x += w;
+    // boxed like the site's `+` `cfg` buttons: a 1px white line after each, none in a column
+    if !column {
+      c.fill(Rect::new(x, y, 1, line).intersect(inner), theme::WHITE);
+      x += 1;
+    }
   }
   if column {
     (x, y) = (inner.x, y + line);
@@ -244,15 +258,15 @@ mod tests {
   fn row_tabs_are_split_by_a_one_pixel_white_line() {
     let mut text = Text::new(1.0);
     let line = text.line_px as i32;
-    let (w, h) = (600, line);
+    let (w, h) = (600, row_h(line));
     let mut c = Canvas::new(w, h);
     let tabs = [tab("quin69", "999+", true), tab("forsen", "", false), tab("xqc", "12", false)];
     let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
     let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
     for r in &hits[..tabs.len()] {
       let x = r.right();
-      assert!((0..h).all(|y| c.px[(y * w + x) as usize] == theme::WHITE), "a white line at x={x} after the tab");
-      assert!((0..h).all(|y| c.px[(y * w + x - 1) as usize] != theme::WHITE || r.w == 0), "the line is 1px");
+      assert!((0..line).all(|y| c.px[(y * w + x) as usize] == theme::WHITE), "a white line at x={x} after the tab");
+      assert!((0..line).all(|y| c.px[(y * w + x - 1) as usize] != theme::WHITE || r.w == 0), "the line is 1px");
     }
     for p in hits[..tabs.len()].windows(2) {
       assert_eq!(p[1].x, p[0].right() + 1, "the next tab starts after the line, so the line is no tab's");
@@ -270,5 +284,28 @@ mod tests {
     let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
     let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
     assert_eq!(hits[1].y, hits[0].bottom());
+  }
+
+  // the site's tabbar: a 1px white line under the tabs (toward the chat), and `+` `cfg` boxed like tabs
+  #[test]
+  fn a_row_bar_has_its_edge_line_and_boxed_buttons() {
+    let mut text = Text::new(1.0);
+    let line = text.line_px as i32;
+    let (w, h) = (600, row_h(line));
+    let mut c = Canvas::new(w, h);
+    let tabs = [tab("forsen", "", false)];
+    let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
+    assert!((0..w).all(|x| c.px[((h - 1) * w + x) as usize] == theme::WHITE), "the edge line under the tabs");
+    assert!((0..w).any(|x| c.px[((h - 2) * w + x) as usize] != theme::WHITE), "the tabs sit above it");
+    for r in &hits[1..4] {
+      let x = r.right();
+      assert!((0..line).all(|y| c.px[(y * w + x) as usize] == theme::WHITE), "a line after the button at x={x}");
+    }
+    // at the bottom of the window the edge is the top of the bar
+    let mut c = Canvas::new(w, h + 10);
+    let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
+    draw(&mut c, &mut text, Rect::new(0, 10, w, h), &tabs, (&[], ""), none);
+    assert!((0..w).all(|x| c.px[(10 * w + x) as usize] == theme::WHITE), "the edge line over the tabs");
   }
 }
