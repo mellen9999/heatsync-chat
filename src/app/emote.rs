@@ -6,7 +6,8 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use super::overlay::Overlay;
-use crate::emotes::block::{Click, Scope, emote_hash, right_click};
+use crate::emotes::block::{Click, Scope, emote_hash, right_click, valid_hash};
+use crate::emotes::say::Say;
 use crate::model::settings::RightClick;
 use crate::net::Cmd;
 use crate::net::emote_ops::EmoteCmd;
@@ -143,11 +144,16 @@ impl App {
           self.res.blocked.unblock(name, &hit.url, scope)
         };
         self.res.blocked.save();
-        self.say(f(if block { "app.emote.blocked" } else { "app.emote.unblocked" }, &[("name", name)]));
-        if self.me.is_some() {
-          for hash in hashes {
-            self.net.send(Cmd::Emote(if block { EmoteCmd::Block { hash } } else { EmoteCmd::Unblock { hash } }));
-          }
+        // logged in, the account takes it first and says so when it has: a refusal takes the change back.
+        // logged out it is only ever local, so the line is now
+        if self.me.is_some() && hashes.iter().all(|h| valid_hash(h)) {
+          let name = name.clone();
+          self.net.send(Cmd::Emote(match block {
+            true => EmoteCmd::Block { name, hash: hashes.into_iter().next().unwrap_or_default() },
+            false => EmoteCmd::Unblock { name, hashes },
+          }));
+        } else {
+          self.say(if block { Say::BlockOk } else { Say::UnblockOk }.line(name, None));
         }
         self.relayout_where(None);
       }
@@ -342,6 +348,83 @@ mod tests {
     // removing mine is a live change: from then on it is no longer yours, in every tab
     assert_eq!(app.res.senders.stale(1, Some("W")), Some(true));
     assert!(!app.owned(&yours));
+  }
+
+  fn signed_in() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
+    let (net, rx) = crate::net::Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    app.me = Some(crate::net::auth::Me {
+      username: "m".into(),
+      platform: "twitch".into(),
+      twitch: Some("m".into()),
+      twitch_id: Some(1),
+      names: vec!["m".into()],
+      kick: None,
+      youtube: None,
+      packs: vec![],
+    });
+    (app, rx)
+  }
+
+  fn said(app: &App) -> String {
+    app.tabs[app.active].view.last_msg().map(|m| m.body.to_string()).unwrap_or_default()
+  }
+
+  fn sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Cmd>) -> Vec<EmoteCmd> {
+    std::iter::from_fn(|| rx.try_recv().ok())
+      .filter_map(|c| if let Cmd::Emote(e) = c { Some(e) } else { None })
+      .collect()
+  }
+
+  // signed in, a block is the account's to confirm: it holds here at once, says nothing yet, and the account's
+  // refusal (a line of its own, from the net layer) takes it back
+  #[test]
+  fn a_block_while_signed_in_waits_for_the_account_and_a_refusal_takes_it_back() {
+    crate::i18n::set(crate::i18n::lang::EN);
+    let (mut app, mut rx) = signed_in();
+    let room = hit("https://cdn.7tv.app/emote/ROOM/1x.webp");
+    app.run_act(Act::Block, &room, false);
+    assert!(app.res.blocked.contains("W", &room.url), "held here at once");
+    assert_eq!(said(&app), "", "no line until the account answers");
+    assert!(matches!(&sent(&mut rx)[..], [EmoteCmd::Block { name, hash }] if &**name == "W" && hash == "ROOM"));
+    app.on_net(crate::net::NetEvent::EmoteUndone { block: true, name: "W".into(), hashes: vec!["ROOM".into()] });
+    assert!(!app.res.blocked.contains("W", &room.url), "refused: not blocked");
+    // another emote's block is never touched by a refusal about this one
+    let other = hit("https://cdn.7tv.app/emote/OTHER/1x.webp");
+    app.run_act(Act::Block, &other, false);
+    app.on_net(crate::net::NetEvent::EmoteUndone { block: true, name: "W".into(), hashes: vec!["ROOM".into()] });
+    assert!(app.res.blocked.contains("W", &other.url));
+  }
+
+  // an unblock the account refuses puts the block back, under its name, for the keys it refused
+  #[test]
+  fn an_unblock_the_account_refuses_puts_the_block_back() {
+    crate::i18n::set(crate::i18n::lang::EN);
+    let (mut app, mut rx) = signed_in();
+    let room = hit("https://cdn.7tv.app/emote/ROOM/1x.webp");
+    app.res.blocked.block("W", &room.url, Scope::Channel);
+    app.run_act(Act::Unblock, &room, false);
+    assert!(!app.res.blocked.contains("W", &room.url));
+    assert_eq!(said(&app), "", "no line until the account answers");
+    assert!(
+      matches!(&sent(&mut rx)[..], [EmoteCmd::Unblock { name, hashes }] if &**name == "W" && hashes == &["ROOM"])
+    );
+    app.on_net(crate::net::NetEvent::EmoteUndone { block: false, name: "W".into(), hashes: vec!["ROOM".into()] });
+    assert!(app.res.blocked.contains("W", &room.url), "refused: blocked again");
+  }
+
+  // signed out nothing leaves this machine, so the line is now and there is nothing to confirm
+  #[test]
+  fn signed_out_a_block_and_an_unblock_say_so_at_once() {
+    crate::i18n::set(crate::i18n::lang::EN);
+    let (net, mut rx) = crate::net::Net::tap();
+    let mut app = App::new(net, vec!["forsen".into()], false);
+    let room = hit("https://cdn.7tv.app/emote/ROOM/1x.webp");
+    app.run_act(Act::Block, &room, false);
+    assert_eq!(said(&app), "blocked W");
+    app.run_act(Act::Unblock, &room, false);
+    assert_eq!(said(&app), "unblocked W");
+    assert!(sent(&mut rx).is_empty(), "nothing asked of the account");
   }
 
   // rule 10: honoured on every surface: menu is the default, instant and off are the other two answers,

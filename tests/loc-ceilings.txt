@@ -1,6 +1,6 @@
 # god-file ceilings: <max lines> <path>  # why. raise only with a reason in the same commit
 1518 src/ui/name_art/scene_cat.rs  # baseline
-1294 src/net/mod.rs  # channel emote loader moved to net/chan_emotes.rs, the redirect policy to net/http.rs; the youtube backlog event (Replay)
+1301 src/net/mod.rs  # channel emote loader moved to net/chan_emotes.rs, the redirect policy to net/http.rs; the youtube backlog event (Replay); the event that takes a refused block back (EmoteUndone)
 1350 src/model/rules.rs  # per-rule sound, volume, notify fields (ext parity); i18n keys; a keyword reads the whole line, a regex its first 512
 1436 src/model/schema.rs  # the `:` list order row (colonListOrder); three settings rows: mention sound when, remember sent (ext parity); language; i18n text accessors + parity test; tab opens a list; big emote-only lines (bigEmoteLines)
 1231 src/model/vi.rs  # baseline

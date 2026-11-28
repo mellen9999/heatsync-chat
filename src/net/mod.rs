@@ -184,6 +184,13 @@ pub enum NetEvent {
   FavoritesSaved,
   // your twitch sub emotes (empty: none, or logged out)
   SubEmotes(crate::emotes::Set),
+  // the account refused a block or an unblock made here: the app takes the local change back. the line that
+  // says so already went out as a status line
+  EmoteUndone {
+    block: bool,
+    name: Box<str>,
+    hashes: Vec<String>,
+  },
   // our own heatsync inventory changed (an add, or a removal of `removed`): refetch it
   Inventory {
     removed: Option<Box<str>>,

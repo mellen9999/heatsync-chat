@@ -217,6 +217,18 @@ impl Blocked {
     gone
   }
 
+  // the account refused a block made here: take it back. true when it was there
+  pub fn unfile(&mut self, key: &str) -> bool {
+    self.keys.remove(key).is_some()
+  }
+
+  // the account refused an unblock made here: the block is back, under the name it was made with
+  pub fn refile(&mut self, key: &str, name: &str) {
+    if self.keys.len() < MAX_BLOCKED && valid_hash(key) && crate::heatsync::valid_name(name) {
+      self.keys.insert(key.into(), name.into());
+    }
+  }
+
   // the server's list replaces what an earlier fetch said; local blocks stay
   pub fn set_server(&mut self, hashes: Vec<Box<str>>) {
     self.server = hashes.into_iter().filter(|h| valid_hash(h)).take(MAX_BLOCKED).collect();
@@ -275,6 +287,22 @@ mod tests {
   // expected values computed the ext/server way: sha256 (python hashlib) of the normalised url
   const SEVENTV: &str = "https://cdn.7tv.app/emote/01ABC/1x.webp";
   const SEVENTV_SHA: &str = "b77bff3d9068dbd6ac26734d183ecb9480e63250de106a79ab1c317d0360dc65";
+
+  // a refused block is taken back, a refused unblock puts it back: both only for the key they are about
+  #[test]
+  fn a_refused_block_or_unblock_is_taken_back() {
+    let mut b = Blocked::default();
+    assert!(b.block("W", SEVENTV, Scope::Channel));
+    assert!(b.contains("W", SEVENTV));
+    assert!(b.unfile("01ABC"));
+    assert!(!b.contains("W", SEVENTV));
+    assert!(!b.unfile("01ABC"), "nothing there the second time");
+    b.refile("01ABC", "W");
+    assert!(b.contains("W", SEVENTV));
+    b.refile("not a hash!", "W");
+    b.refile("01ABD", "has space");
+    assert!(!b.contains("W", "https://cdn.7tv.app/emote/01ABD/1x.webp"), "a bad key or name files nothing");
+  }
 
   #[test]
   fn hash_parity_per_source() {

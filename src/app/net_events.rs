@@ -916,6 +916,19 @@ impl App {
         self.res.blocked.set_server(h);
         self.relayout_where(None);
       }
+      // the account refused a block or an unblock made here: the change is taken back, as the line said
+      NetEvent::EmoteUndone { block, name, hashes } => {
+        for h in &hashes {
+          match block {
+            true => drop(self.res.blocked.unfile(h)),
+            false => self.res.blocked.refile(h, &name),
+          }
+        }
+        self.res.blocked.save();
+        self.relayout_where(None);
+        self.input_dirty = true;
+        self.wake();
+      }
       NetEvent::Favorites(list) => {
         if self.me.is_some() && self.res.favorites.adopt(list) {
           self.favorites_changed();

@@ -13,6 +13,7 @@ pub mod only;
 pub mod personal;
 pub mod providers;
 pub mod resolve;
+pub mod say;
 
 use std::collections::HashMap;
 

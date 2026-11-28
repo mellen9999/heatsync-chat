@@ -2,6 +2,7 @@
 // list, rename, move, remove, undo, redo, restore, apply a saved set, share, import a channel. each op is
 // one request; the answer is checked and handed to the screen. a change that lands also tells the sender
 // path (`NetEvent::Inventory`), so your own lines draw the new set through the same refetch as ever
+use crate::emotes::say::{Op as Asked, Say, says};
 use crate::i18n::{f, t};
 use reqwest::Method;
 use serde_json::{Value, json};
@@ -131,9 +132,24 @@ fn writes(op: &Op) -> bool {
   !matches!(op, Op::List | Op::Removed | Op::Sets | Op::Share | Op::Unshare)
 }
 
+// what a rename or a remove that did not work says: the contract's line for the answer (the same words in every
+// heatsync app). everything else keeps the server's plain words
+fn failed(op: &Op, status: u16, why: String) -> String {
+  match op {
+    Op::Rename(_, _, new) => says(Asked::Rename, status).line(new, None),
+    Op::Remove(_, name) => says(Asked::Remove, status).line(name, None),
+    _ => why,
+  }
+}
+
+// a remove of a slot that is already empty is a remove that worked
+fn taken(op: &Op, status: u16) -> bool {
+  super::emote_ops::ok(status) || matches!(op, Op::Remove(..)) && says(Asked::Remove, status) == Say::RemoveOk
+}
+
 pub async fn run(http: reqwest::Client, token: Option<String>, op: Op, out: Out) {
   let res = match token {
-    None => Err(super::http::plain_status(401)),
+    None => Err(failed(&op, 401, super::http::plain_status(401))),
     Some(t) => ask(&http, &t, op.clone()).await,
   };
   if res.is_ok() && writes(&op) {
@@ -148,14 +164,14 @@ async fn ask(http: &reqwest::Client, token: &str, op: Op) -> Result<Got, String>
   if let Some(body) = q.body {
     b = b.header("content-type", "application/json").body(body.to_string());
   }
-  let r = b.send().await.map_err(|e| super::http::offline("heatsync", e))?;
+  let r = b.send().await.map_err(|e| failed(&op, 0, super::http::offline("heatsync", e)))?;
   let code = r.status().as_u16();
   super::http::lapsed(code);
   let max = if matches!(op, Op::List) { MAX_LIST } else { MAX_REPLY };
-  let body = super::http::read(r, max).await?;
+  let body = super::http::read(r, max).await.map_err(|e| failed(&op, 0, e))?;
   let v: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-  if !super::emote_ops::ok(code) {
-    return Err(super::emote_ops::why(code, &v));
+  if !taken(&op, code) {
+    return Err(failed(&op, code, super::emote_ops::why(code, &v)));
   }
   answer(op, &v)
 }
@@ -163,6 +179,26 @@ async fn ask(http: &reqwest::Client, token: &str, op: Op) -> Result<Got, String>
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // the inventory screen's rename and remove say the contract's lines, picked by the status
+  #[test]
+  fn a_rename_or_remove_that_did_not_work_says_why_in_the_contracts_words() {
+    crate::i18n::set(crate::i18n::lang::EN);
+    let (rename, remove) = (Op::Rename(3, "old".into(), "PogU".into()), Op::Remove(3, "KEKW".into()));
+    let say = |op: &Op, status| failed(op, status, "server words".into());
+    assert_eq!(say(&rename, 409), "already have an emote named PogU");
+    assert_eq!(say(&rename, 401), "log in to manage inventory");
+    assert_eq!(say(&rename, 500), "rename failed — try again");
+    assert_eq!(say(&rename, 0), "rename failed — try again");
+    assert_eq!(say(&remove, 401), "log in to manage inventory");
+    assert_eq!(say(&remove, 500), "remove failed: KEKW");
+    assert_eq!(say(&remove, 0), "remove failed: KEKW");
+    // the other ops keep what the server said
+    assert_eq!(say(&Op::Move(1, 2), 500), "server words");
+    // a slot that is already empty is a remove that worked, and only a remove
+    assert!(taken(&remove, 404) && taken(&remove, 200));
+    assert!(!taken(&remove, 500) && !taken(&rename, 404) && !taken(&Op::Move(1, 2), 404));
+  }
 
   #[test]
   fn each_op_is_the_ext_s_request() {
