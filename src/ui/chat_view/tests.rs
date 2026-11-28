@@ -2458,6 +2458,29 @@ fn a_whisper_or_notification_row_wears_one_mark() {
   assert_eq!(at(&inbox::message(&it)), "[H] ".len(), "[H] once");
 }
 
+// M1: a status line is the app's own words about what you just did ("added MeN to slot 12"). no platform said
+// it and heatsync did not carry it, so it wears no mark: not [T] because the field's placeholder says twitch.
+// a row a platform did say still wears its platform's, and a line sent through heatsync still wears [H]
+#[test]
+fn a_status_line_wears_no_mark_but_a_platform_row_and_a_heatsync_line_do() {
+  let mut res = Res::new(1.0);
+  let (on, off) = (Opts { ts: false, tags: true, find: None }, Opts { ts: false, tags: false, find: None });
+  let width = |res: &mut Res, m: &Message, o: Opts| layout_row(res, "c", m, 0, 600, o).layout.width();
+  let status = Message::status(1, "added MeN to slot 12");
+  assert_eq!(width(&mut res, &status, on), width(&mut res, &status, off), "tags on or off, a status line is the same");
+  // the same words said by twitch (a timeout, a notice) do wear [T], and [K] on kick
+  for p in [Platform::Twitch, Platform::Kick] {
+    let said = Message::system(1, p, "added MeN to slot 12");
+    assert!(width(&mut res, &said, on) > width(&mut res, &said, off), "{p:?}: a platform's own row keeps its mark");
+    assert_eq!(width(&mut res, &said, off), width(&mut res, &status, off), "same words, same row without the mark");
+  }
+  // a line sent through heatsync wears [H] even where platform tags are off
+  let mut sent = plain("a", "hi");
+  sent.extra().origin = true;
+  assert_eq!(layout_row(&mut res, "c", &sent, 0, 600, off).nick.start, "[H]".len(), "[H], tags off");
+  assert_eq!(layout_row(&mut res, "c", &plain("a", "hi"), 0, 600, off).nick.start, 0, "no origin, no mark");
+}
+
 // M1: a feed post carries its own platform mark in its head (none for a heatsync-native post);
 // the tab's platform tag never adds a [T] in front of it
 #[test]

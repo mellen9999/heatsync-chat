@@ -70,6 +70,8 @@ pub mod flag {
   pub const BRAND: u16 = 1 << 7;
   // with CLEARED: the grey is a deleted line (stays grey), not a ban or timeout (an unban lifts it)
   pub const DELETED: u16 = 1 << 8;
+  // the app's own words about what you just did (`Message::status`): no platform said it, so no mark
+  pub const STATUS: u16 = 1 << 9;
 }
 
 // what kind of event a notice row is (ext main.js noticeKind): its words take the kind's color, bold,
@@ -239,6 +241,15 @@ impl Message {
       system: None,
       x: None,
     }
+  }
+
+  // a status line: what the app itself says about what you just did or why it didn't work (App::say). it is
+  // not a chat row: no platform said it and heatsync did not carry it, so it wears no mark (model::mark).
+  // `Platform::Twitch` is only the field's placeholder here
+  pub fn status(ts: i64, text: impl Into<Box<str>>) -> Self {
+    let mut m = Self::system(ts, Platform::Twitch, text);
+    m.flags |= flag::STATUS;
+    m
   }
 
   pub fn has(&self, f: u16) -> bool {

@@ -3,7 +3,7 @@
 // it was said on. every surface asks here; none spells a letter or a colour itself
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::message::{Message, Platform};
+use super::message::{Message, Platform, flag};
 use crate::ui::theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +32,13 @@ impl Mark {
   // a row's mark: [H] once it is known to be a heatsync send, else where it was said
   pub fn of(m: &Message) -> Mark {
     if m.x.as_ref().is_some_and(|x| x.origin) { Mark::Heatsync } else { m.platform.into() }
+  }
+
+  // the mark a row wears, if it wears one. a status line (`Message::status`, the app's own words about what you
+  // just did) is no chat row: no platform said it and heatsync did not carry it, so it wears none (the site and the
+  // extension show the same words as a toast, which has no mark). every surface that draws a row's mark asks here
+  pub fn worn(m: &Message) -> Option<Mark> {
+    Some(Mark::of(m)).filter(|_| !m.has(flag::STATUS))
   }
 
   // a platform name off the wire. canonical names only (ingress normalizes aliases); anything else is
@@ -108,5 +115,16 @@ mod tests {
     assert_eq!(Mark::named("yt"), Mark::Unknown, "an alias is not a platform here");
     assert_eq!(Mark::Unknown.tag(), "[?]");
     assert_eq!(Mark::Youtube.tag_sp(), "[Y] ");
+  }
+
+  // a status line is the app's own voice: no platform said it, heatsync did not carry it, so no mark
+  #[test]
+  fn a_status_line_is_no_platforms_row() {
+    let m = Message::status(1, "added MeN to slot 12");
+    assert_eq!(Mark::worn(&m), None);
+    let mut said = Message::system(1, Platform::Twitch, "added MeN to slot 12");
+    assert_eq!(Mark::worn(&said), Some(Mark::Twitch), "the same words from a platform keep its mark");
+    said.extra().origin = true;
+    assert_eq!(Mark::worn(&said), Some(Mark::Heatsync));
   }
 }

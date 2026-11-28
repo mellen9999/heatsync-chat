@@ -7,7 +7,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::App;
 use crate::model::line::Line;
-use crate::model::message::{Message, Platform};
+use crate::model::message::Message;
 use crate::net::Cmd;
 use crate::net::upload::{Upload, expand};
 use crate::ui::input_bar;
@@ -27,7 +27,7 @@ impl App {
   pub(super) fn say(&mut self, s: impl Into<String>) {
     let s = s.into();
     let Some(t) = self.tabs.get_mut(self.active).filter(|_| !s.is_empty()) else { return };
-    t.view.push(Message::system(now_ms(), Platform::Twitch, s));
+    t.view.push(Message::status(now_ms(), s));
     self.wake();
   }
 
