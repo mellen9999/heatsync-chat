@@ -145,3 +145,19 @@ fn a_youtube_lines_actions_become_youtube_requests() {
   // our own channel is ours before any line
   assert!(app.can_mod(Platform::Youtube, "@mellenyt"));
 }
+
+// the line menu opens with the mod rows (line_rows puts them first); a room you don't mod has none
+#[test]
+fn the_split_keeps_mod_rows_apart_from_a_persons_own() {
+  let (mut app, _rx) = boot();
+  let bob = line(Platform::Kick, "bob", "m1", &[]);
+  relay(&mut app, bob.clone());
+  let who = app.subject_of(&bob).expect("person");
+  let (mods, own) = app.person_split(&who);
+  assert!(mods.is_empty() && !own.is_empty(), "not a mod here: only the person's own rows");
+  relay(&mut app, line(Platform::Kick, "mellen-k", "2", &["broadcaster"]));
+  let (mods, own) = app.person_split(&who);
+  let m: Vec<&str> = mods.iter().map(|r| r.1.as_str()).collect();
+  assert!(m.contains(&"delete message") && m.contains(&"ban"), "{m:?}");
+  assert!(!own.iter().any(|r| r.1 == "ban"), "mod rows are not in the person's list");
+}

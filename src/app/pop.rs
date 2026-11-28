@@ -231,8 +231,11 @@ pub struct Ctx {
 // the ext's order: card, reply, op to feed, the copies, the person (filters, mod), then note, a post's
 // upvote and bookmark, paint, twitch's viewer card, filter to, chat logs, and last your own post's
 // edit and delete
-pub fn line_rows(c: &Ctx, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
-  let mut rows: Vec<(Act, String)> = Vec::new();
+type Rows = Vec<(Act, String)>;
+
+// `mods` are the moderator rows for a room you mod: they open the menu, before anything else
+pub fn line_rows(c: &Ctx, mods: Vec<(Act, String)>, person: Vec<(Act, String)>) -> Vec<(Act, String)> {
+  let mut rows: Vec<(Act, String)> = mods;
   if c.who.is_some() {
     rows.push((Act::Card, t("app.pop.user_card").into()));
   }
@@ -432,9 +435,17 @@ impl App {
 
   // the rows for a person: the filters first, then what a moderator can do. shared by the line menu and the card
   pub(super) fn person_rows(&self, w: &Subject) -> Vec<(Act, String)> {
+    let (mods, mut rows) = self.person_split(w);
+    rows.extend(mods);
+    rows
+  }
+
+  // the same rows in two lists: what a moderator can do (and the broadcaster's grants), and the rest
+  pub(super) fn person_split(&self, w: &Subject) -> (Rows, Rows) {
     let mut rows: Vec<(Act, String)> = Vec::new();
+    let mut mods: Vec<(Act, String)> = Vec::new();
     if w.own {
-      return rows;
+      return (mods, rows);
     }
     rows.push((Act::Mention, t("app.pop.mention").into()));
     if w.platform == Platform::Twitch && self.me.is_some() {
@@ -458,32 +469,32 @@ impl App {
     }
     if self.can_mod(w.platform, &w.chan) {
       if !w.msg_id.is_empty() {
-        rows.push((Act::Do(Verb::Delete), t("app.pop.delete_message").into()));
+        mods.push((Act::Do(Verb::Delete), t("app.pop.delete_message").into()));
       }
       for (label, secs) in DURATIONS {
-        rows.push((Act::Do(Verb::Timeout(secs)), f("app.pop.timeout", &[("duration", label)])));
+        mods.push((Act::Do(Verb::Timeout(secs)), f("app.pop.timeout", &[("duration", label)])));
       }
       // kick's shortest timeout is a minute, so a purge there would only be a timeout
       if w.platform == Platform::Twitch {
-        rows.push((Act::Do(Verb::Purge), t("app.pop.purge").into()));
+        mods.push((Act::Do(Verb::Purge), t("app.pop.purge").into()));
       }
-      rows.push((Act::Do(Verb::Ban), t("app.pop.ban").into()));
-      rows.push((Act::Do(Verb::Unban), t("app.pop.unban").into()));
+      mods.push((Act::Do(Verb::Ban), t("app.pop.ban").into()));
+      mods.push((Act::Do(Verb::Unban), t("app.pop.unban").into()));
       if w.platform == Platform::Twitch {
-        rows.push((Act::Warn, t("app.pop.warn").into()));
-        rows.push((Act::Shoutout, t("app.pop.shoutout").into()));
+        mods.push((Act::Warn, t("app.pop.warn").into()));
+        mods.push((Act::Shoutout, t("app.pop.shoutout").into()));
       }
       if w.platform == Platform::Twitch {
-        rows.push((Act::BlockedTerms, t("app.pop.blocked_terms").into()));
+        mods.push((Act::BlockedTerms, t("app.pop.blocked_terms").into()));
       }
     }
     if w.platform == Platform::Twitch && self.is_caster(&w.chan) {
-      rows.push((Act::Vip(true), t("app.pop.vip").into()));
-      rows.push((Act::Vip(false), t("app.pop.unvip").into()));
-      rows.push((Act::Mod(true), t("app.pop.mod").into()));
-      rows.push((Act::Mod(false), t("app.pop.unmod").into()));
+      mods.push((Act::Vip(true), t("app.pop.vip").into()));
+      mods.push((Act::Vip(false), t("app.pop.unvip").into()));
+      mods.push((Act::Mod(true), t("app.pop.mod").into()));
+      mods.push((Act::Mod(false), t("app.pop.unmod").into()));
     }
-    rows
+    (mods, rows)
   }
 
   // the menu for the selected line: its own actions, then mod actions when we moderate the room
@@ -512,7 +523,7 @@ impl App {
     let op = post.is_none() && signed_in && !m.body.is_empty();
     let post = post.and_then(|p| self.post_ctx(p));
     let who = self.subject_of(m);
-    let person = who.as_ref().map(|w| self.person_rows(w)).unwrap_or_default();
+    let (mods, person) = who.as_ref().map(|w| self.person_split(w)).unwrap_or_default();
     let paint = who.as_ref().and_then(|w| w.paint.as_ref()).and_then(|id| {
       let hidden = self.res.cosmetics.hidden.has(id);
       self.res.cosmetics.has_paint(id).then_some(hidden)
@@ -534,7 +545,7 @@ impl App {
       pin: self.pin_menu(m),
       thread: t.kind == Kind::Chat && self.chain_of(&m.id).is_some_and(|f| f.lines.len() >= 2),
     };
-    let mut rows = line_rows(&ctx, person);
+    let mut rows = line_rows(&ctx, mods, person);
     // an automod hold: allow / deny first
     if self.held_selected().is_some() {
       rows.splice(
@@ -683,7 +694,27 @@ mod tests {
 
   fn rows(c: &Ctx) -> Vec<String> {
     let person = vec![(Act::Mute, "mute".into()), (Act::HideInTab(true), "hide in tab".into())];
-    line_rows(c, person).into_iter().map(|r| r.1).collect()
+    line_rows(c, Vec::new(), person).into_iter().map(|r| r.1).collect()
+  }
+
+  // M12 / M01: in a room you mod, the mod rows open the menu
+  #[test]
+  fn mod_rows_come_first_when_you_mod_the_room() {
+    let c = Ctx {
+      who: who(Platform::Twitch, false, false),
+      can_reply: true,
+      chat_tab: true,
+      paint: None,
+      post: None,
+      op: false,
+      link: false,
+      pin: None,
+      thread: false,
+    };
+    let mods = vec![(Act::Do(Verb::Delete), "delete".into()), (Act::Do(Verb::Ban), "ban".into())];
+    let r: Vec<String> = line_rows(&c, mods, vec![(Act::Mute, "mute".into())]).into_iter().map(|r| r.1).collect();
+    assert_eq!(&r[..2], ["delete", "ban"], "{r:?}");
+    assert_eq!(r[2], "user card", "{r:?}");
   }
 
   #[test]
@@ -750,7 +781,7 @@ mod tests {
       pin: None,
       thread: false,
     };
-    let r = line_rows(&c, Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
+    let r = line_rows(&c, Vec::new(), Vec::new()).into_iter().map(|r| r.1).collect::<Vec<_>>();
     assert_eq!(
       r,
       [
@@ -864,7 +895,7 @@ mod tests {
   }
 
   fn rows_of(c: &Ctx) -> Vec<String> {
-    line_rows(c, Vec::new()).into_iter().map(|r| r.1).collect()
+    line_rows(c, Vec::new(), Vec::new()).into_iter().map(|r| r.1).collect()
   }
 
   #[test]
