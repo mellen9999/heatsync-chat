@@ -443,7 +443,53 @@ fn catch_limit(gap: Duration) -> usize {
   (gap.as_secs() as usize).saturating_mul(10).clamp(100, super::recent::LIMIT)
 }
 
+// how long the first connect waits for the session's word on who we are (see `boot_wait`)
+const BOOT_WAIT: Duration = Duration::from_secs(5);
+
 pub async fn run(
+  rx: mpsc::UnboundedReceiver<Cmd>,
+  sess: mpsc::UnboundedSender<super::session::Cmd>,
+  http: reqwest::Client,
+  out: Out,
+) {
+  run_at(URL, rx, sess, http, out).await
+}
+
+fn connected_line(creds: &Option<Creds>) -> &'static str {
+  if creds.is_some() { t("net1.irc.connected") } else { t("net1.irc.connected_ro") }
+}
+
+// before the first connect: wait for the session's first identity answer (it always sends one at boot), so a
+// stored login connects once, signed in, instead of anonymously and then again. bounded, so a slow or
+// unreachable heatsync still gets read-only chat. joins that come meanwhile are kept for the first connect.
+// false = the app is closing
+async fn boot_wait(
+  rx: &mut mpsc::UnboundedReceiver<Cmd>,
+  chans: &mut BTreeSet<Box<str>>,
+  creds: &mut Option<Creds>,
+  out: &Out,
+  limit: Duration,
+) -> bool {
+  let wait = sleep(limit);
+  tokio::pin!(wait);
+  loop {
+    tokio::select! {
+      _ = &mut wait => return true,
+      cmd = rx.recv() => match cmd {
+        Some(Cmd::Login(c)) => {
+          *creds = c;
+          return true;
+        }
+        Some(Cmd::Send { chan, .. }) => unsent(out, chan, t("net1.irc.reconnecting_unsent")),
+        Some(c) => { apply(chans, c); }
+        None => return false,
+      },
+    }
+  }
+}
+
+async fn run_at(
+  url: &str,
   mut rx: mpsc::UnboundedReceiver<Cmd>,
   sess: mpsc::UnboundedSender<super::session::Cmd>,
   http: reqwest::Client,
@@ -451,6 +497,9 @@ pub async fn run(
 ) {
   let mut chans = BTreeSet::new();
   let mut creds: Option<Creds> = None;
+  if !boot_wait(&mut rx, &mut chans, &mut creds, &out, BOOT_WAIT).await {
+    return;
+  }
   let mut attempts = 0u32;
   // when we last lost twitch: set once there has been a connection, so the next one fills the gap
   let mut lost: Option<Instant> = None;
@@ -458,10 +507,10 @@ pub async fn run(
   let mut dupes = Dupes::default();
   loop {
     let mut why = t("net1.irc.unreachable");
-    match timeout(HANDSHAKE_LIMIT, ws_connect(URL, MAX_FRAME)).await {
+    match timeout(HANDSHAKE_LIMIT, ws_connect(url, MAX_FRAME)).await {
       Ok(Ok((ws, _))) => {
         let started = Instant::now();
-        out.status(if creds.is_some() { t("net1.irc.connected") } else { t("net1.irc.connected_ro") });
+        out.status(connected_line(&creds));
         if let Some(since) = lost.take() {
           let chans: Vec<_> = chans.iter().cloned().collect();
           tokio::spawn(super::recent::catch_up(http.clone(), chans, catch_limit(since.elapsed()), out.clone()));
@@ -643,6 +692,8 @@ async fn session(
       cmd = rx.recv() => {
         let line = match cmd {
           None => return End::Quit,
+          // anonymous again while already anonymous: nothing to change, no reconnect
+          Some(Cmd::Login(None)) if creds.is_none() => continue,
           Some(Cmd::Login(c)) => {
             *creds = c;
             return End::Relogin;
@@ -1038,3 +1089,7 @@ mod tests {
     assert_eq!(privmsg("c", "hi", None, &mut d).as_deref(), Some("PRIVMSG #c :hi"));
   }
 }
+
+#[cfg(test)]
+#[path = "irc_boot/tests.rs"]
+mod boot_tests;

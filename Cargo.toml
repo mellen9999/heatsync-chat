@@ -72,3 +72,6 @@ windows-sys = { version = "0.61", default-features = false, features = [
 lto = "fat"
 codegen-units = 1
 strip = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }

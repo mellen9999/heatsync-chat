@@ -188,6 +188,12 @@ pub async fn run(
   let (mutes, mutes_rx) = tokio::sync::mpsc::unbounded_channel();
   super::watch("mute sync", super::mutes::run(st.http.clone(), mutes_rx, st.out.clone()), st.out.clone());
   let mut next = Instant::now();
+  // irc waits for one identity answer before its first connect: no stored login is an answer now, a stored
+  // one answers when its first step ends, whatever the outcome (see `settle`)
+  let mut booted = st.token.is_none();
+  if booted {
+    let _ = st.irc.send(irc::Cmd::Login(None));
+  }
   loop {
     tokio::select! {
       c = rx.recv() => match c {
@@ -308,6 +314,9 @@ pub async fn run(
       }
       _ = sleep_until(next), if st.token.is_some() => {
         next = Instant::now() + st.tick().await;
+        if !std::mem::replace(&mut booted, true) {
+          st.settle();
+        }
       }
     }
   }
@@ -390,6 +399,13 @@ impl State {
         }
       }
     });
+  }
+
+  // the boot answer for irc when the first step ended without sending one (offline, unlinked, expired)
+  fn settle(&mut self) {
+    if self.irc_as.is_none() {
+      let _ = self.irc.send(irc::Cmd::Login(None));
+    }
   }
 
   fn forget(&mut self, why: &str) {
@@ -755,6 +771,16 @@ mod tests {
 
   // account:changed: the next step reads the whole account again, even mid chat-login retries
   // the socket closed on our token: the next step is a whole check, and it signs the socket in again
+  #[test]
+  fn a_boot_that_ended_without_a_login_answers_irc_anonymous_once() {
+    let (mut st, _out, mut irc) = rig();
+    st.settle();
+    assert!(matches!(irc.try_recv(), Ok(irc::Cmd::Login(None))));
+    st.irc_as = Some(("t".into(), "n".into()));
+    st.settle();
+    assert!(irc.try_recv().is_err(), "a signed-in irc already had its answer");
+  }
+
   #[test]
   fn a_socket_that_threw_the_token_out_gets_it_checked_and_resent() {
     let (mut st, _out, _irc) = rig();
