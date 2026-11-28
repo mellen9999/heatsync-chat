@@ -92,6 +92,8 @@ mod tabsync;
 mod tagcard;
 mod temp;
 #[cfg(test)]
+mod tests_boxmods;
+#[cfg(test)]
 mod tests_cardclip;
 #[cfg(test)]
 mod tests_chain;

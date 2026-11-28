@@ -114,6 +114,16 @@ impl Images {
     self.epoch.elapsed().as_millis() as u64
   }
 
+  // the clock every moving picture is read off, ms: a moving modifier (`p!`, `ffzSpin`) runs on it too
+  pub fn clock_ms(&self) -> u64 {
+    self.now_ms()
+  }
+
+  // screen px to a css px: what a modifier's shift in css px is on this screen
+  pub fn scale(&self) -> f32 {
+    self.scale
+  }
+
   // the slot an id still points at; None for an id from before its slot was recycled
   fn ix(&self, id: ImgId) -> Option<usize> {
     let i = (id & IX_MASK) as usize;

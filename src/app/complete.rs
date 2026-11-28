@@ -3,6 +3,7 @@
 use super::App;
 use crate::emotes::Provider;
 use crate::emotes::draft::{From, Pic, Src};
+use crate::emotes::mods;
 use crate::i18n::{f, t};
 use crate::law;
 use crate::model::catalog::{self, Cycle, Page, Rec, Registry};
@@ -171,6 +172,9 @@ impl App {
   pub(super) fn tab_complete(&mut self, back: bool) {
     if self.complete.is_none() {
       let r = self.line.word_around();
+      if self.settle_modifier(r.clone()) {
+        return;
+      }
       let word = &self.line.text[r.clone()];
       // a lone `/word` (no arguments yet) completes commands
       let slash = r.start == 0 && word.starts_with('/') && r.end == self.line.text.trim_end().len();
@@ -233,6 +237,32 @@ impl App {
       self.ask_catalog(true);
     }
     self.show_pick();
+  }
+
+  // a modifier word is never an emote to complete (ext findEmoteMatches): tab settles it on its emote with
+  // a space, and a bare letter right after a picture (`Okayge p`) becomes its modifier (`p!`) first
+  fn settle_modifier(&mut self, r: std::ops::Range<usize>) -> bool {
+    let word = &self.line.text[r.clone()];
+    let after_chip = || {
+      let head = self.line.text[..r.start].strip_suffix(' ')?;
+      let prev = &head[head.rfind(' ').map_or(0, |i| i + 1)..];
+      self.line.chips.contains(prev).then_some(())
+    };
+    let tok = match word.len() {
+      1 if after_chip().is_some() => format!("{}!", word.to_ascii_lowercase()),
+      _ => word.to_owned(),
+    };
+    if !mods::is(&tok) {
+      return false;
+    }
+    self.line.checkpoint(false);
+    let spaced = self.line.text[r.end..].starts_with(' ');
+    self.line.replace(r.clone(), &if spaced { tok.clone() } else { format!("{tok} ") });
+    self.line.cursor = r.start + tok.len() + 1;
+    self.chip_spaced();
+    self.input_dirty = true;
+    self.wake();
+    true
   }
 
   // ask the catalogs for the cycle's next page (a trigger resets the chase budget; a chase does not)

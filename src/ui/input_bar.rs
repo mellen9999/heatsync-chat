@@ -7,11 +7,12 @@ use parley::editing::{Cursor, Selection};
 use parley::{Affinity, InlineBox, InlineBoxKind, PositionedLayoutItem, VerticalAlign};
 
 use super::canvas::{Canvas, Rect};
-use super::chat_view::{blit_layer, emoji_glyph};
+use super::chat_view::{blit_fx, blit_layer, emoji_glyph};
 use super::logo::Logo;
 use super::mode_label::{self, Seg};
 use super::text::{Ink, Span, Text, TextLayout};
 use super::theme;
+use crate::emotes::mods::Fx;
 use crate::i18n::t;
 use crate::images::{Images, ImgId};
 use crate::model::line::{Line, next_break};
@@ -28,6 +29,8 @@ pub struct Chip {
   pub layers: Vec<ImgId>,
   pub w: u32,
   pub h: u32,
+  // the modifier words folded into the stack, by layer: drawn as the change they make, moving on the clock
+  pub fx: Vec<(u8, Fx)>,
 }
 
 pub struct Bar<'a> {
@@ -143,6 +146,8 @@ fn span_rect(l: &TextLayout, range: Range<usize>, ox: f32, oy: f32) -> Option<Re
 }
 
 fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
+  let cmd = if b.label.is_empty() { 0.0 } else { text.layout("00000", &[], &[], f32::MAX).full_width() };
+  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd - count_w(text, b);
   let mut s = String::new();
   let mut spans = Vec::with_capacity(2);
   for (tag, ink) in b.target {
@@ -196,7 +201,9 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
     let mut i = 0;
     for (k, c) in b.chips.iter().enumerate() {
       plain(&mut s, &mut pre, i..c.range.start, &mut pending);
-      boxes.push(inline(k, s.len(), c.w, c.h));
+      // a stretched stack never outgrows the box: it is drawn shrunk to the room (the caret stays in view)
+      let fit = room.max(1.0) as u32;
+      boxes.push(inline(k, s.len(), c.w.min(fit), c.h.min(fit)));
       if pending && c.range.start < cur && cur <= c.range.end {
         put_pre(&mut s, &mut pre);
         pending = false;
@@ -209,8 +216,6 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
       spans.push(Span { range: from..at + r.len(), ink: Ink(theme::RED), bold: false });
     }
   }
-  let cmd = if b.label.is_empty() { 0.0 } else { text.layout("00000", &[], &[], f32::MAX).full_width() };
-  let room = width as f32 - 2.0 * theme::PAD_X - text.line_px * 3.0 - gutter(text, b) - cmd - count_w(text, b);
   Laid { l: text.layout(&s, &spans, &boxes, room), at, pre, runs }
 }
 
@@ -361,10 +366,14 @@ pub fn draw(c: &mut Canvas, text: &mut Text, images: &mut Images, area: Rect, b:
     c.fill(Rect::new(x, y, bw.ceil() as i32, h).intersect(area), theme::WHITE);
   }
   let mut next: Option<u32> = None;
+  let (now, k) = (images.clock_ms(), images.scale());
   let mut layers = |c: &mut Canvas, chip: &Chip, rect: Rect| {
-    for &id in &chip.layers {
+    for (n, &id) in chip.layers.iter().enumerate() {
       let Some((f, w, h, flip)) = images.frame(id) else { continue };
-      blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, area);
+      match chip.fx.iter().find(|x| x.0 as usize == n) {
+        Some((_, fx)) => blit_fx(c, &f.rgba, (w, h), fx, rect, area, (now, true, k), &mut next),
+        None => blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, area),
+      }
       if let Some(ms) = flip {
         next = Some(next.map_or(ms, |n| n.min(ms)));
       }

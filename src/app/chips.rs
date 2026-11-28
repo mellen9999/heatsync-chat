@@ -4,6 +4,10 @@
 use super::App;
 use crate::emotes::block::{Blocked, Scope};
 use crate::emotes::draft::{Draft, Found, From};
+use crate::emotes::mods::Fx;
+
+// a stack's pictures, and the modifiers folded onto each (by layer)
+type Read = (Vec<Found>, Vec<(u8, Fx)>);
 use crate::model::catalog::{Rec, Registry};
 use crate::model::message::Platform;
 use crate::model::tabs::Kind;
@@ -142,20 +146,42 @@ impl App {
     self.line.overlays = ov;
   }
 
-  // the line's emote stacks as boxes: a base and the overlays on it, one box
+  // the line's emote stacks as boxes: a base and the overlays on it, one box, with the modifier words folded
+  // into it drawn as the change they make (`Okayge p!` is a partying Okayge, as the line will read)
   pub(super) fn input_chips(&mut self) -> Vec<Chip> {
     self.sync_overlays();
     let h = self.res.images.px(EMOTE_PX);
-    // every stack's words read once, against one draft
+    let binds = self.line.mod_binds();
+    // every stack's words read once, against one draft: its pictures, and each folded word on its picture
     let d = self.draft();
-    let read = |r: &std::ops::Range<usize>| -> Vec<Found> {
-      let words = self.line.text[r.clone()].split(' ');
-      words.filter_map(|w| Self::drawn(&d, &self.line.picks, &self.res.blocked, w)).collect()
+    let read = |r: &std::ops::Range<usize>| -> Read {
+      let (mut found, mut at, mut layer_of) = (Vec::new(), r.start, Vec::new());
+      for w in self.line.text[r.clone()].split(' ') {
+        let wr = at..at + w.len();
+        at = wr.end + 1;
+        if binds.iter().any(|(m, _)| *m == wr) {
+          continue;
+        }
+        if let Some(f) = Self::drawn(&d, &self.line.picks, &self.res.blocked, w) {
+          layer_of.push((wr, found.len() as u8));
+          found.push(f);
+        }
+      }
+      let mut fx: Vec<(u8, Fx)> = Vec::new();
+      for (m, to) in &binds {
+        let Some(&(_, k)) = layer_of.iter().find(|(wr, _)| wr == to) else { continue };
+        let i = fx.iter().position(|f| f.0 == k).unwrap_or_else(|| {
+          fx.push((k, Fx::default()));
+          fx.len() - 1
+        });
+        fx[i].1.add(&self.line.text[m.clone()]);
+      }
+      (found, fx)
     };
-    let stacks: Vec<(std::ops::Range<usize>, Vec<Found>)> =
+    let stacks: Vec<(std::ops::Range<usize>, Read)> =
       self.line.stacks().into_iter().map(|r| (r.clone(), read(&r))).collect();
     let mut out: Vec<Chip> = Vec::new();
-    for (r, found) in stacks {
+    for (r, (found, fx)) in stacks {
       let words = &self.line.text[r.clone()];
       // a stack that starts on a lone emoji (not an emote): the emoji is drawn under its overlays
       let first = words.split(' ').next().unwrap_or("");
@@ -163,8 +189,14 @@ impl App {
       let Some(dims) = found.first().map(|f| f.1) else { continue };
       let layers: Vec<_> = found.iter().map(|f| self.res.images.id(&f.0, EMOTE_PX)).collect();
       let w = self.res.images.width(layers[0], dims);
+      // the slot is the widest, tallest layer once turned and stretched
+      let (w, h) = (0..layers.len()).fold((0, 0), |(mw, mh), k| {
+        let lw = if k == 0 { w } else { self.res.images.width(layers[k], found[k].1) };
+        let (lw, lh) = fx.iter().find(|f| f.0 as usize == k).map_or((lw, h), |f| f.1.size((lw, h)));
+        (mw.max(lw), mh.max(lh))
+      });
       let w = if glyph.is_some() { w.max(h) } else { w };
-      out.push(Chip { range: r, glyph, layers, w, h });
+      out.push(Chip { range: r, glyph, layers, w, h, fx });
     }
     out
   }

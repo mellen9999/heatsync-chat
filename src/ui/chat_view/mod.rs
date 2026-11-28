@@ -326,7 +326,7 @@ mod tests_mods;
 mod tests_own;
 mod words;
 
-pub use draw::{blit_layer, emoji_glyph};
+pub use draw::{blit_fx, blit_layer, emoji_glyph};
 use layout::layout_row;
 
 impl ChatView {

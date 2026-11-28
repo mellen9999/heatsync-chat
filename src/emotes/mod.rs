@@ -9,6 +9,7 @@ pub mod entitle;
 pub mod favorites;
 pub mod live;
 pub mod mods;
+pub mod motion;
 pub mod only;
 pub mod personal;
 pub mod providers;

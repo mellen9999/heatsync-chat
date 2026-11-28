@@ -236,6 +236,53 @@ impl Canvas {
     }
   }
 
+  // a sw×sh picture through any turn, stretch and shift (a moving emote): `inv` takes a point of the canvas
+  // back to the picture's own, its middle at 0, 0. smoothed between the four nearest pixels weighed by how
+  // solid each is, clear past the picture's edge, so a turned edge stays clean. only `clip` is touched
+  pub fn rgba_mapped(
+    &mut self,
+    inv: &crate::emotes::motion::Affine,
+    (sw, sh): (i32, i32),
+    data: &[u8],
+    clip: Rect,
+    ink: Option<impl Fn([u8; 4]) -> [u8; 4]>,
+  ) {
+    let c = clip.intersect(self.bounds());
+    if c.is_empty() || sw <= 0 || sh <= 0 || data.len() < (sw * sh * 4) as usize {
+      return;
+    }
+    let (hw, hh) = (sw as f32 / 2.0 - 0.5, sh as f32 / 2.0 - 0.5);
+    let at = |u: i32, v: i32| -> [f32; 4] {
+      if u < 0 || v < 0 || u >= sw || v >= sh {
+        return [0.0; 4];
+      }
+      let i = ((v * sw + u) * 4) as usize;
+      let a = data[i + 3] as f32;
+      [data[i] as f32 * a, data[i + 1] as f32 * a, data[i + 2] as f32 * a, a]
+    };
+    for py in c.y..c.bottom() {
+      let row = (py * self.w) as usize;
+      for px in c.x..c.right() {
+        let (qx, qy) = inv.apply((px as f32 + 0.5, py as f32 + 0.5));
+        let (fx, fy) = (qx + hw, qy + hh);
+        if fx <= -1.0 || fy <= -1.0 || fx >= sw as f32 || fy >= sh as f32 {
+          continue;
+        }
+        let (u0, v0) = (fx.floor() as i32, fy.floor() as i32);
+        let (tx, ty) = (fx - u0 as f32, fy - v0 as f32);
+        let (p, q, r, s) = (at(u0, v0), at(u0 + 1, v0), at(u0, v0 + 1), at(u0 + 1, v0 + 1));
+        let mix = |i: usize| (p[i] * (1.0 - tx) + q[i] * tx) * (1.0 - ty) + (r[i] * (1.0 - tx) + s[i] * tx) * ty;
+        let a = mix(3);
+        if a < 0.5 {
+          continue;
+        }
+        let ch = |i: usize| (mix(i) / a).round().min(255.0) as u8;
+        let out = [ch(0), ch(1), ch(2), a.round() as u8];
+        blend(&mut self.px[row + px as usize], &ink.as_ref().map_or(out, |f| f(out)));
+      }
+    }
+  }
+
   // premultiplied rgba8 (the animated name frames): src + dst * (1 - a)
   pub fn rgba_pm(&mut self, x: i32, y: i32, w: i32, h: i32, data: &[[u8; 4]], clip: Rect) {
     let c = Rect::new(x, y, w, h).intersect(clip).intersect(self.bounds());

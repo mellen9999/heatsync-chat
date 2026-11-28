@@ -5,6 +5,7 @@ use super::layout::layout_row;
 use super::{Anim, ChatView, Frame, MARK_W, NameAnim, TICK_SCENE_MS, TICK_SMOOTH_MS};
 use crate::cosmetics::paint::Fill;
 use crate::emotes::mods::Fx;
+use crate::emotes::motion::{Affine, Pose};
 use crate::images::{Images, ImgId};
 use crate::model::message::flag;
 use crate::ui::canvas::{Canvas, Rect};
@@ -93,7 +94,9 @@ pub fn blit_layer(c: &mut Canvas, rgba: &[u8], src: (u32, u32), dst: (i32, i32),
   }
 }
 
-// `fx`: the layers a modifier changed (`Kappa w!`), each turned, stretched and tinted as it is drawn
+// `fx`: the layers a modifier changed (`Kappa w!`), each turned, stretched and tinted as it is drawn, and
+// moved by a moving effect on the pictures' own clock (emotes/motion.rs) while `play`. a picture under
+// modifiers never draws past its slot. `next`: when the soonest picture changes (a frame, or a move)
 #[allow(clippy::too_many_arguments)]
 pub(super) fn blit_emote(
   c: &mut Canvas,
@@ -105,24 +108,78 @@ pub(super) fn blit_emote(
   clip: Rect,
   next: &mut Option<u32>,
 ) {
-  for (k, &id) in imgs.iter().enumerate() {
+  let (now, k) = (images.clock_ms(), images.scale());
+  for (n, &id) in imgs.iter().enumerate() {
     let Some((f, w, h, flip)) = images.frame_with(id, play) else {
       continue;
     };
-    match fx.iter().find(|x| x.0 as usize == k) {
-      Some((_, fx)) => {
-        let (dw, dh) = fx.size((w, h));
-        let at = (rect.x + (rect.w - dw as i32) / 2, rect.y + (rect.h - dh as i32) / 2);
-        let ink = fx.ink();
-        let ink = ink.as_ref().map(|k| |p| k.of(p));
-        c.rgba_turned(at, (w as i32, h as i32), (dw as i32, dh as i32), &f.rgba, clip, fx.turn(), fx.mirror(), ink);
-      }
+    match fx.iter().find(|x| x.0 as usize == n) {
+      Some((_, fx)) => blit_fx(c, &f.rgba, (w, h), fx, rect, clip, (now, play, k), next),
       None => blit_layer(c, &f.rgba, (w, h), (w as i32, h as i32), rect, clip),
     }
     if let Some(ms) = flip {
       *next = Some(next.map_or(ms, |n| n.min(ms)));
     }
   }
+}
+
+// how often a moving modifier is redrawn (the moving pictures' 30fps cap)
+pub(super) const MOVE_MS: u32 = 33;
+
+// one w×h picture under its modifiers, centred in `rect` and shrunk to fit it when it would not (a box
+// narrower than a stretch). `at`: the clock (ms), whether things move, screen px to a css px
+#[allow(clippy::too_many_arguments)]
+pub fn blit_fx(
+  c: &mut Canvas,
+  rgba: &[u8],
+  (w, h): (u32, u32),
+  fx: &Fx,
+  rect: Rect,
+  clip: Rect,
+  (now, play, k): (u64, bool, f32),
+  next: &mut Option<u32>,
+) {
+  let pose = fx.pose(now, play);
+  if fx.motion().is_some() && play {
+    *next = Some(next.map_or(MOVE_MS, |n| n.min(MOVE_MS)));
+  }
+  let (dw, dh) = fx.size((w, h));
+  let fit = (rect.w as f32 / dw.max(1) as f32).min(rect.h as f32 / dh.max(1) as f32).min(1.0);
+  let (dw, dh) = ((dw as f32 * fit).round() as i32, (dh as f32 * fit).round() as i32);
+  let at = (rect.x + (rect.w - dw) / 2, rect.y + (rect.h - dh) / 2);
+  let ink = fx.ink(pose.hue);
+  let ink = ink.as_ref().map(|k| |p| k.of(p));
+  let still = Pose { hue: 0.0, ..pose } == Pose::REST;
+  if still {
+    c.rgba_turned(at, (w as i32, h as i32), (dw, dh), rgba, clip, fx.turn(), fx.mirror(), ink);
+    return;
+  }
+  // the canvas from the picture: the move in its own frame, then its turn and stretch, then the slot
+  let mid = (at.0 as f32 + dw as f32 / 2.0, at.1 as f32 + dh as f32 / 2.0);
+  let map = Affine::shift(mid.0, mid.1).then_from(Affine::scale(fit, fit)).then_from(fx.map()).then_from(pose.map(
+    (w as f32, h as f32),
+    k,
+    fx.grows_up(),
+  ));
+  if let Some(inv) = map.inverse() {
+    c.rgba_mapped(&inv, (w as i32, h as i32), rgba, rect.intersect(clip), ink);
+  }
+}
+
+// a slot with an emoji under its pictures: the glyph, then the pictures stacked on it
+#[allow(clippy::too_many_arguments)]
+pub(super) fn blit_on_emoji(
+  c: &mut Canvas,
+  text: &mut Text,
+  images: &mut Images,
+  play: bool,
+  (g, imgs, fx): (&str, &[ImgId], &[(u8, Fx)]),
+  rect: Rect,
+  clip: Rect,
+  next: &mut Option<u32>,
+) {
+  emoji_glyph(c, text, rect, g, clip);
+  blit_emote(c, images, play, imgs, fx, rect, clip, next);
 }
 
 impl ChatView {
@@ -303,9 +360,8 @@ impl ChatView {
             underline_in(c, &laid.layout, u.clone(), x, top as f32, clip, rule);
           }
           for (r, g, imgs, fx) in on_emoji {
-            emoji_glyph(c, text, r, &g, clip);
             let mut flip = None;
-            blit_emote(c, images, play, &imgs, &fx, r, clip, &mut flip);
+            blit_on_emoji(c, text, images, play, (&g, &imgs, &fx), r, clip, &mut flip);
             if flip.is_some() {
               self.anims.push(Anim { rect: r.intersect(area), bg, imgs, glyph: Some(g), fx });
             }
@@ -379,6 +435,9 @@ impl ChatView {
   pub(super) fn soonest(&self, res: &mut Res) -> Option<u32> {
     let mut next = self.name_tick();
     for a in &self.anims {
+      if res.look.animate_emotes && a.fx.iter().any(|f| f.1.motion().is_some()) {
+        next = Some(next.map_or(MOVE_MS, |n: u32| n.min(MOVE_MS)));
+      }
       for &id in &a.imgs {
         if let Some((_, _, _, Some(ms))) = res.images.frame(id) {
           next = Some(next.map_or(ms, |n: u32| n.min(ms)));
@@ -408,10 +467,11 @@ impl ChatView {
         continue;
       }
       c.fill(r, a.bg);
-      if let Some(g) = &a.glyph {
-        emoji_glyph(c, &mut res.text, a.rect, g, r);
+      let play = res.look.animate_emotes;
+      match &a.glyph {
+        Some(g) => blit_on_emoji(c, &mut res.text, &mut res.images, play, (g, &a.imgs, &a.fx), a.rect, r, &mut next),
+        None => blit_emote(c, &mut res.images, play, &a.imgs, &a.fx, a.rect, r, &mut next),
       }
-      blit_emote(c, &mut res.images, res.look.animate_emotes, &a.imgs, &a.fx, a.rect, r, &mut next);
       dirty = Some(dirty.map_or(r, |d| union(d, r)));
     }
     let t = name_art::clock();

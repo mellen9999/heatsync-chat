@@ -141,11 +141,42 @@ impl Line {
     out
   }
 
+  // the modifier words of the box (`Okayge p!`, `w! Kappa`) and the word of the chip each changes, by the rule
+  // a chat line is read by (emotes::mods::bind), so the box shows what the line will: a chip is an emote, and
+  // a modifier word is a modifier first even when it is a chip itself (a picked bttv `p!`). the word the
+  // caret is still in is left as typed until it is finished (the ext's settled sweep)
+  pub fn mod_binds(&self) -> Vec<(Range<usize>, Range<usize>)> {
+    use crate::emotes::mods::{self, Word};
+    if self.chips.is_empty() || !self.text.split(' ').any(mods::is) {
+      return Vec::new();
+    }
+    let mut at = 0;
+    let mut words = Vec::new();
+    for w in self.text.split(' ') {
+      let r = at..at + w.len();
+      at = r.end + 1;
+      let open = r.start < self.cursor && self.cursor <= r.end;
+      let kind = match (w.is_empty(), mods::is(w) && !open, self.chips.contains(w)) {
+        (true, ..) => Word::Gap,
+        (_, true, chip) => Word::Mod { emote: chip },
+        (_, _, true) => Word::Emote,
+        _ => Word::Text,
+      };
+      words.push((kind, w, r));
+    }
+    let line: Vec<(Word, &str)> = words.iter().map(|(k, w, _)| (*k, *w)).collect();
+    let binds = mods::bind(&line);
+    binds.iter().enumerate().filter_map(|(i, t)| Some((words[i].2.clone(), words[(*t)?].2.clone()))).collect()
+  }
+
   // the emotes as drawn: an overlay chip right after another chip joins its stack
-  // (an overlay right after a lone emoji stacks on the emoji, like a chat line: the stack starts there)
+  // (an overlay right after a lone emoji stacks on the emoji, like a chat line: the stack starts there), and
+  // a modifier word folds into the stack beside it (`mod_binds`): drawn as the change, stepped over whole
   pub fn stacks(&self) -> Vec<Range<usize>> {
+    let binds = self.mod_binds();
     let mut out: Vec<Range<usize>> = Vec::new();
-    for r in self.chip_ranges() {
+    // a picked modifier (`p!` chosen in the picker) that folds is the change, not a picture of its own
+    for r in self.chip_ranges().into_iter().filter(|r| !binds.iter().any(|(m, _)| m == r)) {
       let overlay = self.overlays.contains(&self.text[r.clone()]);
       if overlay
         && let Some(last) = out.last_mut()
@@ -158,7 +189,25 @@ impl Line {
         out.push(r);
       }
     }
-    out
+    if binds.is_empty() {
+      return out;
+    }
+    // the stacks and the folded words in order; a folded word joins the stack it touches, through other
+    // folded words: the one before it, else the one after
+    let mut items: Vec<(Range<usize>, bool)> = out.into_iter().map(|r| (r, true)).collect();
+    items.extend(binds.into_iter().map(|(m, _)| (m, false)));
+    items.sort_by_key(|i| i.0.start);
+    let mut groups: Vec<(Range<usize>, bool)> = Vec::new();
+    for (r, stack) in items {
+      match groups.last_mut() {
+        Some(g) if g.0.end + 1 == r.start && !(g.1 && stack) => {
+          g.0.end = r.end;
+          g.1 |= stack;
+        }
+        _ => groups.push((r, stack)),
+      }
+    }
+    groups.into_iter().filter(|g| g.1).map(|g| g.0).collect()
   }
 
   // where the word before byte `at` starts, when that word is one emoji and nothing else
