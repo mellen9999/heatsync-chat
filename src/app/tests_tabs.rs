@@ -662,17 +662,15 @@ fn headless_tab_menu_is_edit_remove() {
   app.tabs[flood].unread = false;
   assert_eq!(
     menu_of(&mut app, flood),
-    Some(
-      ["edit", "remove", "clear lines", "bell: default", "mute pings", "share layout", "use a shared layout…"]
-        .map(str::to_owned)
-        .to_vec()
-    )
+    Some(["edit", "remove"].map(str::to_owned).to_vec()),
+    "the right-click menu is edit and remove, nothing else (settled 11-04)"
   );
   // j then enter picks remove's neighbour: edit is first, so enter opens the form
   app.tab_menu_key(Key::Named(NamedKey::Enter));
   let f = app.form.as_ref().expect("edit opens the form");
   let names: Vec<_> = f.acts.iter().map(|a| a.1.as_str()).collect();
   assert!(names.contains(&"summary") && names.contains(&"watch"), "{names:?}");
+  assert!(names.contains(&"bell: default") && names.contains(&"mute pings"), "per-tab actions live here: {names:?}");
   // tab walks past the three fields onto the buttons; hjkl move there, enter runs
   for _ in 0..3 {
     app.form_key(Key::Named(NamedKey::Tab), None);
@@ -692,45 +690,32 @@ fn headless_tab_menu_is_edit_remove() {
   assert_eq!(app.screen.as_ref().map(|s| s.page()), Some(crate::app::screen::Page::Summary));
 }
 
-// the tab menu moves a channel one place along the channels, as tab mode's JK does: a row only where there
-// is room to go, and the same swap
+// the edit panel moves a channel one place along the channels, as tab mode's JK does: a button only where
+// there is room to go, and the same swap
 #[test]
-fn headless_tab_menu_moves_a_channel() {
+fn headless_edit_panel_moves_a_channel() {
   let (net, _asked) = Net::tap();
   let mut app = App::new(net, vec!["forsen".into(), "xqc".into(), "pokimane".into()], false);
   app.canvas.resize(720, 360);
   let at = |app: &App, n: &str| app.tabs.iter().position(|t| &*t.name == n).unwrap();
-  let menu_of = |app: &mut App, n: &str| {
+  let acts_of = |app: &mut App, n: &str| {
     let i = at(app, n);
-    app.close_tab_menu();
-    app.tabs[i].event = false;
-    app.tabs[i].unread = false;
-    app.bar_dirty = true;
-    app.redraw();
-    let p = app.bar_map.iter().position(|&t| t == i).expect("in the bar");
-    let r = app.bar_hits[p];
-    app.pointer = (r.x + r.w / 2, r.y + r.h / 2);
-    app.right_click();
-    app.tab_menu().map(|m| m.labels()).unwrap_or_default()
+    app.edit_labels(i)
   };
   let moves = |l: &[String]| l.iter().filter(|x| x.starts_with("move")).cloned().collect::<Vec<_>>();
-  assert_eq!(moves(&menu_of(&mut app, "forsen")), ["move right"], "the first has nowhere to go left");
-  assert_eq!(moves(&menu_of(&mut app, "xqc")), ["move left", "move right"]);
-  assert_eq!(moves(&menu_of(&mut app, "pokimane")), ["move left"], "nor the last right");
+  assert_eq!(moves(&acts_of(&mut app, "forsen")), ["move right"], "the first has nowhere to go left");
+  assert_eq!(moves(&acts_of(&mut app, "xqc")), ["move left", "move right"]);
+  assert_eq!(moves(&acts_of(&mut app, "pokimane")), ["move left"], "nor the last right");
   // a column strip says up and down
   app.set.tab_side = crate::model::settings::Side::Left;
-  assert_eq!(moves(&menu_of(&mut app, "xqc")), ["move up", "move down"]);
-  // pick move left on the middle one: it swaps with the one before, the active tab follows what it was
+  assert_eq!(moves(&acts_of(&mut app, "xqc")), ["move up", "move down"]);
+  // press move up on the middle one: it swaps with the one before, the active tab follows what it was
   app.select(at(&app, "xqc"));
   let order =
     |app: &App| app.tabs.iter().filter(|t| t.kind == Kind::Chat).map(|t| t.name.to_string()).collect::<Vec<_>>();
   assert_eq!(order(&app), ["forsen", "xqc", "pokimane"]);
-  menu_of(&mut app, "xqc");
-  app.tab_menu_key(Key::Named(NamedKey::Enter)); // edit is first
-  app.form = None;
-  menu_of(&mut app, "xqc");
-  app.tab_menu_key(Key::Character("j"));
-  app.tab_menu_key(Key::Named(NamedKey::Enter));
+  let i = at(&app, "xqc");
+  app.edit_pick(i, "move up");
   assert_eq!(order(&app), ["xqc", "forsen", "pokimane"]);
   assert_eq!(&*app.tabs[app.active].name, "xqc", "the open tab stays the open tab");
   // a built-in tab has no move rows

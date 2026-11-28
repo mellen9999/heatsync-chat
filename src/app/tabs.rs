@@ -29,37 +29,39 @@ enum Button {
   Update,
 }
 
+// the right-click menu of a tab: edit + remove (settled), keep for a temp tab, hide for a built-in one.
+// everything else a tab can do is a button in its edit form (model::chan::Act) or a command
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TabAct {
   Edit,
-  // one place along the strip (down = later): the same reorder as tab mode's JK
-  Move(bool),
   Remove,
   // the temp tab becomes a saved one
   Keep,
   // a built-in tab leaves the bar
   Hide,
-  // this tab's lines go, here only (/lclear)
-  Lclear,
-  // show or hide one platform's lines on a merged tab (ext platformFilters)
-  Show(Platform),
-  // this channel's go-live bell (default → on → off) and muted pings (model::pings)
-  Bell,
-  Mute,
-  // twitch channel tools, for the broadcaster / mods (/announce, /poll, /prediction): the tab opens with the
-  // command typed, ready to finish
-  Announce,
-  Poll,
-  Predict,
-  // the lineup as a link on the clipboard (/sharelayout), and a pasted link's tabs (/layout)
-  Share,
-  UseLayout,
 }
 
 impl TabMenu {
   #[cfg(test)]
   pub fn labels(&self) -> Vec<String> {
     self.menu.items.iter().map(|i| i.1.clone()).collect()
+  }
+}
+
+#[cfg(test)]
+impl App {
+  // the edit panel's buttons for tab `i`, as a user reads them
+  pub fn edit_labels(&mut self, i: usize) -> Vec<String> {
+    self.open_form(Some(i));
+    self.form.as_ref().map(|f| f.acts.iter().map(|a| a.1.clone()).collect()).unwrap_or_default()
+  }
+
+  // open tab `i`'s edit panel, walk to the button by its label and press enter, as the keys do
+  pub fn edit_pick(&mut self, i: usize, label: &str) {
+    let labels = self.edit_labels(i);
+    let at = labels.iter().position(|l| l == label).unwrap_or_else(|| panic!("{label} in {labels:?}"));
+    self.form.as_mut().unwrap().focus = 3 + at;
+    self.form_key(Key::Named(NamedKey::Enter), None);
   }
 }
 
@@ -147,25 +149,6 @@ pub(super) fn make_tab(net: &crate::net::Net, spec: &Spec) -> Tab {
 }
 
 // source tags show on merged tabs and on anything not plain twitch
-// the buttons of the edit form: watch (one per channel when merged), status and predictions for a
-// twitch channel, summary
-fn form_acts(src: &[(Platform, Box<str>)]) -> Vec<(Act, String)> {
-  let mut v: Vec<(Act, String)> = match src.len() {
-    1 => vec![(Act::Watch(0), t("app.tabs.watch").into())],
-    _ => src
-      .iter()
-      .enumerate()
-      .map(|(n, (p, _))| (Act::Watch(n), f("app.tabs.watch_on", &[("platform", p.name())])))
-      .collect(),
-  };
-  if src.iter().any(|s| s.0 == Platform::Twitch) {
-    v.push((Act::Status, t("app.tabs.status").into()));
-    v.push((Act::Pred, t("app.tabs.predictions").into()));
-  }
-  v.push((Act::Summary, t("app.tabs.summary").into()));
-  v
-}
-
 fn tags(s: &[(Platform, Box<str>)]) -> bool {
   s.len() > 1 || s.first().is_some_and(|f| f.0 != Platform::Twitch)
 }
@@ -473,8 +456,8 @@ impl App {
     self.close_menu();
     self.close_tab_menu();
     let mut form = Form::new(edit, &spec);
-    if let Some(t) = edit.and_then(|i| self.tabs.get(i)) {
-      form.acts = form_acts(&t.sources);
+    if edit.is_some_and(|i| i < self.tabs.len()) {
+      form.acts = self.form_acts(edit.unwrap_or_default());
     }
     self.form = Some(form);
     self.form_hover = None;
@@ -528,6 +511,53 @@ impl App {
     }
   }
 
+  // the buttons of the edit form: watch (one per channel when merged), status and predictions for a twitch
+  // channel, summary, then what the right-click menu does not hold: move, bell, mute, a show row per feed of a
+  // merged tab, and the broadcaster's tools
+  fn form_acts(&self, i: usize) -> Vec<(Act, String)> {
+    let src = &self.tabs[i].sources;
+    let mut v: Vec<(Act, String)> = match src.len() {
+      1 => vec![(Act::Watch(0), t("app.tabs.watch").into())],
+      _ => src
+        .iter()
+        .enumerate()
+        .map(|(n, (p, _))| (Act::Watch(n), f("app.tabs.watch_on", &[("platform", p.name())])))
+        .collect(),
+    };
+    let twitch = src.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
+    if twitch.is_some() {
+      v.push((Act::Status, t("app.tabs.status").into()));
+      v.push((Act::Pred, t("app.tabs.predictions").into()));
+    }
+    v.push((Act::Summary, t("app.tabs.summary").into()));
+    // moving, named for where the strip really runs; a channel at an end has nowhere to go that way
+    let column = matches!(self.set.tab_side, Side::Left | Side::Right);
+    let (before, after) = if column {
+      (t("app.tabs.move_up"), t("app.tabs.move_down"))
+    } else {
+      (t("app.tabs.move_left"), t("app.tabs.move_right"))
+    };
+    for (down, label) in [(false, before), (true, after)] {
+      if self.carry_target(i, down).is_some() {
+        v.push((Act::Move(down), label.into()));
+      }
+    }
+    v.push((Act::Bell, f("app.tabs.bell", &[("state", self.tab_bell(i).label())])));
+    v.push((Act::Mute, if self.tab_muted(i) { t("app.tabs.unmute_pings") } else { t("app.tabs.mute_pings") }.into()));
+    v.extend(self.plat_rows(i).into_iter().map(|(p, l)| (Act::Show(p), l)));
+    if let Some(c) = twitch.filter(|_| self.me.is_some()) {
+      let caster = self.is_caster(&c);
+      if caster || self.can_mod(Platform::Twitch, &c) {
+        v.push((Act::Announce, t("app.tabs.announce").into()));
+      }
+      if caster {
+        v.push((Act::Poll, t("app.tabs.poll").into()));
+        v.push((Act::Predict, t("app.tabs.prediction").into()));
+      }
+    }
+    v
+  }
+
   // run the focused button on the tab being edited; the form closes first, nothing is saved
   fn form_act(&mut self) {
     let Some(f) = &self.form else { return };
@@ -544,6 +574,15 @@ impl App {
       }
       Act::Pred => chan.into_iter().for_each(|c| self.pred_open(c)),
       Act::Status => chan.into_iter().for_each(|c| self.status_open(c)),
+      Act::Move(down) => {
+        self.carry_tab(tab, down);
+      }
+      Act::Bell => self.cycle_tab_bell(tab),
+      Act::Mute => self.toggle_tab_mute(tab),
+      Act::Show(p) => self.toggle_plat(tab, p),
+      Act::Announce => self.type_in_tab(tab, "/announce ", t("app.tabs.hint_announce")),
+      Act::Poll => self.type_in_tab(tab, "/poll ", t("app.tabs.hint_poll")),
+      Act::Predict => self.type_in_tab(tab, "/prediction ", t("app.tabs.hint_predict")),
     }
   }
 
@@ -727,43 +766,6 @@ impl App {
       Kind::Chat => vec![(TabAct::Edit, t("app.tabs.edit").into()), (TabAct::Remove, t("app.tabs.remove").into())],
       _ => vec![(TabAct::Hide, t("app.tabs.hide").into())],
     };
-    let mut items = items;
-    if self.tabs[i].kind == Kind::Chat {
-      // moving, named for where the strip really runs; a channel at an end has nowhere to go that way
-      let column = matches!(self.set.tab_side, Side::Left | Side::Right);
-      let (before, after) = if column {
-        (t("app.tabs.move_up"), t("app.tabs.move_down"))
-      } else {
-        (t("app.tabs.move_left"), t("app.tabs.move_right"))
-      };
-      let mut slot = 1;
-      for (down, label) in [(false, before), (true, after)] {
-        if self.carry_target(i, down).is_some() {
-          items.insert(slot, (TabAct::Move(down), label.into()));
-          slot += 1;
-        }
-      }
-      items.push((TabAct::Lclear, t("app.tabs.clear_lines").into()));
-      items.push((TabAct::Bell, f("app.tabs.bell", &[("state", self.tab_bell(i).label())])));
-      items.push((
-        TabAct::Mute,
-        if self.tab_muted(i) { t("app.tabs.unmute_pings") } else { t("app.tabs.mute_pings") }.into(),
-      ));
-      items.extend(self.plat_rows(i).into_iter().map(|(p, l)| (TabAct::Show(p), l)));
-      let chan = self.tabs[i].sources.iter().find(|s| s.0 == Platform::Twitch).map(|s| s.1.clone());
-      if let Some(c) = chan.filter(|_| self.me.is_some()) {
-        let caster = self.is_caster(&c);
-        if caster || self.can_mod(Platform::Twitch, &c) {
-          items.push((TabAct::Announce, t("app.tabs.announce").into()));
-        }
-        if caster {
-          items.push((TabAct::Poll, t("app.tabs.poll").into()));
-          items.push((TabAct::Predict, t("app.tabs.prediction").into()));
-        }
-      }
-    }
-    items.push((TabAct::Share, t("app.tabs.share").into()));
-    items.push((TabAct::UseLayout, t("app.tabs.use_layout").into()));
     self.overlay = Some(Overlay::Tab(TabMenu { menu: Menu::new(items, at), tab: i }));
     self.tab_menu_changed();
   }
@@ -800,9 +802,6 @@ impl App {
     self.tab_menu_changed();
     match m.menu.chosen() {
       Some(TabAct::Edit) => self.open_form(Some(m.tab)),
-      Some(TabAct::Move(down)) => {
-        self.carry_tab(m.tab, down);
-      }
       Some(TabAct::Remove) => self.remove_tab(m.tab),
       Some(TabAct::Keep) => self.keep_tab(m.tab),
       Some(TabAct::Hide) => {
@@ -810,32 +809,12 @@ impl App {
           self.set_shown(k, false);
         }
       }
-      Some(TabAct::Lclear) => {
-        self.select(m.tab);
-        self.lclear();
-      }
-      Some(TabAct::Bell) => self.cycle_tab_bell(m.tab),
-      Some(TabAct::Mute) => self.toggle_tab_mute(m.tab),
-      Some(TabAct::Show(p)) => self.toggle_plat(m.tab, p),
-      Some(TabAct::Announce) => {
-        self.type_in_tab(m.tab, "/announce ", t("app.tabs.hint_announce"));
-      }
-      Some(TabAct::Poll) => {
-        self.type_in_tab(m.tab, "/poll ", t("app.tabs.hint_poll"));
-      }
-      Some(TabAct::Predict) => {
-        self.type_in_tab(m.tab, "/prediction ", t("app.tabs.hint_predict"));
-      }
-      Some(TabAct::Share) => self.share_lineup(),
-      Some(TabAct::UseLayout) => {
-        self.type_in_tab(m.tab, "/layout ", t("app.tabs.hint_layout"));
-      }
       None => {}
     }
   }
 
   // go to a tab and put a command in its box with a line saying what to type
-  fn type_in_tab(&mut self, tab: usize, cmd: &str, hint: &str) {
+  pub(super) fn type_in_tab(&mut self, tab: usize, cmd: &str, hint: &str) {
     self.select(tab);
     self.type_into_line(cmd);
     self.say(hint);

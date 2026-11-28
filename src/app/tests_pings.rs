@@ -1,10 +1,9 @@
 // per-channel notification rules, headless: the go-live bell (default / on / off) and muted pings,
-// reachable from the tab menu, kept between runs
+// reachable from the tab's edit panel, kept between runs
 use super::*;
 use crate::model::message::Message;
 use crate::model::pings::Bell;
 use crate::model::stream_events::Line;
-use winit::keyboard::{Key as WKey, NamedKey};
 
 fn app() -> App {
   let (net, _rx) = Net::tap();
@@ -32,29 +31,16 @@ fn ping(a: &mut App, room: &str) {
 
 fn menu(a: &mut App) -> Vec<String> {
   let i = a.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
-  a.tabs[i].event = false;
-  a.tabs[i].unread = false;
-  a.close_tab_menu();
-  a.bar_dirty = true;
-  a.redraw();
-  let p = a.bar_map.iter().position(|&t| t == i).expect("in the bar");
-  let r = a.bar_hits[p];
-  a.pointer = (r.x + r.w / 2, r.y + r.h / 2);
-  a.right_click();
-  a.tab_menu().map(|m| m.labels()).unwrap_or_default()
+  a.edit_labels(i)
 }
 
 fn pick(a: &mut App, label: &str) {
-  let labels = menu(a);
-  let at = labels.iter().position(|l| l == label).unwrap_or_else(|| panic!("{label} in {labels:?}"));
-  for _ in 0..at {
-    a.tab_menu_key(WKey::Character("j"));
-  }
-  a.tab_menu_key(WKey::Named(NamedKey::Enter));
+  let i = a.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  a.edit_pick(i, label);
 }
 
 #[test]
-fn the_tab_menu_has_a_bell_row_and_a_mute_row_and_they_stick() {
+fn the_edit_panel_has_a_bell_button_and_a_mute_row_and_they_stick() {
   fresh();
   let mut a = app();
   let m = menu(&mut a);

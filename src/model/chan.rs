@@ -272,7 +272,7 @@ pub fn command(text: &str) -> Option<Cmd> {
   }
 }
 
-// a button in the edit form: what the tab menu used to hold besides edit and remove
+// a button in the edit form: every per-tab action beside edit and remove, which the right-click menu holds
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
   // play the stream of the tab's nth channel
@@ -282,6 +282,17 @@ pub enum Act {
   Pred,
   // its stream stats (/summary)
   Summary,
+  // one place along the strip (down = later): the same reorder as tab mode's JK
+  Move(bool),
+  // its go-live bell (default → on → off) and muted pings
+  Bell,
+  Mute,
+  // show or hide one platform's lines on a merged tab
+  Show(crate::model::message::Platform),
+  // twitch channel tools for the broadcaster / mods: the tab opens with the command typed, ready to finish
+  Announce,
+  Poll,
+  Predict,
 }
 
 // the add/edit form: three fields (twitch, kick, youtube), which one has focus, the last error

@@ -4,7 +4,6 @@
 use super::*;
 use crate::model::message::{Kind as MsgKind, Message};
 use crate::net::irc::Chat;
-use winit::keyboard::{Key as WKey, NamedKey};
 
 fn app_of(tabs: &[&str]) -> App {
   let (net, _rx) = Net::tap();
@@ -48,29 +47,16 @@ fn shown(a: &App) -> usize {
 }
 
 fn menu(a: &mut App, tab: usize) -> Vec<String> {
-  a.close_tab_menu();
-  a.tabs[tab].event = false;
-  a.tabs[tab].unread = false;
-  a.bar_dirty = true;
-  a.redraw();
-  let p = a.bar_map.iter().position(|&t| t == tab).expect("in the bar");
-  let r = a.bar_hits[p];
-  a.pointer = (r.x + r.w / 2, r.y + r.h / 2);
-  a.right_click();
-  a.tab_menu().map(|m| m.labels()).unwrap_or_default()
+  a.edit_labels(tab)
 }
 
 fn pick(a: &mut App, label: &str) {
-  let labels = menu(a, at(a, "forsen"));
-  let at = labels.iter().position(|l| l == label).unwrap_or_else(|| panic!("{label} in {labels:?}"));
-  for _ in 0..at {
-    a.tab_menu_key(WKey::Character("j"));
-  }
-  a.tab_menu_key(WKey::Named(NamedKey::Enter));
+  let i = at(a, "forsen");
+  a.edit_pick(i, label);
 }
 
 #[test]
-fn the_menu_offers_a_show_row_per_feed_on_a_merged_tab_only() {
+fn the_edit_panel_offers_a_show_row_per_feed_on_a_merged_tab_only() {
   let mut a = app();
   let m = {
     let i = at(&a, "forsen");

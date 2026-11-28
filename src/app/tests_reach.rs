@@ -29,35 +29,19 @@ fn boot() -> (App, tokio::sync::mpsc::UnboundedReceiver<Cmd>) {
 
 fn tab_menu(app: &mut App) -> Vec<String> {
   let i = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
-  app.tabs[i].event = false;
-  app.tabs[i].unread = false;
-  app.close_tab_menu();
-  app.bar_dirty = true;
-  app.redraw();
-  let p = app.bar_map.iter().position(|&t| t == i).expect("in the bar");
-  let r = app.bar_hits[p];
-  app.pointer = (r.x + r.w / 2, r.y + r.h / 2);
-  app.right_click();
-  app.tab_menu().map(|m| m.labels()).unwrap_or_default()
+  app.edit_labels(i)
 }
 
-// open the menu, walk to the row by its label, enter
+// open the edit panel, walk to the button by its label, enter
 fn pick(app: &mut App, label: &str) {
-  let labels = tab_menu(app);
-  let at = labels.iter().position(|l| l == label).unwrap_or_else(|| panic!("{label} in {labels:?}"));
-  for _ in 0..at {
-    app.tab_menu_key(Key::Character("j"));
-  }
-  app.tab_menu_key(Key::Named(NamedKey::Enter));
+  let i = app.tabs.iter().position(|t| &*t.name == "forsen").unwrap();
+  app.edit_pick(i, label);
 }
 
 #[test]
-fn the_tab_menu_offers_layouts_and_clearing_to_everyone() {
+fn the_edit_panel_holds_bell_and_mute_and_the_menu_only_edit_and_remove() {
   let (mut app, _rx) = boot();
-  assert_eq!(
-    tab_menu(&mut app),
-    ["edit", "remove", "clear lines", "bell: default", "mute pings", "share layout", "use a shared layout…"]
-  );
+  assert_eq!(tab_menu(&mut app), ["watch", "status", "predictions", "summary", "bell: default", "mute pings"]);
 }
 
 #[test]
@@ -89,25 +73,21 @@ fn channel_tools_in_the_tab_menu_follow_who_you_are_in_that_room() {
   assert_eq!(app.line.text, "/announce ");
 }
 
+// share and layout are commands, typed in the box; the tab menu does not carry them
 #[test]
-fn use_a_shared_layout_types_the_command_and_share_copies_the_link() {
+fn share_layout_and_clear_lines_are_commands() {
   let (mut app, mut rx) = boot();
-  pick(&mut app, "use a shared layout…");
-  assert_eq!(app.line.text, "/layout ");
   while rx.try_recv().is_ok() {}
-  pick(&mut app, "share layout");
+  app.line.set_text("/sharelayout".into());
+  app.on_key(Key::Named(NamedKey::Enter), None);
   let copied: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok())
     .filter_map(|c| if let Cmd::Copy { text, .. } = c { Some(text) } else { None })
     .collect();
   assert!(copied.iter().any(|t| t.contains("/m/")), "{copied:?}");
-}
-
-#[test]
-fn clear_lines_empties_the_tab_it_was_picked_on() {
-  let (mut app, _rx) = boot();
   app.say("hello");
   assert!(app.tabs[app.active].view.msgs().count() > 0);
-  pick(&mut app, "clear lines");
+  app.line.set_text("/lclear".into());
+  app.on_key(Key::Named(NamedKey::Enter), None);
   assert_eq!(app.tabs[app.active].view.msgs().filter(|m| &*m.body == "hello").count(), 0);
 }
 
