@@ -1,4 +1,5 @@
-// one row of tabs: active reversed (white bg, black text), unread bold in its call color.
+// one row of tabs: active reversed (white bg, black text), unread bold in its call color, each ended
+// by a 1px white line.
 // a `+` after the last tab adds one; hover reverses it like the active tab
 use super::canvas::{Canvas, Rect};
 use super::mode_label::{self, Seg};
@@ -119,6 +120,12 @@ pub fn draw(
       c.fill(u.intersect(inner), if rev { theme::BLACK } else { theme::WHITE });
     }
     hits.push(r);
+    // a row of tabs is split by a 1px white line after each one (the site's and the ext's bordered
+    // tabs): "quin69 999+ ●" ran into the next name. a column puts each tab on its own row already
+    if !column {
+      c.fill(Rect::new(x, y, 1, line).intersect(inner), theme::WHITE);
+      x += 1;
+    }
   }
   // the three buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
   // font that sits lower than the `+`). in a column they share one row
@@ -209,5 +216,59 @@ fn icon(c: &mut Canvas, text: &mut Text, r: Rect, glyph: &str, on: bool) {
         c.px[((y + dy) * c.w + x + dx) as usize] = p;
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn tab(name: &'static str, count: &'static str, live: bool) -> TabLabel<'static> {
+    TabLabel {
+      name,
+      count,
+      active: false,
+      unread: false,
+      hot: theme::WHITE,
+      cursor: false,
+      live,
+      temp: false,
+      muted: false,
+      filtered: false,
+    }
+  }
+
+  // "quin69 999+ ●" ran into the next tab's name: every tab in a row ends on a 1px white line,
+  // like the site's and the ext's bordered tabs, and a click on the line belongs to no tab
+  #[test]
+  fn row_tabs_are_split_by_a_one_pixel_white_line() {
+    let mut text = Text::new(1.0);
+    let line = text.line_px as i32;
+    let (w, h) = (600, line);
+    let mut c = Canvas::new(w, h);
+    let tabs = [tab("quin69", "999+", true), tab("forsen", "", false), tab("xqc", "12", false)];
+    let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
+    for r in &hits[..tabs.len()] {
+      let x = r.right();
+      assert!((0..h).all(|y| c.px[(y * w + x) as usize] == theme::WHITE), "a white line at x={x} after the tab");
+      assert!((0..h).all(|y| c.px[(y * w + x - 1) as usize] != theme::WHITE || r.w == 0), "the line is 1px");
+    }
+    for p in hits[..tabs.len()].windows(2) {
+      assert_eq!(p[1].x, p[0].right() + 1, "the next tab starts after the line, so the line is no tab's");
+    }
+  }
+
+  // a column already puts each tab on its own row: no line between them
+  #[test]
+  fn column_tabs_draw_no_split_line() {
+    let mut text = Text::new(1.0);
+    let line = text.line_px as i32;
+    let (w, h) = (200, line * 6);
+    let mut c = Canvas::new(w, h);
+    let tabs = [tab("quin69", "999+", true), tab("forsen", "", false)];
+    let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
+    assert_eq!(hits[1].y, hits[0].bottom());
   }
 }
