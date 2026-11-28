@@ -132,6 +132,8 @@ mod tests_mrules;
 #[cfg(test)]
 mod tests_nuke;
 #[cfg(test)]
+mod tests_onelook;
+#[cfg(test)]
 mod tests_owner;
 #[cfg(test)]
 mod tests_ownlook;
