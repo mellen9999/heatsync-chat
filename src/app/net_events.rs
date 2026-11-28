@@ -399,10 +399,13 @@ impl App {
         }
       }
       Chat::ClearMsg(id, login) => {
+        let held = tab.sender_of(&id);
         tab.clear_msg(&id);
-        let row = removed(Platform::Twitch, Removed::Line(&login));
-        self.chatlog.log(Platform::Twitch, ch, &row);
-        tab.push(row);
+        if let Some(who) = held {
+          let row = removed(Platform::Twitch, Removed::Line(&who));
+          self.chatlog.log(Platform::Twitch, ch, &row);
+          tab.push(row);
+        }
         let said = if login.is_empty() {
           t("app.net.deleted_a_message").to_owned()
         } else {
@@ -977,12 +980,15 @@ impl App {
         // the line may still be waiting in the pacer: show it first, then grey it
         let waiting = self.pacer.flush(&key);
         self.relay_show(platform, &key, waiting, false);
-        let row = removed(platform, Removed::Line(""));
-        self.chatlog.log(platform, &key, &row);
         for i in self.tabs_with(platform, &key) {
           let v = self.tabs[i].chat();
+          let held = v.sender_of(&id);
           v.clear_msg(&id);
-          v.push(row.clone());
+          if let Some(who) = held {
+            let row = removed(platform, Removed::Line(&who));
+            self.chatlog.log(platform, &key, &row);
+            v.push(row);
+          }
           self.touched(i);
         }
         self.mod_log(platform, &key, t("app.net.deleted_a_message").to_owned());

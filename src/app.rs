@@ -100,6 +100,8 @@ mod tests_chain;
 #[cfg(test)]
 mod tests_copy;
 #[cfg(test)]
+mod tests_deleted;
+#[cfg(test)]
 mod tests_emote_up;
 #[cfg(test)]
 mod tests_favorites;

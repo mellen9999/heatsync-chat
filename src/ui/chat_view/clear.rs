@@ -10,6 +10,16 @@ fn send_of(m: &Message) -> Option<&str> {
 }
 
 impl ChatView {
+  // who said the line with this id, if it is still here and not yet deleted: a delete names them, and one
+  // for a line this tab never held has no one to name
+  pub fn sender_of(&self, id: &str) -> Option<Box<str>> {
+    if id.is_empty() {
+      return None;
+    }
+    let r = self.rows.iter().find(|r| &*r.msg.id == id && r.msg.flags & flag::DELETED == 0)?;
+    Some(r.msg.nick.clone())
+  }
+
   pub fn clear_msg(&mut self, id: &str) {
     self.clear_where(flag::DELETED, |m| &*m.id == id);
   }

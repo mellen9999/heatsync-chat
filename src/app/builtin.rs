@@ -281,6 +281,6 @@ mod tests {
     app.on_net(NetEvent::RelayDelete { platform: Platform::Kick, key: "xqc".into(), id: "k-1".into() });
     let line = app.tabs[i].view.msgs().find(|m| &*m.id == "k-1").expect("the kick line is shown");
     assert!(line.has(flag::CLEARED));
-    assert_eq!(&*app.tabs[i].view.last_msg().unwrap().body, "message deleted");
+    assert_eq!(&*app.tabs[i].view.last_msg().unwrap().body, "message from zed deleted");
   }
 }
