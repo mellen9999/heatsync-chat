@@ -689,7 +689,7 @@
  "keys.anywhere.18": "táto obrazovka",
  "keys.anywhere.19": "začiatok, koniec riadku; začiatok, koniec chatu (prázdne pole)",
  "keys.anywhere.name": "všade",
- "keys.chat.01": "vyber riadok; riadok ↳ odpovede otvorí jej vlákno; riadok začal vysielať otvorí ten kanál (jeho kartu, inak dočasnú)",
+ "keys.chat.01": "vyber riadok; riadok ↪ odpovede otvorí jej vlákno; riadok začal vysielať otvorí ten kanál (jeho kartu, inak dočasnú)",
  "keys.chat.02": "menu riadku: odpovedať, kopírovať, poznámka, stíšiť, blokovať, mod, pripnúť",
  "keys.chat.03": "filtrovať túto kartu: slovo alebo @meno (funguje aj /vzor/), enter ponechá, esc zruší",
  "keys.chat.04": "ďalšia zhoda (shift: predchádzajúca)",

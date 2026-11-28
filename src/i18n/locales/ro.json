@@ -689,7 +689,7 @@
  "keys.anywhere.18": "acest ecran",
  "keys.anywhere.19": "început, sfârșit de linie; începutul, sfârșitul chatului (casetă goală)",
  "keys.anywhere.name": "oriunde",
- "keys.chat.01": "alege o linie; linia ↳ a unui răspuns îi deschide thread-ul; o linie de intrat live deschide canalul (tabul lui, altfel unul temporar)",
+ "keys.chat.01": "alege o linie; linia ↪ a unui răspuns îi deschide thread-ul; o linie de intrat live deschide canalul (tabul lui, altfel unul temporar)",
  "keys.chat.02": "meniul liniei: răspunde, copiază, notă, silențiază, blochează, mod, fixează",
  "keys.chat.03": "filtrează acest tab: un cuvânt sau @nume (merge și /model/), enter păstrează, esc șterge",
  "keys.chat.04": "următoarea potrivire (shift: anterioara)",

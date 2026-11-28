@@ -685,7 +685,7 @@
  "keys.anywhere.18": "dit scherm",
  "keys.anywhere.19": "begin, einde van de regel; begin, einde van de chat (leeg vak)",
  "keys.anywhere.name": "overal",
- "keys.chat.01": "kies een regel; de ↳-regel van een reactie opent zijn thread; een ging-live-regel opent dat kanaal (zijn tab, anders een tijdelijke)",
+ "keys.chat.01": "kies een regel; de ↪-regel van een reactie opent zijn thread; een ging-live-regel opent dat kanaal (zijn tab, anders een tijdelijke)",
  "keys.chat.02": "regelmenu: reageren, kopiëren, notitie, dempen, blokkeren, mod, vastzetten",
  "keys.chat.03": "filter deze tab: een woord of @naam (/patroon/ werkt ook), enter houdt vast, esc wist",
  "keys.chat.04": "volgende treffer (shift: vorige)",

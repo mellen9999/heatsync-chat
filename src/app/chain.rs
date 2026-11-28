@@ -1,4 +1,4 @@
-// reply threads (ext main.js reply stack): `t` on a picked line, or a click on a reply's `↳ @name` line,
+// reply threads (ext main.js reply stack): `t` on a picked line, or a click on a reply's `↪@name` line,
 // covers the tab with that line's chain, oldest first, from the tab's own buffer (which keeps filling
 // underneath, so new replies land at the bottom). esc / h / the `← back` tab / pressing again goes back.
 // it is a takeover like the chat logs: the view is a sibling of the tab's (same room, look, filters) and
@@ -51,7 +51,7 @@ impl App {
     self.chain_open(&id);
   }
 
-  // a click on a reply's `↳` line: its chain opens, or the open one closes. true = the click was spent
+  // a click on a reply's `↪` line: its chain opens, or the open one closes. true = the click was spent
   pub(super) fn reply_press(&mut self) -> bool {
     if self.kind() != Kind::Chat || self.logs_shown().is_some() {
       return false;

@@ -685,7 +685,7 @@
  "keys.anywhere.18": "este ecrã",
  "keys.anywhere.19": "início, fim da linha; início, fim do chat (caixa vazia)",
  "keys.anywhere.name": "em qualquer lado",
- "keys.chat.01": "escolher uma linha; a linha ↳ de uma resposta abre a thread; uma linha de entrou em direto abre esse canal (o seu separador, ou um temporário)",
+ "keys.chat.01": "escolher uma linha; a linha ↪ de uma resposta abre a thread; uma linha de entrou em direto abre esse canal (o seu separador, ou um temporário)",
  "keys.chat.02": "menu da linha: responder, copiar, nota, silenciar, bloquear, mod, afixar",
  "keys.chat.03": "filtrar este separador: uma palavra ou @nome (/padrão/ também serve), enter mantém, esc limpa",
  "keys.chat.04": "resultado seguinte (shift: anterior)",

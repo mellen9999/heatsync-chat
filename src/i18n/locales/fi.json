@@ -685,7 +685,7 @@
  "keys.anywhere.18": "tämä näkymä",
  "keys.anywhere.19": "rivin alku, loppu; chatin alku, loppu (tyhjä kenttä)",
  "keys.anywhere.name": "kaikkialla",
- "keys.chat.01": "valitse rivi; vastauksen ↳-rivi avaa ketjun; livenä-rivi avaa kanavan (sen välilehti, muuten väliaikainen)",
+ "keys.chat.01": "valitse rivi; vastauksen ↪-rivi avaa ketjun; livenä-rivi avaa kanavan (sen välilehti, muuten väliaikainen)",
  "keys.chat.02": "rivivalikko: vastaa, kopioi, muistiinpano, vaimenna, estä, mod, kiinnitä",
  "keys.chat.03": "suodata tämä välilehti: sana tai @nimi (/kuvio/ toimii myös), enter pitää, esc tyhjentää",
  "keys.chat.04": "seuraava osuma (shift: edellinen)",

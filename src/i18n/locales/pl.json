@@ -689,7 +689,7 @@
  "keys.anywhere.18": "ten ekran",
  "keys.anywhere.19": "początek, koniec linii; początek, koniec czatu (puste pole)",
  "keys.anywhere.name": "wszędzie",
- "keys.chat.01": "wybierz linię; linia ↳ odpowiedzi otwiera jej wątek; linia wejścia na żywo otwiera kanał (jego kartę lub tymczasową)",
+ "keys.chat.01": "wybierz linię; linia ↪ odpowiedzi otwiera jej wątek; linia wejścia na żywo otwiera kanał (jego kartę lub tymczasową)",
  "keys.chat.02": "menu linii: odpowiedz, kopiuj, notatka, wycisz, zablokuj, mod, przypnij",
  "keys.chat.03": "filtruj tę kartę: słowo lub @nick (działa też /wzorzec/), enter zachowuje, esc czyści",
  "keys.chat.04": "następny wynik (shift: poprzedni)",

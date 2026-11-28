@@ -685,7 +685,7 @@
  "keys.anywhere.18": "questa schermata",
  "keys.anywhere.19": "inizio, fine riga; inizio, fine della chat (campo vuoto)",
  "keys.anywhere.name": "ovunque",
- "keys.chat.01": "scegli una riga; la riga ↳ di una risposta apre il suo thread; una riga \"è andato live\" apre quel canale (il suo tab, o uno temporaneo)",
+ "keys.chat.01": "scegli una riga; la riga ↪ di una risposta apre il suo thread; una riga \"è andato live\" apre quel canale (il suo tab, o uno temporaneo)",
  "keys.chat.02": "menu riga: rispondi, copia, nota, silenzia, blocca, mod, fissa",
  "keys.chat.03": "filtra questo tab: una parola o @nome (funziona anche /schema/), enter tiene, esc cancella",
  "keys.chat.04": "corrispondenza successiva (shift: precedente)",

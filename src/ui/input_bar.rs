@@ -162,7 +162,8 @@ fn layout(text: &mut Text, b: &Bar, width: i32) -> Laid {
   }
   if let Some(nick) = b.reply {
     let a = s.len();
-    s.push_str("↳ @");
+    s.push_str(theme::REPLY_MARK);
+    s.push('@');
     s.push_str(nick);
     s.push(' ');
     spans.push(Span { range: a..s.len(), ink: Ink(theme::DIM), bold: false });

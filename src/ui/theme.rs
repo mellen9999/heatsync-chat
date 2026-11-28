@@ -48,6 +48,9 @@ pub fn rule_fill(ink: u32) -> u32 {
   }
 }
 
+// the arrow that opens a reply's line and the reply chip over the box: the site's `↪`, one glyph for every client
+pub const REPLY_MARK: &str = "↪";
+
 pub const FONT_PX: f32 = 15.0;
 pub const LINE_PX: f32 = 20.0;
 pub const PAD_X: f32 = 4.0;
@@ -55,6 +58,12 @@ pub const PAD_X: f32 = 4.0;
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  // the site draws a reply as `↪@name` (chat-reply-ctx, the reply chip); the desktop drew `↳`
+  #[test]
+  fn a_reply_opens_with_the_sites_arrow() {
+    assert_eq!(REPLY_MARK, "\u{21aa}");
+  }
 
   // the numbers above against heatsync's tokens.json (HSC_TOKENS, else the checkout next to this repo or
   // under $HOME/projects). a missing file fails the test: a skipped brand check is a silent drift

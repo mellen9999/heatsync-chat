@@ -685,7 +685,7 @@
  "keys.anywhere.18": "ez a képernyő",
  "keys.anywhere.19": "sor eleje, vége; a chat eleje, vége (üres mező)",
  "keys.anywhere.name": "bárhol",
- "keys.chat.01": "válassz egy sort; a válasz ↳ sora megnyitja a szálát; az élőbe ment sor megnyitja a csatornát (a tabját, különben ideiglenesen)",
+ "keys.chat.01": "válassz egy sort; a válasz ↪ sora megnyitja a szálát; az élőbe ment sor megnyitja a csatornát (a tabját, különben ideiglenesen)",
  "keys.chat.02": "sormenü: válasz, másolás, jegyzet, némítás, blokkolás, mod, kitűzés",
  "keys.chat.03": "e tab szűrése: egy szó vagy @név (a /minta/ is működik), enter megtartja, esc törli",
  "keys.chat.04": "következő találat (shift: előző)",

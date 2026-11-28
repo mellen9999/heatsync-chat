@@ -256,7 +256,7 @@ impl ChatView {
     laid.refs.into_iter().nth(k).map(|r| r.1)
   }
 
-  // the reply whose `↳ @name words` line is under (x, y): its id (the chain it opens). a click on the
+  // the reply whose `↪@name words` line is under (x, y): its id (the chain it opens). a click on the
   // @name itself is the person's, so the caller asks for names first
   pub fn reply_at(&mut self, area: Rect, x: i32, y: i32, res: &mut Res) -> Option<Box<str>> {
     self.text_at(area, (x, y), res, |m, laid, i, _| (laid.hdr.contains(&i) && !m.id.is_empty()).then(|| m.id.clone()))

@@ -96,7 +96,7 @@ struct Laid {
   // the feed's ▲ and the post's own >>id (empty on every other line)
   vote: std::ops::Range<usize>,
   thread: std::ops::Range<usize>,
-  // a reply's `↳ @name words` line (the chain it opens)
+  // a reply's `↪@name words` line (the chain it opens)
   hdr: std::ops::Range<usize>,
   // a feed post's media: its `[img]` tag, the held box's button, and the frames drawn around them
   media: std::ops::Range<usize>,

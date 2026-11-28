@@ -89,7 +89,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   let mut s = String::with_capacity(m.nick.len() + m.body.len() + 16);
   let mut spans = Vec::with_capacity(4);
   let mut reply = None;
-  // the `↳ @name words` line of a reply: a click on it opens the chain
+  // the `↪@name words` line of a reply: a click on it opens the chain
   let mut hdr = 0..0;
   // a line copied into another tab (mentions) still resolves against its own room
   let x = m.x.as_deref();
@@ -143,7 +143,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
   let mut ib = Vec::new();
   if let Some(parent) = m.reply_to.as_ref().filter(|_| !muted) {
     let r0 = s.len();
-    dim(&mut s, &mut spans, "↳ ");
+    dim(&mut s, &mut spans, theme::REPLY_MARK);
     // the parent is always an `@name`: the same person (color, paint, lookup, hover) as one in the words
     let a = s.len();
     s.push('@');

@@ -685,7 +685,7 @@
  "keys.anywhere.18": "ang screen na ito",
  "keys.anywhere.19": "simula, dulo ng linya; simula, dulo ng chat (walang laman ang kahon)",
  "keys.anywhere.name": "kahit saan",
- "keys.chat.01": "pumili ng linya; ang ↳ linya ng reply ay nagbubukas ng thread nito; ang linya ng nag-live ay nagbubukas ng channel na iyon (ang tab nito, o pansamantala)",
+ "keys.chat.01": "pumili ng linya; ang ↪ linya ng reply ay nagbubukas ng thread nito; ang linya ng nag-live ay nagbubukas ng channel na iyon (ang tab nito, o pansamantala)",
  "keys.chat.02": "menu ng linya: sagot, kopya, note, mute, block, mod, pin",
  "keys.chat.03": "i-filter ang tab na ito: salita o @pangalan (gumagana rin ang /pattern/), enter para panatilihin, esc para burahin",
  "keys.chat.04": "susunod na tugma (shift: nakaraan)",

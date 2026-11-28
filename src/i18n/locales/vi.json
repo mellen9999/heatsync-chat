@@ -681,7 +681,7 @@
  "keys.anywhere.18": "màn hình này",
  "keys.anywhere.19": "đầu, cuối dòng; đầu, cuối cuộc trò chuyện (ô trống)",
  "keys.anywhere.name": "ở mọi nơi",
- "keys.chat.01": "chọn một dòng; dòng ↳ của phản hồi mở chuỗi của nó; dòng lên sóng mở kênh đó (tab của nó, nếu không thì tab tạm)",
+ "keys.chat.01": "chọn một dòng; dòng ↪ của phản hồi mở chuỗi của nó; dòng lên sóng mở kênh đó (tab của nó, nếu không thì tab tạm)",
  "keys.chat.02": "menu dòng: trả lời, sao chép, ghi chú, ẩn, chặn, mod, ghim",
  "keys.chat.03": "lọc tab này: một từ hoặc @tên (/mẫu/ cũng được), enter giữ, esc xóa",
  "keys.chat.04": "kết quả kế tiếp (shift: trước đó)",

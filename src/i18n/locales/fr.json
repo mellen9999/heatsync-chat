@@ -685,7 +685,7 @@
  "keys.anywhere.18": "cet écran",
  "keys.anywhere.19": "début, fin de ligne; haut, bas du chat (zone vide)",
  "keys.anywhere.name": "partout",
- "keys.chat.01": "choisir une ligne ; la ligne ↳ d'une réponse ouvre son fil ; une ligne « en direct » ouvre cette chaîne (son onglet, sinon un temporaire)",
+ "keys.chat.01": "choisir une ligne ; la ligne ↪ d'une réponse ouvre son fil ; une ligne « en direct » ouvre cette chaîne (son onglet, sinon un temporaire)",
  "keys.chat.02": "menu de ligne : répondre, copier, note, sourdine, bloquer, mod, épingler",
  "keys.chat.03": "filtrer cet onglet : un mot ou @nom (/motif/ marche aussi), entrée garde, esc efface",
  "keys.chat.04": "résultat suivant (shift : précédent)",

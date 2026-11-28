@@ -685,7 +685,7 @@
  "keys.anywhere.18": "denne skærm",
  "keys.anywhere.19": "start, slut af linjen; top, bund af chatten (tom boks)",
  "keys.anywhere.name": "overalt",
- "keys.chat.01": "vælg en linje; en svar-↳-linje åbner sin tråd; en gik-live-linje åbner den kanal (dens fane, ellers en midlertidig)",
+ "keys.chat.01": "vælg en linje; en svar-↪-linje åbner sin tråd; en gik-live-linje åbner den kanal (dens fane, ellers en midlertidig)",
  "keys.chat.02": "linjemenu: svar, kopiér, note, mute, bloker, mod, fastgør",
  "keys.chat.03": "filtrér denne fane: et ord eller @navn (/mønster/ virker også), enter beholder, esc rydder",
  "keys.chat.04": "næste match (shift: forrige)",

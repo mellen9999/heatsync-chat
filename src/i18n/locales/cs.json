@@ -689,7 +689,7 @@
  "keys.anywhere.18": "tato obrazovka",
  "keys.anywhere.19": "začátek, konec řádku; začátek, konec chatu (prázdné pole)",
  "keys.anywhere.name": "všude",
- "keys.chat.01": "vyber řádek; řádek ↳ odpovědi otevře její vlákno; řádek šel-živě otevře ten kanál (jeho tab, jinak dočasný)",
+ "keys.chat.01": "vyber řádek; řádek ↪ odpovědi otevře její vlákno; řádek šel-živě otevře ten kanál (jeho tab, jinak dočasný)",
  "keys.chat.02": "menu řádku: odpovědět, kopírovat, poznámka, ztlumit, zablokovat, mod, připnout",
  "keys.chat.03": "filtrovat tento tab: slovo nebo @jméno (funguje i /vzor/), enter ponechá, esc smaže",
  "keys.chat.04": "další shoda (shift: předchozí)",

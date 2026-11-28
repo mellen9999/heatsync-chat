@@ -685,7 +685,7 @@
  "keys.anywhere.18": "den här skärmen",
  "keys.anywhere.19": "radens början, slut; chattens topp, botten (tom ruta)",
  "keys.anywhere.name": "överallt",
- "keys.chat.01": "välj en rad; en svarsrads ↳-rad öppnar tråden; en gick-live-rad öppnar den kanalen (dess flik, annars en tillfällig)",
+ "keys.chat.01": "välj en rad; en svarsrads ↪-rad öppnar tråden; en gick-live-rad öppnar den kanalen (dess flik, annars en tillfällig)",
  "keys.chat.02": "radmeny: svara, kopiera, anteckning, tysta, blockera, mod, fäst",
  "keys.chat.03": "filtrera den här fliken: ett ord eller @namn (/mönster/ funkar också), enter behåller, esc rensar",
  "keys.chat.04": "nästa träff (shift: föregående)",
