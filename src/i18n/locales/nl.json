@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch verbonden",
  "net1.irc.connected_ro": "twitch verbonden (alleen lezen)",
  "net1.irc.dropped_unsent": "twitch viel weg, dus dit is mogelijk niet verstuurd: {said}",
+ "net1.irc.highlighted": "✨ gemarkeerd bericht",
  "net1.irc.login_rejected": "twitch accepteerde je login niet, nieuwe wordt gehaald (voorlopig alleen lezen)",
  "net1.irc.lost": "twitch kwijt",
  "net1.irc.not_linked": "twitch is niet gekoppeld: koppel op heatsync.org, of log in met twitch (ctrl-l)",

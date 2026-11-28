@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch connesso",
  "net1.irc.connected_ro": "twitch connesso (sola lettura)",
  "net1.irc.dropped_unsent": "twitch è caduto, quindi potrebbe non essere partito: {said}",
+ "net1.irc.highlighted": "✨ messaggio evidenziato",
  "net1.irc.login_rejected": "twitch non ha accettato il tuo login, ne prendo uno nuovo (per ora sola lettura)",
  "net1.irc.lost": "twitch perso",
  "net1.irc.not_linked": "twitch non è collegato: collegalo su heatsync.org, o accedi con twitch (ctrl-l)",

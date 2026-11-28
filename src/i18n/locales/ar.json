@@ -1325,6 +1325,7 @@
  "net1.irc.connected": "اتصل twitch",
  "net1.irc.connected_ro": "اتصل twitch (للقراءة فقط)",
  "net1.irc.dropped_unsent": "انقطع twitch، فقد لا تكون هذه أُرسلت: {said}",
+ "net1.irc.highlighted": "✨ رسالة مميّزة",
  "net1.irc.login_rejected": "twitch لم يقبل تسجيل دخولك، جارٍ الحصول على جديد (للقراءة فقط الآن)",
  "net1.irc.lost": "فُقد اتصال twitch",
  "net1.irc.not_linked": "twitch غير مرتبط: اربطه على heatsync.org، أو سجّل الدخول عبر twitch (ctrl-l)",

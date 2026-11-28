@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch कनेक्ट हुआ",
  "net1.irc.connected_ro": "twitch कनेक्ट हुआ (सिर्फ़ पढ़ने के लिए)",
  "net1.irc.dropped_unsent": "twitch कट गया, इसलिए शायद यह नहीं गया: {said}",
+ "net1.irc.highlighted": "✨ हाइलाइट किया मैसेज",
  "net1.irc.login_rejected": "twitch ने तुम्हारा लॉगिन नहीं माना, नया ले रहे हैं (अभी सिर्फ़ पढ़ने के लिए)",
  "net1.irc.lost": "twitch खो गया",
  "net1.irc.not_linked": "twitch लिंक नहीं है: heatsync.org पर लिंक करो, या twitch से लॉग इन करो (ctrl-l)",

@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch yhdistetty",
  "net1.irc.connected_ro": "twitch yhdistetty (vain luku)",
  "net1.irc.dropped_unsent": "twitch katkesi, joten tämä ei ehkä lähtenyt: {said}",
+ "net1.irc.highlighted": "✨ korostettu viesti",
  "net1.irc.login_rejected": "twitch ei hyväksynyt kirjautumistasi, haetaan uusi (toistaiseksi vain luku)",
  "net1.irc.lost": "twitch katkesi",
  "net1.irc.not_linked": "twitchiä ei ole yhdistetty: yhdistä osoitteessa heatsync.org tai kirjaudu twitchillä (ctrl-l)",

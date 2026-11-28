@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "เชื่อมต่อ twitch แล้ว",
  "net1.irc.connected_ro": "เชื่อมต่อ twitch แล้ว (อ่านอย่างเดียว)",
  "net1.irc.dropped_unsent": "twitch หลุด ข้อความนี้อาจยังไม่ได้ส่ง: {said}",
+ "net1.irc.highlighted": "✨ ข้อความที่ไฮไลต์",
  "net1.irc.login_rejected": "twitch ไม่ยอมรับการล็อกอินของคุณ กำลังขอใหม่ (อ่านอย่างเดียวไปก่อน)",
  "net1.irc.lost": "twitch หลุด",
  "net1.irc.not_linked": "ยังไม่ได้เชื่อม twitch: เชื่อมที่ heatsync.org หรือล็อกอินด้วย twitch (ctrl-l)",

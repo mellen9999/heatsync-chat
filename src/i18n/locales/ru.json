@@ -1295,6 +1295,7 @@
  "net1.irc.connected": "twitch подключён",
  "net1.irc.connected_ro": "twitch подключён (только чтение)",
  "net1.irc.dropped_unsent": "twitch оборвался, возможно, не отправлено: {said}",
+ "net1.irc.highlighted": "✨ выделенное сообщение",
  "net1.irc.login_rejected": "twitch не принял ваш вход, получаю новый (пока только чтение)",
  "net1.irc.lost": "twitch потерян",
  "net1.irc.not_linked": "twitch не привязан: привяжите на heatsync.org или войдите через twitch (ctrl-l)",

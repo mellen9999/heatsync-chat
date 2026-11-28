@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "twitch bersambung",
  "net1.irc.connected_ro": "twitch bersambung (baca sahaja)",
  "net1.irc.dropped_unsent": "twitch terputus, jadi ini mungkin tak dihantar: {said}",
+ "net1.irc.highlighted": "✨ mesej diserlahkan",
  "net1.irc.login_rejected": "twitch tak menerima log masuk anda, mendapatkan yang baharu (baca sahaja buat masa ini)",
  "net1.irc.lost": "twitch terputus",
  "net1.irc.not_linked": "twitch belum dipautkan: pautkan di heatsync.org, atau log masuk dengan twitch (ctrl-l)",

@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch csatlakozva",
  "net1.irc.connected_ro": "twitch csatlakozva (csak olvasás)",
  "net1.irc.dropped_unsent": "a twitch kapcsolat megszakadt, így ez lehet, hogy nem ment el: {said}",
+ "net1.irc.highlighted": "✨ kiemelt üzenet",
  "net1.irc.login_rejected": "a twitch nem fogadta el a belépésed, újat kérünk (egyelőre csak olvasás)",
  "net1.irc.lost": "twitch elveszett",
  "net1.irc.not_linked": "a twitch nincs összekötve: kösd össze a heatsync.org-on, vagy lépj be twitchcsel (ctrl-l)",

@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "twitch に接続",
  "net1.irc.connected_ro": "twitch に接続 (読み取り専用)",
  "net1.irc.dropped_unsent": "twitch が切断、送信されていない可能性: {said}",
+ "net1.irc.highlighted": "✨ ハイライトされたメッセージ",
  "net1.irc.login_rejected": "twitch がログインを拒否、新規取得中 (今は読み取り専用)",
  "net1.irc.lost": "twitch を失った",
  "net1.irc.not_linked": "twitch は未連携: heatsync.org で連携するか、twitch でログイン (ctrl-l)",

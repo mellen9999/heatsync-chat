@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "nakakonekta ang twitch",
  "net1.irc.connected_ro": "nakakonekta ang twitch (read-only)",
  "net1.irc.dropped_unsent": "naputol ang twitch, kaya baka hindi ito naipadala: {said}",
+ "net1.irc.highlighted": "✨ naka-highlight na mensahe",
  "net1.irc.login_rejected": "hindi tinanggap ng twitch ang login mo, kumukuha ng bago (read-only muna)",
  "net1.irc.lost": "nawala ang twitch",
  "net1.irc.not_linked": "hindi naka-link ang twitch: i-link sa heatsync.org, o mag-log in gamit ang twitch (ctrl-l)",

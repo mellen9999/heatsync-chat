@@ -1295,6 +1295,7 @@
  "net1.irc.connected": "twitch połączony",
  "net1.irc.connected_ro": "twitch połączony (tylko odczyt)",
  "net1.irc.dropped_unsent": "twitch się rozłączył, więc to mogło nie pójść: {said}",
+ "net1.irc.highlighted": "✨ wyróżniona wiadomość",
  "net1.irc.login_rejected": "twitch nie przyjął twojego loginu, biorę nowy (na razie tylko odczyt)",
  "net1.irc.lost": "utracono twitch",
  "net1.irc.not_linked": "twitch niepołączony: połącz na heatsync.org lub zaloguj przez twitch (ctrl-l)",

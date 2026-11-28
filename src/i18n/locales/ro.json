@@ -1295,6 +1295,7 @@
  "net1.irc.connected": "twitch conectat",
  "net1.irc.connected_ro": "twitch conectat (doar citire)",
  "net1.irc.dropped_unsent": "twitch s-a întrerupt, deci s-ar putea să nu se fi trimis: {said}",
+ "net1.irc.highlighted": "✨ mesaj evidențiat",
  "net1.irc.login_rejected": "twitch nu ți-a acceptat conectarea, se obține una nouă (doar citire deocamdată)",
  "net1.irc.lost": "twitch pierdut",
  "net1.irc.not_linked": "twitch nu e conectat: conectează-l pe heatsync.org, sau conectează-te cu twitch (ctrl-l)",

@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch свързан",
  "net1.irc.connected_ro": "twitch свързан (само за четене)",
  "net1.irc.dropped_unsent": "twitch падна, така че това може да не е изпратено: {said}",
+ "net1.irc.highlighted": "✨ подчертано съобщение",
  "net1.irc.login_rejected": "twitch не прие входа ти, взимам нов (само за четене засега)",
  "net1.irc.lost": "изгубен twitch",
  "net1.irc.not_linked": "twitch не е свързан: свържи го в heatsync.org или влез с twitch (ctrl-l)",

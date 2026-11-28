@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "đã kết nối twitch",
  "net1.irc.connected_ro": "đã kết nối twitch (chỉ đọc)",
  "net1.irc.dropped_unsent": "twitch bị ngắt, nên tin này có thể chưa gửi: {said}",
+ "net1.irc.highlighted": "✨ tin nhắn nổi bật",
  "net1.irc.login_rejected": "twitch không chấp nhận đăng nhập của bạn, đang lấy cái mới (tạm thời chỉ đọc)",
  "net1.irc.lost": "mất kết nối twitch",
  "net1.irc.not_linked": "twitch chưa liên kết: liên kết tại heatsync.org, hoặc đăng nhập bằng twitch (ctrl-l)",

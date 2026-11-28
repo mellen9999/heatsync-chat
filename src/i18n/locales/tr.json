@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch bağlandı",
  "net1.irc.connected_ro": "twitch bağlandı (salt okunur)",
  "net1.irc.dropped_unsent": "twitch koptu, bu yüzden gönderilmemiş olabilir: {said}",
+ "net1.irc.highlighted": "✨ vurgulanan mesaj",
  "net1.irc.login_rejected": "twitch girişini kabul etmedi, yenisi alınıyor (şimdilik salt okunur)",
  "net1.irc.lost": "twitch kayboldu",
  "net1.irc.not_linked": "twitch bağlı değil: heatsync.org'da bağla veya twitch ile giriş yap (ctrl-l)",

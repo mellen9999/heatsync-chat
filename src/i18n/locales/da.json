@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch forbundet",
  "net1.irc.connected_ro": "twitch forbundet (skrivebeskyttet)",
  "net1.irc.dropped_unsent": "twitch faldt fra, så dette blev måske ikke sendt: {said}",
+ "net1.irc.highlighted": "✨ fremhævet besked",
  "net1.irc.login_rejected": "twitch accepterede ikke dit login, henter et nyt (skrivebeskyttet for nu)",
  "net1.irc.lost": "mistede twitch",
  "net1.irc.not_linked": "twitch er ikke forbundet: forbind det på heatsync.org, eller log ind med twitch (ctrl-l)",

@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "twitch 연결됨",
  "net1.irc.connected_ro": "twitch 연결됨 (읽기 전용)",
  "net1.irc.dropped_unsent": "twitch 연결이 끊겨 전송되지 않았을 수 있음: {said}",
+ "net1.irc.highlighted": "✨ 강조된 메시지",
  "net1.irc.login_rejected": "twitch가 로그인을 거부함, 새로 받는 중 (당분간 읽기 전용)",
  "net1.irc.lost": "twitch 연결 끊김",
  "net1.irc.not_linked": "twitch가 연결되지 않음: heatsync.org에서 연결하거나 twitch로 로그인 (ctrl-l)",

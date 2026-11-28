@@ -1295,6 +1295,7 @@
  "net1.irc.connected": "twitch מחובר",
  "net1.irc.connected_ro": "twitch מחובר (לקריאה בלבד)",
  "net1.irc.dropped_unsent": "twitch התנתק, ייתכן שזה לא נשלח: {said}",
+ "net1.irc.highlighted": "✨ הודעה מודגשת",
  "net1.irc.login_rejected": "twitch לא קיבל את ההתחברות שלך, מקבל חדשה (לקריאה בלבד לבינתיים)",
  "net1.irc.lost": "החיבור ל-twitch אבד",
  "net1.irc.not_linked": "twitch לא מקושר: קשר אותו ב-heatsync.org, או התחבר עם twitch (ctrl-l)",

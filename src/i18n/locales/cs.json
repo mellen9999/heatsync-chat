@@ -1295,6 +1295,7 @@
  "net1.irc.connected": "twitch připojen",
  "net1.irc.connected_ro": "twitch připojen (jen čtení)",
  "net1.irc.dropped_unsent": "twitch se odpojil, takže se to možná neodeslalo: {said}",
+ "net1.irc.highlighted": "✨ zvýrazněná zpráva",
  "net1.irc.login_rejected": "twitch nepřijal tvé přihlášení, získávám nové (zatím jen čtení)",
  "net1.irc.lost": "twitch ztracen",
  "net1.irc.not_linked": "twitch není propojen: propoj ho na heatsync.org, nebo se přihlas přes twitch (ctrl-l)",

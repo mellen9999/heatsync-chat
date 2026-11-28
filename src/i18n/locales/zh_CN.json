@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "twitch 已连接",
  "net1.irc.connected_ro": "twitch 已连接（只读）",
  "net1.irc.dropped_unsent": "twitch 断开了，这条可能没有发出：{said}",
+ "net1.irc.highlighted": "✨ 高亮消息",
  "net1.irc.login_rejected": "twitch 不接受你的登录，正在获取新的（暂时只读）",
  "net1.irc.lost": "与 twitch 断开",
  "net1.irc.not_linked": "twitch 未关联：请在 heatsync.org 关联，或用 twitch 登录 (ctrl-l)",

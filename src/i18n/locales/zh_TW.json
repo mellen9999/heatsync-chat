@@ -1275,6 +1275,7 @@
  "net1.irc.connected": "twitch 已連線",
  "net1.irc.connected_ro": "twitch 已連線（唯讀）",
  "net1.irc.dropped_unsent": "twitch 斷線，這則可能沒有送出：{said}",
+ "net1.irc.highlighted": "✨ 醒目訊息",
  "net1.irc.login_rejected": "twitch 不接受你的登入，正在取得新的（目前唯讀）",
  "net1.irc.lost": "twitch 已斷線",
  "net1.irc.not_linked": "twitch 未綁定：請到 heatsync.org 綁定，或用 twitch 登入（ctrl-l）",

@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "twitch anslutet",
  "net1.irc.connected_ro": "twitch anslutet (skrivskyddat)",
  "net1.irc.dropped_unsent": "twitch tappades, så det här kanske inte skickades: {said}",
+ "net1.irc.highlighted": "✨ markerat meddelande",
  "net1.irc.login_rejected": "twitch godtog inte din inloggning, hämtar en ny (skrivskyddat tills vidare)",
  "net1.irc.lost": "tappade twitch",
  "net1.irc.not_linked": "twitch är inte länkat: länka det på heatsync.org, eller logga in med twitch (ctrl-l)",

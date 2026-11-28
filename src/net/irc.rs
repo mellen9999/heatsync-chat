@@ -330,6 +330,10 @@ pub fn to_chat(l: &Line) -> Option<(Box<str>, Chat)> {
       if l.tag("custom-reward-id").is_some() {
         m.system = Some(t("net1.irc.redeem").into());
         m.extra().notice = Notice::Redeem;
+      } else if m.has(flag::HIGHLIGHTED) {
+        // "highlight my message": no reward id on it, only msg-id (ext .hs-mc-highlight-label). the row is teal
+        // either way; the label says why
+        m.system = Some(t("net1.irc.highlighted").into());
       }
       Chat::Msg(m)
     }
@@ -1041,6 +1045,23 @@ mod tests {
     let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
     assert_eq!((m.kind, m.notice(), m.system.as_deref()), (Kind::Chat, Notice::Redeem, Some("◆ channel point redeem")));
     assert_eq!(&*m.body, "play the song");
+  }
+
+  // twitch's "highlight my message" reward: a real PRIVMSG (names and ids redacted) with no reward id on it,
+  // only msg-id=highlighted-message. 210 of 31714 twitch lines in a 15 minute capture. the ext puts its
+  // highlight label over the line (main-messages.js mc_main_highlighted); the app filled the row teal and
+  // said nothing, so nobody could tell why the row was teal
+  #[test]
+  fn a_highlighted_message_is_labelled_and_stays_their_line() {
+    let raw = "@badge-info=;badges=;color=#00FF7F;display-name=Redacted1;emotes=;first-msg=0;flags=;id=00000000-0000-4000-8000-000000000001;mod=0;msg-id=highlighted-message;returning-chatter=0;room-id=1;subscriber=0;tmi-sent-ts=1795877951585;turbo=0;user-id=2;user-type= :redacted1!redacted1@redacted1.tmi.twitch.tv PRIVMSG #redacted2 :wwwww";
+    let (_, Chat::Msg(m)) = to_chat(&parse(raw).unwrap()).unwrap() else { panic!() };
+    assert_eq!((m.kind, m.system.as_deref()), (Kind::Chat, Some("✨ highlighted message")));
+    assert!(m.has(flag::HIGHLIGHTED), "still the teal row");
+    assert_eq!(&*m.body, "wwwww");
+    // a reward that also names itself keeps the redeem label: the ext shows one or the other, redeem first
+    let both = raw.replace("msg-id=highlighted-message", "msg-id=highlighted-message;custom-reward-id=0b2a-11");
+    let (_, Chat::Msg(m)) = to_chat(&parse(&both).unwrap()).unwrap() else { panic!() };
+    assert_eq!(m.system.as_deref(), Some("◆ channel point redeem"));
   }
 
   #[test]

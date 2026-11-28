@@ -1285,6 +1285,7 @@
  "net1.irc.connected": "το twitch συνδέθηκε",
  "net1.irc.connected_ro": "το twitch συνδέθηκε (μόνο ανάγνωση)",
  "net1.irc.dropped_unsent": "το twitch έπεσε, οπότε ίσως δεν στάλθηκε: {said}",
+ "net1.irc.highlighted": "✨ επισημασμένο μήνυμα",
  "net1.irc.login_rejected": "το twitch δεν δέχτηκε τη σύνδεσή σου, παίρνει νέα (προς το παρόν μόνο ανάγνωση)",
  "net1.irc.lost": "χάθηκε το twitch",
  "net1.irc.not_linked": "το twitch δεν είναι συνδεδεμένο: σύνδεσέ το στο heatsync.org, ή συνδέσου με twitch (ctrl-l)",
