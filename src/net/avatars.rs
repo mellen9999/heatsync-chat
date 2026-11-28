@@ -36,6 +36,13 @@ async fn json_of(res: Result<reqwest::Response, reqwest::Error>) -> Value {
   }
 }
 
+// kick keys a channel by its slug, and the slug is the name with `_` written `-`: a chatter called a_b is
+// `a-b` there and a 404 as typed. a few older channels kept the underscore, so it is the
+// second ask, not a replacement. a fifth of the kick lines in a 15 minute capture (801 of 3778) carry one
+fn kick_slugs(login: &str) -> Vec<String> {
+  if login.contains('_') { vec![login.replace('_', "-"), login.into()] } else { vec![login.into()] }
+}
+
 async fn resolve(http: &reqwest::Client, p: Platform, login: &str) -> Option<Box<str>> {
   if !crate::avatars::valid(login) {
     return None;
@@ -54,10 +61,31 @@ async fn resolve(http: &reqwest::Client, p: Platform, login: &str) -> Option<Box
       crate::model::card::twitch_avatar(&json_of(req.send().await).await)
     }
     Platform::Kick => {
-      let req = http.get(format!("https://kick.com/api/v2/channels/{login}")).timeout(TIMEOUT);
-      let v = json_of(req.send().await).await;
-      v.pointer("/user/profile_pic").and_then(Value::as_str).and_then(crate::model::card::avatar_url)
+      for slug in kick_slugs(login) {
+        let req = http.get(format!("https://kick.com/api/v2/channels/{slug}")).timeout(TIMEOUT);
+        let v = json_of(req.send().await).await;
+        let pic = v.pointer("/user/profile_pic").and_then(Value::as_str).and_then(crate::model::card::avatar_url);
+        if pic.is_some() {
+          return pic;
+        }
+      }
+      None
     }
     Platform::Youtube => None,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  // a fifth of the kick lines in a real capture carry an underscore name, and kick answers 404 for `a_b` where
+  // the channel is keyed `a-b` (names redacted, shape kept)
+  #[test]
+  fn a_kick_name_with_an_underscore_asks_for_its_dashed_slug_first() {
+    assert_eq!(kick_slugs("redacted_one"), ["redacted-one", "redacted_one"]);
+    assert_eq!(kick_slugs("re_da_cted"), ["re-da-cted", "re_da_cted"]);
+    // nothing to translate: one ask, as typed
+    assert_eq!(kick_slugs("redacted1"), ["redacted1"]);
   }
 }
