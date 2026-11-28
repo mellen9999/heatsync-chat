@@ -1410,7 +1410,9 @@ fn event_rows_wear_their_color() {
   let count = |ink| c.px.iter().filter(|&&p| p == ink).count();
   assert!(count(theme::TWITCH) > 60, "the bits box and its words");
   // the sub's words keep navy's blue label, not the dim of a plain notice
-  assert!(count(theme::BLUE) > 20);
+  // (regular weight antialiases to few pure pixels: any light blue counts)
+  let lit = c.px.iter().filter(|&&p| (p & 255) > 0xa0 && (p >> 16 & 255) > 0x30 && (p >> 16 & 255) < 0x90).count();
+  assert!(lit > 20, "{lit} light blue px");
   // the redeem's words are teal's cyan label
   assert!(count(theme::CYAN) > 20);
   // the announcement: its chip's box is a cyan line across the chip on a black plate, past the edge
@@ -2518,4 +2520,34 @@ fn an_unban_lifts_the_ban_grey_but_not_a_delete() {
   assert_eq!(grey(&v), [true, true, true]);
   v.lift_ban(Platform::Twitch, "bob");
   assert_eq!(grey(&v), [false, true, true], "the banned line is back; the deleted one and the kick one stay");
+}
+
+// the site's `.chat-notice` is weight 400: only the label of a filled row is bold. the desktop drew the
+// whole sub line bold, with a third more ink than the same words in regular weight
+#[test]
+fn a_notice_row_is_regular_weight_like_the_sites() {
+  use crate::model::message::Notice;
+  use crate::ui::text::{Ink, Span};
+  let body = "★ tico_xo subscribed at Tier 1. They've subscribed for 19 months!";
+  let mut res = Res::new(1.0);
+  let mut m = Message::system(1, Platform::Twitch, body);
+  m.extra().notice = Notice::Sub;
+  let mut v = ChatView::new(10, "c".into());
+  v.zebra = false;
+  v.resize(900);
+  v.push(m);
+  let area = Rect::new(0, 0, 900, 40);
+  let mut c = Canvas::new(900, 40);
+  v.draw(&mut c, &mut res, area, area);
+  let navy = theme::FILL_NAVY;
+  let row = c.px.iter().filter(|p| **p != navy && **p != theme::BLACK).count();
+  // the same words, regular, on the same fill
+  let l =
+    res.text.layout(body, &[Span { range: 0..body.len(), ink: Ink(theme::LABEL_NAVY), bold: false }], &[], f32::MAX);
+  let mut r = Canvas::new(900, 40);
+  r.fill(r.bounds(), navy);
+  let rb = r.bounds();
+  res.text.draw(&l, &mut r, 4.0, 0.0, rb, |_, _| {});
+  let plain = r.px.iter().filter(|p| **p != navy).count();
+  assert!(row * 100 <= plain * 105, "ink {row} against {plain} regular: the line is bold");
 }

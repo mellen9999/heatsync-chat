@@ -134,7 +134,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
       Some(ink) => {
         let a = s.len();
         s.push_str(sys);
-        spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: true });
+        spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
       }
       None => dim(&mut s, &mut spans, sys),
     }
@@ -233,7 +233,7 @@ pub(super) fn layout_row(res: &mut Res, chan: &str, m: &Message, look: u8, width
     if let Some(ink) = event {
       let a = s.len();
       s.push_str(&m.body);
-      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: true });
+      spans.push(Span { range: a..s.len(), ink: Ink(ink), bold: false });
     } else if m.color == 0 {
       dim(&mut s, &mut spans, &m.body);
     } else {
