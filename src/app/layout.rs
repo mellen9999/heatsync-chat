@@ -11,7 +11,7 @@ impl App {
     let line = self.res.text.line_px as i32;
     // a column is about 13 monospace cells (the ext's 90px), never more than half the window
     let col = ((self.res.text.font_px * 8.0) as i32).min(w / 2);
-    let row = crate::ui::tab_bar::row_h(line);
+    let row = crate::ui::tab_bar::height(line, self.bar_rows);
     match self.set.tab_side {
       Side::Top => Rect::new(0, 0, w, row),
       Side::Bottom => Rect::new(0, (h - row).max(0), w, row),

@@ -39,18 +39,112 @@ pub struct Hot<'a> {
   pub mark: Option<&'a str>,
 }
 
-// the height of a bar that is one row: a line of tabs and the 1px edge toward the chat
-pub fn row_h(line: i32) -> i32 {
-  line + 1
+// the height of a bar of `rows` lines of tabs: each line and the 1px white line toward the chat or
+// between the lines (the site's tabbar wraps like flex-wrap, its tabs share borders)
+pub fn height(line: i32, rows: i32) -> i32 {
+  rows.max(1) * (line + 1)
+}
+
+// where everything sits, worked out once: `rows` measures with it and `draw` paints from it, so the room
+// the layout keeps for the bar and the bar itself can't drift
+struct Plan {
+  // each tab's rect (a live tab's includes its dot), with the label drawn in it
+  tabs: Vec<(Rect, String)>,
+  btn: [Rect; 3],
+  update: Option<(Rect, String)>,
+  mark: Option<(Rect, String)>,
+  // lines used (a column is one)
+  rows: i32,
+  // after the last thing: where the mode line starts
+  end: (i32, i32),
+}
+
+fn plan(
+  text: &mut Text,
+  inner: Rect,
+  column: bool,
+  tabs: &[TabLabel],
+  update: Option<&str>,
+  mark: Option<&str>,
+) -> Plan {
+  let line = text.line_px as i32;
+  let step = line + 1;
+  let d = (line * 2 / 5).max(4);
+  let (mut x, mut y) = (inner.x, inner.y);
+  // a row: the next thing starts a new line when it would pass the right edge (the first on a line is
+  // clipped, never wrapped again)
+  let fit = |x: &mut i32, y: &mut i32, w: i32| {
+    if !column && *x > inner.x && *x + w > inner.right() {
+      (*x, *y) = (inner.x, *y + step);
+    }
+  };
+  let width = |text: &mut Text, label: &str, bold: bool| {
+    text.layout(label, &[Span { range: 0..label.len(), ink: Ink(theme::WHITE), bold }], &[], f32::MAX).width().ceil()
+      as i32
+  };
+  let mut out = Plan {
+    tabs: Vec::with_capacity(tabs.len()),
+    btn: [Rect::new(0, 0, 0, 0); 3],
+    update: None,
+    mark: None,
+    rows: 1,
+    end: (x, y),
+  };
+  for t in tabs {
+    let count = if t.count.is_empty() { String::new() } else { format!(" {}", t.count) };
+    let count = if t.muted { format!("{count} ⊘") } else { count };
+    let count = if t.filtered { format!("{count} ◐") } else { count };
+    let label = if column { format!(" {}{count}", t.name) } else { format!(" {}{count} ", t.name) };
+    let w = width(text, &label, t.unread || t.active) + if t.live && !column { d + 2 } else { 0 };
+    // the 1px line after it goes with it
+    fit(&mut x, &mut y, w + 1);
+    let r = Rect::new(x, y, if column { inner.w } else { w }, line);
+    out.tabs.push((r, label));
+    if column {
+      y += line;
+    } else {
+      x += w + 1;
+    }
+  }
+  let bw = width(text, " + ", false);
+  for k in 0..3 {
+    fit(&mut x, &mut y, bw + 1);
+    out.btn[k] = Rect::new(x, y, bw, line);
+    x += if column { bw } else { bw + 1 };
+  }
+  if column {
+    (x, y) = (inner.x, y + line);
+  }
+  for (slot, what) in [(&mut out.update, update), (&mut out.mark, mark)] {
+    let Some(w) = what else { continue };
+    let label = format!(" {w} ");
+    let lw = width(text, &label, true);
+    fit(&mut x, &mut y, lw);
+    *slot = Some((Rect::new(x, y, if column { inner.w } else { lw }, line), label));
+    if column {
+      y += line;
+    } else {
+      x += lw;
+    }
+  }
+  out.rows = if column { 1 } else { (y - inner.y) / step + 1 };
+  out.end = (x, y);
+  out
+}
+
+// how many lines of tabs a bar `width` wide needs: what `draw` will wrap to
+pub fn rows(text: &mut Text, width: i32, tabs: &[TabLabel], update: Option<&str>, mark: Option<&str>) -> i32 {
+  plan(text, Rect::new(0, 0, width, text.line_px as i32), false, tabs, update, mark).rows
 }
 
 // returns each tab's rect, then the `+`, the gear and the `?` (for clicks). hot: pointer on a button, or its screen open.
-// an area taller than one line is a column (tabs on the left or right, ext tabPosition): a tab a row,
-// full width, a 1px white edge toward the chat
+// a row wraps onto a new line when the next tab would pass the edge (`rows` says how many); `column` is
+// tabs on the left or right (ext tabPosition): a tab a row, full width, a 1px white edge toward the chat
 pub fn draw(
   c: &mut Canvas,
   text: &mut Text,
   area: Rect,
+  column: bool,
   tabs: &[TabLabel],
   // the vi mode line when auto-hide folded the input bar away
   mode: (&[Seg], &str),
@@ -58,62 +152,45 @@ pub fn draw(
 ) -> Vec<Rect> {
   c.fill(area, theme::BLACK);
   let line = text.line_px as i32;
-  let column = area.h > row_h(line);
+  let step = line + 1;
+  let top = area.y == 0;
   let inner = if !column {
-    // the site's tabbar border: a 1px white line on the edge toward the chat (the top edge of the window
-    // has the bar above the chat, the bottom edge below it)
-    let top = area.y == 0;
-    c.fill(Rect::new(area.x, if top { area.bottom() - 1 } else { area.y }, area.w, 1), theme::WHITE);
-    Rect::new(area.x, if top { area.y } else { area.y + 1 }, area.w, line)
+    // the site's tabbar border: a 1px white line on the edge toward the chat (a bar at the top of the
+    // window has the chat below it), and one between wrapped lines
+    let y0 = if top { area.y } else { area.y + 1 };
+    Rect::new(area.x, y0, area.w, area.h - 1)
   } else {
     // on the left the edge is its right side, on the right its left side
     let left = area.x == 0;
     c.fill(Rect::new(if left { area.right() - 1 } else { area.x }, area.y, 1, area.h), theme::WHITE);
     Rect::new(if left { area.x } else { area.x + 1 }, area.y, area.w - 1, area.h)
   };
-  let (mut x, mut y) = (inner.x, inner.y);
+  let p = plan(text, inner, column, tabs, hot.update.map(|u| u.0), hot.mark);
+  if !column {
+    for k in 0..area.h / step {
+      let y = if top { inner.y + k * step + line } else { inner.y + k * step - 1 };
+      c.fill(Rect::new(area.x, y, area.w, 1), theme::WHITE);
+    }
+  }
   let mut hits = Vec::with_capacity(tabs.len() + 3);
   // the live dot: the ext's 8px at a 20px line, kept clear of the label by its own width
   let d = (line * 2 / 5).max(4);
-  let cell =
-    |c: &mut Canvas, text: &mut Text, x: &mut i32, y: &mut i32, label: &str, ink: u32, bold: bool, on: bool| {
-      let l = text.layout(
-        label,
-        &[Span { range: 0..label.len(), ink: Ink(if on { theme::BLACK } else { ink }), bold }],
-        &[],
-        f32::MAX,
-      );
-      let r = Rect::new(*x, *y, if column { inner.w } else { l.width().ceil() as i32 }, line);
-      if on {
-        c.fill(r.intersect(inner), theme::WHITE);
-      }
-      text.draw(&l, c, *x as f32, *y as f32, inner, |_, _| {});
-      if column {
-        *y += line;
-      } else {
-        *x += r.w;
-      }
-      r
-    };
-  for (i, t) in tabs.iter().enumerate() {
-    let rev = t.active || hot.tab == Some(i);
+  let cell = |c: &mut Canvas, text: &mut Text, r: Rect, label: &str, ink: u32, bold: bool, on: bool| {
+    let l = text.layout(
+      label,
+      &[Span { range: 0..label.len(), ink: Ink(if on { theme::BLACK } else { ink }), bold }],
+      &[],
+      f32::MAX,
+    );
+    if on {
+      c.fill(r.intersect(inner), theme::WHITE);
+    }
+    text.draw(&l, c, r.x as f32, r.y as f32, inner, |_, _| {});
+  };
+  for (i, (t, (r, label))) in tabs.iter().zip(&p.tabs).enumerate() {
+    let (r, rev) = (*r, t.active || hot.tab == Some(i));
     let ink = if t.unread { t.hot } else { theme::DIM };
-    let count = if t.count.is_empty() { String::new() } else { format!(" {}", t.count) };
-    let count = if t.muted { format!("{count} ⊘") } else { count };
-    let count = if t.filtered { format!("{count} ◐") } else { count };
-    let label = if column { format!(" {}{count}", t.name) } else { format!(" {}{count} ", t.name) };
-    let r = cell(c, text, &mut x, &mut y, &label, ink, t.unread || t.active, rev);
-    let r = if t.live && !column {
-      // a row tab grows by the dot; a column tab is full width already
-      let wide = Rect::new(r.x, r.y, r.w + d + 2, r.h);
-      if rev {
-        c.fill(Rect::new(r.right(), r.y, d + 2, r.h).intersect(inner), theme::WHITE);
-      }
-      x += d + 2;
-      wide
-    } else {
-      r
-    };
+    cell(c, text, r, label, ink, t.unread || t.active, rev);
     if t.live {
       dot(c, Rect::new(r.right() - d - 2, r.y + (r.h - d) / 2, d, d).intersect(inner), d, theme::RED);
     }
@@ -132,33 +209,28 @@ pub fn draw(
     // a row of tabs is split by a 1px white line after each one (the site's and the ext's bordered
     // tabs): "quin69 999+ ●" ran into the next name. a column puts each tab on its own row already
     if !column {
-      c.fill(Rect::new(x, y, 1, line).intersect(inner), theme::WHITE);
-      x += 1;
+      c.fill(Rect::new(r.right(), r.y, 1, line).intersect(inner), theme::WHITE);
     }
   }
   // the three buttons: same width, each glyph centered on its own ink (the gear comes from a fallback
   // font that sits lower than the `+`). in a column they share one row
-  let w = text.layout(" + ", &[], &[], f32::MAX).width().ceil() as i32;
-  for (glyph, on) in [("+", hot.plus), ("⚙", hot.gear), ("?", hot.keys)] {
-    let r = Rect::new(x, y, w, line);
+  for (k, (glyph, on)) in [("+", hot.plus), ("⚙", hot.gear), ("?", hot.keys)].into_iter().enumerate() {
+    let r = p.btn[k];
     icon(c, text, r.intersect(inner), glyph, on);
     hits.push(r);
-    x += w;
     // boxed like the site's `+` `cfg` buttons: a 1px white line after each, none in a column
     if !column {
-      c.fill(Rect::new(x, y, 1, line).intersect(inner), theme::WHITE);
-      x += 1;
+      c.fill(Rect::new(r.right(), r.y, 1, line).intersect(inner), theme::WHITE);
     }
   }
-  if column {
-    (x, y) = (inner.x, y + line);
+  if let (Some((r, label)), Some((_, on))) = (&p.update, hot.update) {
+    cell(c, text, *r, label, theme::YELLOW, true, on);
+    hits.push(*r);
   }
-  if let Some((label, on)) = hot.update {
-    hits.push(cell(c, text, &mut x, &mut y, &format!(" {label} "), theme::YELLOW, true, on));
+  if let Some((r, label)) = &p.mark {
+    cell(c, text, *r, label, theme::GREEN, true, false);
   }
-  if let Some(m) = hot.mark {
-    cell(c, text, &mut x, &mut y, &format!(" {m} "), theme::GREEN, true, false);
-  }
+  let (mut x, mut y) = p.end;
   // the mode line: after the buttons on a row, wrapped under them in a column
   // a column indents every wrapped line by one cell, like the tab names
   let indent = if column { text.layout(" ", &[], &[], f32::MAX).width().ceil() as i32 } else { 0 };
@@ -258,11 +330,11 @@ mod tests {
   fn row_tabs_are_split_by_a_one_pixel_white_line() {
     let mut text = Text::new(1.0);
     let line = text.line_px as i32;
-    let (w, h) = (600, row_h(line));
+    let (w, h) = (600, height(line, 1));
     let mut c = Canvas::new(w, h);
     let tabs = [tab("quin69", "999+", true), tab("forsen", "", false), tab("xqc", "12", false)];
     let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
-    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), false, &tabs, (&[], ""), none);
     for r in &hits[..tabs.len()] {
       let x = r.right();
       assert!((0..line).all(|y| c.px[(y * w + x) as usize] == theme::WHITE), "a white line at x={x} after the tab");
@@ -282,7 +354,7 @@ mod tests {
     let mut c = Canvas::new(w, h);
     let tabs = [tab("quin69", "999+", true), tab("forsen", "", false)];
     let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
-    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), true, &tabs, (&[], ""), none);
     assert_eq!(hits[1].y, hits[0].bottom());
   }
 
@@ -291,11 +363,11 @@ mod tests {
   fn a_row_bar_has_its_edge_line_and_boxed_buttons() {
     let mut text = Text::new(1.0);
     let line = text.line_px as i32;
-    let (w, h) = (600, row_h(line));
+    let (w, h) = (600, height(line, 1));
     let mut c = Canvas::new(w, h);
     let tabs = [tab("forsen", "", false)];
     let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
-    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), &tabs, (&[], ""), none);
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), false, &tabs, (&[], ""), none);
     assert!((0..w).all(|x| c.px[((h - 1) * w + x) as usize] == theme::WHITE), "the edge line under the tabs");
     assert!((0..w).any(|x| c.px[((h - 2) * w + x) as usize] != theme::WHITE), "the tabs sit above it");
     for r in &hits[1..4] {
@@ -305,7 +377,41 @@ mod tests {
     // at the bottom of the window the edge is the top of the bar
     let mut c = Canvas::new(w, h + 10);
     let none = Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None };
-    draw(&mut c, &mut text, Rect::new(0, 10, w, h), &tabs, (&[], ""), none);
+    draw(&mut c, &mut text, Rect::new(0, 10, w, h), false, &tabs, (&[], ""), none);
     assert!((0..w).all(|x| c.px[(10 * w + x) as usize] == theme::WHITE), "the edge line over the tabs");
+  }
+
+  fn none() -> Hot<'static> {
+    Hot { tab: None, plus: false, gear: false, keys: false, update: None, mark: None }
+  }
+
+  // tabs that don't fit one line wrap onto the next (the site's flex-wrap); every rect stays in the bar
+  #[test]
+  fn tabs_that_do_not_fit_wrap_to_a_second_line() {
+    let mut text = Text::new(1.0);
+    let line = text.line_px as i32;
+    let tabs = [tab("quin69", "999+", true), tab("forsen", "", false), tab("xqc", "12", false), tab("nymn", "", false)];
+    let w = 300;
+    let n = rows(&mut text, w, &tabs, None, None);
+    assert_eq!(n, 2, "wraps to two lines");
+    let h = height(line, n);
+    let mut c = Canvas::new(w, h);
+    let hits = draw(&mut c, &mut text, Rect::new(0, 0, w, h), false, &tabs, (&[], ""), none());
+    let area = Rect::new(0, 0, w, h);
+    assert!(hits.iter().all(|r| r.x >= 0 && r.right() <= w && area.intersect(*r) == *r), "every hit inside the bar");
+    assert!(hits.iter().any(|r| r.y == 0) && hits.iter().any(|r| r.y == line + 1), "tabs on both lines");
+    assert!(hits[..4].windows(2).all(|p| p[1].y == p[0].y && p[1].x > p[0].x || p[1].y > p[0].y && p[1].x == 0));
+    // a white line closes each line of tabs
+    assert!((0..w).all(|x| c.px[(line * w + x) as usize] == theme::WHITE), "line between");
+    assert!((0..w).all(|x| c.px[((h - 1) * w + x) as usize] == theme::WHITE), "edge line");
+  }
+
+  // one tab keeps a one-line bar, and a tab wider than the bar sits alone on its line, clipped
+  #[test]
+  fn a_single_tab_keeps_one_line_and_a_huge_one_is_clipped() {
+    let mut text = Text::new(1.0);
+    assert_eq!(rows(&mut text, 600, &[tab("forsen", "", false)], None, None), 1);
+    let big = tab("an_enormous_channel_name_that_will_never_fit_in_the_bar", "", false);
+    assert_eq!(rows(&mut text, 120, &[big], None, None), 2, "the buttons wrap under it");
   }
 }

@@ -445,6 +445,8 @@ pub struct App {
   screen: Option<screen::Screen>,
   // last drawn tab rects, then the + button
   bar_hits: Vec<Rect>,
+  // how many lines the tabs wrap to on a top or bottom bar (tab_bar::rows), the height layout keeps for it
+  bar_rows: i32,
   // the tab index behind each drawn rect (hidden tabs have none)
   bar_map: Vec<usize>,
   upd: update::Update,
@@ -691,6 +693,7 @@ impl App {
       rows: false,
       screen: None,
       bar_hits: Vec::new(),
+      bar_rows: 1,
       bar_map: Vec::new(),
       streamer,
       upd: update::Update { release: None, installing: false, due: Some(Instant::now() + update::FIRST_CHECK) },

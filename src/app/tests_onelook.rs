@@ -104,3 +104,23 @@ fn the_composer_prompt_is_white_like_the_sites() {
   let peak = tail.filter(|p| p >> 16 & 255 == (p & 255)).map(|p| p & 255).max().unwrap_or(0);
   assert!(peak >= 0xf0, "the prompt tops out at {peak:#x}: dim");
 }
+
+// tabs that don't fit wrap, and the chat starts under the second line of them
+#[test]
+fn the_chat_starts_under_the_second_line_of_tabs() {
+  let (net, _asked) = Net::tap();
+  let names: Vec<Box<str>> = (0..14).map(|i| format!("channel{i}").into()).collect();
+  let mut app = App::new(net, names, false);
+  app.dpi = 1.0;
+  app.res.set_scale(app.scale());
+  app.canvas.resize(420, 300);
+  app.relayout_body();
+  app.bar_dirty = true;
+  app.redraw();
+  let line = app.res.text.line_px as i32;
+  assert!(app.bar_rows >= 2, "{} lines", app.bar_rows);
+  assert_eq!(app.bar().h, crate::ui::tab_bar::height(line, app.bar_rows));
+  assert_eq!(app.body().y, app.bar().h);
+  assert!(app.chat_area().y >= app.bar().bottom(), "the chat is below every line of tabs");
+  assert!(app.bar_hits.iter().all(|r| app.bar().intersect(*r) == *r), "every hit in the bar");
+}

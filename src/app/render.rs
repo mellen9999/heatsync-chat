@@ -3,7 +3,7 @@
 use super::{ANIM_MIN_MS, App, Tab, login_hint, screen};
 use crate::i18n::t;
 use crate::model::message::Platform;
-use crate::model::settings::Counter;
+use crate::model::settings::{Counter, Side};
 use crate::model::tabs::Kind;
 use crate::model::vi::Mode;
 use crate::net::Cmd;
@@ -241,9 +241,17 @@ impl App {
           }
         })
         .collect();
-      let bar = self.bar();
       let up = self.update_label();
       let mark = self.streamer_mark();
+      // the tabs wrap onto more lines when they don't fit: the room the layout keeps follows, then it re-lays out
+      let column = matches!(self.set.tab_side, Side::Left | Side::Right);
+      let mut grew = false;
+      if !column {
+        let rows = tab_bar::rows(&mut self.res.text, self.canvas.w, &labels, up.as_deref(), mark);
+        grew = rows != self.bar_rows;
+        self.bar_rows = rows;
+      }
+      let bar = self.bar();
       let (gear, keys) = (
         self.hover.gear || self.screen_is(screen::Page::Settings),
         self.hover.keys || self.screen_is(screen::Page::Keys),
@@ -252,6 +260,7 @@ impl App {
         &mut self.canvas,
         &mut self.res.text,
         bar,
+        column,
         &labels,
         if hidden_now { (&label, &showcmd) } else { (&[], "") },
         tab_bar::Hot {
@@ -265,6 +274,9 @@ impl App {
       );
       self.bar_map = shown;
       dirty = Some(dirty.map_or(bar, |d| union(d, bar)));
+      if grew {
+        self.relayout_body();
+      }
     }
     if self.res.images.next_tick() {
       self.trim_soon();
